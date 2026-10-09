@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -11,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from genomeos.publication.web_layout import DOWNLOAD_KINDS, DownloadCopy, apply_download_layout
+from scripts import encode_atlas_web
 from scripts.atlas_web_staging import StagingError, write_download_copies
 from tests.atlas_web_fixtures import MANIFEST, sha256
 
@@ -84,30 +86,56 @@ def test_with_downloads_is_deterministic_and_re_encodes_its_own_output(
     ).read_bytes()
 
 
-def test_with_downloads_refuses_to_stage_into_the_export_tree(export_tree: Path) -> None:
-    result = _encode(export_tree, export_tree, "--with-downloads")
-    assert result.returncode != 0
-    assert "--with-downloads" in result.stderr
-    assert not (export_tree / "downloads").exists()
+@pytest.mark.parametrize("out", ["export", "export/staging"], ids=["out-is-in", "out-inside-in"])
+def test_with_downloads_refuses_to_stage_into_the_export_tree(
+    export_tree: Path, tmp_path: Path, out: str
+) -> None:
+    before = _tree(export_tree)
+    result = _encode(export_tree, tmp_path / out, "--with-downloads")
+    assert result.returncode == 1
+    assert (
+        "encode_atlas_web: --with-downloads writes the bucket staging tree; pass an --out outside --in"
+        in result.stderr.splitlines()
+    ), result.stderr
+    assert _tree(export_tree) == before
+    assert not (export_tree / "staging").exists()
 
 
-def test_with_downloads_refuses_to_stage_into_the_pages_bundle(export_tree: Path) -> None:
-    target = ROOT / "website" / "public" / "data" / "atlas-staging-refusal-test"
-    result = _encode(export_tree, target, "--with-downloads")
-    assert result.returncode != 0
-    assert "website/public" in result.stderr
-    assert not target.exists()
+@pytest.mark.parametrize("out", ["website/public", "website/public/data/atlas-staging"])
+def test_with_downloads_refuses_to_stage_into_the_pages_bundle(
+    export_tree: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, out: str
+) -> None:
+    assert encode_atlas_web.ROOT == ROOT  # the guard protects this checkout's website/public ...
+    stand_in = tmp_path / "checkout"
+    public = stand_in / "website" / "public"
+    public.mkdir(parents=True)
+    monkeypatch.setattr(encode_atlas_web, "ROOT", stand_in)  # ... and is exercised on a stand-in tree
+    refusal = (
+        r"^encode_atlas_web: --with-downloads must not stage into website/public \(it would ship to Pages\)$"
+    )
+    with pytest.raises(SystemExit, match=refusal):
+        encode_atlas_web.main(["--in", str(export_tree), "--out", str(stand_in / out), "--with-downloads"])
+    assert sorted(public.rglob("*")) == []
 
 
 def test_with_downloads_refuses_a_canonical_json_that_differs_from_its_digest(
     export_tree: Path, tmp_path: Path
 ) -> None:
     catalog = json.loads((export_tree / "catalog.json").read_text(encoding="utf-8"))
-    manifest = export_tree / catalog["artifacts"][0]["downloads"]["manifest"]["url"]
-    manifest.write_bytes(manifest.read_bytes() + b" ")
+    artifact = catalog["artifacts"][0]
+    entry = artifact["downloads"]["manifest"]
+    manifest = export_tree / entry["url"]
+    tampered = manifest.read_bytes() + b" "
+    manifest.write_bytes(tampered)
     result = _encode(export_tree, tmp_path / "staged", "--with-downloads")
-    assert result.returncode != 0
+    assert result.returncode == 1
+    assert (
+        f"encode_atlas_web: {entry['url']}: sha256 {sha256(tampered)} does not match the catalog digest "
+        f"{entry['sha256']}"
+    ) in result.stderr.splitlines(), result.stderr
+    assert "Traceback" not in result.stderr
     assert not (tmp_path / "staged" / "catalog.json").exists()
+    assert sorted((tmp_path / "staged" / "downloads").rglob(f"{artifact['id']}.manifest.*")) == []
 
 
 def _manifest_copy() -> DownloadCopy:
@@ -135,3 +163,26 @@ def test_download_copies_refuse_changed_bytes(tmp_path: Path) -> None:
     target.write_bytes(b"other")
     with pytest.raises(StagingError, match="different bytes"):
         write_download_copies(tmp_path / "in", tmp_path / "out", [_manifest_copy()])
+
+
+def test_an_interrupted_download_copy_leaves_nothing_at_its_key_and_a_rerun_recovers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "in").mkdir()
+    (tmp_path / "in" / "hbs-test.manifest.json").write_bytes(MANIFEST)
+    item = _manifest_copy()
+    real_replace = os.replace
+
+    def interrupt(source: str | os.PathLike[str], destination: str | os.PathLike[str]) -> None:
+        if Path(destination) == tmp_path / "out" / item.key:
+            raise KeyboardInterrupt  # Ctrl-C after the bytes are written, before they are published
+        real_replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        write_download_copies(tmp_path / "in", tmp_path / "out", [item])
+    assert [path for path in (tmp_path / "out").rglob("*") if path.is_file()] == []  # no partial, no temp
+
+    monkeypatch.undo()
+    assert write_download_copies(tmp_path / "in", tmp_path / "out", [item]) == [tmp_path / "out" / item.key]
+    assert (tmp_path / "out" / item.key).read_bytes() == MANIFEST

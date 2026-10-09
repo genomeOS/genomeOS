@@ -3,11 +3,17 @@
 Thin I/O beside ``genomeos.publication.web_layout.apply_download_layout``: each canonical JSON file is
 copied byte-for-byte to its content-addressed download key after its sha256 is checked against the
 catalog. A key that already exists must hold identical bytes; anything else is a hard error.
+
+``write_atomic`` is the one temporary-and-rename writer of the staging tree: the download copies
+here and ``encode_atlas_web``'s objects and catalog all go through it, so an interrupted run never
+leaves a truncated file at a content-addressed key.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
+import secrets
 import sys
 from collections.abc import Iterable
 from pathlib import Path
@@ -21,6 +27,25 @@ from genomeos.publication.web_layout import DownloadCopy  # noqa: E402
 
 class StagingError(RuntimeError):
     """A staged file would not be the bytes the catalog names."""
+
+
+def write_atomic(path: Path, data: bytes) -> None:
+    """Write ``data`` to a hidden sibling, fsync it, then rename it onto ``path``.
+
+    An interrupted run leaves either nothing or the complete bytes at ``path``, never a truncated
+    object at a content-addressed key (which every later run would refuse) or a truncated catalog.
+    """
+    temporary = path.with_name(f".{path.name}.{os.getpid()}-{secrets.token_hex(4)}.tmp")
+    stream = temporary.open("xb")  # exclusive: never truncates or later unlinks another writer's file
+    try:
+        with stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def write_download_copies(in_dir: Path, out_dir: Path, copies: Iterable[DownloadCopy]) -> list[Path]:
@@ -44,6 +69,6 @@ def write_download_copies(in_dir: Path, out_dir: Path, copies: Iterable[Download
                 )
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        write_atomic(target, data)
         written.append(target)
     return written

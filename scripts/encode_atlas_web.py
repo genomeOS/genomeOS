@@ -19,9 +19,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
-import secrets
 import struct
 import sys
 from collections.abc import Callable, Mapping
@@ -34,7 +32,7 @@ sys.path.insert(0, str(ROOT))
 
 from genomeos.publication import surface_codec as codec  # noqa: E402
 from genomeos.publication.web_layout import WebLayoutError, apply_download_layout  # noqa: E402
-from scripts.atlas_web_staging import StagingError, write_download_copies  # noqa: E402
+from scripts.atlas_web_staging import StagingError, write_atomic, write_download_copies  # noqa: E402
 
 DEFAULT_DIR = ROOT / "website" / "public" / "data" / "atlas"
 #: Catalog fields owned by this encoder, stripped and recomputed on every run (idempotence).
@@ -105,25 +103,6 @@ def tier_key(ref: Mapping[str, Any], tier: str, container_sha: str) -> str:
     return data_key(f"{stem}/{tier}.{container_sha[:16]}.gosa")
 
 
-def _write_atomic(path: Path, data: bytes) -> None:
-    """Write ``data`` to a hidden sibling, fsync it, then rename it onto ``path``.
-
-    An interrupted run leaves either nothing or the complete bytes at ``path``, never a truncated
-    object at a content-addressed key (which every later run would refuse) or a truncated catalog.
-    """
-    temporary = path.with_name(f".{path.name}.{os.getpid()}-{secrets.token_hex(4)}.tmp")
-    stream = temporary.open("xb")  # exclusive: never truncates or later unlinks another writer's file
-    try:
-        with stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    except BaseException:
-        temporary.unlink(missing_ok=True)
-        raise
-
-
 def write_object(out_dir: Path, key: str, data: bytes) -> dict[str, Any]:
     """Write a content-addressed object, refusing to replace different bytes at its key."""
     path = out_dir / key
@@ -132,7 +111,7 @@ def write_object(out_dir: Path, key: str, data: bytes) -> dict[str, Any]:
             raise ValueError(f"{path}: a different object already exists at this content-addressed key")
     else:
         path.parent.mkdir(parents=True, exist_ok=True)
-        _write_atomic(path, data)
+        write_atomic(path, data)
     return {"bytes": len(data), "sha256": codec.container_sha256(data), "url": key}
 
 
@@ -260,7 +239,7 @@ def encode_export(in_dir: Path, out_dir: Path, *, with_downloads: bool = False) 
             write_download_copies(in_dir, out_dir, copies)
         except (StagingError, WebLayoutError) as error:
             raise SystemExit(f"encode_atlas_web: {error}") from error
-    _write_atomic(out_dir / "catalog.json", canonical_bytes(encoded))
+    write_atomic(out_dir / "catalog.json", canonical_bytes(encoded))
     return encoded
 
 
