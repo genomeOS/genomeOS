@@ -21,7 +21,13 @@ from typing import Any, TextIO
 
 ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = ROOT / "scripts" / "gcloud_repo.py"
-_NOT_FOUND = re.compile(r"\b404\b|not ?found", re.IGNORECASE)  # "gs://b/o not found: 404."
+# A 404 counts only inside gcloud's own command error, which names the command:
+# "ERROR: (gcloud.storage.objects.describe) gs://b/o not found: 404." or, for compute, "ERROR:
+# (gcloud.compute.addresses.describe) Could not fetch resource:\n - The resource '…' was not found".
+# A gcloud that is missing or broken (a FileNotFoundError or ModuleNotFoundError traceback, a shell's
+# "gcloud: not found", "ERROR: gcloud crashed (…)") is a failure, never an absent resource.
+_GCLOUD_ERROR = re.compile(r"^ERROR: \(gcloud\.[\w.-]+\)", re.MULTILINE)
+_NOT_FOUND = re.compile(r"\b404\b|\bnot found\b", re.IGNORECASE)
 _PRECONDITION = re.compile(r"\b412\b|precondition", re.IGNORECASE)  # "HTTPError 412: …"
 
 
@@ -37,7 +43,10 @@ class GcloudResult:
 
     @property
     def not_found(self) -> bool:
-        return self.returncode != 0 and bool(_NOT_FOUND.search(self.stderr))
+        if self.returncode == 0:
+            return False
+        command_error = _GCLOUD_ERROR.search(self.stderr)
+        return command_error is not None and bool(_NOT_FOUND.search(self.stderr, command_error.end()))
 
     @property
     def precondition_failed(self) -> bool:
@@ -62,7 +71,12 @@ class Gcloud:
             return None
         result = self._execute(arguments)
         if result.returncode == 0:
-            value = json.loads(result.stdout or "null")
+            try:
+                value = json.loads(result.stdout or "null")
+            except json.JSONDecodeError as error:
+                raise GcloudError(
+                    f"{self.display(arguments)} printed {result.stdout[:200]!r}, not JSON ({error})"
+                ) from error
             if not isinstance(value, dict):
                 raise GcloudError(
                     f"{self.display(arguments)} printed {result.stdout[:200]!r}, not a JSON object"

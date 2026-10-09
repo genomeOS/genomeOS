@@ -27,6 +27,25 @@ from typing import Any
 UNSUPPORTED = 2
 DESCRIBE_FLAGS = {"raw": "", "format": "json"}
 DEFAULT_PROJECT_NUMBER = "123456789012"
+# scripts/publish_atlas_web.py's upload_args (Task 90 (C5)); --content-disposition is per object.
+COPY_FLAGS = {
+    "if-generation-match",
+    "content-encoding",
+    "content-type",
+    "cache-control",
+    "content-disposition",
+    "custom-metadata",
+}
+# Task 89 (C4)'s cdn_steps: each collection's create flags besides its scope flags, which are --project
+# plus --global for every collection except backend-buckets (always global, so it takes no --global).
+COMPUTE_CREATE_FLAGS = {
+    "backend-buckets": {"gcs-bucket-name", "enable-cdn", "cache-mode"},
+    "url-maps": {"default-backend-bucket"},
+    "ssl-certificates": {"domains"},
+    "target-https-proxies": {"url-map", "ssl-certificates"},
+    "addresses": {"ip-version"},
+    "forwarding-rules": {"load-balancing-scheme", "target-https-proxy", "address", "ports"},
+}
 
 
 def _split(arguments: list[str]) -> tuple[list[str], dict[str, str]]:
@@ -75,6 +94,8 @@ def _object_describe(state: dict[str, Any], url: str, flags: dict[str, str]) -> 
 def _copy(state: dict[str, Any], source: str, url: str, flags: dict[str, str]) -> int:
     if any(name.startswith("gzip") for name in flags):
         return _fail("fake gcloud: --gzip-* sets Cache-Control no-transform; never use it", UNSUPPORTED)
+    if not set(flags) <= COPY_FLAGS:
+        return _unsupported(["storage", "cp", source, url], flags)
     if flags.get("if-generation-match") != "0":
         return _fail("fake gcloud: uploads must pass --if-generation-match=0", UNSUPPORTED)
     bucket, name = _gs(url)
@@ -240,16 +261,29 @@ def _project_describe(state: dict[str, Any], project: str, flags: dict[str, str]
     )
 
 
-def _compute_describe(state: dict[str, Any], collection: str, name: str) -> int:
+def _compute_flags(collection: str, flags: dict[str, str], expected: set[str]) -> bool:
+    """True when ``flags`` are exactly ``collection``'s scope flags plus ``expected``."""
+    if collection not in COMPUTE_CREATE_FLAGS:
+        return False
+    scope = {"project"} if collection == "backend-buckets" else {"project", "global"}
+    return set(flags) == scope | expected and bool(flags["project"]) and flags.get("global", "") == ""
+
+
+def _compute_describe(state: dict[str, Any], collection: str, name: str, flags: dict[str, str]) -> int:
+    if not _compute_flags(collection, flags, {"format"}) or flags["format"] != "json":
+        return _unsupported(["compute", collection, "describe", name], flags)
     found = state.get("compute", {}).get(collection, {}).get(name)
     if found is None:
         return _fail(
-            f"(gcloud.compute.{collection}.describe) Could not fetch resource: '{name}' was not found"
+            f"(gcloud.compute.{collection}.describe) Could not fetch resource:\n"
+            f" - The resource '{name}' was not found"
         )
     return _print(found)
 
 
 def _compute_create(state: dict[str, Any], collection: str, name: str, flags: dict[str, str]) -> int:
+    if not _compute_flags(collection, flags, COMPUTE_CREATE_FLAGS.get(collection, set())):
+        return _unsupported(["compute", collection, "create", name], flags)
     resources = state.setdefault("compute", {}).setdefault(collection, {})
     if name in resources:
         return _fail(f"(gcloud.compute.{collection}.create) '{name}' already exists")
@@ -281,7 +315,7 @@ def _dispatch(state: dict[str, Any], positional: list[str], flags: dict[str, str
         case ["projects", "describe", project]:
             return _project_describe(state, project, flags)
         case ["compute", collection, "describe", name]:
-            return _compute_describe(state, collection, name)
+            return _compute_describe(state, collection, name, flags)
         case ["compute", collection, "create", name]:
             return _compute_create(state, collection, name, flags)
         case _:
