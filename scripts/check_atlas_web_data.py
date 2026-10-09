@@ -15,6 +15,12 @@ external caches) exists in ``dist/``. ``--production`` (the Pages ``build`` job)
 ``dist/app/index.html`` to bake exactly ``--base`` and to inline exactly ``--catalog``: the browser
 fetches the inlined catalog's keys, so checking any other catalog proves nothing about the build.
 
+A base on a Google storage host must be exactly the edge base
+``https://storage.googleapis.com/<bucket>/atlas/web/`` (§C.2), so the objects served and the metadata
+read come from one bucket; a CDN origin (the ``cloud-cdn`` mode) names no bucket and is not bound.
+Each problem is one ``FAIL`` line rather than a traceback, including a transport error (with its
+reason), an unreadable build and a catalog the layout refuses.
+
 Metadata is what the publisher asserts; it is trusted only because keys are content-addressed,
 uploads refuse overwrite and publishing verifies the uploaded bytes (scripts/publish_atlas_web.py).
 Standard library only, so CI needs no install.
@@ -25,6 +31,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import hashlib
+import http.client
 import json
 import re
 import sys
@@ -37,7 +44,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import SplitResult, quote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -47,6 +54,7 @@ from genomeos.publication.web_layout import (  # noqa: E402
     IMMUTABLE_CACHE_CONTROL,
     OBJECT_PREFIX,
     PRODUCTION_ORIGINS,
+    SiteObject,
     WebLayoutError,
     WebObject,
     artifact_objects,
@@ -59,6 +67,7 @@ from genomeos.publication.web_layout import (  # noqa: E402
 )
 
 JSON_API_ROOT = "https://storage.googleapis.com/storage/v1/"
+EDGE_HOST = "storage.googleapis.com"
 METADATA_FIELDS = "size,contentEncoding,cacheControl,metadata,crc32c"
 TIMEOUT_SECONDS = 30
 ATTEMPTS = 3
@@ -72,9 +81,25 @@ _OPENER = urllib.request.build_opener()
 
 @dataclass(frozen=True)
 class Reply:
-    status: int  # 0 when no HTTP response arrived
+    status: int  # 0 when no complete HTTP response arrived
     headers: Mapping[str, str]  # lower-cased names
     body: bytes
+    error: str = ""  # with status 0: the last transport error
+
+    def outcome(self) -> str:
+        """``returned <status>``, or why no complete response arrived: never a bare status 0."""
+        if self.status:
+            return f"returned {self.status}"
+        return f"got no complete HTTP response ({self.error})"
+
+
+@dataclass(frozen=True)
+class CatalogObjects:
+    """What the gate visits for one catalog."""
+
+    artifacts: tuple[WebObject, ...]
+    critical: tuple[WebObject, ...]
+    site: tuple[SiteObject, ...]
 
 
 def _lower(items: Iterable[tuple[str, str]]) -> dict[str, str]:
@@ -82,9 +107,14 @@ def _lower(items: Iterable[tuple[str, str]]) -> dict[str, str]:
 
 
 def fetch(url: str, *, method: str = "GET", headers: Mapping[str, str] | None = None) -> Reply:
-    """One request, retried on 5xx and connection errors; a 4xx is an answer, not an error."""
+    """One request, retried on 5xx and transport errors; a 4xx is an answer, not an error.
+
+    A transport error is any ``OSError`` (refused, DNS, timeout, reset, TLS, including an
+    ``ssl.SSLError`` while reading the body) or ``http.client.HTTPException`` (``IncompleteRead``, a bad
+    status line), so a body cut short is retried like a refused connection and never escapes.
+    """
     request = urllib.request.Request(url, method=method, headers=dict(headers or {}))
-    reply = Reply(0, {}, b"")
+    reply = Reply(0, {}, b"", "no attempt was made")
     for attempt in range(ATTEMPTS):
         if attempt:
             time.sleep(RETRY_DELAY_SECONDS * attempt)
@@ -92,11 +122,13 @@ def fetch(url: str, *, method: str = "GET", headers: Mapping[str, str] | None = 
             with _OPENER.open(request, timeout=TIMEOUT_SECONDS) as response:
                 return Reply(response.status, _lower(response.headers.items()), response.read())
         except urllib.error.HTTPError as error:
-            reply = Reply(error.code, _lower(error.headers.items()), error.read())
+            # The checks never read an error body, so one that fails to arrive is not a second error.
+            reply = Reply(error.code, _lower(error.headers.items()), b"")
+            error.close()
             if error.code < 500:
                 return reply
-        except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
-            reply = Reply(0, {}, str(error).encode())
+        except (OSError, http.client.HTTPException) as error:
+            reply = Reply(0, {}, b"", repr(error))
     return reply
 
 
@@ -107,7 +139,7 @@ def check_serving(item: WebObject, base: str, origins: Sequence[str]) -> list[st
         where = f"{item.key} (Origin {origin})"
         reply = fetch(url, method="HEAD", headers={"Accept-Encoding": "gzip", "Origin": origin})
         if reply.status != 200:
-            problems.append(f"{where}: HEAD {url} returned {reply.status}")
+            problems.append(f"{where}: HEAD {url} {reply.outcome()}")
             continue
         encoding = reply.headers.get("content-encoding")
         if encoding != "gzip":
@@ -126,12 +158,16 @@ def check_metadata(item: WebObject, bucket: str, api_root: str) -> list[str]:
     url = f"{api_root}b/{quote(bucket, safe='')}/o/{name}?fields={METADATA_FIELDS}"
     reply = fetch(url, headers={"Accept-Encoding": "identity"})
     if reply.status != 200:
-        return [f"{item.key}: JSON API returned {reply.status}"]
+        return [f"{item.key}: JSON API {reply.outcome()}"]
     try:
         resource: Any = json.loads(reply.body)
-    except json.JSONDecodeError:
+    except ValueError:  # not JSON, or not UTF-8 (UnicodeDecodeError)
         return [f"{item.key}: JSON API returned a body that is not JSON"]
+    if not isinstance(resource, dict):
+        return [f"{item.key}: JSON API returned {reply.body[:80]!r}, not a JSON object"]
     metadata = resource.get("metadata") or {}
+    if not isinstance(metadata, dict):
+        return [f"{item.key}: JSON API metadata is {metadata!r}, not an object"]
     problems: list[str] = []
     if metadata.get("sha256") != item.sha256:
         problems.append(f"{item.key}: metadata sha256 {metadata.get('sha256')!r}, catalog {item.sha256}")
@@ -153,7 +189,7 @@ def check_end_to_end(item: WebObject, base: str) -> list[str]:
     url = resolve_key(item.key, base)
     reply = fetch(url, headers={"Accept-Encoding": "gzip", "Origin": PRODUCTION_ORIGINS[0]})
     if reply.status != 200:
-        return [f"{item.key}: GET {url} returned {reply.status}"]
+        return [f"{item.key}: GET {url} {reply.outcome()}"]
     if reply.headers.get("content-encoding") != "gzip":
         return [
             f"{item.key}: GET Content-Encoding {reply.headers.get('content-encoding')!r}, expected 'gzip'"
@@ -171,36 +207,122 @@ def check_end_to_end(item: WebObject, base: str) -> list[str]:
     return problems
 
 
-def check_site(dist: Path, catalog: Mapping[str, Any]) -> list[str]:
+def check_site(dist: Path, objects: Sequence[SiteObject]) -> list[str]:
     site = dist / "data" / "atlas"
     problems: list[str] = []
-    for item in site_objects(catalog):
+    for item in objects:
         path = site / item.key
-        if not path.is_file():
-            problems.append(f"site-base {item.key}: missing from {site}")
+        try:
+            if not path.is_file():
+                problems.append(f"site-base {item.key}: missing from {site}")
+                continue
+            digest = None if item.sha256 is None else hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError as error:
+            problems.append(f"site-base {item.key}: cannot read {path} ({error!r})")
             continue
-        if item.sha256 is not None:
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
-            if digest != item.sha256:
-                problems.append(f"site-base {item.key}: sha256 {digest}, catalog {item.sha256}")
+        if digest is not None and digest != item.sha256:
+            problems.append(f"site-base {item.key}: sha256 {digest}, catalog {item.sha256}")
     return problems
 
 
-def baked_artifact_base(dist: Path) -> str | None:
-    path = dist / "app" / "index.html"
-    if not path.is_file():
-        return None
-    match = _DATA_BASES.search(path.read_text(encoding="utf-8"))
-    return None if match is None else str(json.loads(match.group(1))["artifact"])
+def _inline_json(html: str, pattern: re.Pattern[str], element: str) -> tuple[Any, str | None]:
+    """The JSON in dist/app/index.html's ``<script id="{element}">``, or why it cannot be read."""
+    match = pattern.search(html)
+    if match is None:
+        return None, f"dist/app/index.html has no #{element} element, so the gate cannot read it"
+    try:
+        return json.loads(match.group(1)), None
+    except ValueError as error:
+        return None, f"dist/app/index.html #{element} is not JSON ({error})"
 
 
-def inlined_catalog(dist: Path) -> Any:
-    """The catalog dist/app/index.html inlines (what the browser fetches by), or None."""
-    path = dist / "app" / "index.html"
-    if not path.is_file():
+def _baked_base_problem(html: str, base: str) -> str | None:
+    bases, problem = _inline_json(html, _DATA_BASES, "atlas-data-bases")
+    if problem is not None:
+        return problem
+    baked = bases.get("artifact") if isinstance(bases, dict) else None
+    if not isinstance(baked, str):
+        return f"dist/app/index.html #atlas-data-bases names no artifact base ({bases!r})"
+    if baked == base:
         return None
-    match = _INLINE_CATALOG.search(path.read_text(encoding="utf-8"))
-    return None if match is None else json.loads(match.group(1))
+    # An unset variable falls back to the same-origin site base, which is relative (§C.1.4).
+    ran = "with another" if urlsplit(baked).netloc else "without"
+    return (
+        f"dist/app/index.html bakes artifact base {baked!r}, not {base!r}: the production build ran "
+        f"{ran} PUBLIC_ATLAS_DATA_BASE_URL"
+    )
+
+
+def _inlined_catalog_problem(html: str, catalog: Mapping[str, Any]) -> str | None:
+    inline, problem = _inline_json(html, _INLINE_CATALOG, "atlas-catalog")
+    if problem is not None:
+        return problem
+    if inline != catalog:
+        return (
+            "dist/app/index.html inlines a catalog that differs from --catalog: the browser fetches "
+            "the inlined catalog's keys, so build with ATLAS_CATALOG_PATH set to the checked catalog"
+        )
+    return None
+
+
+def check_production(dist: Path, base: str, catalog: Mapping[str, Any]) -> list[str]:
+    """``--production``: dist/app/index.html bakes exactly ``base`` and inlines exactly ``catalog``."""
+    path = dist / "app" / "index.html"
+    try:
+        html = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return [f"dist/app/index.html is missing ({path}): pass the production build's dist as --dist"]
+    except (OSError, ValueError) as error:  # ValueError: not UTF-8
+        return [f"dist/app/index.html cannot be read ({error!r})"]
+    found = (_baked_base_problem(html, base), _inlined_catalog_problem(html, catalog))
+    return [problem for problem in found if problem is not None]
+
+
+def _valid_port(parts: SplitResult) -> bool:
+    try:
+        return parts.port != 0
+    except ValueError:  # not a number, or out of range: urllib would raise, not answer
+        return False
+
+
+def _google_storage_host(parts: SplitResult) -> bool:
+    """A host whose URLs name a bucket: storage.googleapis.com, its virtual-hosted
+    ``<bucket>.storage.googleapis.com`` form and the other googleapis.com aliases (legacy
+    ``commondatastorage``, regional endpoints), plus the authenticated ``storage.cloud.google.com``."""
+    host = (parts.hostname or "").rstrip(".")
+    return host.endswith(".googleapis.com") or host == "storage.cloud.google.com"
+
+
+def base_problem(base: str, bucket: str) -> str | None:
+    """Why ``base`` cannot be checked as the artifact base of ``bucket``, or None; no request is made."""
+    try:
+        assert_absolute_data_base(base)
+        assert_bucket_name(bucket)
+    except WebLayoutError as error:
+        return str(error)
+    if not base.endswith(f"/{OBJECT_PREFIX}"):
+        return f"artifact base {base!r} must end in /{OBJECT_PREFIX}, the prefix the metadata check reads"
+    parts = urlsplit(base)
+    if not _valid_port(parts):
+        return f"artifact base {base!r} has an invalid port"
+    edge = f"https://{EDGE_HOST}/{bucket}/{OBJECT_PREFIX}"
+    if _google_storage_host(parts) and base != edge:
+        return f"artifact base {base!r} is not the edge base of bucket {bucket!r} (expected {edge})"
+    return None
+
+
+def catalog_objects(catalog: object) -> CatalogObjects:
+    """The objects the gate visits. A catalog of the wrong shape raises WebLayoutError, never the
+    KeyError, IndexError, TypeError or AttributeError the layout functions would."""
+    if not isinstance(catalog, Mapping):
+        raise WebLayoutError(f"the catalog is not a JSON object (got {type(catalog).__name__})")
+    artifacts = catalog.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        raise WebLayoutError("the catalog lists no artifacts; the gate checks the first one end to end")
+    try:
+        return CatalogObjects(artifact_objects(catalog), critical_objects(catalog), site_objects(catalog))
+    except (LookupError, TypeError, AttributeError) as error:
+        raise WebLayoutError(f"the catalog is not the published shape ({error!r})") from error
 
 
 def run_checks(
@@ -213,41 +335,20 @@ def run_checks(
     api_root: str = JSON_API_ROOT,
     origins: Sequence[str] = PRODUCTION_ORIGINS,
 ) -> list[str]:
-    try:
-        assert_absolute_data_base(base)
-        assert_bucket_name(bucket)
-    except WebLayoutError as error:
-        return [str(error)]
-    if not base.endswith(f"/{OBJECT_PREFIX}"):
-        return [f"artifact base {base!r} must end in /{OBJECT_PREFIX}, the prefix the metadata check reads"]
-    parts = urlsplit(base)
-    if parts.hostname == "storage.googleapis.com" and parts.path != f"/{bucket}/{OBJECT_PREFIX}":
-        return [
-            f"artifact base {base!r} does not serve bucket {bucket!r} "
-            f"(expected https://storage.googleapis.com/{bucket}/{OBJECT_PREFIX})"
-        ]
-    problems: list[str] = []
-    if production:
-        baked = baked_artifact_base(dist)
-        if baked != base:
-            problems.append(
-                f"dist/app/index.html bakes artifact base {baked!r}, not {base!r}: the production build ran "
-                "without PUBLIC_ATLAS_DATA_BASE_URL"
-            )
-        if inlined_catalog(dist) != catalog:
-            problems.append(
-                "dist/app/index.html inlines a catalog that differs from --catalog: the browser fetches "
-                "the inlined catalog's keys, so build with ATLAS_CATALOG_PATH set to the checked catalog"
-            )
-    objects = artifact_objects(catalog)
-    critical = critical_objects(catalog)
+    """Every problem, one line each. A bad base or bucket is reported alone, before any request; a
+    catalog the layout refuses raises WebLayoutError, since there is nothing to check it against."""
+    problem = base_problem(base, bucket)
+    if problem is not None:
+        return [problem]
+    objects = catalog_objects(catalog)
+    problems = check_production(dist, base, catalog) if production else []
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        serving = list(pool.map(lambda item: check_serving(item, base, origins), objects))
-        metadata = list(pool.map(lambda item: check_metadata(item, bucket, api_root), objects))
-        end_to_end = list(pool.map(lambda item: check_end_to_end(item, base), critical))
+        serving = list(pool.map(lambda item: check_serving(item, base, origins), objects.artifacts))
+        metadata = list(pool.map(lambda item: check_metadata(item, bucket, api_root), objects.artifacts))
+        end_to_end = list(pool.map(lambda item: check_end_to_end(item, base), objects.critical))
     for found in [*serving, *metadata, *end_to_end]:
         problems.extend(found)
-    problems.extend(check_site(dist, catalog))
+    problems.extend(check_site(dist, objects.site))
     return problems
 
 
@@ -270,10 +371,24 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _fail(problems: Sequence[str]) -> int:
+    for problem in problems:
+        print(f"FAIL {problem}")
+    print(
+        f"FAILED: {len(problems)} problem(s); do not deploy until the bucket serves every object the "
+        "catalog names (design 2026-10-07 §C.1.5)",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        catalog = json.loads(args.catalog.read_text(encoding="utf-8"))
+        catalog: Any = json.loads(args.catalog.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:  # ValueError: not UTF-8 (UnicodeDecodeError) or not JSON
+        return _fail([f"cannot check {args.catalog}: {error!r}"])
+    try:
         problems = run_checks(
             catalog,
             base=args.base,
@@ -282,21 +397,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             production=args.production,
             api_root=args.api_root,
         )
-    except (OSError, json.JSONDecodeError, KeyError, WebLayoutError) as error:
-        problems = [f"cannot check {args.catalog}: {error!r}"]
-        catalog = {}
+    except WebLayoutError as error:
+        return _fail([f"cannot check {args.catalog}: {error!r}"])
     if problems:
-        for problem in problems:
-            print(f"FAIL {problem}")
-        print(
-            f"FAILED: {len(problems)} problem(s); do not deploy until the bucket serves every object the "
-            "catalog names (design 2026-10-07 §C.1.5)",
-            file=sys.stderr,
-        )
-        return 1
+        return _fail(problems)
+    objects = catalog_objects(catalog)
     print(
-        f"ok: {len(artifact_objects(catalog))} artifact objects x {len(PRODUCTION_ORIGINS)} origins, "
-        f"{len(critical_objects(catalog))} checked end to end, {len(site_objects(catalog))} site files"
+        f"ok: {len(objects.artifacts)} artifact objects x {len(PRODUCTION_ORIGINS)} origins, "
+        f"{len(objects.critical)} checked end to end, {len(objects.site)} site files"
     )
     return 0
 
