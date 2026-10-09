@@ -9,8 +9,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shlex
+import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from genomeos.publication.web_layout import apply_download_layout, artifact_objects
 
@@ -123,3 +128,54 @@ def write_dist(root: Path, artifact_base: str, catalog: dict[str, Any] | None = 
     (site / "ne-50m-admin-0.geojson").write_bytes(BORDERS)
     (site / GNOMAD_KEY).write_bytes(GNOMAD)
     return root
+
+
+FAKE_GCLOUD = Path(__file__).with_name("fake_gcloud.py")
+MUTATING_VERBS = {"create", "update", "add-iam-policy-binding", "cp"}
+
+
+@dataclass(frozen=True)
+class FakeGcloud:
+    """Handle on tests/fake_gcloud.py's state and call log for one test."""
+
+    state_path: Path
+    log_path: Path
+
+    def state(self) -> dict[str, Any]:
+        return json.loads(self.state_path.read_text(encoding="utf-8"))
+
+    def write_state(self, state: dict[str, Any]) -> None:
+        self.state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    def _records(self) -> list[dict[str, Any]]:
+        if not self.log_path.exists():
+            return []
+        return [json.loads(line) for line in self.log_path.read_text(encoding="utf-8").splitlines()]
+
+    def calls(self) -> list[list[str]]:
+        return [record["argv"] for record in self._records()]
+
+    def configs(self) -> set[str | None]:
+        return {record["cloudsdk_config"] for record in self._records()}
+
+    def mutating_calls(self) -> list[list[str]]:
+        return [call for call in self.calls() if MUTATING_VERBS & set(call[:4])]
+
+
+def install_fake_gcloud(
+    root: Path, monkeypatch: pytest.MonkeyPatch, state: dict[str, Any] | None = None
+) -> FakeGcloud:
+    """Point scripts/gcloud_repo.py at tests/fake_gcloud.py through GENOMEOS_GCLOUD_EXECUTABLE."""
+    root.mkdir(parents=True, exist_ok=True)
+    shim = root / "fake-gcloud"
+    shim.write_text(
+        f'#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(FAKE_GCLOUD))} "$@"\n',
+        encoding="utf-8",
+    )
+    shim.chmod(0o755)
+    fake = FakeGcloud(root / "fake-gcloud-state.json", root / "fake-gcloud-log.jsonl")
+    fake.write_state(json.loads(json.dumps(state or {})))
+    monkeypatch.setenv("GENOMEOS_GCLOUD_EXECUTABLE", str(shim))
+    monkeypatch.setenv("FAKE_GCLOUD_STATE", str(fake.state_path))
+    monkeypatch.setenv("FAKE_GCLOUD_LOG", str(fake.log_path))
+    return fake
