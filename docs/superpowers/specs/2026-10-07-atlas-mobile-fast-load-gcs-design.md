@@ -845,8 +845,10 @@ gzip'`).
    `check_commercial_use.py`). History is not rewritten. `.gitignore` gains separate lines for the
    staging directory and `website/public/data/atlas/*.surface.json`, `*.observations.json`,
    `*.manifest.json`.
-4. No GCP project id or bucket name is committed (`docs/repo-gcloud-auth.md`). The artifact base is
-   the build variable `PUBLIC_ATLAS_DATA_BASE_URL`: an absolute `https://` URL that includes the
+4. No GCP project id or bucket name is committed (`docs/repo-gcloud-auth.md`), in any GCS URL form;
+   tests and docs write `example-*` or a placeholder, and only third-party public data buckets the
+   pipeline reads (gnomAD's) are named. The artifact base is the build variable
+   `PUBLIC_ATLAS_DATA_BASE_URL`: an absolute `https://` URL that includes the
    `atlas/web/` prefix and ends in `/`; empty means unset (same-origin fallback, used only by local dev
    and tests). `pages.yml` sets it from the repository variable `ATLAS_DATA_BASE_URL` in the
    production `build` job only. `tests/setup/build.ts` and the `test:e2e` build set it to `''`

@@ -163,19 +163,13 @@ def apply_download_layout(catalog: Mapping[str, Any]) -> tuple[dict[str, Any], t
     rewritten: dict[str, Any] = copy.deepcopy(dict(catalog))
     copies: dict[str, DownloadCopy] = {}
     for ref in rewritten["artifacts"]:
-        downloads = ref["downloads"]
-        for kind in DOWNLOAD_KINDS:
-            entry = downloads.get(kind)
-            if entry is None:
-                if kind == "observations" and ref["observations_available"] is False:
-                    continue
-                raise WebLayoutError(f"{ref['id']}: downloads.{kind} is missing")
+        for kind, entry in _download_entries(ref):
             key = download_key(ref["id"], ref["model_version"], ref["data_version"], kind, entry["sha256"])
-            copies.setdefault(key, DownloadCopy(assert_data_key(entry["url"]), key, entry["sha256"]))
+            _add_copy(copies, DownloadCopy(assert_data_key(entry["url"]), key, entry["sha256"]))
             entry["url"] = key
-        _bind(ref, "surface", downloads.get("surface"))
+        _bind(ref, "surface")
         if ref["observations_available"]:
-            _bind(ref, "observations", downloads.get("observations"))
+            _bind(ref, "observations")
     return rewritten, tuple(copies[key] for key in sorted(copies))
 
 
@@ -196,10 +190,7 @@ def artifact_objects(catalog: Mapping[str, Any]) -> tuple[WebObject, ...]:
                     ref["observations_url"], ref["observations_sha256"], ref["observations_bytes"], None
                 ),
             )
-        for kind in DOWNLOAD_KINDS:
-            entry = ref["downloads"].get(kind)
-            if entry is None:
-                continue
+        for kind, entry in _download_entries(ref):
             declared = ref["observations_bytes"] if kind == "observations" else None
             disposition = download_disposition(ref["id"], kind)
             _merge(found, _web_object(entry["url"], entry["sha256"], declared, disposition))
@@ -220,18 +211,54 @@ def critical_objects(catalog: Mapping[str, Any]) -> tuple[WebObject, ...]:
 
 
 def site_objects(catalog: Mapping[str, Any]) -> tuple[SiteObject, ...]:
-    """Every site-base file: Natural Earth context sources and external caches (with digests)."""
+    """Every site-base file: Natural Earth context sources and external caches (with digests).
+
+    A cache key named more than once must carry one digest; a context source has none to compare.
+    """
     found: dict[str, str | None] = {}
     for source in catalog["context_sources"]:
         found.setdefault(assert_data_key(source["url"]), None)
     for ref in catalog["artifacts"]:
         for resource in ref["external_resources"]:
-            found[assert_data_key(resource["cache_url"])] = resource["cache_sha256"]
+            key = assert_data_key(resource["cache_url"])
+            digest = _require_sha256(f"{key} cache", resource["cache_sha256"])
+            found[key] = _agree(key, "cache sha256", found.get(key), digest)
     return tuple(SiteObject(key, found[key]) for key in sorted(found))
 
 
-def _bind(ref: dict[str, Any], kind: str, download: Mapping[str, Any] | None) -> None:
-    if download is None or ref[f"{kind}_sha256"] != download["sha256"]:
+def _download_entries(ref: Mapping[str, Any]) -> list[tuple[str, Any]]:
+    """``ref``'s downloads in ``DOWNLOAD_KINDS`` order. Surface and manifest are required; the
+    observations download exists exactly when ``observations_available`` is true (catalog contract)."""
+    available = ref["observations_available"]
+    if not isinstance(available, bool):
+        raise WebLayoutError(f"{ref['id']}: observations_available {available!r} is not a boolean")
+    entries: list[tuple[str, Any]] = []
+    for kind in DOWNLOAD_KINDS:
+        entry = ref["downloads"].get(kind)
+        if kind == "observations" and not available:
+            if entry is not None:
+                raise WebLayoutError(
+                    f"{ref['id']}: downloads.observations is set but observations_available is false"
+                )
+            continue
+        if entry is None:
+            raise WebLayoutError(f"{ref['id']}: downloads.{kind} is missing")
+        entries.append((kind, entry))
+    return entries
+
+
+def _add_copy(copies: dict[str, DownloadCopy], item: DownloadCopy) -> None:
+    existing = copies.setdefault(item.key, item)
+    if existing != item:
+        raise WebLayoutError(
+            f"{item.key}: two downloads share this key ({existing.source} sha256 {existing.sha256}; "
+            f"{item.source} sha256 {item.sha256}); one key must name one file"
+        )
+
+
+def _bind(ref: dict[str, Any], kind: str) -> None:
+    download = ref["downloads"][kind]
+    if ref[f"{kind}_sha256"] != download["sha256"]:
         raise WebLayoutError(
             f"{ref['id']}: {kind}_sha256 does not match downloads.{kind}.sha256; they must name one object"
         )
