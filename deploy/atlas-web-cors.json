@@ -1,0 +1,19 @@
+[
+  {
+    "origin": [
+      "https://genome-os.org",
+      "http://genome-os.org",
+      "https://www.genome-os.org",
+      "https://bschilder.github.io",
+      "http://localhost:4321",
+      "http://localhost:4322",
+      "http://localhost:4323",
+      "http://127.0.0.1:4321",
+      "http://127.0.0.1:4322",
+      "http://127.0.0.1:4323"
+    ],
+    "method": ["GET", "HEAD"],
+    "responseHeader": ["Content-Length", "Content-Type", "Content-Encoding", "ETag"],
+    "maxAgeSeconds": 3600
+  }
+]
