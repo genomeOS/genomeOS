@@ -28,6 +28,14 @@ POLICIES = [
     [
         "org-policies",
         "describe",
+        "iam.managed.allowedPolicyMembers",
+        f"--project={PROJECT}",
+        "--effective",
+        "--format=json",
+    ],
+    [
+        "org-policies",
+        "describe",
         "storage.publicAccessPrevention",
         f"--project={PROJECT}",
         "--effective",
@@ -129,11 +137,19 @@ def test_a_second_run_changes_nothing(
     assert "RUN " not in capsys.readouterr().out
 
 
+@pytest.mark.parametrize(
+    "labels",
+    [{}, {"genomeos-purpose": "staging"}, {"purpose": "atlas-web"}],
+    ids=["no-labels", "wrong-value", "wrong-key"],
+)
 def test_an_unlabelled_bucket_in_the_project_is_never_touched(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    labels: dict[str, str],
 ) -> None:
     # e.g. a private staging or Cloud Run artifact bucket that happens to have the chosen name
-    fake = install_fake_gcloud(tmp_path, monkeypatch, _existing(labels={}))
+    fake = install_fake_gcloud(tmp_path, monkeypatch, _existing(labels=labels))
     assert _provision() == 1
     assert "not created by this script" in capsys.readouterr().err
     assert fake.mutating_calls() == []
@@ -176,6 +192,14 @@ def test_a_labelled_bucket_that_drifted_gets_only_the_allowed_update(
     assert bucket["iamConfiguration"]["publicAccessPrevention"] == "inherited"
 
 
+MANAGED = "iam.managed.allowedPolicyMembers"
+ORG_ONLY = "//cloudresourcemanager.googleapis.com/organizations/123456789012"
+
+
+def _managed(*rules: dict[str, object]) -> dict[str, object]:
+    return {"name": f"projects/{PROJECT}/policies/{MANAGED}", "spec": {"rules": list(rules)}}
+
+
 @pytest.mark.parametrize(
     ("constraint", "policy"),
     [
@@ -183,8 +207,15 @@ def test_a_labelled_bucket_that_drifted_gets_only_the_allowed_update(
             "iam.allowedPolicyMemberDomains",
             {"spec": {"rules": [{"values": {"allowedValues": ["C0abc123"]}}]}},
         ),
+        ("iam.allowedPolicyMemberDomains", {"spec": {"rules": [{"denyAll": True}]}}),
+        (MANAGED, _managed({"enforce": True, "parameters": {"allowedPrincipalSets": [ORG_ONLY]}})),
+        (
+            MANAGED,
+            _managed({"enforce": True, "parameters": {"allowedMemberSubjects": ["user:owner@example.com"]}}),
+        ),
         ("storage.publicAccessPrevention", {"spec": {"rules": [{"enforce": True}]}}),
     ],
+    ids=["domains-allowlist", "domains-deny-all", "managed-org-only", "managed-named-users", "pap"],
 )
 def test_a_blocking_org_policy_stops_before_any_change(
     tmp_path: Path,
@@ -201,12 +232,158 @@ def test_a_blocking_org_policy_stops_before_any_change(
     assert fake.mutating_calls() == []
 
 
+@pytest.mark.parametrize(
+    "policy",
+    [
+        _managed({"enforce": True, "parameters": {"allowedMemberSubjects": ["allUsers"]}}),
+        _managed({"enforce": False}),
+        _managed(),
+    ],
+    ids=["allows-all-users", "not-enforced", "no-rules"],
+)
+def test_a_managed_member_policy_that_admits_all_users_does_not_block(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    policy: dict[str, object],
+) -> None:
+    fake = install_fake_gcloud(tmp_path, monkeypatch, {"org_policies": {MANAGED: policy}})
+    assert _provision() == 0
+    assert f"org policy {MANAGED}: does not block public objects" in capsys.readouterr().out
+    assert fake.state()["buckets"][BUCKET]["bindings"] == [
+        {"role": "roles/storage.objectViewer", "members": ["allUsers"]}
+    ]
+
+
+@pytest.mark.parametrize(
+    "constraint", ["iam.allowedPolicyMemberDomains", MANAGED, "storage.publicAccessPrevention"]
+)
 def test_an_unreadable_org_policy_is_reported_and_provisioning_continues(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], constraint: str
+) -> None:
+    install_fake_gcloud(tmp_path, monkeypatch, {"org_policy_errors": [constraint]})
+    assert _provision() == 0
+    assert f"org policy {constraint}: unreadable" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("constraint", "policy"),
+    [
+        (
+            "iam.allowedPolicyMemberDomains",
+            {"spec": {"rules": [{"values": {"allowedValues": ["C0abc123"]}}]}},
+        ),
+        (MANAGED, _managed({"enforce": True, "parameters": {"allowedPrincipalSets": [ORG_ONLY]}})),
+    ],
+    ids=["domains-allowlist", "managed-org-only"],
+)
+def test_an_unreadable_sharing_policy_that_blocks_fails_closed_and_a_rerun_adopts_the_bucket(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    constraint: str,
+    policy: dict[str, object],
+) -> None:
+    state = {"org_policies": {constraint: policy}, "org_policy_errors": [constraint]}
+    fake = install_fake_gcloud(tmp_path, monkeypatch, state)
+    assert _provision() == 1
+    captured = capsys.readouterr()
+    assert f"org policy {constraint}: unreadable" in captured.out
+    assert "add-iam-policy-binding" in captured.err
+    assert fake.mutating_calls() == [CREATE, LABEL, IAM_ADD]
+    bucket = fake.state()["buckets"][BUCKET]
+    assert bucket["bindings"] == []  # still private
+    assert bucket["labels"] == {"genomeos-purpose": "atlas-web"}
+    # the organization admin grants the project an exception; the labelled bucket is then adopted
+    granted = fake.state()
+    granted["org_policies"] = {}
+    granted["org_policy_errors"] = []
+    fake.write_state(granted)
+    before = len(fake.mutating_calls())
+    assert _provision() == 0
+    assert fake.mutating_calls()[before:] == [IAM_ADD, CORS]
+
+
+def test_public_access_prevention_enforced_on_a_just_created_bucket_stops(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    install_fake_gcloud(tmp_path, monkeypatch, {"org_policy_errors": ["iam.allowedPolicyMemberDomains"]})
-    assert _provision() == 0
-    assert "org policy iam.allowedPolicyMemberDomains: unreadable" in capsys.readouterr().out
+    # the org policy is unreadable, so only the new bucket's own setting reveals it
+    pap = "storage.publicAccessPrevention"
+    state = {"org_policies": {pap: {"spec": {"rules": [{"enforce": True}]}}}, "org_policy_errors": [pap]}
+    fake = install_fake_gcloud(tmp_path, monkeypatch, state)
+    assert _provision() == 1
+    captured = capsys.readouterr()
+    assert "public-access prevention: enforced" in captured.out
+    assert "never lifts it" in captured.err
+    assert fake.mutating_calls() == [CREATE, LABEL]
+    bucket = fake.state()["buckets"][BUCKET]
+    assert bucket["bindings"] == []
+    assert "cors" not in bucket
+
+
+def test_a_bucket_not_visible_right_after_creation_stops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fake = install_fake_gcloud(tmp_path, monkeypatch, {"invisible_buckets": [BUCKET]})
+    assert _provision() == 1
+    assert f"{URL} is not visible right after creation" in capsys.readouterr().err
+    assert fake.mutating_calls() == [CREATE, LABEL]
+    assert fake.state()["buckets"][BUCKET]["bindings"] == []
+
+
+@pytest.mark.parametrize(
+    ("project_error", "expected"),
+    [
+        (
+            "(gcloud.projects.describe) NOT_FOUND: Requested entity was not found.",
+            f"cannot read the project number of {PROJECT}",
+        ),
+        (
+            "(gcloud.projects.describe) PERMISSION_DENIED: The caller does not have permission",
+            f"projects describe {PROJECT} --format=json failed",
+        ),
+    ],
+    ids=["not-found", "permission-denied"],
+)
+def test_an_unreadable_project_number_is_reported_as_such_and_changes_nothing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    project_error: str,
+    expected: str,
+) -> None:
+    fake = install_fake_gcloud(tmp_path, monkeypatch, {**_existing(), "project_error": project_error})
+    assert _provision() == 1
+    err = capsys.readouterr().err
+    assert expected in err
+    assert "is not in project" not in err  # the bucket is not blamed for an unreadable project
+    assert fake.mutating_calls() == []
+
+
+def test_org_policy_output_that_is_not_a_json_object_stops_with_the_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    state = {"org_policies": {"storage.publicAccessPrevention": ["not", "an", "object"]}}
+    fake = install_fake_gcloud(tmp_path, monkeypatch, state)
+    assert _provision() == 1
+    captured = capsys.readouterr()
+    assert "org policy iam.allowedPolicyMemberDomains: does not block public objects" in captured.out
+    assert "storage.publicAccessPrevention" in captured.err
+    assert "not a JSON object" in captured.err
+    assert fake.mutating_calls() == []
+
+
+def test_org_policy_output_that_is_not_json_stops_with_an_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    shim = tmp_path / "scripted-gcloud"
+    shim.write_text("#!/bin/sh\nprintf 'Listed 0 items.\\n'\n", encoding="utf-8")
+    shim.chmod(0o755)
+    monkeypatch.setenv("GENOMEOS_GCLOUD_EXECUTABLE", str(shim))
+    assert _provision() == 1
+    err = capsys.readouterr().err
+    assert "iam.allowedPolicyMemberDomains" in err
+    assert "'Listed 0 items.\\n', not JSON" in err
 
 
 def test_a_bucket_outside_us_east1_is_refused(
@@ -230,7 +407,24 @@ def test_a_cors_file_that_drifted_from_the_layout_module_is_refused(
     fake = install_fake_gcloud(tmp_path / "gcloud", monkeypatch, {})
     assert _provision() == 1
     assert "differs from" in capsys.readouterr().err
-    assert all(call[:3] != ["storage", "buckets", "update"] for call in fake.calls())
+    assert fake.calls() == []  # refused before any gcloud call, reads included
+
+
+@pytest.mark.parametrize("contents", [None, "[{"], ids=["missing", "not-json"])
+def test_an_unreadable_cors_file_is_refused_before_any_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    contents: str | None,
+) -> None:
+    path = tmp_path / "cors.json"
+    if contents is not None:
+        path.write_text(contents, encoding="utf-8")
+    monkeypatch.setattr(provision, "CORS_FILE", path)
+    fake = install_fake_gcloud(tmp_path / "gcloud", monkeypatch, {})
+    assert _provision() == 1
+    assert f"{path} is unreadable" in capsys.readouterr().err
+    assert fake.calls() == []
 
 
 def test_cloud_cdn_dry_run_prints_the_load_balancer_plan_and_the_dns_step(

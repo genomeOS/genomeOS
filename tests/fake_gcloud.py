@@ -11,7 +11,9 @@ it saw, which proves the call went through scripts/gcloud_repo.py.
 State keys: buckets{name: resource + "bindings"}, objects{"bucket/name": resource + "data_b64"},
 org_policies{constraint: policy}, org_policy_errors[constraint], race{"bucket/name": resource},
 corrupt_uploads (bool), compute{collection: {name: resource}}, project_number (str; the number
-`projects describe` reports and `buckets create` stamps, default DEFAULT_PROJECT_NUMBER).
+`projects describe` reports and `buckets create` stamps, default DEFAULT_PROJECT_NUMBER),
+project_error (str; `projects describe` fails with "ERROR: <it>"), invisible_buckets[name] (`buckets
+describe` reports these as 404 even once they exist, like a read that lags a create).
 """
 
 from __future__ import annotations
@@ -146,7 +148,7 @@ def _bucket_describe(state: dict[str, Any], url: str, flags: dict[str, str]) -> 
     if flags != DESCRIBE_FLAGS:
         return _unsupported(["storage", "buckets", "describe", url], flags)
     found = _bucket(state, url)
-    if found is None:
+    if found is None or _gs(url)[0] in state.get("invisible_buckets", []):
         return _fail(f"(gcloud.storage.buckets.describe) {url} not found: 404.")
     return _print({key: value for key, value in found.items() if key != "bindings"})
 
@@ -224,6 +226,13 @@ def _iam_add(state: dict[str, Any], url: str, flags: dict[str, str]) -> int:
     restricted = any(
         rule.get("values", {}).get("allowedValues") for rule in drs.get("spec", {}).get("rules", [])
     )
+    # The managed constraint admits a member only by name (allowedMemberSubjects) or principal set.
+    managed = state.get("org_policies", {}).get("iam.managed.allowedPolicyMembers", {})
+    restricted = restricted or any(
+        rule.get("enforce") is True
+        and flags["member"] not in rule.get("parameters", {}).get("allowedMemberSubjects", [])
+        for rule in managed.get("spec", {}).get("rules", [])
+    )
     if flags["member"] == "allUsers" and restricted:
         return _fail(
             "HTTPError 412: One or more users named in the policy do not belong to a permitted customer."
@@ -252,6 +261,8 @@ def _org_policy(state: dict[str, Any], constraint: str, flags: dict[str, str]) -
 def _project_describe(state: dict[str, Any], project: str, flags: dict[str, str]) -> int:
     if flags != {"format": "json"}:
         return _unsupported(["projects", "describe", project], flags)
+    if state.get("project_error"):
+        return _fail(state["project_error"])
     return _print(
         {
             "lifecycleState": "ACTIVE",

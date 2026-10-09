@@ -14,8 +14,10 @@ record at the registrar (GoDaddy; a human step) and has a recurring load-balance
 
 The bucket is in us-east1 with uniform bucket-level access, readable by ``allUsers``
 (``roles/storage.objectViewer``), unversioned (keys are content-addressed) with the default soft
-delete. Effective domain-restricted-sharing and public-access-prevention org policies are read and
-reported first; a blocking one stops the run before any change. Because this makes a bucket public,
+delete. The effective domain-restricted-sharing org policies (the legacy list constraint and its
+managed successor) and the public-access-prevention one are read and reported first; a blocking one
+stops the run before any change. One that cannot be read is reported and the run continues, so if it
+does block, the step it refuses fails and the bucket stays private. Because this makes a bucket public,
 an existing bucket is adopted only if it carries the ``genomeos-purpose=atlas-web`` label this
 script sets right after creating it and belongs to the project; any other existing bucket is
 refused before any change (needs-human-decision), and public-access prevention is never lifted on
@@ -48,7 +50,16 @@ LOCATION = "us-east1"
 PUBLIC_MEMBER = "allUsers"
 PUBLIC_ROLE = "roles/storage.objectViewer"
 DOMAIN_RESTRICTED_SHARING = "iam.allowedPolicyMemberDomains"
+# The managed domain-restricted-sharing constraint: when enforced, IAM accepts only the members its
+# ``allowedMemberSubjects`` and ``allowedPrincipalSets`` parameters admit, and allUsers is admitted
+# only by name in ``allowedMemberSubjects``.
+MANAGED_DOMAIN_RESTRICTED_SHARING = "iam.managed.allowedPolicyMembers"
 PUBLIC_ACCESS_PREVENTION = "storage.publicAccessPrevention"
+ORG_POLICY_CONSTRAINTS = (
+    DOMAIN_RESTRICTED_SHARING,
+    MANAGED_DOMAIN_RESTRICTED_SHARING,
+    PUBLIC_ACCESS_PREVENTION,
+)
 CDN_DOMAIN = "data.genome-os.org"
 CDN_ADDRESS = "atlas-web-ip"
 # Set right after creation (gcloud 498 `buckets create` has no labels flag); the proof that an
@@ -75,18 +86,30 @@ def edge_base_url(bucket: str) -> str:
 
 def policy_blocks(constraint: str, policy: dict[str, Any]) -> bool:
     """True when an effective org policy would stop ``allUsers`` from reading the objects."""
-    rules = policy.get("spec", {}).get("rules", [])
+    rules = (policy.get("spec") or {}).get("rules") or []
     if constraint == PUBLIC_ACCESS_PREVENTION:
         return any(rule.get("enforce") is True for rule in rules)
+    if constraint == MANAGED_DOMAIN_RESTRICTED_SHARING:
+        return any(
+            rule.get("enforce") is True
+            and PUBLIC_MEMBER not in ((rule.get("parameters") or {}).get("allowedMemberSubjects") or [])
+            for rule in rules
+        )
     return any(rule.get("denyAll") is True or rule.get("values", {}).get("allowedValues") for rule in rules)
 
 
 def check_org_policies(gcloud: Gcloud, project: str, report: list[str]) -> None:
     blocked: list[str] = []
-    for constraint in (DOMAIN_RESTRICTED_SHARING, PUBLIC_ACCESS_PREVENTION):
-        result = gcloud.query(
-            ["org-policies", "describe", constraint, f"--project={project}", "--effective", "--format=json"]
-        )
+    for constraint in ORG_POLICY_CONSTRAINTS:
+        arguments = [
+            "org-policies",
+            "describe",
+            constraint,
+            f"--project={project}",
+            "--effective",
+            "--format=json",
+        ]
+        result = gcloud.query(arguments)
         if gcloud.dry_run:
             report.append(f"org policy {constraint}: not read (dry-run)")
             continue
@@ -97,7 +120,7 @@ def check_org_policies(gcloud: Gcloud, project: str, report: list[str]) -> None:
                 "a blocking policy will surface as a failed step"
             )
             continue
-        if policy_blocks(constraint, json.loads(result.stdout or "{}")):
+        if policy_blocks(constraint, _policy(arguments, result.stdout)):
             blocked.append(constraint)
             report.append(f"org policy {constraint}: BLOCKS public objects")
         else:
@@ -108,6 +131,22 @@ def check_org_policies(gcloud: Gcloud, project: str, report: list[str]) -> None:
             + ", ".join(blocked)
             + "; an organization admin must grant a project exception (design §C.2)"
         )
+
+
+def _policy(arguments: list[str], stdout: str) -> dict[str, Any]:
+    """The org policy a successful read printed (empty output: no policy set).
+
+    Any output that is not a JSON object is an error; it is never read as a non-blocking policy.
+    """
+    try:
+        value = json.loads(stdout or "{}")
+    except json.JSONDecodeError as error:
+        raise GcloudError(
+            f"{Gcloud.display(arguments)} printed {stdout[:200]!r}, not JSON ({error})"
+        ) from error
+    if not isinstance(value, dict):
+        raise GcloudError(f"{Gcloud.display(arguments)} printed {stdout[:200]!r}, not a JSON object")
+    return value
 
 
 def assert_created_here(gcloud: Gcloud, url: str, project: str, current: dict[str, Any]) -> None:
@@ -122,9 +161,15 @@ def assert_created_here(gcloud: Gcloud, url: str, project: str, current: dict[st
             f"{url} exists but was not created by this script (no label {LABEL_KEY}={LABEL_VALUE}); "
             "it is never made public automatically: needs-human-decision"
         )
-    project_info = gcloud.describe(["projects", "describe", project, "--format=json"]) or {}
-    expected = str(project_info.get("projectNumber", ""))
-    if not expected or str(current.get("projectNumber", "")) != expected:
+    project_info = gcloud.describe(["projects", "describe", project, "--format=json"])
+    expected = (project_info or {}).get("projectNumber")
+    if not expected:
+        found = "found no such project" if project_info is None else "reported no projectNumber"
+        raise ProvisionError(
+            f"cannot read the project number of {project} (projects describe {found}), so {url} cannot "
+            "be matched to it; check --project and the account's access"
+        )
+    if str(current.get("projectNumber", "")) != str(expected):
         raise ProvisionError(
             f"{url} is not in project {project} (bucket project number "
             f"{current.get('projectNumber')!r}); needs-human-decision"
@@ -133,7 +178,10 @@ def assert_created_here(gcloud: Gcloud, url: str, project: str, current: dict[st
 
 def provision_edge(gcloud: Gcloud, bucket: str, project: str, report: list[str]) -> None:
     url = f"gs://{bucket}"
-    committed = json.loads((ROOT / CORS_FILE).read_text(encoding="utf-8"))
+    try:
+        committed = json.loads((ROOT / CORS_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:  # ValueError covers JSONDecodeError and UnicodeDecodeError
+        raise ProvisionError(f"{CORS_FILE} is unreadable ({error}); restore it from git") from error
     if committed != cors_policy():
         raise ProvisionError(
             f"{CORS_FILE} differs from web_layout.cors_policy(); fix the file, not the bucket"

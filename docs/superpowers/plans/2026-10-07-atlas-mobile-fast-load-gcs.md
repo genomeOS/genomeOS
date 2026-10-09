@@ -44687,9 +44687,9 @@ encoded site data under content-addressed keys below `atlas/web/`.
   balancer with a Google-managed certificate for `data.genome-os.org`; it needs a DNS A record at the
   registrar (a human step) and has a recurring load-balancer cost.
 - Provisioning reads and reports public-access prevention and the effective
-  `iam.allowedPolicyMemberDomains` and `storage.publicAccessPrevention` organization policies, and
-  stops before changing anything when one would block public objects. It is idempotent and
-  `--dry-run` prints every command.
+  `iam.allowedPolicyMemberDomains`, `iam.managed.allowedPolicyMembers` and
+  `storage.publicAccessPrevention` organization policies, and stops before changing anything when one
+  would block public objects. It is idempotent and `--dry-run` prints every command.
 
 The publish runbook is in [`data-store.md`](data-store.md#public-web-data-bucket).
 ```
@@ -44885,7 +44885,7 @@ taken too, stop and ask the owner.
 .venv/bin/python scripts/provision_atlas_web_bucket.py --mode edge --bucket "$ATLAS_DATA_BUCKET" | tee "$SCRATCH/provision-edge.txt"
 ```
 
-Expected: 9 `DRY-RUN` lines (the dry run reads nothing, so it always prints the new-bucket plan and
+Expected: 10 `DRY-RUN` lines (the dry run reads nothing, so it always prints the new-bucket plan and
 cannot detect an existing bucket — Step 3 is that check; the script itself also refuses an existing
 bucket without the label or in another project); then `RUN` lines for create, the
 `genomeos-purpose=atlas-web` label, IAM binding and CORS, report lines
