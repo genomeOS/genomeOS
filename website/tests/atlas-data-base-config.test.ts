@@ -14,6 +14,11 @@ const read = (relative: string): string =>
 const appPage = read('website/src/pages/app.astro');
 const environmentExample = read('.env.example');
 const buildSetup = read('website/tests/setup/build.ts');
+const packageScripts = (
+  JSON.parse(read('website/package.json')) as {
+    scripts: Record<string, string>;
+  }
+).scripts;
 
 const BUCKET_BASE = 'https://storage.googleapis.com/example-bucket/atlas/web/';
 // An env read of the variable, in any of the spellings Vite and Node accept.
@@ -123,6 +128,15 @@ describe('Atlas artifact data base wiring', () => {
     );
     // No hand-rolled copy of escapeInlineJson's "<" rule in the page.
     expect(appPage).not.toContain('\\u003c');
+  });
+
+  it('builds the browser contracts against the cross-origin fixture data', () => {
+    expect(packageScripts['test:e2e']).toBe(
+      'PUBLIC_ATLAS_DATA_BASE_URL=http://127.0.0.1:4323/ npm run build:e2e && playwright test',
+    );
+    expect(packageScripts['serve:atlas-data']).toBe(
+      'node scripts/serve-atlas-data.mjs --root tests/fixtures/atlas/e2e',
+    );
   });
 });
 

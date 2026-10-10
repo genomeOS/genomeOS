@@ -2,6 +2,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  atlasCorsOrigins,
+  atlasDataServerArgs,
   DEFAULT_PLAYWRIGHT_PORT,
   playwrightPort,
   playwrightWorkers,
@@ -41,5 +43,21 @@ describe('Playwright environment overrides', () => {
       expect(() => playwrightWorkers({ PLAYWRIGHT_WORKERS: raw }), raw).toThrow(
         /^PLAYWRIGHT_WORKERS must be an integer from 1 to \d+, got "/,
       );
+  });
+
+  it('grants a moved test server on the Atlas data origin only through the test-only flag', () => {
+    // design 2026-10-07 §C.2: the bucket policy lists the default local site ports.
+    for (const port of [4321, 4322, 4323]) {
+      const origin = `http://127.0.0.1:${port}`;
+      expect(atlasCorsOrigins()).toContain(origin);
+      expect(atlasDataServerArgs(origin), origin).toEqual([]);
+    }
+    expect(atlasDataServerArgs('http://127.0.0.1:4352')).toEqual([
+      '--allow-origin',
+      'http://127.0.0.1:4352',
+    ]);
+    expect(
+      atlasDataServerArgs('http://127.0.0.1:4322', ['https://genome-os.org']),
+    ).toEqual(['--allow-origin', 'http://127.0.0.1:4322']);
   });
 });

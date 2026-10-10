@@ -1,3 +1,5 @@
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import {
   chmodSync,
   mkdirSync,
@@ -14,6 +16,13 @@ import { gunzipSync, gzip } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createAtlasDataServer } from '../scripts/serve-atlas-data.mjs';
+
+const SERVER_SCRIPT = path.resolve(
+  import.meta.dirname,
+  '..',
+  'scripts',
+  'serve-atlas-data.mjs',
+);
 
 // Count compressions without changing them: the server must gzip each file
 // version once, not on every GET and HEAD.
@@ -349,5 +358,118 @@ describe('the data origin CORS document', () => {
     expect(() => createAtlasDataServer({ root, corsFile: file })).toThrow(
       /not a readable JSON document/,
     );
+  });
+});
+
+describe('test-only extra origins', () => {
+  // A PLAYWRIGHT_PORT override (#411) moves the site to a port the bucket's
+  // CORS document does not list; the local data server alone may grant it.
+  const MOVED_SITE = 'http://127.0.0.1:4352';
+
+  it('grants an extra loopback site origin what the CORS document grants', async () => {
+    const plain = await raw(`/${GRID}`, { Origin: MOVED_SITE });
+    expect(plain.headers['access-control-allow-origin']).toBeUndefined();
+    const widened = createAtlasDataServer({ root, allowOrigins: [MOVED_SITE] });
+    const widenedPort = await listen(widened);
+    try {
+      const get = await raw(
+        `/${GRID}`,
+        { Origin: MOVED_SITE },
+        'GET',
+        widenedPort,
+      );
+      expect(get.headers['access-control-allow-origin']).toBe(MOVED_SITE);
+      expect(get.headers['access-control-expose-headers']).toBe(
+        'Content-Length, Content-Type, Content-Encoding, ETag',
+      );
+      const preflight = await raw(
+        `/${GRID}`,
+        { Origin: MOVED_SITE, 'Access-Control-Request-Method': 'GET' },
+        'OPTIONS',
+        widenedPort,
+      );
+      expect(preflight.headers['access-control-allow-origin']).toBe(MOVED_SITE);
+      expect(preflight.headers['access-control-allow-methods']).toBe(
+        'GET, HEAD',
+      );
+      expect(preflight.headers['access-control-max-age']).toBe('3600');
+      const listed = await raw(
+        `/${GRID}`,
+        { Origin: ALLOWED },
+        'GET',
+        widenedPort,
+      );
+      expect(listed.headers['access-control-allow-origin']).toBe(ALLOWED);
+      const other = await raw(
+        `/${GRID}`,
+        { Origin: 'http://127.0.0.1:4353' },
+        'GET',
+        widenedPort,
+      );
+      expect(other.headers['access-control-allow-origin']).toBeUndefined();
+    } finally {
+      await close(widened);
+    }
+  });
+
+  it.each([
+    '*',
+    '',
+    'https://example.org',
+    'http://192.168.1.20:4352',
+    'https://127.0.0.1:4352',
+    'http://127.0.0.1:4352/',
+    'http://localhost:4352/app/',
+    '127.0.0.1:4352',
+  ])('refuses the extra origin %j', (origin) => {
+    expect(() =>
+      createAtlasDataServer({ root, allowOrigins: [origin] }),
+    ).toThrow(/--allow-origin/);
+  });
+
+  it('takes repeatable --allow-origin flags on the command line', async () => {
+    const child = spawn(
+      process.execPath,
+      [
+        SERVER_SCRIPT,
+        '--root',
+        root,
+        '--port',
+        '0',
+        '--allow-origin',
+        MOVED_SITE,
+        '--allow-origin',
+        'http://localhost:4352',
+      ],
+      { stdio: ['ignore', 'pipe', 'inherit'] },
+    );
+    try {
+      const line = await new Promise<string>((resolve, reject) => {
+        child.stdout!.once('data', (chunk: Buffer) =>
+          resolve(chunk.toString()),
+        );
+        child.once('exit', (code) =>
+          reject(new Error(`serve-atlas-data exited with code ${code}`)),
+        );
+      });
+      const announced = /at http:\/\/127\.0\.0\.1:(\d+)\//.exec(line);
+      expect(announced, line).not.toBeNull();
+      const cliPort = Number(announced![1]);
+      for (const origin of [MOVED_SITE, 'http://localhost:4352', ALLOWED]) {
+        const response = await raw(
+          `/${GRID}`,
+          { Origin: origin },
+          'GET',
+          cliPort,
+        );
+        expect(response.headers['access-control-allow-origin'], origin).toBe(
+          origin,
+        );
+      }
+    } finally {
+      child.kill();
+      if (child.exitCode === null && child.signalCode === null)
+        await once(child, 'exit');
+    }
   });
 });

@@ -28,7 +28,9 @@ describe('Atlas e2e build wiring', () => {
     for (const [name, script] of Object.entries(npm))
       if (name !== 'build:e2e')
         expect(script, name).not.toContain('PUBLIC_ATLAS_REQUEST_STALL_MS');
-    expect(npm['test:e2e']).toBe('npm run build:e2e && playwright test');
+    expect(npm['test:e2e']).toBe(
+      'PUBLIC_ATLAS_DATA_BASE_URL=http://127.0.0.1:4323/ npm run build:e2e && playwright test',
+    );
     expect(npm['capture:atlas']).toBe(
       'npm run build:e2e && node scripts/capture-atlas.mjs',
     );

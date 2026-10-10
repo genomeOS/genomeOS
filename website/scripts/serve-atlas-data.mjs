@@ -8,6 +8,11 @@
  * exercise absolute-URL resolution, crossorigin preload matching, CORS and
  * Content-Encoding.
  *
+ * The CORS document lists the default local site ports. A test server moved
+ * with PLAYWRIGHT_PORT (#411) is granted by the test-only `--allow-origin`
+ * (`allowOrigins`), which only this local server honours: the document, and so
+ * the bucket policy, never widens.
+ *
  * The bucket stores every object gzipped once at upload, so this server
  * compresses each file version once too: off the event loop, shared by
  * concurrent requests, and kept for the server's lifetime (a test or staging
@@ -35,6 +40,8 @@ const CORS_KEYS = new Set([
   'responseHeader',
   'maxAgeSeconds',
 ]);
+// `--allow-origin` grants only a local test site, never a public origin.
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1']);
 // Read failures that mean "no such object" (GCS answers 404); any other
 // failure (EACCES, EMFILE, EIO, ...) is a server fault and answers 500.
 const NO_SUCH_OBJECT = new Set(['ENOENT', 'ENOTDIR', 'EISDIR', 'ENAMETOOLONG']);
@@ -104,6 +111,31 @@ function readCorsPolicy(file) {
   });
 }
 
+/**
+ * The test-only extra site origins, checked: each must be exactly an origin
+ * (no path or trailing slash) on http://localhost or http://127.0.0.1.
+ */
+function readAllowOrigins(origins) {
+  for (const origin of origins) {
+    let url = null;
+    try {
+      url = new URL(origin);
+    } catch {
+      // reported below
+    }
+    if (
+      url?.origin !== origin ||
+      url.protocol !== 'http:' ||
+      !LOOPBACK_HOSTS.has(url.hostname)
+    ) {
+      throw new Error(
+        `--allow-origin ${JSON.stringify(origin)}: expected a local test site origin such as http://127.0.0.1:4352`,
+      );
+    }
+  }
+  return origins;
+}
+
 /** The first entry, in document order, that grants this origin this method. */
 function corsEntry(policy, origin, method) {
   if (!origin || !method) return undefined;
@@ -120,9 +152,23 @@ function gzipLevel9(body) {
   );
 }
 
-export function createAtlasDataServer({ root, corsFile = CORS_FILE }) {
+/**
+ * `allowOrigins` (test-only) adds local site origins to every entry of the
+ * CORS document, so each is granted exactly what a listed origin is.
+ *
+ * @param {{ root: string, corsFile?: string, allowOrigins?: string[] }} options
+ */
+export function createAtlasDataServer({
+  root,
+  corsFile = CORS_FILE,
+  allowOrigins = [],
+}) {
   const base = path.resolve(root);
-  const policy = readCorsPolicy(corsFile);
+  const extraOrigins = readAllowOrigins(allowOrigins);
+  const policy = readCorsPolicy(corsFile).map((entry) => ({
+    ...entry,
+    origins: new Set([...entry.origins, ...extraOrigins]),
+  }));
   /** @type {Map<string, { version: string, payload: Promise<Buffer> }>} */
   const compressed = new Map();
 
@@ -248,15 +294,17 @@ if (import.meta.url === invokedPath) {
       root: { type: 'string' },
       host: { type: 'string', default: '127.0.0.1' },
       port: { type: 'string', default: '4323' },
+      'allow-origin': { type: 'string', multiple: true, default: [] },
     },
   });
   if (!values.root) throw new Error('--root is required');
-  createAtlasDataServer({ root: values.root }).listen(
-    Number(values.port),
-    values.host,
-    () =>
-      console.log(
-        `Atlas data ${path.resolve(values.root)} at http://${values.host}:${values.port}/`,
-      ),
+  const server = createAtlasDataServer({
+    root: values.root,
+    allowOrigins: values['allow-origin'],
+  });
+  server.listen(Number(values.port), values.host, () =>
+    console.log(
+      `Atlas data ${path.resolve(values.root)} at http://${values.host}:${server.address().port}/`,
+    ),
   );
 }
