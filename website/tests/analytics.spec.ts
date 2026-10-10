@@ -126,6 +126,36 @@ async function waitForCookieControl(page: Page): Promise<void> {
   });
 }
 
+/**
+ * Wait for the Atlas's cold reveal to finish: ready, cell edges, and the Natural Earth context
+ * (the cold-load harness's settled marks, atlas-cold-load.spec.ts). Until the context lands the
+ * scene requests a frame per overlay slice, and under the runners' software WebGL each frame is a
+ * long task: a locator call queues behind it, and one iconClearance took over 5 s on CI. A layout
+ * claim about the steady page is measured on the settled page.
+ */
+async function waitForAtlasSettled(page: Page): Promise<void> {
+  await expect(
+    page.locator(
+      '[data-atlas-ready="true"][data-atlas-edges-ready="true"][data-atlas-context-ready="true"]',
+    ),
+  ).toBeVisible({ timeout: 45_000 });
+}
+
+/**
+ * Wait until the Atlas has applied a control change it defers to the next paint: measured-point
+ * styles, the sampling areas among them, reach the scene in an animation frame after the change
+ * (useAtlasActivity.ts `runScene`), and no DOM state marks it. That frame callback is queued
+ * before this one, so by the second frame it and its continuation have run.
+ */
+async function afterNextPaint(page: Page): Promise<void> {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+}
+
 /** A browser that sends Global Privacy Control (`navigator.globalPrivacyControl === true`). */
 async function sendGlobalPrivacyControl(page: Page): Promise<void> {
   await page.addInitScript(() => {
@@ -738,7 +768,7 @@ for (const profile of PHONE_PROFILES)
         test.setTimeout(120_000);
         await page.emulateMedia({ reducedMotion: 'reduce' });
         await page.goto('/app/');
-        await waitForAtlasReady(page);
+        await waitForAtlasSettled(page);
         await waitForCookieControl(page);
         await expect(cornerIcon(page)).toBeHidden();
         const icon = page.locator('[data-cookie-dock]:visible');
@@ -1012,6 +1042,9 @@ test.describe('Atlas events', { tag: '@desktop-chromium' }, () => {
     await expect
       .poll(() => new URL(page.url()).searchParams.get('layers'))
       .not.toContain('observations');
+    // A sampling-area ring passes under the canvas centre, and the radii leave the scene only on
+    // the next paint: click once that frame has run.
+    await afterNextPaint(page);
     const surface = page.getByRole('complementary', {
       name: 'Selected map cell',
     });
