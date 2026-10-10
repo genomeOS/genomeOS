@@ -897,9 +897,9 @@ gzip'`).
   `hashlib.md5`, no new dependency). `--dry-run` prints every command. Compressed bytes and CRC32C are
   never compared across runs.
 - **CORS** (`gcloud storage buckets update --cors-file`): `GET`, `HEAD` from `https://genome-os.org`,
-  `http://genome-os.org` (the site still answers on HTTP), `https://www.genome-os.org`,
-  `https://bschilder.github.io`, and `http://localhost` / `http://127.0.0.1` on ports 4321, 4322 and
-  4323; response headers `Content-Length`, `Content-Type`, `Content-Encoding`, `ETag`;
+  `https://www.genome-os.org`, and `http://localhost` / `http://127.0.0.1` on ports 4321, 4322 and
+  4323 (amended 2026-10-10: Pages enforces HTTPS and `genomeos.github.io` only redirects to
+  `genome-os.org`, so no page is served from `http://genome-os.org` or a `github.io` origin); response headers `Content-Length`, `Content-Type`, `Content-Encoding`, `ETag`;
   `maxAgeSeconds` 3600.
 - **CDN modes** (`scripts/provision_atlas_web_bucket.py --mode edge|cloud-cdn`, idempotent,
   `--dry-run`):

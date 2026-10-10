@@ -71,9 +71,7 @@ def test_cors_policy_is_exactly_the_published_origin_list() -> None:
         {
             "origin": [
                 "https://genome-os.org",
-                "http://genome-os.org",
                 "https://www.genome-os.org",
-                "https://bschilder.github.io",
                 "http://localhost:4321",
                 "http://localhost:4322",
                 "http://localhost:4323",

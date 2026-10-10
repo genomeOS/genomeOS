@@ -203,7 +203,7 @@ def test_a_correctly_published_bucket_passes_without_comparing_content_length(
     assert _run(served, tmp_path, "--production") == 0
     assert (
         capsys.readouterr().out.strip()
-        == "ok: 6 artifact objects x 4 origins, 3 checked end to end, 2 site files"
+        == "ok: 6 artifact objects x 2 origins, 3 checked end to end, 2 site files"
     )
     render = staged_catalog()["artifacts"][0]["web"]["render"]["url"]
     assert len(served.bucket.stored(render)) != len(served.bucket.objects[render])  # CL is the gzip size
@@ -350,10 +350,10 @@ def test_transport_headers_are_required_on_every_object(
 def test_every_production_origin_needs_a_cors_grant(
     served: Served, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    served.bucket.allowed_origins.discard("http://genome-os.org")
+    served.bucket.allowed_origins.discard("https://www.genome-os.org")
     assert _run(served, tmp_path) == 1
     out = capsys.readouterr().out
-    assert "(Origin http://genome-os.org): Access-Control-Allow-Origin None" in out
+    assert "(Origin https://www.genome-os.org): Access-Control-Allow-Origin None" in out
     assert "(Origin https://genome-os.org): Access-Control-Allow-Origin" not in out
 
 

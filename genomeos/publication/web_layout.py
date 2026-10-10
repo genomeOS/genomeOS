@@ -27,9 +27,7 @@ CONTENT_TYPES: Mapping[str, str] = {".gosa": "application/octet-stream", ".json"
 DOWNLOAD_KINDS = ("surface", "observations", "manifest")
 PRODUCTION_ORIGINS = (
     "https://genome-os.org",
-    "http://genome-os.org",  # the site still answers on plain HTTP
     "https://www.genome-os.org",
-    "https://bschilder.github.io",
 )
 LOCAL_ORIGINS = tuple(
     f"http://{host}:{port}" for host in ("localhost", "127.0.0.1") for port in (4321, 4322, 4323)
