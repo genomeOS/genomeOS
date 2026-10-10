@@ -1,6 +1,7 @@
 /** Accessible explorer controls for Atlas design §11. */
 
 import { createPortal } from 'react-dom';
+import { useAtlasControlId } from './AtlasScope';
 
 import type { AtlasCatalog, ExternalInfo } from '../../atlas/contracts';
 import type {
@@ -11,6 +12,7 @@ import type {
 } from '../../atlas/observation-encoding';
 import type { SceneCapabilities } from '../../atlas/scene/atlas-scene';
 import { dataHref } from '../../lib/data-url';
+import { sitePath } from '../../lib/paths';
 import type {
   BasemapId,
   EdgeColorMode,
@@ -140,6 +142,7 @@ export function ExplorerControls({
   onHome,
   onZoom,
 }: ExplorerControlsProps) {
+  const controlId = useAtlasControlId();
   const selectedArtifact = catalog.artifacts.find(
     (artifact) => artifact.id === state.entityId,
   );
@@ -180,6 +183,9 @@ export function ExplorerControls({
         <p>
           Visualize measured and predicted allele frequencies across the world
         </p>
+        <p>
+          <a href={sitePath('/app/compare/')}>Compare two published maps</a>
+        </p>
       </div>
 
       {topSlotTarget ? (
@@ -218,7 +224,7 @@ export function ExplorerControls({
             <label>
               <input
                 type="radio"
-                name="metric"
+                name={controlId('metric')}
                 value="post_mean"
                 checked={state.metric === 'post_mean'}
                 onChange={() => onMetric('post_mean')}
@@ -228,7 +234,7 @@ export function ExplorerControls({
             <label>
               <input
                 type="radio"
-                name="metric"
+                name={controlId('metric')}
                 value="post_sd"
                 checked={state.metric === 'post_sd'}
                 onChange={() => onMetric('post_sd')}
@@ -278,9 +284,9 @@ export function ExplorerControls({
                 rings mean the source located a sample only to a broad
                 administrative area.
               </InfoTip>
-              <label htmlFor="atlas-sampling-areas">
+              <label htmlFor={controlId('atlas-sampling-areas')}>
                 <input
-                  id="atlas-sampling-areas"
+                  id={controlId('atlas-sampling-areas')}
                   type="checkbox"
                   checked={state.samplingAreas && observationsAvailable}
                   disabled={disabled || !observationsAvailable}
@@ -309,9 +315,9 @@ export function ExplorerControls({
               <InfoTip label="cell outlines">
                 Draws a visible outline around every rendered map polygon.
               </InfoTip>
-              <label htmlFor="atlas-cell-edges">
+              <label htmlFor={controlId('atlas-cell-edges')}>
                 <input
-                  id="atlas-cell-edges"
+                  id={controlId('atlas-cell-edges')}
                   type="checkbox"
                   checked={state.cellEdges}
                   disabled={disabled}

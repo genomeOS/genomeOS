@@ -34,10 +34,12 @@ export interface ContextSourceUrls {
 export function useAtlasDataProvider(
   artifactDataBase: string,
   siteDataBase: string,
+  sharedProvider?: StaticAtlasDataProvider,
 ): StaticAtlasDataProvider | null {
   return useMemo(
     () =>
-      typeof document === 'undefined'
+      sharedProvider ??
+      (typeof document === 'undefined'
         ? null
         : new StaticAtlasDataProvider({
             artifactDataBase,
@@ -53,8 +55,8 @@ export function useAtlasDataProvider(
                 )
               : undefined,
             worker: atlasWorker(),
-          }),
-    [artifactDataBase, siteDataBase],
+          })),
+    [artifactDataBase, siteDataBase, sharedProvider],
   );
 }
 
