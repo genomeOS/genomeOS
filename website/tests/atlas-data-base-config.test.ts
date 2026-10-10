@@ -14,6 +14,7 @@ const read = (relative: string): string =>
 const appPage = read('website/src/pages/app.astro');
 const environmentExample = read('.env.example');
 const buildSetup = read('website/tests/setup/build.ts');
+const pagesWorkflow = read('.github/workflows/pages.yml');
 const packageScripts = (
   JSON.parse(read('website/package.json')) as {
     scripts: Record<string, string>;
@@ -63,6 +64,15 @@ function explorerIslandProps(html: string): Record<string, unknown> {
       .replaceAll('&gt;', '>')
       .replaceAll('&amp;', '&'),
   ) as Record<string, unknown>;
+}
+
+/** One job's text, from its key up to the next job's key (`[\w-]` so `e2e:` ends `validate`). */
+function job(name: string): string {
+  const start = pagesWorkflow.indexOf(`\n  ${name}:\n`);
+  expect(start, `job ${name}`).toBeGreaterThan(-1);
+  const rest = pagesWorkflow.slice(start + 1);
+  const next = rest.search(/\n {2}[a-z][\w-]*:\n/);
+  return next < 0 ? rest : rest.slice(0, next);
 }
 
 function astroBuild(base: string): string {
@@ -201,4 +211,45 @@ describe('production-shaped builds', () => {
       'PUBLIC_ATLAS_DATA_BASE_URL',
     );
   }, 240_000);
+});
+
+describe('pages workflow', () => {
+  it('sets the production base from the repository variable in the build job only', () => {
+    const line = 'PUBLIC_ATLAS_DATA_BASE_URL: ${{ vars.ATLAS_DATA_BASE_URL }}';
+    expect(pagesWorkflow.split(line)).toHaveLength(2);
+    expect(job('build')).toContain(line);
+    expect(pagesWorkflow).not.toMatch(/ATLAS_DATA_ORIGIN/);
+  });
+
+  it('gates validate (same-repository runs) and the production build on the published data', () => {
+    expect(job('validate')).toContain(
+      'python ../scripts/check_atlas_web_data.py --catalog public/data/atlas/catalog.json',
+    );
+    expect(job('validate')).toContain(
+      'github.event.pull_request.head.repo.full_name == github.repository',
+    );
+    const build = job('build');
+    expect(build).toContain(
+      'python ../scripts/check_atlas_web_data.py --production',
+    );
+    expect(build.indexOf('check_atlas_web_data.py')).toBeLessThan(
+      build.indexOf('upload-pages-artifact'),
+    );
+  });
+
+  it('refuses a production build without the variable or with a test catalog', () => {
+    const build = job('build');
+    expect(build).toContain('if [ -z "$PUBLIC_ATLAS_DATA_BASE_URL" ]; then');
+    expect(build).toContain('if [ -n "${ATLAS_CATALOG_PATH:-}" ]; then');
+    expect(
+      build.indexOf('Refuse a production build without published Atlas data'),
+    ).toBeLessThan(build.indexOf('Build production site'));
+  });
+
+  it('no longer encodes Atlas data in CI', () => {
+    expect(pagesWorkflow).not.toContain('encode_atlas_web.py');
+    expect(pagesWorkflow).not.toContain(
+      'git diff --exit-code website/public/data/atlas/catalog.json',
+    );
+  });
 });

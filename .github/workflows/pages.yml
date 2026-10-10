@@ -6,17 +6,17 @@ on:
     paths:
       - "website/**"
       - ".github/workflows/pages.yml"
+      - "deploy/atlas-web-cors.json"
       - "genomeos/publication/**"
-      - "scripts/encode_atlas_web.py"
-      - "pyproject.toml"
+      - "scripts/check_atlas_web_data.py"
       - "requirements.lock"
   pull_request:
     paths:
       - "website/**"
       - ".github/workflows/pages.yml"
+      - "deploy/atlas-web-cors.json"
       - "genomeos/publication/**"
-      - "scripts/encode_atlas_web.py"
-      - "pyproject.toml"
+      - "scripts/check_atlas_web_data.py"
       - "requirements.lock"
   workflow_dispatch:
 
@@ -43,15 +43,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install the Atlas web-object encoder
-        run: python -m pip install -c requirements.lock '.[read]'
-        working-directory: .
-      - name: Encode Atlas web objects
-        run: python scripts/encode_atlas_web.py
-        working-directory: .
-      - name: Refuse a catalog the encoder did not write
-        run: git diff --exit-code website/public/data/atlas/catalog.json
-        working-directory: .
       - name: Install exact dependencies
         run: npm ci
       - name: Check formatting
@@ -64,6 +55,13 @@ jobs:
         run: npm run build
       - name: Check custom-domain links
         run: npm run check:links -- dist /
+      - name: Check published Atlas web data
+        # Same-repository runs only: fork pull requests do not receive repository variables.
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        run: python ../scripts/check_atlas_web_data.py --catalog public/data/atlas/catalog.json --base "$ATLAS_DATA_BASE_URL" --bucket "$ATLAS_DATA_BUCKET" --dist dist
+        env:
+          ATLAS_DATA_BASE_URL: ${{ vars.ATLAS_DATA_BASE_URL }}
+          ATLAS_DATA_BUCKET: ${{ vars.ATLAS_DATA_BUCKET }}
       - name: Build GitHub project-site fallback
         run: npm run build:fallback
       - name: Check fallback links
@@ -94,15 +92,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install the Atlas web-object encoder
-        run: python -m pip install -c requirements.lock '.[read]'
-        working-directory: .
-      - name: Encode Atlas web objects
-        run: python scripts/encode_atlas_web.py
-        working-directory: .
-      - name: Refuse a catalog the encoder did not write
-        run: git diff --exit-code website/public/data/atlas/catalog.json
-        working-directory: .
       - name: Install exact dependencies
         run: npm ci
       - name: Install browser runtime
@@ -121,6 +110,9 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: [validate, e2e]
     runs-on: ubuntu-latest
+    env:
+      PUBLIC_ATLAS_DATA_BASE_URL: ${{ vars.ATLAS_DATA_BASE_URL }}
+      ATLAS_DATA_BUCKET: ${{ vars.ATLAS_DATA_BUCKET }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -131,15 +123,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install the Atlas web-object encoder
-        run: python -m pip install -c requirements.lock '.[read]'
-      - name: Encode Atlas web objects
-        run: python scripts/encode_atlas_web.py
-      - name: Refuse a catalog the encoder did not write
-        run: git diff --exit-code website/public/data/atlas/catalog.json
       - name: Install exact dependencies
         run: npm ci
         working-directory: website
+      - name: Refuse a production build without published Atlas data
+        run: |
+          if [ -z "$PUBLIC_ATLAS_DATA_BASE_URL" ]; then
+            echo "::error::Repository variable ATLAS_DATA_BASE_URL is not set (design 2026-10-07 §C.1.4)."
+            exit 1
+          fi
+          if [ -n "${ATLAS_CATALOG_PATH:-}" ]; then
+            echo "::error::ATLAS_CATALOG_PATH is a test-only override; production inlines the repository catalog."
+            exit 1
+          fi
       - name: Build production site
         run: npm run build
         working-directory: website
@@ -148,6 +144,9 @@ jobs:
           GOOGLE_MAPS_TOKEN: ${{ secrets.GOOGLE_MAPS_TOKEN }}
       - name: Refuse broken production links
         run: npm run check:links -- dist /
+        working-directory: website
+      - name: Refuse unpublished Atlas web data
+        run: python ../scripts/check_atlas_web_data.py --production --catalog public/data/atlas/catalog.json --base "$PUBLIC_ATLAS_DATA_BASE_URL" --bucket "$ATLAS_DATA_BUCKET" --dist dist
         working-directory: website
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v4

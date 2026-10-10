@@ -44500,9 +44500,13 @@ describe('Atlas web-object encoding prerequisites (fast-load spec §B.5)', () =>
 });
 ```
 
-Note: after this commit, `validate` on this branch's PR fails at "Check published Atlas web data"
-until C18 commits the content-addressed catalog (the gate refuses flat keys) — that is the intended
-premature-merge guard (§C.4.3).
+Note: after this commit, `validate` on this branch's PR stays red until Task 104 (C18), and it fails
+first at "Run unit and content contracts", before the gate runs (ruling PF10): with the encode step
+gone, CI has no `.gosa` objects, so `atlas-public-data.test.ts` fails "validates every allowlisted
+surface and measured-observation file" and "decodes every staged grid, render and detail object"
+until C18 moves those checks behind `ATLAS_DATA_DIR`. "Check published Atlas web data" fails as well
+until C18 commits the content-addressed catalog (the gate refuses flat keys). Both are the intended
+premature-merge guard (§C.4.3): the stack is one PR and never merges mid-way.
 
 - [ ] Step 4: Run tests; expected pass.
 
