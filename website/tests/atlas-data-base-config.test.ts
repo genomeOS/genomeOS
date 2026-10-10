@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -16,12 +16,48 @@ const environmentExample = read('.env.example');
 const buildSetup = read('website/tests/setup/build.ts');
 
 const BUCKET_BASE = 'https://storage.googleapis.com/example-bucket/atlas/web/';
+// An env read of the variable, in any of the spellings Vite and Node accept.
+const ENV_READ =
+  /\b(?:import\.meta|process)\.env(?:\.PUBLIC_ATLAS_DATA_BASE_URL\b|\[\s*['"`]PUBLIC_ATLAS_DATA_BASE_URL['"`]\s*\])/g;
+
+/** website/src files (relative, POSIX) whose text names PUBLIC_ATLAS_DATA_BASE_URL at all. */
+function sourceFilesNamingTheVariable(): string[] {
+  const sourceRoot = path.join(websiteRoot, 'src');
+  return readdirSync(sourceRoot, { encoding: 'utf8', recursive: true })
+    .filter((relative) => /\.(?:astro|[cm]?[jt]sx?)$/.test(relative))
+    .filter((relative) =>
+      readFileSync(path.join(sourceRoot, relative), 'utf8').includes(
+        'PUBLIC_ATLAS_DATA_BASE_URL',
+      ),
+    )
+    .map((relative) => relative.split(path.sep).join('/'))
+    .sort();
+}
 
 function dataBasesIn(html: string): { artifact: string; site: string } {
   const match =
     /<script[^>]*\bid="atlas-data-bases"[^>]*>([^<]*)<\/script>/.exec(html);
   expect(match, '#atlas-data-bases').not.toBeNull();
   return JSON.parse(match![1]!) as { artifact: string; site: string };
+}
+
+/** The AtlasExplorer island's `props` attribute, HTML-unescaped and parsed. */
+function explorerIslandProps(html: string): Record<string, unknown> {
+  const island =
+    /<astro-island[^>]*component-url="[^"]*AtlasExplorer[^"]*"[^>]*>/.exec(
+      html,
+    );
+  expect(island, 'AtlasExplorer island').not.toBeNull();
+  const props = /\sprops="([^"]*)"/.exec(island![0]);
+  expect(props, 'AtlasExplorer island props').not.toBeNull();
+  return JSON.parse(
+    props![1]!
+      .replaceAll('&quot;', '"')
+      .replaceAll('&#39;', "'")
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&amp;', '&'),
+  ) as Record<string, unknown>;
 }
 
 function astroBuild(base: string): string {
@@ -55,13 +91,38 @@ function astroBuild(base: string): string {
 
 describe('Atlas artifact data base wiring', () => {
   it('reads PUBLIC_ATLAS_DATA_BASE_URL only at the build boundary', () => {
-    expect(appPage).toContain('import.meta.env.PUBLIC_ATLAS_DATA_BASE_URL');
+    // app.astro's frontmatter is the one reader, and it reads the variable once, straight into
+    // artifactDataBaseFrom. Vite inlines PUBLIC_* reads into client bundles too, so a read
+    // anywhere else would ship an unvalidated base; client code gets the validated base from
+    // the AtlasExplorer props and #atlas-data-bases instead. data-url.ts names the variable
+    // only in the resolver's docs and errors, and reads no env at all.
+    expect(sourceFilesNamingTheVariable()).toEqual([
+      'lib/data-url.ts',
+      'pages/app.astro',
+    ]);
+    expect(appPage.match(ENV_READ)).toEqual([
+      'import.meta.env.PUBLIC_ATLAS_DATA_BASE_URL',
+    ]);
+    expect(appPage).toMatch(
+      /artifactDataBaseFrom\(\s*import\.meta\.env\.PUBLIC_ATLAS_DATA_BASE_URL,\s*siteDataBase,?\s*\)/,
+    );
+    expect(read('website/src/lib/data-url.ts')).not.toMatch(
+      /\b(?:import\.meta|process)\.env\b/,
+    );
     expect(appPage).toContain('id="atlas-data-bases"');
     expect(environmentExample).toMatch(/^PUBLIC_ATLAS_DATA_BASE_URL=$/m);
     expect(buildSetup).toContain("PUBLIC_ATLAS_DATA_BASE_URL: ''");
     expect(`${appPage}\n${environmentExample}\n${buildSetup}`).not.toMatch(
       /ATLAS_DATA_ORIGIN/,
     );
+  });
+
+  it('escapes the bases element with the shared inline-JSON escape', () => {
+    expect(appPage).toMatch(
+      /const dataBasesJson = escapeInlineJson\(\s*JSON\.stringify\(/,
+    );
+    // No hand-rolled copy of escapeInlineJson's "<" rule in the page.
+    expect(appPage).not.toContain('\\u003c');
   });
 });
 
@@ -105,12 +166,12 @@ describe('production-shaped builds', () => {
     });
     // The head script's preloads read the same base from the inline catalog element.
     expect(html).toContain(`data-artifact-data-base="${BUCKET_BASE}"`);
-    const island =
-      /<astro-island[^>]*component-url="[^"]*AtlasExplorer[^"]*"[^>]*>/.exec(
-        html,
-      );
-    expect(island, 'AtlasExplorer island').not.toBeNull();
-    expect(island![0]).toContain(BUCKET_BASE);
+    // Astro serialises each island prop as [type, value]; type 0 is a plain JSON value. Pin both
+    // bases by name so swapped props fail.
+    expect(explorerIslandProps(html)).toMatchObject({
+      artifactDataBase: [0, BUCKET_BASE],
+      siteDataBase: [0, '/data/atlas/'],
+    });
   }, 240_000);
 
   it('fail loudly on a base without its trailing slash', () => {

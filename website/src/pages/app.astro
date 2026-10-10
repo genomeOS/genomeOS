@@ -1,7 +1,7 @@
 ---
 import AtlasExplorer from '../components/atlas/AtlasExplorer';
 import SiteLayout from '../layouts/SiteLayout.astro';
-import { INLINE_CATALOG_ID } from '../atlas/inline-catalog';
+import { escapeInlineJson, INLINE_CATALOG_ID } from '../atlas/inline-catalog';
 import { preloadScriptSource } from '../atlas/preload-script';
 import {
   assertRequestStallOverride,
@@ -22,10 +22,9 @@ const artifactDataBase = artifactDataBaseFrom(
   siteDataBase,
 );
 // Baked-in bases, read by scripts/check_atlas_web_data.py --production and the test harnesses.
-const dataBasesJson = JSON.stringify({
-  artifact: artifactDataBase,
-  site: siteDataBase,
-}).replaceAll('<', '\\u003c');
+const dataBasesJson = escapeInlineJson(
+  JSON.stringify({ artifact: artifactDataBase, site: siteDataBase }),
+);
 assertDataBase(siteDataBase);
 // fast-load design §B.6.1: the same strict schema the client uses; a violation fails the build.
 const { json: catalogJson } = loadPageCatalog(process.env.ATLAS_CATALOG_PATH);
