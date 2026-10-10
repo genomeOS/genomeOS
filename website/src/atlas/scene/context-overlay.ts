@@ -13,6 +13,12 @@
  * drawn with. When the scene is destroyed (unmount, "Retry globe") the load
  * stops at its next yield without a warning.
  *
+ * The Natural Earth credit is shown from construction, not once the deferred
+ * load has parsed: on phones the credit block docks the legend strip, and a
+ * credit that arrived after the reveal wrapped the credit text to a second
+ * line and moved the strip up 4 px (#430). A load that falls back before the
+ * context is parsed withdraws it, so it stays exactly when it used to appear.
+ *
  * Cesium copies a new label glyph into its texture atlas only after an await,
  * so the frame that created the glyph can find the atlas queue empty and ask
  * for no further frame; in requestRenderMode the labels would then stay
@@ -107,6 +113,7 @@ export interface ContextOverlayOptions {
     requestRender(): void;
   };
   addCredit: (credit: Credit) => void;
+  removeCredit: (credit: Credit) => void;
   fetchBytes?: (url: string) => Promise<ArrayBuffer>;
   createLabels?: () => LabelSink;
   slice?: Omit<SliceOptions, 'onSlice' | 'signal'>;
@@ -125,6 +132,7 @@ async function fetchArrayBuffer(url: string): Promise<ArrayBuffer> {
 export class ContextOverlay {
   readonly collection = new PrimitiveCollection();
   readonly #options: ContextOverlayOptions;
+  readonly #credit = new Credit(NATURAL_EARTH_CREDIT, true);
   readonly #now: () => number;
   readonly #heights = new Map<string, ContextHeights>();
   readonly #pendingHeights = new Set<string>();
@@ -159,6 +167,7 @@ export class ContextOverlay {
     this.#options = options;
     this.#now = options.now ?? (() => performance.now());
     options.scene.primitives.add(this.collection);
+    options.addCredit(this.#credit);
   }
 
   isReady(): boolean {
@@ -232,7 +241,6 @@ export class ContextOverlay {
       this.#throwIfDestroyed();
       const parsed = await this.#options.worker.parseContext(bytes);
       this.#throwIfDestroyed();
-      this.#options.addCredit(new Credit(NATURAL_EARTH_CREDIT, true));
       this.#parsed = parsed;
       // The worker computes heights from the context it has just parsed, so a factor set before
       // this point is served now.
@@ -253,12 +261,16 @@ export class ContextOverlay {
       this.#applyElevation(true);
       return 'ready';
     } catch (error) {
-      // Unmount and "Retry globe" destroy the scene (and stop the worker): not a load failure.
-      if (!this.#isDestroyed())
+      // Unmount and "Retry globe" destroy the scene (and stop the worker), and the viewer's
+      // credits with it: not a load failure.
+      if (!this.#isDestroyed()) {
         console.warn(
           'Geographic reference overlay could not be loaded.',
           error,
         );
+        // Nothing was drawn without the parsed context.
+        if (!this.#parsed) this.#options.removeCredit(this.#credit);
+      }
       return 'fallback';
     }
   }
