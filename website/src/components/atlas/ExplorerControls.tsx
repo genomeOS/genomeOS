@@ -183,9 +183,7 @@ export function ExplorerControls({
         <p>
           Visualize measured and predicted allele frequencies across the world
         </p>
-        <p>
-          <a href={sitePath('/app/compare/')}>Compare two published maps</a>
-        </p>
+        <a href={sitePath('/app/compare/')}>Compare two published maps</a>
       </div>
 
       {topSlotTarget ? (
