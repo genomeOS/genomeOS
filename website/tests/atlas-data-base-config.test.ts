@@ -76,7 +76,7 @@ function job(name: string): string {
 }
 
 function astroBuild(base: string): string {
-  const outDir = mkdtempSync(path.join(tmpdir(), 'genomeos-atlas-base-'));
+  const outDir = mkdtempSync(path.join(tmpdir(), 'atlas-base-'));
   const environment: NodeJS.ProcessEnv = {
     ...process.env,
     ASTRO_TELEMETRY_DISABLED: '1',
