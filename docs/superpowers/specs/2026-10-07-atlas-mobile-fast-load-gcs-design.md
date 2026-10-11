@@ -851,8 +851,8 @@ gzip'`).
    `PUBLIC_ATLAS_DATA_BASE_URL`: an absolute `https://` URL that includes the
    `atlas/web/` prefix and ends in `/`; empty means unset (same-origin fallback, used only by local dev
    and tests). `pages.yml` sets it from the repository variable `ATLAS_DATA_BASE_URL` in the
-   production `build` job only. `tests/setup/build.ts` and the `test:e2e` build set it to `''`
-   explicitly. A wiring test (like `google-maps-config.test.ts`) pins the `pages.yml` line, the
+   production `build` job only. `tests/setup/build.ts` sets it to `''` explicitly; the `test:e2e`
+   build sets it to the local cross-origin data server, `http://127.0.0.1:4323/` (C.3, E2E). A wiring test (like `google-maps-config.test.ts`) pins the `pages.yml` line, the
    `.env.example` entry and the absence of any `ORIGIN`-named variant.
 5. **Deploy gate** (`scripts/check_atlas_web_data.py`, run in `pages.yml` `build` before deploy, and in
    `validate` for same-repo PRs): fails when the baked-in base is empty or not absolute; for every
