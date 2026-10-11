@@ -11,7 +11,7 @@ by cell: detail float64 bit-for-bit, render float32 equal to ``float32(JSON)``, 
 the support histogram exact. Byte-deterministic and idempotent; every file is written to a temporary
 sibling and renamed into place, so an interrupted run can simply be re-run. Needs only the ``read`` extra.
 
-    python scripts/encode_atlas_web.py [--in DIR] [--out DIR] [--with-downloads]
+    python scripts/encode_atlas_web.py --in DIR [--out DIR] [--with-downloads]
 """
 
 from __future__ import annotations
@@ -34,7 +34,6 @@ from genomeos.publication import surface_codec as codec  # noqa: E402
 from genomeos.publication.web_layout import WebLayoutError, apply_download_layout  # noqa: E402
 from scripts.atlas_web_staging import StagingError, write_atomic, write_download_copies  # noqa: E402
 
-DEFAULT_DIR = ROOT / "website" / "public" / "data" / "atlas"
 #: Catalog fields owned by this encoder, stripped and recomputed on every run (idempotence).
 CATALOG_FIELDS = ("grids",)
 REF_FIELDS = ("observations_bytes", "web")
@@ -247,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--in", dest="in_dir", type=Path, default=DEFAULT_DIR, help="export directory")
+    parser.add_argument("--in", dest="in_dir", type=Path, required=True, help="export directory")
     parser.add_argument("--out", dest="out_dir", type=Path, help="output directory (default: --in)")
     parser.add_argument(
         "--with-downloads",

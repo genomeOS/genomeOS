@@ -75,13 +75,14 @@ explicitly unavailable; the builder never manufactures them from a surface.
 
 ## Building the static web export
 
-The `/app/` explorer reads `website/public/data/atlas/`. `scripts/export_atlas_web.py` writes the
-canonical, citable JSON (surface, observations and manifest per artifact, plus `catalog.json`).
-`export_atlas_web.py` output is an intermediate; the site build fails until `encode_atlas_web.py`
-has run:
+The `/app/` explorer reads `catalog.json` from the site (`website/public/data/atlas/`) and every
+per-artifact object from the public web data bucket. `scripts/export_atlas_web.py` writes the
+canonical, citable JSON (surface, observations and manifest per artifact, plus `catalog.json`) to
+an export directory. `export_atlas_web.py` output is an intermediate; the site build fails until
+`encode_atlas_web.py` has run on it and the result is published:
 
 ```bash
-python scripts/encode_atlas_web.py   # default --in and --out: website/public/data/atlas
+python scripts/encode_atlas_web.py --in <export-dir> --out data/atlas-web --with-downloads
 ```
 
 The encoder takes the first artifact's H3 sequence as the shared grid and refuses any surface
@@ -162,8 +163,9 @@ If provisioning stops right after creating the bucket (the ownership label is a 
 confirm that `gs://<bucket>` is the bucket just created (same project, no objects), run
 `python scripts/gcloud_repo.py run storage buckets update gs://<bucket> --update-labels=genomeos-purpose=atlas-web`,
 then re-run provisioning. If publishing reports a failed post-upload verification, resolve that
-object with the owner before any re-run: its metadata already matches the catalog, so a re-run
-would skip it as identical.
+object with the owner before any re-run, because a re-run does not repair it: it skips the object
+as identical when the object's identity metadata matches the catalog, and stops with a hard error
+when it does not.
 
 ### Re-encoding after the per-artifact files left the repository
 
@@ -177,7 +179,8 @@ cp website/public/data/atlas/catalog.json <export-dir>/catalog.json
 (cd website && ATLAS_DATA_DIR=<export-dir> npx vitest run tests/atlas-public-data.test.ts)
 ```
 
-The integrity test proves the download decompressed to the catalog's bytes. Then run
+The integrity test runs from `website/`, so `<export-dir>` must be an absolute path there. It
+proves the download decompressed to the catalog's bytes. Then run
 `encode_atlas_web.py --in <export-dir> --out <staging> --with-downloads`, publish, and copy only
 `<staging>/catalog.json` back into the repository. The surface and observations JSON must stay
 byte-identical: their SHA-256 values are in the catalog and in every citation, and a changed digest

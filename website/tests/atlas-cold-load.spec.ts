@@ -1,7 +1,11 @@
 /**
  * Cold-load measurement contract (fast-load design §B.1).
  *
- *   npm run build && npm run test:performance -- atlas-cold-load
+ *   PUBLIC_ATLAS_DATA_BASE_URL=http://127.0.0.1:4323/ npm run build
+ *   ATLAS_DATA_DIR=/path/to/staging npm run test:performance -- atlas-cold-load
+ *
+ * (To measure the bucket, build with its base and drop ATLAS_DATA_DIR; a
+ * same-origin build is refused; see the Local development docs page.)
  *
  * Headed Chrome on a hardware GPU; three fresh contexts per profile. The
  * observations-visible, surface-visible and reveal budgets are asserted on the
