@@ -240,6 +240,11 @@ const MALFORMED: [string, () => Uint8Array, string][] = [
     'for 33 arc vertices',
   ],
   [
+    'an arc count past 2³² vertices',
+    () => withHeader((header) => (header.arcs[0] = 2 ** 32 + 4)),
+    `for ${2 ** 32 + 33} arc vertices`,
+  ],
+  [
     'a longitude past 180 degrees',
     () => {
       const { header, points } = unpackBorders(COLLECTION);

@@ -265,16 +265,17 @@ export function decodeNaturalEarth(
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
   const { header: raw, payloadStart } = readContainer(bytes);
   const header = validateHeader(raw);
-  const arcStart = new Uint32Array(header.arcs.length + 1);
-  header.arcs.forEach((count, arc) => {
-    arcStart[arc + 1] = arcStart[arc] + count;
-  });
-  const vertices = arcStart[header.arcs.length];
+  // Summed as Numbers before any typed array holds them, so huge counts fail here, not wrap.
+  const vertices = header.arcs.reduce((sum, count) => sum + count, 0);
   const expected = payloadStart + 8 * vertices;
   if (bytes.byteLength !== expected)
     fail(
       `GOBD length ${bytes.byteLength} is not ${expected} for ${vertices} arc vertices`,
     );
+  const arcStart = new Uint32Array(header.arcs.length + 1);
+  header.arcs.forEach((count, arc) => {
+    arcStart[arc + 1] = arcStart[arc] + count;
+  });
   const points = readPoints(bytes, payloadStart, vertices, header.quantization);
 
   // Every ring is checked before any is drawn; each outer ring is drawn closed, then its first

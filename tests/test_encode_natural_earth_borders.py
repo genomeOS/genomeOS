@@ -257,6 +257,7 @@ def _with_header(change: Any) -> bytes:
         (lambda d: _with_header(lambda h: h.update(quantization=0)), "quantization"),
         (lambda d: _with_header(lambda h: h.update(quantization=1.5)), "quantization"),
         (lambda d: _with_header(lambda h: h["arcs"].__setitem__(0, 1)), "arc"),
+        (lambda d: _with_header(lambda h: h["arcs"].__setitem__(0, 2**32 + h["arcs"][0])), "length"),
         (lambda d: _with_header(lambda h: h["features"][0]["polygons"][0][0].__setitem__(0, 999)), "arc"),
         (lambda d: _with_header(lambda h: h["features"][0]["polygons"][0][0].__setitem__(0, True)), "arc"),
         (lambda d: _with_header(lambda h: h["features"][0]["properties"].update(POP_EST=1)), "propert"),
