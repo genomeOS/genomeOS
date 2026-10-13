@@ -94,9 +94,12 @@ the committed catalog differs. The objects are git-ignored; the JSON stays the c
 The explorer's country borders are derived too. `scripts/encode_natural_earth_borders.py` reads
 `reference/ne_50m_admin_0_countries.geojson`, refuses it unless its sha256 is the pinned
 revision's, and writes the committed `website/public/data/atlas/ne-50m-admin-0.borders.bin`
-(positions on a 0.0001° lattice, shared borders stored once; fast-load spec §B.10). The site no
-longer ships the GeoJSON. Re-run the script after changing the source or the format; `--check`
-fails when the committed file is stale, and the Python tests check it byte for byte.
+(positions on a 0.0001° lattice, shared borders stored once; fast-load spec §B.10). A vertex that
+rounding would move into another H3 cell is snapped back into its own, at every resolution of
+`catalog.json`'s `grids`, so border heights over a surface are exact. The site no longer ships the
+GeoJSON. Re-run the script after changing the source, the format or the catalog's grid
+resolutions; `--check` fails when the committed file is stale, and the Python tests check it byte
+for byte.
 
 ## Immutability is enforced, not just documented
 
