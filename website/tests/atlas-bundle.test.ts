@@ -50,7 +50,9 @@ const WIDGET_LAYER_CSS = [
 // The Cesium chunk's gzip size (zlib default level, as `serve` compresses) after #446 built the
 // globe on CesiumWidget: 1,101,646 bytes with Viewer at 0c9f328, 1,032,528 bytes without. Pinned
 // with 1% headroom, so Cesium-chunk edits such as the render loop pass, and the widget layer
-// (+69,118 bytes) or another Cesium module family of similar size coming back fails.
+// (+69,118 bytes) or another Cesium module family of similar size coming back fails. Measured on
+// darwin-arm64 with Node 23.9 only; CI builds on ubuntu x64 with Node 24, so the test prints the
+// size it measures.
 const CESIUM_CHUNK_GZIP_BYTES = 1_032_528;
 const CESIUM_CHUNK_GZIP_HEADROOM = 0.01;
 
@@ -198,9 +200,18 @@ describe('Cesium chunk on the /app/ critical path (issue #446)', () => {
     const bytes = gzipSync(
       readFileSync(path.join(assets, cesiumChunk())),
     ).length;
-    expect(bytes).toBeLessThanOrEqual(
-      Math.round(CESIUM_CHUNK_GZIP_BYTES * (1 + CESIUM_CHUNK_GZIP_HEADROOM)),
+    const limit = Math.round(
+      CESIUM_CHUNK_GZIP_BYTES * (1 + CESIUM_CHUNK_GZIP_HEADROOM),
     );
+    // In the CI log, so drift toward the limit on another platform or Node shows before it fails.
+    const format = (value: number, signDisplay: 'auto' | 'always' = 'auto') =>
+      value.toLocaleString('en-US', { signDisplay });
+    console.log(
+      `Cesium chunk gzip: ${format(bytes)} bytes ` +
+        `(${format(bytes - CESIUM_CHUNK_GZIP_BYTES, 'always')} against the ` +
+        `${format(CESIUM_CHUNK_GZIP_BYTES)} pin; limit ${format(limit)})`,
+    );
+    expect(bytes).toBeLessThanOrEqual(limit);
   });
 
   it("ships the credit-row CSS to /app/ but none of the widget layer's", () => {
