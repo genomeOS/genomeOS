@@ -48,12 +48,13 @@ const WIDGET_LAYER_CSS = [
   '.cesium-timeline',
 ];
 // The Cesium chunk's gzip size (zlib default level, as `serve` compresses) after #446 built the
-// globe on CesiumWidget: 1,101,646 bytes with Viewer at 0c9f328, 1,032,528 bytes without. Pinned
+// globe on CesiumWidget: 1,101,646 bytes with Viewer at 0c9f328, 1,032,528 bytes without, both on
+// darwin-arm64 with Node 23.9. The pin is CI's measurement of the same build (ubuntu x64, Node
+// 24.21: 1,037,389 bytes), since CI is the gate and its zlib output runs about 0.5% larger. Pinned
 // with 1% headroom, so Cesium-chunk edits such as the render loop pass, and the widget layer
-// (+69,118 bytes) or another Cesium module family of similar size coming back fails. Measured on
-// darwin-arm64 with Node 23.9 only; CI builds on ubuntu x64 with Node 24, so the test prints the
-// size it measures.
-const CESIUM_CHUNK_GZIP_BYTES = 1_032_528;
+// (+69,118 bytes) or another Cesium module family of similar size coming back fails. The test
+// prints the size it measures, so drift toward the limit shows in CI logs.
+const CESIUM_CHUNK_GZIP_BYTES = 1_037_389;
 const CESIUM_CHUNK_GZIP_HEADROOM = 0.01;
 
 function appHtml(): string {
