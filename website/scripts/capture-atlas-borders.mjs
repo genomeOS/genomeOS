@@ -9,7 +9,8 @@
  * (default 4376) and capture each of VIEWS with page overlays hidden, time frozen and every
  * basemap tile replaced by one neutral pixel. Most views show the Natural Earth borders and labels
  * alone (`layers=countries`); the two elevated views keep the HbS surface, whose heights the
- * borders follow. The after phase compares every pair with the before captures and writes
+ * borders follow, and which the compact borders reproduce exactly (every vertex stays in its H3
+ * cell, fast-load §B.10). The after phase compares every pair with the before captures and writes
  * docs/figures/atlas-compact-borders-parity.receipt.json, exiting non-zero when any pair differs by
  * more than CHANNEL_TOLERANCE on more than MAX_DIFFERENT_FRACTION of its pixels. Headless Chromium
  * renders through SwiftShader here, and two captures of one build are byte-identical, so every
@@ -36,7 +37,7 @@ const FIXED_TIME = new Date('2026-10-07T12:00:00Z');
 const CHANNEL_TOLERANCE = 2;
 const MAX_DIFFERENT_FRACTION = 0.005;
 const BORDERS_ONLY = { entity: 'hbs-rs334', layers: 'countries' };
-/** The camera heights bracket the documented error bound: 7.9 m is under half a pixel above ~20 km. */
+/** The camera heights bracket the documented error bound: 8.8 m is about half a pixel at ~20 km. */
 const VIEWS = [
   { name: 'globe', params: BORDERS_ONLY },
   // The 2D map has no sky box.
@@ -65,8 +66,10 @@ const VIEWS = [
       layers: 'surface,countries',
     },
   },
-  // Tilted north over the Gulf of Gabès, where one of the 8 vertices that change H3 cell
-  // (11.2026, 33.2492) drops from 24,778 m to 22,613 m on the HbS surface at exaggeration 1.
+  // Tilted north over the Gulf of Gabès, at one of the 8 vertices that rounding alone would carry
+  // into the neighbouring H3 cell (11.2026, 33.2492): it would drop from 24,778 m to 22,613 m on
+  // the HbS surface at exaggeration 1. Snapped back into its own cell, it keeps 24,778 m, so this
+  // view shows only the sub-pixel shift of the borders.
   {
     name: 'elevated-tilted-gabes',
     params: {

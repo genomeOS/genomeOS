@@ -8,7 +8,7 @@
   },
   "after": {
     "baseUrl": "http://127.0.0.1:4376",
-    "commit": "a03d8f0a394e781da98023c207dd21944df0b171",
+    "commit": "5ce8f733d8a5c93ccd51a4acc4dc201cd1e11697",
     "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver)"
   },
   "viewport": {
@@ -69,18 +69,18 @@
       "view": "elevated-surface",
       "query": "elevation=true&entity=hbs-rs334&exaggeration=5&height=9000000&lat=5&lon=20&layers=surface%2Ccountries",
       "pixels": 1296000,
-      "fractionAny": 0.00017361111111111112,
-      "fractionOverTolerance": 0.0000941358024691358,
-      "fractionOver16": 0.000020061728395061728,
+      "fractionAny": 0.00015432098765432098,
+      "fractionOverTolerance": 0.00008564814814814814,
+      "fractionOver16": 0.000017746913580246913,
       "pass": true
     },
     {
       "view": "elevated-tilted-gabes",
       "query": "elevation=true&entity=hbs-rs334&exaggeration=5&height=600000&lat=26&lon=11.2&layers=surface%2Ccountries&pitch=-35",
       "pixels": 1296000,
-      "fractionAny": 0.004584876543209876,
-      "fractionOverTolerance": 0.0002515432098765432,
-      "fractionOver16": 0.00006095679012345679,
+      "fractionAny": 0.0045231481481481485,
+      "fractionOverTolerance": 0.0002037037037037037,
+      "fractionOver16": 0.000028549382716049384,
       "pass": true
     }
   ]
