@@ -38,6 +38,8 @@ interface ExplorerControlsProps {
   state: ExplorerState;
   disabled: boolean;
   explorer: HTMLElement | null;
+  /** Receives the controls panel element (`ControlsSheet`). */
+  panelRef?: (node: HTMLElement | null) => void;
   topSlot: HTMLElement | null;
   onBasemap: (value: BasemapId) => void;
   onBasemapBrightness: (value: number) => void;
@@ -105,6 +107,7 @@ export function ExplorerControls({
   state,
   disabled,
   explorer,
+  panelRef,
   topSlot,
   onBasemap,
   onBasemapBrightness,
@@ -169,6 +172,7 @@ export function ExplorerControls({
   return (
     <ControlsSheet
       explorer={explorer}
+      panelRef={panelRef}
       peekExtra={topSlotTarget ? datasetTip : undefined}
       summary={sheetSummary}
     >

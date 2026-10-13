@@ -59,6 +59,7 @@ import { EscapeStackProvider } from './useEscapeStack';
 import { ExplorerPanelsProvider } from './useExplorerPanels';
 import { useObservationPlaces } from './useObservationPlaces';
 import { useAtlasSceneLifecycle } from './useAtlasSceneLifecycle';
+import { useGlobeOffset } from './useGlobeOffset';
 import {
   useAtlasDataProvider,
   useContextSourceUrls,
@@ -126,6 +127,7 @@ export default function AtlasExplorer({
   const [reducedMotion, setReducedMotion] = useState(prefersReducedMotion);
   const [explorerNode, setExplorerNode] = useState<HTMLDivElement | null>(null);
   const [topSlot, setTopSlot] = useState<HTMLDivElement | null>(null);
+  const [controlsPanel, setControlsPanel] = useState<HTMLElement | null>(null);
   const {
     activity,
     begin: beginActivity,
@@ -315,6 +317,9 @@ export default function AtlasExplorer({
     scene,
     worker: atlasWorker(),
   });
+
+  // #452: the desktop globe is drawn centred in the open area beside the controls panel.
+  useGlobeOffset(controlsPanel, sceneElement, sceneController);
 
   useEffect(() => {
     // A new scene (first load or "Retry globe") receives the whole current style at once; the
@@ -610,6 +615,7 @@ export default function AtlasExplorer({
               state={state}
               disabled={false}
               explorer={explorerNode}
+              panelRef={setControlsPanel}
               topSlot={topSlot}
               onEntity={chooseEntity}
               onExternalInfo={(source, signal) => {

@@ -161,6 +161,13 @@ export interface AtlasSceneController extends ArtifactSceneApi {
   setElevation(enabled: boolean, exaggeration: number): Promise<void>;
   setSceneMode(mode: ExplorerSceneMode, reducedMotion: boolean): Promise<void>;
   setCamera(camera: CameraState, animated: boolean): void;
+  /**
+   * CSS px of the canvas, measured from its left edge, that the persistent controls panel covers
+   * (0 when it is hidden or a phone's bottom sheet). The globe is drawn centred in the rest by
+   * shifting the projection centre; the camera does not move (fast-load design §A.1.13, amended
+   * 2026-10-13; #452).
+   */
+  setLeftObstruction(width: number): void;
   setSelection(pick: AtlasPick | null): void;
   home(animated: boolean): void;
   zoom(direction: 'in' | 'out'): void;

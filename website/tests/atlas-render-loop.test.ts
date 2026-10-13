@@ -84,6 +84,10 @@ vi.mock('../src/atlas/scene/camera', async (importOriginal) => ({
   bindKeyboardCamera: () => () => {},
   setCameraState: () => {},
 }));
+vi.mock('../src/atlas/scene/globe-offset', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/atlas/scene/globe-offset')>()),
+  installGlobeOffset: () => ({ destroy: () => {}, setCoveredLeft: () => {} }),
+}));
 vi.mock('../src/atlas/scene/picking', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/atlas/scene/picking')>()),
   bindAtlasPicking: () => () => {},
