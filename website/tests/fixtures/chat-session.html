@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Anonymous session acceptance fixture</title>
+  </head>
+  <body>
+    <div id="chat-root"></div>
+    <!-- Astro normally injects this React development preamble before hydration. -->
+    <script type="module">
+      import { injectIntoGlobalHook } from '/@react-refresh';
+      injectIntoGlobalHook(window);
+      window.$RefreshReg$ = () => {};
+      window.$RefreshSig$ = () => (type) => type;
+    </script>
+    <script type="module" src="./chat-session-fixture.ts"></script>
+  </body>
+</html>

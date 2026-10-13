@@ -43,6 +43,8 @@ import {
 } from '../../atlas/url-state';
 import { defaultPalette, type Metric } from '../../atlas/visual-encoding';
 import { AtlasDataCredit } from './AtlasDataCredit';
+import { AtlasChat } from './AtlasChat';
+import { restyleColdLoad } from '../../atlas/chat-rendering';
 import { AtlasLegend } from './AtlasLegend';
 import { AtlasStatus } from './AtlasStatus';
 import { ExplorerControls } from './ExplorerControls';
@@ -75,15 +77,6 @@ interface AtlasExplorerProps extends ComparisonExplorerProps {
 
 // Island module evaluation (before React mounts) starts the data worker and the Cesium chunk.
 bootAtlas();
-
-/**
- * A restyle before anything is displayed rebuilds the pending cold request, and the pipeline's
- * `setArtifact` for that request settles with the rebuild (ScientificLayers.setArtifact), so the
- * pipeline reports its outcome; this copy is only marked handled.
- */
-function restyleColdLoad(restyle: Promise<void> | undefined): void {
-  restyle?.catch(() => undefined);
-}
 
 export default function AtlasExplorer({
   artifactDataBase,
@@ -602,6 +595,17 @@ export default function AtlasExplorer({
           ref={setExplorerNode}
         >
           <div className="atlas-top-slot" ref={setTopSlot} />
+          {catalog && state && !panel && (
+            <AtlasChat
+              catalog={catalog}
+              state={state}
+              ready={status === 'ready' && !failure}
+              displayedId={activeArtifact?.id ?? ''}
+              controller={failure ? null : sceneController}
+              siteBase={import.meta.env.BASE_URL}
+              onState={setState}
+            />
+          )}
           <div
             className="atlas-scene"
             ref={sceneElement}

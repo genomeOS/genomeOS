@@ -1,0 +1,17 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+COPY pyproject.toml requirements.lock README.md LICENSE ./
+COPY genomeos ./genomeos
+RUN pip install --no-cache-dir -c requirements.lock '.[chat]'
+COPY website/public/data/atlas/catalog.json /app/published/catalog.json
+COPY website/src/atlas/public-artifacts.json /app/published/allowlist.json
+ENV ATLAS_CHAT_CATALOG_PATH=/app/published/catalog.json \
+    ATLAS_CHAT_ALLOWLIST_PATH=/app/published/allowlist.json \
+    ATLAS_CHAT_ORIGINS=https://genome-os.org
+
+# Attach a dedicated model-invocation identity, with no database or storage-write grants.
+USER 65532:65532
+EXPOSE 8011
+CMD ["uvicorn", "genomeos.chat.api:configured_app", "--factory", "--host", "0.0.0.0", "--port", "8011"]

@@ -1,0 +1,54 @@
+.atlas-chat {
+  position: absolute;
+  right: 1rem;
+  top: 5rem;
+  z-index: 20;
+  max-width: min(26rem, calc(100vw - 2rem));
+}
+.atlas-chat-panel {
+  background: #101b2b;
+  color: #eef6ff;
+  padding: 1rem;
+  border: 1px solid #678;
+  border-radius: 0.5rem;
+  max-height: 65vh;
+  overflow: auto;
+  font-size: 1rem;
+}
+.atlas-chat button {
+  background: #10243a;
+  color: #eef6ff;
+  border: 1px solid #678;
+  border-radius: 0.4rem;
+  padding: 0.5rem 0.8rem;
+  font: inherit;
+  min-height: 44px;
+  cursor: pointer;
+}
+.atlas-chat button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.atlas-chat-panel textarea {
+  width: 100%;
+  min-height: 5rem;
+  color: #eef6ff;
+  background: #0a1524;
+  border: 1px solid #678;
+  font: inherit;
+}
+.atlas-chat-panel p {
+  white-space: pre-wrap;
+}
+.atlas-chat-panel button,
+.atlas-chat-panel a {
+  margin: 0.25rem;
+}
+.atlas-chat-panel a {
+  color: #9af9e2;
+}
+@media (max-width: 600px) {
+  .atlas-chat {
+    top: 8rem;
+  }
+}

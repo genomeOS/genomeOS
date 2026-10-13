@@ -1,0 +1,16 @@
+*
+!Dockerfile.chat
+!pyproject.toml
+!requirements.lock
+!README.md
+!LICENSE
+!genomeos/
+!genomeos/**
+!website/
+!website/public/
+!website/public/data/
+!website/public/data/atlas/
+!website/public/data/atlas/catalog.json
+!website/src/
+!website/src/atlas/
+!website/src/atlas/public-artifacts.json
