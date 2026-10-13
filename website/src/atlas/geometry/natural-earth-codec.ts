@@ -2,27 +2,32 @@
  * 2026-10-07 §B.6.9, §B.10; issue #445).
  *
  * `scripts/encode_natural_earth_borders.py` writes GOBD v1 from the pinned 1:50m admin-0
- * GeoJSON: each position rounded half-to-even onto a 10⁻⁴-degree lattice, each shared border
- * stored once as an arc, arc vertices as byte-shuffled zigzag u32 lattice deltas, and only the six
- * properties the overlay reads. Little-endian:
+ * GeoJSON: each position rounded half-to-even onto a 10⁻⁴-degree lattice (and snapped back into its
+ * own H3 cell where rounding moved it out, below), each shared border stored once as an arc, arc
+ * vertices as byte-shuffled zigzag u32 lattice deltas, and only the six properties the overlay
+ * reads. Little-endian:
  *
  *   offset 0  : magic "GOBD"; u16 format_version = 1; u16 reserved = 0; u32 header_length
  *   offset 12 : header JSON {arcs, features, quantization, source}, then 0x00 padding to align 4
  *             : payload, 2·V u32 for V = sum(arcs): byte k of element i at k·2V + i
  *
- * **Error bound.** A decoded coordinate is `lattice / quantization`, the source coordinate
- * rounded to the lattice: within `BORDERS_MAX_ERROR_DEGREES` (0.00005°) of the source per axis,
- * and so within `BORDERS_MAX_ERROR_METRES` (7.9 m) on the ground; the committed file's worst
- * position is 7.82 m off. Rings, vertex counts and order, and labels are exact, so the buffers
- * have the shape the GeoJSON parse gave (tests/helpers/natural-earth-geojson.ts, the reference
- * the tests hold this decoder to).
+ * **Error bound.** A decoded coordinate is `lattice / quantization`. On the committed file every
+ * coordinate is within `BORDERS_MAX_ERROR_DEGREES` (0.00008°) of the source per axis and every
+ * position within `BORDERS_MAX_ERROR_METRES` (8.8 m) on the ground: rounding moves a coordinate at
+ * most half a step (0.00005°, 7.82 m at worst), and the 8 snapped vertices one step more (8.72 m at
+ * worst). Both bounds are measured, and stated by hand here and in the generator
+ * (`MAX_ERROR_DEGREES`, `MAX_ERROR_METRES`). Rings, vertex counts and order, and labels are exact,
+ * so the buffers have the shape the GeoJSON parse gave (tests/helpers/natural-earth-geojson.ts,
+ * the reference the tests hold this decoder to).
  *
- * **Heights.** `naturalEarthHeights` is unchanged and runs on the decoded positions, so a border
- * vertex's height is the same rule applied at most 7.9 m from where it was applied before. 8 of
- * the 101,052 drawn vertices lie that close to an H3 resolution-4 cell edge and now take the
- * neighbouring cell's disk: over the 30 published layers and both metrics, 269 of their 480
- * heights differ, by at most 2,786 m at exaggeration 1. Every other border height and every
- * label height is bit-identical; the tests pin the 8.
+ * **Heights.** `naturalEarthHeights` is unchanged and runs on the decoded positions. A height
+ * depends on a vertex only through `latLngToCell(lat, lon, grid.resolution)`, and the generator
+ * keeps every decoded vertex in its source's cell at each resolution the catalog's grids use
+ * (resolution 4 today): rounding alone would carry 8 of the 101,052 drawn vertices into a
+ * neighbouring resolution-4 cell, up to 2,786 m higher or lower at exaggeration 1, so those 8 are
+ * snapped to the nearest lattice point inside their own cell. Every border and label height is
+ * therefore bit-identical to the GeoJSON's; the tests check every vertex's cell with h3-js and pin
+ * the 8 against the cells h3-py chose.
  *
  * As before, one ring is drawn per polygon outer boundary (holes are decoded and checked, not
  * drawn), closed by repeating its first coordinate, and one label per distinct country text.
@@ -37,10 +42,10 @@ import {
   type NaturalEarthLabel,
 } from './natural-earth';
 
-/** Half a 10⁻⁴-degree lattice step: the most any coordinate moves, per axis. */
-export const BORDERS_MAX_ERROR_DEGREES = 0.00005;
-/** The ground distance that bound allows anywhere (7.86 m at the equator), rounded up. */
-export const BORDERS_MAX_ERROR_METRES = 7.9;
+/** The most any committed coordinate moves, per axis (measured 0.00008°: a snapped vertex). */
+export const BORDERS_MAX_ERROR_DEGREES = 0.00008;
+/** The most any committed position moves on the ground (measured 8.72 m), rounded up. */
+export const BORDERS_MAX_ERROR_METRES = 8.8;
 
 const MAGIC = [0x47, 0x4f, 0x42, 0x44]; // "GOBD"
 const FORMAT_VERSION = 1;

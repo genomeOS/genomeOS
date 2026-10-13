@@ -11,6 +11,7 @@ import struct
 from pathlib import Path
 from typing import Any
 
+import h3
 import numpy as np
 import pytest
 
@@ -72,8 +73,12 @@ SAMPLE = _collection(
 SOURCE = {"revision": "f" * 40, "sha256": "0" * 64, "url": "https://example.org/ne.geojson"}
 
 
-def _encode(collection: dict[str, Any] = SAMPLE, quantization: int = borders.QUANTIZATION) -> bytes:
-    return borders.encode(collection, quantization=quantization, source=SOURCE)
+def _encode(
+    collection: dict[str, Any] = SAMPLE,
+    quantization: int = borders.QUANTIZATION,
+    resolutions: tuple[int, ...] = (),
+) -> bytes:
+    return borders.encode(collection, quantization=quantization, source=SOURCE, resolutions=resolutions)
 
 
 def _polygons(feature: dict[str, Any]) -> list[Any]:
@@ -320,6 +325,104 @@ def test_reading_the_source_verifies_its_digest(tmp_path: Path) -> None:
     assert borders.read_source(path, sha256=hashlib.sha256(path.read_bytes()).hexdigest())["features"] == []
 
 
+# Snapping: a vertex keeps the H3 cells the site reads its height from (issue #445).
+
+#: A source vertex in the Gulf of Gabes that half-to-even rounding onto the 1e-4 lattice carries
+#: into the neighbouring H3 resolution-4 cell.
+GABES = (11.202637, 33.249219)
+
+
+def _cells(lon: float, lat: float, resolutions: tuple[int, ...]) -> tuple[str, ...]:
+    """As natural-earth.ts reads them: latLngToCell(lat, lon, resolution), longitude as decoded."""
+    return tuple(h3.latlng_to_cell(lat, lon, resolution) for resolution in resolutions)
+
+
+def _metres(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
+    return 1_000 * float(_haversine_km(*map(np.asarray, (lon1, lat1, lon2, lat2))))
+
+
+def _gabes() -> dict[str, Any]:
+    lon, lat = GABES
+    return _collection(_feature(_polygon([[lon, lat], [11.3, lat], [11.3, 33.35], [lon, lat]]), NAME="Gabes"))
+
+
+def test_the_height_resolutions_are_those_of_the_published_grids() -> None:
+    catalog = {"grids": {"a": {"resolution": 4}, "b": {"resolution": 6}, "c": {"resolution": 4}}}
+    assert borders.border_height_resolutions(catalog) == (4, 6)
+
+
+@pytest.mark.parametrize(
+    "catalog",
+    [
+        {},
+        {"grids": {}},
+        {"grids": []},
+        {"grids": {"a": {}}},
+        {"grids": {"a": {"resolution": 16}}},
+        {"grids": {"a": {"resolution": -1}}},
+        {"grids": {"a": {"resolution": 4.0}}},
+        {"grids": {"a": {"resolution": True}}},
+    ],
+)
+def test_a_catalog_without_valid_grid_resolutions_is_refused(catalog: Any) -> None:
+    with pytest.raises(ValueError, match="grid"):
+        borders.border_height_resolutions(catalog)
+
+
+def test_a_vertex_rounding_would_carry_into_another_cell_is_snapped_to_the_nearest_point_in_its_own() -> None:
+    lon, lat = GABES
+    rounded = [int(np.rint(lon * 10_000)), int(np.rint(lat * 10_000))]
+    plain = borders.decode(_encode(_gabes())).features[0].polygons[0][0]
+    assert plain[0] == rounded
+    assert _cells(rounded[0] / 10_000, rounded[1] / 10_000, (4,)) != _cells(lon, lat, (4,))
+
+    snapped = borders.decode(_encode(_gabes(), resolutions=(4,))).features[0].polygons[0][0]
+    want = _cells(lon, lat, (4,))
+    in_cell = [
+        (rounded[0] + dx, rounded[1] + dy)
+        for dx in range(-2, 3)
+        for dy in range(-2, 3)
+        if _cells((rounded[0] + dx) / 10_000, (rounded[1] + dy) / 10_000, (4,)) == want
+    ]
+    nearest = min(in_cell, key=lambda p: _metres(lon, lat, p[0] / 10_000, p[1] / 10_000))
+    assert snapped[0] == snapped[-1] == list(nearest)
+    assert max(abs(snapped[0][0] - rounded[0]), abs(snapped[0][1] - rounded[1])) == 1
+    # Rounding keeps the other vertices in their own cells, so they are not moved.
+    assert snapped[1:-1] == plain[1:-1]
+
+
+def test_snapping_prefers_the_nearest_point_then_the_smaller_lattice_x_then_y() -> None:
+    # The source sits on the lattice column x = 0, a third of a step above row 0; a fake cell
+    # function rejects that column, so (-1, 0) and (1, 0) tie as the nearest and x decides.
+    def cells(lon: float, lat: float) -> tuple[str, ...]:
+        return ("source",) if (lon, lat) == (0.0, 1 / 30_000) or lon != 0 else ("other",)
+
+    assert borders.snap(0.0, 1 / 30_000, 10_000, cells) == (-1, 0)
+
+    # A nearer point wins over the tie: allow (0, 1), two thirds of a step away, and it is chosen.
+    def north(lon: float, lat: float) -> tuple[str, ...]:
+        return ("source",) if lat > 0 else ("other",)
+
+    assert borders.snap(0.0, 1 / 30_000, 10_000, north) == (0, 1)
+
+
+def test_a_vertex_with_no_point_in_its_cell_within_two_steps_is_refused() -> None:
+    # A resolution-15 cell is about a metre across, far smaller than a 1e-4 degree step.
+    with pytest.raises(ValueError, match=r"feature 0 polygon 0 ring 0 position 0 .* within 2 lattice steps"):
+        _encode(_gabes(), resolutions=(15,))
+
+
+def test_snapping_never_leaves_the_globe() -> None:
+    # Rounds to (180, 90); only points past it would match, and the decoder refuses those.
+    source = (179.99996, 89.99996)
+
+    def cells(lon: float, lat: float) -> tuple[str, ...]:
+        return ("source",) if (lon, lat) == source or lon > 180 or lat > 90 else ("other",)
+
+    with pytest.raises(ValueError, match="within 2 lattice steps"):
+        borders.snap(*source, 10_000, cells)
+
+
 # The committed source and output (issue #445).
 
 
@@ -328,11 +431,38 @@ def _committed() -> tuple[dict[str, Any], bytes]:
     return source, borders.OUTPUT_PATH.read_bytes()
 
 
+def _published_resolutions() -> tuple[int, ...]:
+    return borders.border_height_resolutions(borders.read_catalog(borders.CATALOG_PATH))
+
+
+def _committed_positions() -> np.ndarray:
+    """Every committed position, holes included: source lon, lat, then decoded lon, lat."""
+    source, committed = _committed()
+    decoded = borders.decode(committed)
+    quantization = decoded.header["quantization"]
+    lon_lat = []
+    for feature, out in zip(source["features"], decoded.features, strict=True):
+        polygons = _polygons(feature)
+        assert [len(p) for p in polygons] == [len(p) for p in out.polygons]
+        for polygon, decoded_polygon in zip(polygons, out.polygons, strict=True):
+            for ring, decoded_ring in zip(polygon, decoded_polygon, strict=True):
+                assert len(ring) == len(decoded_ring)
+                lon_lat.append(np.hstack([np.asarray(ring), np.asarray(decoded_ring) / quantization]))
+    return np.vstack(lon_lat)
+
+
+def _cell_changes(positions: np.ndarray, resolution: int) -> int:
+    return sum(
+        h3.latlng_to_cell(lat, lon, resolution) != h3.latlng_to_cell(lat2, lon2, resolution)
+        for lon, lat, lon2, lat2 in positions.tolist()
+    )
+
+
 def test_the_committed_borders_are_the_encoding_of_the_pinned_source() -> None:
     source, committed = _committed()
     assert borders.SOURCE_PATH == ROOT / "reference" / "ne_50m_admin_0_countries.geojson"
     assert borders.OUTPUT_PATH == ROOT / "website" / "public" / "data" / "atlas" / borders.OUTPUT_KEY
-    assert borders.encode_source(source) == committed
+    assert borders.encode_source(source, _published_resolutions()) == committed
     assert borders.read_container(committed).header["source"] == {
         "revision": borders.SOURCE_REVISION,
         "sha256": borders.SOURCE_SHA256,
@@ -360,26 +490,34 @@ def _haversine_km(lon1: np.ndarray, lat1: np.ndarray, lon2: np.ndarray, lat2: np
 
 
 def test_every_committed_position_is_within_the_stated_error_bound() -> None:
-    source, committed = _committed()
-    decoded = borders.decode(committed)
-    quantization = decoded.header["quantization"]
-    assert quantization == borders.QUANTIZATION == 10_000
-    lon_lat = []
-    for feature, out in zip(source["features"], decoded.features, strict=True):
-        polygons = _polygons(feature)
-        assert [len(p) for p in polygons] == [len(p) for p in out.polygons]
-        for polygon, decoded_polygon in zip(polygons, out.polygons, strict=True):
-            for ring, decoded_ring in zip(polygon, decoded_polygon, strict=True):
-                assert len(ring) == len(decoded_ring)
-                lon_lat.append(np.hstack([np.asarray(ring), np.asarray(decoded_ring) / quantization]))
-    positions = np.vstack(lon_lat)
+    _, committed = _committed()
+    assert borders.decode(committed).header["quantization"] == borders.QUANTIZATION == 10_000
+    positions = _committed_positions()
     assert len(positions) == 99_613
     error_deg = np.abs(positions[:, :2] - positions[:, 2:])
-    # Half a lattice step per axis (the stated bound), and the measured worst case on the ground.
-    assert error_deg.max() <= borders.MAX_ERROR_DEGREES + 1e-12
     distance_m = 1_000 * _haversine_km(positions[:, 0], positions[:, 1], positions[:, 2], positions[:, 3])
+    # Rounding moves a coordinate at most half a step; the snapped positions moved one step more.
+    rounded = np.all(np.rint(positions[:, :2] * 10_000) / 10_000 == positions[:, 2:], axis=1)
+    assert error_deg[rounded].max() <= 0.5 / borders.QUANTIZATION + 1e-12
+    assert np.unique(positions[~rounded][:, :2], axis=0).shape[0] == 8
+    snapped = np.rint(positions[~rounded] * 10_000)
+    assert np.abs(snapped[:, 2:] - snapped[:, :2]).max(axis=1).tolist() == [1] * len(snapped)
+    # The stated bounds, and the measured worst case on the ground.
+    assert error_deg.max() <= borders.MAX_ERROR_DEGREES + 1e-12
+    assert error_deg.max() > 0.95 * borders.MAX_ERROR_DEGREES
     assert distance_m.max() <= borders.MAX_ERROR_METRES
     assert distance_m.max() > 0.95 * borders.MAX_ERROR_METRES
+
+
+def test_every_committed_vertex_keeps_its_cell_at_every_published_grid_resolution() -> None:
+    """The guard: a grid at a resolution the committed file was not snapped for fails here."""
+    resolutions = _published_resolutions()
+    assert resolutions == (4,)
+    positions = _committed_positions()
+    for resolution in resolutions:
+        assert _cell_changes(positions, resolution) == 0, f"resolution {resolution}"
+    # Snapping for one resolution does not hold another: a resolution-5 grid would fail above.
+    assert _cell_changes(positions, 5) > 0
 
 
 def test_check_mode_passes_on_the_committed_file_and_fails_on_a_stale_one(tmp_path: Path) -> None:

@@ -7,21 +7,42 @@ reads that file, pinned at ``SOURCE_REVISION`` and kept outside the site as
 ``reference/ne_50m_admin_0_countries.geojson``, refuses it unless its sha256 is
 ``SOURCE_SHA256``, and writes ``website/public/data/atlas/ne-50m-admin-0.borders.bin``:
 
-- every position rounded half-to-even onto a 10⁻⁴-degree lattice (``QUANTIZATION``);
+- every position rounded half-to-even onto a 10⁻⁴-degree lattice (``QUANTIZATION``), then
+  snapped back into its own H3 cell where rounding moved it out (below);
 - each border two rings share stored once, as one arc that both rings reference, one of them
   reversed (TopoJSON's arcs, without its JSON);
 - arc vertices as zigzag-coded u32 lattice deltas, byte-shuffled so gzip sees each byte plane;
 - of the 168 upstream properties, only the six the overlay reads (``KEPT_PROPERTIES``).
 
-**Error bound.** A decoded coordinate is the source coordinate rounded to the lattice, so it is
-within half a step, ``MAX_ERROR_DEGREES`` = 0.00005°, of the source on each axis. On the ground
-that is at most 7.86 m (at the equator), stated as ``MAX_ERROR_METRES`` = 7.9 m; the committed
-file's worst position is 7.82 m off. Ring structure, vertex counts and order, and the label
-properties are exact. ``tests/test_encode_natural_earth_borders.py`` and
-``website/tests/atlas-geometry-natural-earth.test.ts`` pin both bounds against the source. The
-site's border heights follow from the positions: 8 of the 101,052 vertices it draws move into a
-neighbouring H3 resolution-4 cell and take that cell's heights (natural-earth-codec.ts states the
-measured effect); every other height is unchanged.
+**Heights are kept exact by snapping.** The site raises each border vertex to the surface
+around ``latLngToCell(lat, lon, grid.resolution)`` (``naturalEarthHeights`` in
+``website/src/atlas/geometry/natural-earth.ts``: latitude first, the decoded longitude as is), so a
+vertex's height is exact exactly when its decoded position is in its source position's cell at
+every resolution a published grid uses (``border_height_resolutions``, read from the catalog's
+``grids``; resolution 4 today). Rounding alone moves 8 of the 78,539 distinct source positions into
+a neighbouring resolution-4 cell, up to 2,786 m higher or lower at exaggeration 1. Each such vertex
+goes instead to the nearest lattice point (great-circle distance from the source, ties to the
+smaller lattice x, then y) whose cells match the source's at all those resolutions, at most
+``SNAP_STEPS`` = 2 steps per axis from the rounded point; with none in reach the encoding is a hard
+error. h3-py here and the site's h3-js are both H3 4.5.0 (requirements.lock, package.json), but
+they convert degrees to radians in different floating-point steps, so
+``website/tests/atlas-geometry-natural-earth.test.ts`` checks every drawn vertex's cell with h3-js
+and pins the snapped ones to the cells h3-py chose. A grid at a resolution the committed file was
+not snapped for fails
+``test_every_committed_vertex_keeps_its_cell_at_every_published_grid_resolution`` (and its vitest
+twin), so re-run this script when the catalog's grid resolutions change.
+
+**Error bound.** A rounded coordinate is within half a step (0.00005°) of the source per axis. Each
+of the 8 snapped positions is one step from its rounded point, and on the committed file every
+coordinate is within ``MAX_ERROR_DEGREES`` = 0.00008° of the source per axis and every position
+within ``MAX_ERROR_METRES`` = 8.8 m of it on the ground (the worst, a snapped vertex, is 8.72 m;
+the worst rounded one is 7.82 m). ``SNAP_STEPS`` caps any snap at 2.5 steps per axis from the
+source. Ring structure, vertex counts and order, and the label properties are exact. The two bounds
+are measured and written by hand, here and in natural-earth-codec.ts
+(``BORDERS_MAX_ERROR_DEGREES``, ``BORDERS_MAX_ERROR_METRES``), and the tests
+(``tests/test_encode_natural_earth_borders.py``,
+``website/tests/atlas-geometry-natural-earth.test.ts``) pin them from both sides, so a new
+``QUANTIZATION`` means restating them.
 
 **Container ("GOBD" v1, little-endian; fast-load spec §B.10):**
 
@@ -43,8 +64,8 @@ lattice integers, delta-coded from (0, 0) along that whole sequence, zigzag-code
 ``k·n + i`` for ``n = 2·V`` elements. Every violation is a hard error in both decoders (this one
 and ``website/src/atlas/geometry/natural-earth-codec.ts``).
 
-Byte-deterministic; the encoding is decoded back and compared with the quantized source before it
-is written (to a temporary sibling, then renamed). Needs only numpy.
+Byte-deterministic; the encoding is decoded back and compared with the snapped lattice before it
+is written (to a temporary sibling, then renamed). Needs numpy and h3 (a core dependency).
 
     python scripts/encode_natural_earth_borders.py            # write the site file
     python scripts/encode_natural_earth_borders.py --check    # fail if it is stale
@@ -61,10 +82,12 @@ import re
 import secrets
 import struct
 import sys
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import h3
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -78,13 +101,20 @@ SOURCE_URL = (
 #: The catalog ``context_sources`` key the site fetches (``scripts/export_atlas_web.py``).
 OUTPUT_KEY = "ne-50m-admin-0.borders.bin"
 OUTPUT_PATH = ROOT / "website" / "public" / "data" / "atlas" / OUTPUT_KEY
+#: The published catalog, whose ``grids`` give the H3 resolutions border heights are read at.
+CATALOG_PATH = ROOT / "website" / "public" / "data" / "atlas" / "catalog.json"
 
 MAGIC = b"GOBD"
 FORMAT_VERSION = 1
 #: Lattice points per degree: positions are rounded to 0.0001°.
 QUANTIZATION = 10_000
-MAX_ERROR_DEGREES = 0.5 / QUANTIZATION
-MAX_ERROR_METRES = 7.9
+#: How far, in lattice steps per axis, snapping may move a vertex from its rounded point.
+SNAP_STEPS = 2
+#: Measured on the committed file and stated by hand (module docstring, "Error bound").
+MAX_ERROR_DEGREES = 0.00008
+MAX_ERROR_METRES = 8.8
+#: Mean Earth radius, as in genomeos.geo.h3util; it only ranks snap candidates here.
+EARTH_RADIUS_M = 6_371_008.8
 #: Largest lattice whose deltas (up to 360° across) still zigzag into a u32.
 MAX_QUANTIZATION = 1_000_000
 #: What the overlay reads: the label text (NAME_LONG, then ADMIN, then NAME), its anchor and scale.
@@ -95,6 +125,8 @@ HEADER_KEYS = {"arcs", "features", "quantization", "source"}
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 Point = tuple[int, int]
+#: A position's H3 cells, one per height resolution, from its (lon, lat) in degrees.
+CellsOf = Callable[[float, float], tuple[str, ...]]
 
 
 @dataclass(frozen=True)
@@ -131,6 +163,74 @@ def read_source(path: Path = SOURCE_PATH, sha256: str = SOURCE_SHA256) -> dict[s
     if hashlib.sha256(data).hexdigest() != sha256:
         raise ValueError(f"{path}: sha256 is not the pinned Natural Earth revision's {sha256}")
     return json.loads(data)
+
+
+def read_catalog(path: Path = CATALOG_PATH) -> Any:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def border_height_resolutions(catalog: Any) -> tuple[int, ...]:
+    """The H3 resolutions of the catalog's published grids, ascending.
+
+    A layer's heights come from its grid (``contracts.ts`` requires each artifact to name a
+    declared grid of its resolution), so these are every resolution a border height is read at.
+    """
+    grids = catalog.get("grids") if isinstance(catalog, dict) else None
+    if not isinstance(grids, dict) or not grids:
+        raise ValueError("the catalog has no published grids to take border-height resolutions from")
+    resolutions = set()
+    for key, grid in grids.items():
+        resolution = grid.get("resolution") if isinstance(grid, dict) else None
+        if isinstance(resolution, bool) or not isinstance(resolution, int) or not 0 <= resolution <= 15:
+            raise ValueError(f"catalog grid {key} has no H3 resolution in [0, 15]")
+        resolutions.add(resolution)
+    return tuple(sorted(resolutions))
+
+
+def _height_cells(resolutions: Sequence[int]) -> CellsOf:
+    """The cells ``naturalEarthHeights`` reads: ``latLngToCell(lat, lon, resolution)``, lat first."""
+
+    def cells(lon: float, lat: float) -> tuple[str, ...]:
+        return tuple(h3.latlng_to_cell(lat, lon, resolution) for resolution in resolutions)
+
+    return cells
+
+
+def _metres(lon: float, lat: float, lon2: float, lat2: float) -> float:
+    """Great-circle (haversine) distance between two positions in degrees."""
+    phi, phi2 = math.radians(lat), math.radians(lat2)
+    a = (
+        math.sin((phi2 - phi) / 2) ** 2
+        + math.cos(phi) * math.cos(phi2) * math.sin(math.radians(lon2 - lon) / 2) ** 2
+    )
+    return 2 * EARTH_RADIUS_M * math.asin(math.sqrt(min(1.0, a)))
+
+
+def snap(lon: float, lat: float, quantization: int, cells: CellsOf) -> Point:
+    """The lattice point for the source position (lon, lat), as decoded: ``lattice / quantization``.
+
+    That is the half-to-even rounded point when ``cells`` gives it the source's cells; otherwise the
+    nearest point within ``SNAP_STEPS`` per axis of it, on the globe, that does (great-circle
+    distance from the source, ties to the smaller x, then y). A ``ValueError`` if there is none.
+    """
+    want = cells(lon, lat)
+    x, y = int(np.rint(lon * quantization)), int(np.rint(lat * quantization))
+    if cells(x / quantization, y / quantization) == want:
+        return x, y
+    reach = range(-SNAP_STEPS, SNAP_STEPS + 1)
+    candidates = [
+        (x + dx, y + dy)
+        for dx in reach
+        for dy in reach
+        if abs(x + dx) <= 180 * quantization and abs(y + dy) <= 90 * quantization
+    ]
+    candidates.sort(key=lambda p: (_metres(lon, lat, p[0] / quantization, p[1] / quantization), p))
+    for cx, cy in candidates:
+        if cells(cx / quantization, cy / quantization) == want:
+            return cx, cy
+    raise ValueError(
+        f"({lon}, {lat}) has no lattice point in its own height cells within {SNAP_STEPS} lattice steps"
+    )
 
 
 # Source validation: the RFC 7946 rules the overlay relied on, every violation a hard error.
@@ -254,16 +354,44 @@ def _unshuffle(payload: bytes) -> np.ndarray:
     return np.ascontiguousarray(planes.T).view("<u4").reshape(-1).astype(np.int64)
 
 
-def encode(collection: Any, *, quantization: int, source: dict[str, str]) -> bytes:
-    """The GOBD container for a validated FeatureCollection; see the module docstring."""
+def _lattice(
+    features: list[tuple[dict[str, Any], list[list[np.ndarray]]]],
+    quantization: int,
+    cells: CellsOf,
+) -> list[list[list[list[list[int]]]]]:
+    """Closed rings on the lattice, per feature and polygon, each position placed by ``snap``."""
+    placed: dict[tuple[float, float], Point] = {}
+    out = []
+    for index, (_, polygons) in enumerate(features):
+        feature = []
+        for p, polygon in enumerate(polygons):
+            rings = []
+            for r, ring in enumerate(polygon):
+                points = []
+                for position, (lon, lat) in enumerate(ring.tolist()):
+                    if (lon, lat) not in placed:
+                        try:
+                            placed[lon, lat] = snap(lon, lat, quantization, cells)
+                        except ValueError as error:
+                            where = f"Natural Earth feature {index} polygon {p} ring {r} position {position}"
+                            raise ValueError(f"{where} {error}") from None
+                    points.append(list(placed[lon, lat]))
+                rings.append(points)
+            feature.append(rings)
+        out.append(feature)
+    return out
+
+
+def encode(
+    collection: Any, *, quantization: int, source: dict[str, str], resolutions: Sequence[int]
+) -> bytes:
+    """The GOBD container for a validated FeatureCollection, its vertices kept in their H3 cells
+    at ``resolutions``; see the module docstring."""
     if not (isinstance(quantization, int) and 1 <= quantization <= MAX_QUANTIZATION):
         raise ValueError(f"quantization must be an integer in [1, {MAX_QUANTIZATION}]")
     features = _features(collection)
-    # Closed rings on the lattice, per feature and polygon: what decode() must give back.
-    lattice = [
-        [[np.rint(ring * quantization).astype(np.int64).tolist() for ring in polygon] for polygon in polygons]
-        for _, polygons in features
-    ]
+    # What decode() must give back.
+    lattice = _lattice(features, quantization, _height_cells(resolutions))
     rings = [
         [(x, y) for x, y in ring[:-1]] for polygons in lattice for polygon in polygons for ring in polygon
     ]
@@ -291,16 +419,18 @@ def encode(collection: Any, *, quantization: int, source: dict[str, str]) -> byt
         + _shuffle(zigzag)
     )
     if [feature.polygons for feature in decode(data).features] != lattice:
-        raise AssertionError("GOBD encoding does not decode to the quantized source")
+        raise AssertionError("GOBD encoding does not decode to the snapped lattice")
     return data
 
 
-def encode_source(collection: Any) -> bytes:
-    """The committed encoding: ``QUANTIZATION`` and the pinned source's provenance."""
+def encode_source(collection: Any, resolutions: Sequence[int]) -> bytes:
+    """The committed encoding: ``QUANTIZATION``, the pinned source's provenance, and the published
+    grids' ``resolutions`` (``border_height_resolutions``)."""
     return encode(
         collection,
         quantization=QUANTIZATION,
         source={"revision": SOURCE_REVISION, "sha256": SOURCE_SHA256, "url": SOURCE_URL},
+        resolutions=resolutions,
     )
 
 
@@ -441,10 +571,11 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--source", type=Path, default=SOURCE_PATH)
+    parser.add_argument("--catalog", type=Path, default=CATALOG_PATH, help="grids give the H3 resolutions")
     parser.add_argument("--out", type=Path, default=OUTPUT_PATH)
     parser.add_argument("--check", action="store_true", help="fail if --out is not the encoding")
     args = parser.parse_args(argv)
-    data = encode_source(read_source(args.source))
+    data = encode_source(read_source(args.source), border_height_resolutions(read_catalog(args.catalog)))
     if args.check:
         if not args.out.exists() or args.out.read_bytes() != data:
             print(f"{args.out} is stale: run scripts/encode_natural_earth_borders.py", file=sys.stderr)

@@ -34,7 +34,36 @@ const COMMITTED_BORDERS = fileURLToPath(
 const PINNED_SOURCE = fileURLToPath(
   new URL('../../reference/ne_50m_admin_0_countries.geojson', import.meta.url),
 );
+const PUBLISHED_CATALOG = fileURLToPath(
+  new URL('../public/data/atlas/catalog.json', import.meta.url),
+);
 const EARTH_RADIUS_M = 6_371_008.8;
+const HALF_STEP_DEGREES = 0.5 / 10_000;
+
+/** The H3 resolutions border heights are read at: those of the published catalog's grids. */
+function publishedResolutions(): number[] {
+  const { grids } = JSON.parse(readFileSync(PUBLISHED_CATALOG, 'utf8')) as {
+    grids: Record<string, { resolution: number }>;
+  };
+  return [
+    ...new Set(Object.values(grids).map(({ resolution }) => resolution)),
+  ].sort((a, b) => a - b);
+}
+
+/**
+ * The drawn vertices the generator snapped back into their own cell, with the resolution-4 cell
+ * h3-py (scripts/encode_natural_earth_borders.py) gave both the source and the snapped point.
+ */
+const SNAPPED_RES4_CELLS: [vertex: number, cell: string][] = [
+  [3128, '844cc0bffffffff'],
+  [12647, '84384a1ffffffff'],
+  [62526, '8406313ffffffff'],
+  [71520, '84b2263ffffffff'],
+  [74925, '840ea69ffffffff'],
+  [90793, '8444b13ffffffff'],
+  [93275, '84bf49bffffffff'],
+  [97191, '84f0893ffffffff'],
+];
 
 const square = (x: number, y: number, size = 1): number[][] => [
   [x, y],
@@ -403,31 +432,37 @@ describe('the committed compact borders against the pinned GeoJSON (issue #445)'
         2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(Math.min(1, a))),
       );
     }
-    expect(BORDERS_MAX_ERROR_DEGREES).toBe(0.00005);
-    expect(BORDERS_MAX_ERROR_METRES).toBe(7.9);
+    // Measured and stated by hand (natural-earth-codec.ts); rounding alone would give 0.00005°.
+    expect(BORDERS_MAX_ERROR_DEGREES).toBe(0.00008);
+    expect(BORDERS_MAX_ERROR_METRES).toBe(8.8);
     expect(maxDegrees).toBeLessThanOrEqual(BORDERS_MAX_ERROR_DEGREES + 1e-12);
+    expect(maxDegrees).toBeGreaterThan(0.95 * BORDERS_MAX_ERROR_DEGREES);
     expect(maxMetres).toBeLessThanOrEqual(BORDERS_MAX_ERROR_METRES);
-    expect(maxMetres).toBeGreaterThan(7.5);
+    expect(maxMetres).toBeGreaterThan(0.95 * BORDERS_MAX_ERROR_METRES);
   });
 
-  it('keeps all but 8 border vertices in their H3 resolution-4 cell, so their heights are unchanged', () => {
-    const moved: number[] = [];
-    for (let vertex = 0; vertex < legacy.lonLat.length / 2; vertex += 1)
-      if (
-        latLngToCell(
-          legacy.lonLat[2 * vertex + 1],
-          legacy.lonLat[2 * vertex],
-          4,
-        ) !==
-        latLngToCell(
-          compact.lonLat[2 * vertex + 1],
-          compact.lonLat[2 * vertex],
-          4,
+  it('keeps every border vertex in its H3 cell at each published grid resolution, so every height is unchanged', () => {
+    // The guard: a grid at a resolution the committed file was not snapped for fails here.
+    const resolutions = publishedResolutions();
+    expect(resolutions).toEqual([4]);
+    for (const resolution of resolutions) {
+      const moved: number[] = [];
+      for (let vertex = 0; vertex < legacy.lonLat.length / 2; vertex += 1)
+        if (
+          latLngToCell(
+            legacy.lonLat[2 * vertex + 1],
+            legacy.lonLat[2 * vertex],
+            resolution,
+          ) !==
+          latLngToCell(
+            compact.lonLat[2 * vertex + 1],
+            compact.lonLat[2 * vertex],
+            resolution,
+          )
         )
-      )
-        moved.push(vertex);
-    // Each lies within 7.9 m of a cell boundary; its height is the same surface sampled 7.9 m away.
-    expect(moved).toHaveLength(8);
+          moved.push(vertex);
+      expect(moved, `resolution ${resolution}`).toEqual([]);
+    }
 
     const [fixture] = surfaceFixturesIn(PARITY_DIR);
     expect(fixture.grid.resolution).toBe(4);
@@ -439,11 +474,37 @@ describe('the committed compact borders against the pinned GeoJSON (issue #445)'
     };
     const before = naturalEarthHeights(legacy, surface);
     const after = naturalEarthHeights(compact, surface);
-    expect(after.labelHeights).toEqual(before.labelHeights);
     expect(before.borderHeights.some((height) => height > 0)).toBe(true);
-    const unmoved = (heights: Float32Array) =>
-      heights.filter((_, vertex) => !moved.includes(vertex));
-    expect(unmoved(after.borderHeights)).toEqual(unmoved(before.borderHeights));
+    expect(after.borderHeights).toEqual(before.borderHeights);
+    expect(after.labelHeights).toEqual(before.labelHeights);
+  });
+
+  it('puts the snapped vertices in the cells h3-py chose for them, by h3-js', () => {
+    // A snapped vertex is more than half a lattice step from its source on some axis.
+    const snapped: number[] = [];
+    for (let vertex = 0; vertex < legacy.lonLat.length / 2; vertex += 1)
+      if (
+        Math.abs(compact.lonLat[2 * vertex] - legacy.lonLat[2 * vertex]) >
+          HALF_STEP_DEGREES + 1e-9 ||
+        Math.abs(
+          compact.lonLat[2 * vertex + 1] - legacy.lonLat[2 * vertex + 1],
+        ) >
+          HALF_STEP_DEGREES + 1e-9
+      )
+        snapped.push(vertex);
+    expect(snapped).toEqual(SNAPPED_RES4_CELLS.map(([vertex]) => vertex));
+    for (const [vertex, cell] of SNAPPED_RES4_CELLS) {
+      const at = (buffers: NaturalEarthBuffers) =>
+        latLngToCell(
+          buffers.lonLat[2 * vertex + 1],
+          buffers.lonLat[2 * vertex],
+          4,
+        );
+      expect([at(legacy), at(compact)], `vertex ${vertex}`).toEqual([
+        cell,
+        cell,
+      ]);
+    }
   });
 });
 
