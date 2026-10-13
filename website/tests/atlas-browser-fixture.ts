@@ -42,6 +42,7 @@ export interface FixtureCatalog {
       detail: { url: string };
     };
   }[];
+  context_sources: { id: string; url: string }[];
 }
 
 export interface AtlasBrowserFixtureOptions {

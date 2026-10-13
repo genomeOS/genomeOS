@@ -24,6 +24,7 @@ import {
 const websiteRoot = path.resolve(import.meta.dirname, '..');
 
 const TINY: FixtureCatalog = {
+  context_sources: [],
   grids: { aaaa: { url: 'grids/h3-r3.aaaa.gosa' } },
   artifacts: [
     {

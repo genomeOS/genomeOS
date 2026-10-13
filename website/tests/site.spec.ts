@@ -3641,6 +3641,10 @@ test('cold load shows observations, then the surface, then outlines and borders'
   page,
 }) => {
   test.setTimeout(90_000);
+  const responses = new Map<string, number>();
+  page.on('response', (response) =>
+    responses.set(response.url(), response.status()),
+  );
   await page.goto('/app/');
   const explorer = page.locator('.atlas-explorer');
   for (const attribute of [
@@ -3689,6 +3693,20 @@ test('cold load shows observations, then the surface, then outlines and borders'
   );
   expect(reveal.frames).toBeGreaterThan(0);
   expect(reveal.longestFrameMs).toBeGreaterThanOrEqual(0);
+
+  // The borders drawn are the compact file the catalog names (fast-load §B.10, #445); the
+  // GeoJSON is no longer served or fetched.
+  const borders = (await readInlineCatalog(page)).context_sources.find(
+    ({ id }) => id === 'natural-earth-admin-0',
+  )!.url;
+  expect(borders).toBe('ne-50m-admin-0.borders.bin');
+  const fetched = [...responses].filter(([url]) =>
+    urlMatchesKey(new URL(url), borders),
+  );
+  expect(fetched.map(([, status]) => status)).toEqual([200]);
+  expect([...responses.keys()].filter((url) => /\.geojson$/.test(url))).toEqual(
+    [],
+  );
 });
 
 test('style choices in the URL reach the scene that renders them', async ({

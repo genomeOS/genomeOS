@@ -53,6 +53,7 @@ const TIER_URLS = [GRID_KEY, RENDER_KEY, OBSERVATIONS_KEY].map(
 );
 
 const CATALOG: FixtureCatalog = {
+  context_sources: [],
   grids: { g: { url: GRID_KEY } },
   artifacts: [
     {
