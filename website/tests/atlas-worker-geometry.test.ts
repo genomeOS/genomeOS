@@ -136,8 +136,12 @@ describe('geometry worker handlers (fast-load §B.6.3, §B.6.5)', () => {
       expect(new Set(transfer).size).toBe(transfer.length);
       expect(transfer).toContain(message.surface.positions.buffer);
       expect(transfer).toContain(message.surface.indices.buffer);
-      if (message.support.unknown)
+      if (message.support.unknown) {
         expect(transfer).toContain(message.support.unknown.st.buffer);
+        expect(transfer).toContain(message.support.unknown.cellCentres.buffer);
+      }
+      for (const { buffers } of message.support.priorDominated)
+        expect(transfer).toContain(buffers.cellCentres.buffer);
     }
     expect(posted.at(-1)!.message).toEqual({
       artifactKey: ARTIFACT_KEY,
@@ -145,6 +149,20 @@ describe('geometry worker handlers (fast-load §B.6.3, §B.6.5)', () => {
       total: chunks.length,
       type: 'chunks-done',
     });
+  });
+
+  it('transfers the cell centres of flat surface chunks (#453)', async () => {
+    const { fixture, posted, worker } = harness();
+    await worker.handlers['build-chunks']({
+      ...request(fixture.grid.gridSha256),
+      geometry: 'hexagons',
+    });
+    const chunks = ofType(posted, 'chunk');
+    expect(chunks.length).toBeGreaterThan(0);
+    for (const { message, transfer } of chunks) {
+      expect(message.surface.cellCentres).toBeInstanceOf(Float32Array);
+      expect(transfer).toContain(message.surface.cellCentres!.buffer);
+    }
   });
 
   it('times topology once per grid and mesh and support per chunk', async () => {
