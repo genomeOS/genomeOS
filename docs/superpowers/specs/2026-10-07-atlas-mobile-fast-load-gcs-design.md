@@ -755,15 +755,18 @@ scene (when import resolves) ── observations → chunk scheduler (B.6.7) →
       already have, so a later artifact switch starts its detail tier as soon as its surface is
       visible. It settles when the tier is decoded and validated, fails, or is aborted. The commit
       that leaves an artifact aborts its request and drops a queued one that has not started. The
-      inspector's retry starts it at once.
+      inspector's retry starts it at once. A tier already attached, as when a scene rebuilt by
+      "Retry globe" reveals the cached surface, needs no network: `values-ready` is marked at
+      `atlas:surface-visible` and the tier takes no turn. A turn that finds its artifact's request
+      already in flight joins that request.
    3. **Starfield.** The sky box is shown when the borders and every detail step started so far
       have settled, and not before `data-atlas-ready`. Its six textures (~870 KB) load then.
 
    A failure never blocks the next step, and neither does a stall. A step that neither settles nor
    reports progress for the provider's request stall window (15 s, §B.6.2) releases the next one and
-   keeps running. The detail tier reports each body chunk, so a slow transfer is not a stall. The
-   borders report none, so their window runs from their start. A scene rebuilt by "Retry globe"
-   starts a new order.
+   keeps running. The borders and the detail tier report each body chunk, and every turn joined to
+   a detail request hears its chunks, so a slow transfer is not a stall. A scene rebuilt by "Retry
+   globe" starts a new order.
 
    (Amended for #443, 2026-10-13. Before, the borders, the detail tier and the starfield started
    together after the reveal and shared the connection. On a phone that delayed the borders, which
@@ -773,7 +776,14 @@ scene (when import resolves) ── observations → chunk scheduler (B.6.7) →
    average 19–24, medians after `surface-visible`), settling when drawn left the link idle for
    4.2–5.2 s and gave `values-ready` at 11,512 ms. Settling at the last byte gave 2,740 ms, with
    `context-ready` unchanged within noise (8,595 against 8,670 ms). The detail tier settles when
-   decoded, so the starfield never competes with it.)
+   decoded, so the starfield never competes with it. On desktop the order first brought a 600–800 ms
+   Atlas long frame right after the reveal in most cold loads: the borders now arrived within
+   ~0.1 s and were parsed and drawn inside a GPU stall that was already there. The cold commit
+   re-placed all 1,071 HbS sampling rings at heights they already had, and the 1,071 ring buffer
+   writes held the GPU, and every frame, for ~0.6 s in many loads. On main the sky-box
+   upload waited behind that stall and Cesium was charged for it. The rings now stay in place when
+   the heights they show arrive again; in an interleaved run of the cold-load harness, 12 runs
+   each, the longest Atlas frame was 68–77 ms against main's 69–75 ms.)
 10. **No coarse aggregated tier.** Averaging res-4 children into res-3/2 parents is an aggregation that
     must exclude masked cells and report the excluded fraction (AGENTS invariant; spec v1 §10) — a
     `needs-human-decision` this work does not take. Camera-ordered chunked reveal of the real res-4
