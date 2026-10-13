@@ -114,6 +114,10 @@ import {
   type ArtifactPipeline,
   type ArtifactPipelineOptions,
 } from '../src/components/atlas/useArtifactPipeline';
+import {
+  provisionalPercent,
+  surfaceCellView,
+} from '../src/components/atlas/surface-cell-view';
 import { columnarSurface } from './helpers/columnar-surface';
 
 interface Deferred<T> {
@@ -727,5 +731,57 @@ describe('artifact pipeline load order (spec 2026-10-07 §B.6.9)', () => {
     pipeline.retryDetail();
     expect(scene.queueDetail).not.toHaveBeenCalled();
     expect(provider.getSurfaceDetail).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('provisional readouts under the post-reveal load order (§B.2, §B.6.9)', () => {
+  it('shows marked render values while the detail tier waits behind the borders and downloads, and exact ones from values-ready', async () => {
+    const { provider, render } = mountPipeline();
+    const borders = deferred<void>();
+    const scene = fakeScene(borders.promise);
+    render('a', scene);
+    await settle();
+    scene.commit(keys.a);
+    scene.mark('surface-visible');
+    await settle();
+    /** What the hover and the inspector are handed for the displayed artifact's first cell. */
+    const view = () => {
+      const pipeline = render('a', scene);
+      const surface = (pipeline.displayed ?? pipeline.revealing)?.surface;
+      return surfaceCellView(
+        surface ?? null,
+        { artifactKey: keys.a, kind: 'surface', row: 0 },
+        pipeline.detailStatus,
+      );
+    };
+
+    // Queued behind the borders: no request yet, and the render tier's values, marked.
+    expect(scene.queueDetail).toHaveBeenCalledTimes(1);
+    expect(provider.getSurfaceDetail).not.toHaveBeenCalled();
+    const queued = view();
+    expect(queued?.state).toBe('loading');
+    if (queued?.state !== 'loading') throw new Error('not provisional');
+    expect(provisionalPercent(queued.provisional.post_mean)).toBe('≈50.00%');
+    expect(provisionalPercent(queued.provisional.post_sd)).toBe('≈10.00%');
+
+    // The borders' last byte starts the turn; still provisional while the tier downloads.
+    borders.resolve();
+    await settle();
+    expect(provider.getSurfaceDetail).toHaveBeenCalledTimes(1);
+    expect(view()?.state).toBe('loading');
+    expect(scene.markValuesReady).not.toHaveBeenCalled();
+
+    // Values-ready: exact values from the detail tier, and no provisional ones.
+    provider.details[0].request.resolve(
+      columnarSurface(cells, { withDetail: true }).detail!,
+    );
+    await settle();
+    expect(scene.markValuesReady).toHaveBeenCalledWith(keys.a);
+    const exact = view();
+    expect(exact?.state).toBe('values');
+    if (exact?.state !== 'values') throw new Error('not exact');
+    expect(exact.cell.post_mean).toBe(0.5);
+    expect(exact.cell.post_sd).toBe(0.1);
+    expect('provisional' in exact).toBe(false);
   });
 });
