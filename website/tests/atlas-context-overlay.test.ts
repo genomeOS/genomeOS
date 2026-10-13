@@ -89,16 +89,18 @@ function setup(
     }),
   };
   const addCredit = vi.fn();
+  const removeCredit = vi.fn();
   const overlay = new ContextOverlay({
     addCredit,
     createLabels: () => labels as never,
     fetchBytes,
     now: config.now,
+    removeCredit,
     scene,
     slice: config.slice ?? { yieldFn: () => Promise.resolve() },
     worker: worker as never,
   });
-  return { added, addCredit, labels, overlay, scene, worker };
+  return { added, addCredit, labels, overlay, removeCredit, scene, worker };
 }
 
 function bufferOf(overlay: ContextOverlay): BufferPolylineCollection {
@@ -127,7 +129,7 @@ afterEach(() => {
 
 describe('Natural Earth context overlay', () => {
   it('draws worker rings and labels without touching surface heights at elevation 0', async () => {
-    const { added, addCredit, overlay, scene, worker } = setup();
+    const { added, addCredit, overlay, removeCredit, scene, worker } = setup();
 
     await expect(
       overlay.load('/data/atlas/ne-50m-admin-0.geojson'),
@@ -151,8 +153,18 @@ describe('Natural Earth context overlay', () => {
     );
     expect(addCredit).toHaveBeenCalledTimes(1);
     expect(addCredit.mock.calls[0][0].html).toContain('Natural Earth');
+    expect(removeCredit).not.toHaveBeenCalled();
     expect(worker.contextHeights).not.toHaveBeenCalled();
     expect(overlay.isReady()).toBe(true);
+  });
+
+  it('credits Natural Earth from construction, before the deferred load', () => {
+    // The phone credit block docks the legend strip: a credit added after the reveal wrapped the
+    // credit text to a second line and moved the strip (#430).
+    const { addCredit, overlay } = setup();
+    expect(addCredit).toHaveBeenCalledTimes(1);
+    expect(addCredit.mock.calls[0][0].html).toContain('Natural Earth');
+    expect(overlay.isReady()).toBe(false);
   });
 
   it('centers each country label on its anchor, as the legacy entity labels were', async () => {
@@ -200,12 +212,25 @@ describe('Natural Earth context overlay', () => {
 
   it('falls back quietly when the borders cannot be fetched', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { addCredit, overlay } = setup(async () => {
+    const { addCredit, overlay, removeCredit } = setup(async () => {
       throw new Error('offline');
     });
     await expect(overlay.load('/a.geojson')).resolves.toBe('fallback');
-    expect(addCredit).not.toHaveBeenCalled();
+    // No borders are drawn, so their credit goes.
+    expect(removeCredit).toHaveBeenCalledTimes(1);
+    expect(removeCredit).toHaveBeenCalledWith(addCredit.mock.calls[0][0]);
     expect(overlay.isReady()).toBe(false);
+  });
+
+  it('keeps the credit when the labels fail after the borders were drawn', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { labels, overlay, removeCredit } = setup();
+    labels.add = () => {
+      throw new Error('label failed');
+    };
+    await expect(overlay.load('/a.geojson')).resolves.toBe('fallback');
+    expect(bufferOf(overlay).primitiveCount).toBe(2);
+    expect(removeCredit).not.toHaveBeenCalled();
   });
 
   it('applies visibility and border style to the drawn rings', async () => {
@@ -768,7 +793,7 @@ describe('Natural Earth context built across several slices', () => {
 
   it('stays quiet when the worker stops with a torn-down scene', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { addCredit, overlay, scene, worker } = setup(undefined, {
+    const { overlay, removeCredit, scene, worker } = setup(undefined, {
       context: COUNTRIES,
     });
     worker.parseContext.mockImplementationOnce(async () => {
@@ -778,7 +803,8 @@ describe('Natural Earth context built across several slices', () => {
 
     await expect(overlay.load('/a.geojson')).resolves.toBe('fallback');
 
-    expect(addCredit).not.toHaveBeenCalled();
+    // The credit display went with the viewer.
+    expect(removeCredit).not.toHaveBeenCalled();
     expect(console.warn).not.toHaveBeenCalled();
   });
 

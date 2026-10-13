@@ -28,9 +28,15 @@ describe('Atlas e2e build wiring', () => {
     for (const [name, script] of Object.entries(npm))
       if (name !== 'build:e2e')
         expect(script, name).not.toContain('PUBLIC_ATLAS_REQUEST_STALL_MS');
+    // #422: only the browser tests build with a (placeholder) Measurement ID; the fixture stubs
+    // gtag.js, and the capture scripts reuse build:e2e without analytics. Design 2026-10-07 §C.3:
+    // they also build against the local cross-origin data server.
     expect(npm['test:e2e']).toBe(
-      'PUBLIC_ATLAS_DATA_BASE_URL=http://127.0.0.1:4323/ npm run build:e2e && playwright test',
+      'PUBLIC_ATLAS_DATA_BASE_URL=http://127.0.0.1:4323/ PUBLIC_GA_MEASUREMENT_ID=G-TEST123 npm run build:e2e && playwright test',
     );
+    for (const [name, script] of Object.entries(npm))
+      if (name !== 'test:e2e')
+        expect(script, name).not.toContain('PUBLIC_GA_MEASUREMENT_ID');
     expect(npm['capture:atlas']).toBe(
       'npm run build:e2e && node scripts/capture-atlas.mjs',
     );
@@ -56,6 +62,16 @@ describe('Atlas e2e build wiring', () => {
       "ATLAS_CATALOG_PATH: 'public/data/atlas/catalog.json'",
     );
     expect(setup).toContain("PUBLIC_ATLAS_REQUEST_STALL_MS: ''");
+    expect(setup).toContain("PUBLIC_GA_MEASUREMENT_ID: ''");
+  });
+
+  it('keeps analytics out of the /genomeOS/ fallback build', () => {
+    expect(
+      readFileSync(
+        path.join(websiteRoot, 'scripts/build-fallback.mjs'),
+        'utf8',
+      ),
+    ).toContain("PUBLIC_GA_MEASUREMENT_ID: ''");
   });
 
   it('collects only *.test.ts files so Playwright specs never run under vitest', () => {

@@ -13,6 +13,8 @@ import {
   extractArtifactDataBase,
   extractInlineCatalog,
   fetchedKeys,
+  GTAG_SCRIPT_PATTERN,
+  GTAG_STUB_SCRIPT,
   installAtlasBrowserFixture,
   readE2eCatalog,
   readE2eObject,
@@ -142,6 +144,8 @@ describe('fixture module boundary', () => {
         'E2E_ARTIFACT_DATA_BASE',
         'E2E_CATALOG_PATH',
         'E2E_FIXTURE_DIR',
+        'GTAG_SCRIPT_PATTERN',
+        'GTAG_STUB_SCRIPT',
         'artifactTierKey',
         'corruptArtifactTier',
         'delayArtifactTier',
@@ -246,8 +250,10 @@ describe('catalog helpers', () => {
     await installAtlasBrowserFixture(page, {
       appUrl: 'http://fixture.invalid/app/cross-origin',
     });
+    // Only the tile block and the gtag.js stub (#422): no artifact route.
     expect(routes.map(({ matcher }) => matcher)).toEqual([
       'https://tile.openstreetmap.org/**',
+      GTAG_SCRIPT_PATTERN,
     ]);
   });
 
@@ -287,6 +293,26 @@ describe('committed e2e tree', () => {
         appUrl: 'http://fixture.invalid/app/a',
       }),
     ).rejects.toThrow('npm run build:e2e');
+  });
+
+  it('answers gtag.js with the stub so no browser test reaches Google (#422)', async () => {
+    const { page, routes } = fakePage(appHtml(readE2eCatalog()));
+    await installAtlasBrowserFixture(page, {
+      appUrl: 'http://fixture.invalid/app/gtag',
+    });
+    const stub = routes.find(({ matcher }) => matcher === GTAG_SCRIPT_PATTERN);
+    expect(GTAG_SCRIPT_PATTERN).toBe('https://www.googletagmanager.com/**');
+    const route = new FakeRoute(
+      'https://www.googletagmanager.com/gtag/js?id=G-TEST123',
+    );
+    await stub?.handler(route);
+    expect(route.fulfilled).toEqual([
+      {
+        body: GTAG_STUB_SCRIPT,
+        contentType: 'text/javascript',
+        status: 200,
+      },
+    ]);
   });
 
   it('fulfils catalog keys from the tree', async () => {

@@ -17,7 +17,12 @@ const dataServerArgs = atlasDataServerArgs(baseURL);
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: /(site|atlas-mobile|atlas-cross-origin)\.spec\.ts/,
+  testMatch: [
+    'site.spec.ts',
+    'atlas-mobile.spec.ts',
+    'atlas-cross-origin.spec.ts',
+    'analytics.spec.ts',
+  ],
   fullyParallel: false,
   workers: playwrightWorkers(),
   forbidOnly: Boolean(process.env.CI),
@@ -28,6 +33,10 @@ export default defineConfig({
   reporter: process.env.CI ? 'github' : 'list',
   use: {
     baseURL,
+    // The e2e build loads analytics (#422), whose cookie control opens by itself as an opt-in
+    // prompt in the opt-in regions' time zones (src/lib/consent-policy.mjs). UTC keeps it
+    // collapsed whatever the host's zone; tests/analytics.spec.ts sets the zones it needs.
+    timezoneId: 'UTC',
     trace: 'on-first-retry',
   },
   // A describe tagged with one project's name is filtered out of the other at

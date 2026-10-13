@@ -20,6 +20,7 @@ import {
   type TerrainId,
 } from '../../atlas/earth-style-catalog';
 import type { SceneCapabilities } from '../../atlas/scene/atlas-scene';
+import { BrandText } from './BrandText';
 import { InfoTip } from './InfoTip';
 import { clampPickerTop, siteHeaderBottom } from './site-header';
 import { useEscapeLayer } from './useEscapeStack';
@@ -198,7 +199,9 @@ export function EarthStylePicker({
           <img src={thumbnail(option)} alt="" />
           {!available && <span aria-hidden="true">◆</span>}
         </span>
-        <span>{option.label}</span>
+        <span>
+          <BrandText text={option.label} />
+        </span>
       </button>
     );
   };
@@ -236,8 +239,12 @@ export function EarthStylePicker({
           <img src={thumbnail(selectedTerrain)} alt="" />
         </span>
         <span>
-          <strong>{selectedBasemap.label}</strong>
-          <small>{selectedTerrain.label}</small>
+          <strong>
+            <BrandText text={selectedBasemap.label} />
+          </strong>
+          <small>
+            <BrandText text={selectedTerrain.label} />
+          </small>
         </span>
         <span className="atlas-earth-style__chevron" aria-hidden="true">
           {open ? '−' : '+'}
@@ -271,10 +278,16 @@ export function EarthStylePicker({
 
             <div className="atlas-earth-picker__detail" role="tooltip">
               <div>
-                <strong>{detail.label}</strong>
-                <span>{detail.provider}</span>
+                <strong>
+                  <BrandText text={detail.label} />
+                </strong>
+                <span>
+                  <BrandText text={detail.provider} />
+                </span>
               </div>
-              <p>{detail.description}</p>
+              <p>
+                <BrandText text={detail.description} />
+              </p>
               {!detailAvailable && (
                 <em>Unavailable: this build has no Cesium ion token.</em>
               )}
@@ -285,7 +298,9 @@ export function EarthStylePicker({
               <div className="atlas-earth-picker__groups">
                 {groupedBasemaps().map(({ category, options }) => (
                   <div className="atlas-earth-picker__group" key={category}>
-                    <h4>{category}</h4>
+                    <h4>
+                      <BrandText text={category} />
+                    </h4>
                     <div
                       aria-label={`${category} basemaps`}
                       className="atlas-earth-picker__grid"

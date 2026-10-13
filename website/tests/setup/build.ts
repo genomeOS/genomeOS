@@ -15,6 +15,9 @@ export function setup(): void {
       ATLAS_CATALOG_PATH: 'public/data/atlas/catalog.json',
       PUBLIC_ATLAS_REQUEST_STALL_MS: '',
       PUBLIC_ATLAS_DATA_BASE_URL: '',
+      // #422: unit tests read a build without analytics (tests/analytics-build.test.ts), whatever
+      // the shell exports.
+      PUBLIC_GA_MEASUREMENT_ID: '',
     },
     stdio: 'inherit',
   });

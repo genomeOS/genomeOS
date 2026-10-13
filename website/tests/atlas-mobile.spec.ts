@@ -14,7 +14,9 @@ import {
   panelSheet,
   PHONE_PROFILES,
   recordedLegendLoading,
+  recordedLegendRowAtReady,
   recordLegendLoading,
+  recordLegendRowAtReady,
   setSheetState,
   sheetGeometry,
   skipUnlessProject,
@@ -1836,9 +1838,19 @@ for (const phone of PHONE_PROFILES) {
     test('the legend strip keeps its row and shows the loading status during a cold reveal', async ({
       page,
     }) => {
+      await recordLegendRowAtReady(page);
       await page.goto('/app/');
       await waitForAtlasReady(page);
-      const before = await legendRow(page);
+      // The Natural Earth overlay lands after the reveal (fast-load design
+      // §B.6.9). Its credit once wrapped the credit block the strip docks on
+      // and lifted the row 4 px (#430), so compare the row from the ready
+      // frame with the row after the overlay is drawn.
+      await expect(page.locator('.atlas-explorer')).toHaveAttribute(
+        'data-atlas-context-ready',
+        'true',
+        { timeout: 45_000 },
+      );
+      const before = await recordedLegendRowAtReady(page);
       await markLegendLoading(page);
       // Shown, and in the accessibility tree: getByRole skips hidden nodes.
       const legend = page.getByRole('complementary', { name: 'Map legend' });

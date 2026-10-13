@@ -163,6 +163,8 @@ class CesiumAtlasScene implements AtlasSceneController {
     );
     this.#overlay = new ContextOverlay({
       addCredit: (credit) => this.#viewer.creditDisplay.addStaticCredit(credit),
+      removeCredit: (credit) =>
+        this.#viewer.creditDisplay.removeStaticCredit(credit),
       scene: this.#viewer.scene,
       worker: options.worker,
     });
