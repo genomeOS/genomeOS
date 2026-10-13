@@ -1,4 +1,8 @@
-/** Evidence-only pick inspector for Atlas design §11. */
+/**
+ * Evidence-only pick inspector for Atlas design §11. Surface values follow
+ * fast-load spec 2026-10-07 §B.2 (amended 2026-10-13): marked render-tier values
+ * until the detail tier loads, then the exact values.
+ */
 
 import { cellToLatLng } from 'h3-js';
 import { useLayoutEffect, useRef, type RefObject } from 'react';
@@ -14,10 +18,16 @@ import type { SurfaceArtifact } from '../../atlas/surface-columns';
 import { sitePath } from '../../lib/paths';
 import {
   CELL_VALUES_UNAVAILABLE,
+  DETAIL_ONLY_TEXT,
   LOADING_CELL_VALUES,
+  percent,
+  PROVISIONAL_NOTE,
+  provisionalPercent,
   RETRY_CELL_VALUES,
   surfaceCellView,
   type DetailStatus,
+  type ProvisionalState,
+  type ProvisionalValue,
   type SurfaceSelection,
 } from './surface-cell-view';
 import { useEscapeLayer } from './useEscapeStack';
@@ -41,10 +51,6 @@ interface InspectorPanelProps {
   onRetryDetail?: () => void;
 }
 
-function percent(value: number): string {
-  return `${(value * 100).toFixed(2)}%`;
-}
-
 export function evidenceSupportLabel(support: SurfaceCell['support']): string {
   if (support === 'prior_dominated')
     return 'Mostly model assumptions (limited local data)';
@@ -58,6 +64,26 @@ export function googleMapsUrl(latitude: number, longitude: number): string {
 
 export function googleMapsPolygonUrl(h3Index: string): string {
   return sitePath(`/app/polygon/?cell=${encodeURIComponent(h3Index)}`);
+}
+
+/**
+ * A render-tier value: the "≈" marker stays visible, and a visually hidden note
+ * tells assistive technology that the value is approximate and whether the exact
+ * one is loading or unavailable (spec §B.2, amended 2026-10-13).
+ */
+function ProvisionalPercent({
+  state,
+  value,
+}: {
+  state: ProvisionalState;
+  value: ProvisionalValue;
+}) {
+  return (
+    <>
+      {provisionalPercent(value)}
+      <span className="visually-hidden"> ({PROVISIONAL_NOTE[state]})</span>
+    </>
+  );
 }
 
 function GoogleMapsIcon() {
@@ -176,30 +202,57 @@ export function InspectorPanel({
                 </div>
               </>
             ) : (
-              <div>
-                <dt>Cell values</dt>
-                <dd>
-                  <span role="status">
-                    {view.state === 'loading'
-                      ? LOADING_CELL_VALUES
-                      : CELL_VALUES_UNAVAILABLE}
-                  </span>
-                  {view.state === 'unavailable' && onRetryDetail && (
-                    <RetryCellValues close={close} onRetry={onRetryDetail} />
-                  )}
-                </dd>
-              </div>
+              <>
+                <div>
+                  <dt>Posterior estimate</dt>
+                  <dd>
+                    <ProvisionalPercent
+                      state={view.state}
+                      value={view.provisional.post_mean}
+                    />
+                  </dd>
+                </div>
+                <div>
+                  <dt>95% credible interval</dt>
+                  <dd>{DETAIL_ONLY_TEXT[view.state]}</dd>
+                </div>
+                <div>
+                  <dt>Uncertainty</dt>
+                  <dd>
+                    <ProvisionalPercent
+                      state={view.state}
+                      value={view.provisional.post_sd}
+                    />
+                  </dd>
+                </div>
+                {/* One status region for both states, so the change to unavailable is announced. */}
+                <div>
+                  <dt>Cell values</dt>
+                  <dd>
+                    <span role="status">
+                      {view.state === 'loading'
+                        ? LOADING_CELL_VALUES
+                        : CELL_VALUES_UNAVAILABLE}
+                    </span>
+                    {view.state === 'unavailable' && onRetryDetail && (
+                      <RetryCellValues close={close} onRetry={onRetryDetail} />
+                    )}
+                  </dd>
+                </div>
+              </>
             )}
             <div>
               <dt>Evidence support</dt>
               <dd>{evidenceSupportLabel(view.support)}</dd>
             </div>
-            {view.state === 'values' && (
-              <div>
-                <dt>Nearest measurement</dt>
+            <div>
+              <dt>Nearest measurement</dt>
+              {view.state === 'values' ? (
                 <dd>{Math.round(view.cell.dist_nearest_obs_km)} km</dd>
-              </div>
-            )}
+              ) : (
+                <dd>{DETAIL_ONLY_TEXT[view.state]}</dd>
+              )}
+            </div>
             <div>
               <dt>Cell ID</dt>
               <dd>{view.h3Index}</dd>
