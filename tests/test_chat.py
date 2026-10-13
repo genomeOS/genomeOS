@@ -20,6 +20,7 @@ from genomeos.chat.contracts import ChatRequest, Proposal
 from genomeos.chat.service import respond
 
 ROOT = Path(__file__).resolve().parents[1]
+TEST_SESSION_SECRET = b"test-only-session-signing-key-not-for-deployment"
 
 
 @pytest.fixture
@@ -132,15 +133,19 @@ def test_http_boundary_no_database_writes_and_budgets(catalog, tmp_path, monkeyp
     before = hashlib.sha256(sentinel.read_bytes()).digest()
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{sentinel}")
     fake = FakeSelector()
-    app = create_app(catalog, fake, ["https://genome-os.org"])
+    app = create_app(catalog, fake, ["https://genome-os.org"], session_secret=TEST_SESSION_SECRET)
 
     async def check():
         async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
+            transport=httpx.ASGITransport(app=app),
+            base_url="https://genome-os.org",
+            headers={"Origin": "https://genome-os.org"},
         ) as client:
             assert (await client.get("/health")).json()["database_access"] is False
             assert (await client.get("/v1/atlas/chat/catalog")).json()["revision"] == catalog.revision
             body = request(catalog).model_dump()
+            session = (await client.get("/v1/atlas/chat/session")).json()
+            client.headers["X-CSRF-Token"] = session["csrf_token"]
             assert (
                 await client.post("/v1/atlas/chat", json={**body, "sql": "DELETE FROM associations"})
             ).status_code == 422
@@ -188,10 +193,14 @@ def test_invalid_provider_action_and_provider_failure_are_bounded(catalog):
             (FakeSelector(proposal(artifact_ids=["alphaearth"])), 422),
             (BrokenSelector(), 503),
         ]:
-            app = create_app(catalog, selector, [])
+            app = create_app(catalog, selector, ["https://genome-os.org"], session_secret=TEST_SESSION_SECRET)
             async with httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app), base_url="http://test"
+                transport=httpx.ASGITransport(app=app),
+                base_url="https://genome-os.org",
+                headers={"Origin": "https://genome-os.org"},
             ) as client:
+                session = (await client.get("/v1/atlas/chat/session")).json()
+                client.headers["X-CSRF-Token"] = session["csrf_token"]
                 result = await client.post("/v1/atlas/chat", json=request(catalog).model_dump())
                 assert result.status_code == expected
                 assert "secret-token" not in result.text

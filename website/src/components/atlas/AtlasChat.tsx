@@ -6,6 +6,11 @@ import type { AtlasSceneController } from '../../atlas/scene/atlas-scene';
 import { acknowledgeMapView } from '../../atlas/chat-rendering';
 import type { AtlasCatalog } from '../../atlas/contracts';
 import {
+  initializeChatSession,
+  sessionRequestOptions,
+  type ChatSession,
+} from '../../atlas/chat-session';
+import {
   comparisonLink,
   proposedStates,
   responseSchema,
@@ -47,6 +52,8 @@ export function AtlasChat({
   const [busy, setBusy] = useState(false);
   const [receipt, setReceipt] = useState('');
   const [revision, setRevision] = useState('');
+  const [session, setSession] = useState<ChatSession | null>(null);
+  const previousSession = useRef<ChatSession | null>(null);
   const [compare, setCompare] = useState('');
   const [undo, setUndo] = useState<ExplorerState | null>(null);
   const pending = useRef<{ id: string; state: ExplorerState } | null>(null);
@@ -64,7 +71,28 @@ export function AtlasChat({
   useEffect(() => {
     if (!open || !endpoint) return;
     setRevision('');
+    setSession(null);
     const controller = new AbortController();
+    initializeChatSession(endpoint, controller.signal)
+      .then((next) => {
+        if (controller.signal.aborted) return;
+        if (
+          previousSession.current &&
+          previousSession.current.session_id !== next.session_id
+        ) {
+          setMessages([]);
+          setUndo(null);
+          setCompare('');
+          pending.current = null;
+          setReceipt('A new private chat session started.');
+        }
+        previousSession.current = next;
+        setSession(next);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted)
+          setReceipt('A private chat session could not be established.');
+      });
     fetch(`${endpoint.replace(/\/$/, '')}/v1/atlas/chat/catalog`, {
       signal: controller.signal,
     })
@@ -135,7 +163,7 @@ export function AtlasChat({
 
   async function submit(event: { preventDefault(): void }) {
     event.preventDefault();
-    if (!endpoint || !revision || busy || !input.trim()) return;
+    if (!endpoint || !revision || !session || busy || !input.trim()) return;
     const question = input.trim();
     const snapshot = current.current;
     setMessages((items) => [...items, { role: 'user', text: question }]);
@@ -151,7 +179,7 @@ export function AtlasChat({
         `${endpoint.replace(/\/$/, '')}/v1/atlas/chat`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          ...sessionRequestOptions(session),
           signal: controller.signal,
           body: JSON.stringify({
             message: question,
@@ -166,6 +194,17 @@ export function AtlasChat({
           }),
         },
       );
+      if (response.status === 401 || response.status === 403) {
+        setSession(null);
+        previousSession.current = null;
+        setMessages([]);
+        setUndo(null);
+        setCompare('');
+        pending.current = null;
+        throw new Error(
+          'This chat session expired or changed. Close and reopen the assistant to start again.',
+        );
+      }
       if (!response.ok)
         throw new Error(
           response.status === 429
@@ -173,6 +212,7 @@ export function AtlasChat({
             : 'Assistant unavailable or request refused; map unchanged.',
         );
       const result = responseSchema.parse(await response.json());
+      if (controller.signal.aborted) return;
       if (result.catalog_revision !== revision)
         throw new Error('Assistant catalog changed; reopen the panel.');
       setMessages((items) => [
@@ -258,7 +298,11 @@ export function AtlasChat({
                 disabled={busy || !endpoint}
               />
             </label>
-            <button disabled={busy || !revision || !ready || !input.trim()}>
+            <button
+              disabled={
+                busy || !revision || !session || !ready || !input.trim()
+              }
+            >
               Send
             </button>
             {busy && (

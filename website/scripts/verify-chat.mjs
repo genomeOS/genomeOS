@@ -23,18 +23,31 @@ try {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('http://127.0.0.1:8011/**', async (route) => {
     const request = route.request();
+    const headers = {
+      'access-control-allow-origin': new URL(baseUrl).origin,
+      'access-control-allow-credentials': 'true',
+    };
     if (request.method() === 'OPTIONS')
       return route.fulfill({
         status: 204,
         headers: {
-          'access-control-allow-origin': '*',
+          ...headers,
           'access-control-allow-methods': 'GET,POST',
-          'access-control-allow-headers': 'content-type',
+          'access-control-allow-headers': 'content-type,x-csrf-token',
+        },
+      });
+    if (request.url().endsWith('/session'))
+      return route.fulfill({
+        headers,
+        json: {
+          session_id: 'a'.repeat(64),
+          csrf_token: 'b'.repeat(64),
+          expires_at: 2000000000,
         },
       });
     if (request.url().endsWith('/catalog'))
       return route.fulfill({
-        headers: { 'access-control-allow-origin': '*' },
+        headers,
         json: { revision, artifacts: catalog.artifacts },
       });
     const body = request.postDataJSON();
@@ -58,7 +71,7 @@ try {
     }
     const refused = body.message.includes('unrelated');
     return route.fulfill({
-      headers: { 'access-control-allow-origin': '*' },
+      headers,
       json: {
         catalog_revision: revision,
         answer: refused
