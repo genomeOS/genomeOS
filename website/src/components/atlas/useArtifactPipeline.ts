@@ -7,8 +7,10 @@
  * f64 detail tier is queued at `atlas:surface-visible` as step 2 of the
  * scene's post-reveal load order: it starts once the Natural Earth borders
  * have settled, at once on a later artifact switch, and the starfield waits
- * for it to settle. A turn that finds the request already in flight joins it
- * and hears its body chunks too. A retry starts it at once.
+ * for it to settle. A tier already attached (a scene rebuilt by "Retry globe")
+ * needs no network, so its values are marked ready at once and nothing is
+ * queued. A turn that finds the request already in flight joins it and hears
+ * its body chunks too. A retry starts it at once.
  *
  * Marks describe the scene's current epoch, so they are read against the
  * request last handed to the scene, never a newer one still on its way. A
@@ -236,6 +238,12 @@ export function useArtifactPipeline(
   ): void => {
     const key = entry.artifactKey;
     detailTurns.current.get(key)?.();
+    detailTurns.current.delete(key);
+    if (entry.surface?.detail) {
+      // Attached under an earlier scene: no download, so nothing to wait behind or for.
+      scene.markValuesReady(key);
+      return;
+    }
     detailTurns.current.set(
       key,
       scene.queueDetail((progress) => loadDetail(entry, progress)),

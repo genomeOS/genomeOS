@@ -650,6 +650,33 @@ describe('artifact pipeline load order (spec 2026-10-07 §B.6.9)', () => {
     expect(second.detailProgress).toHaveBeenCalledTimes(2);
   });
 
+  it('marks an attached detail tier ready at surface-visible, without a turn behind the borders', async () => {
+    const { provider, render } = mountPipeline();
+    const first = fakeScene();
+    render('a', first);
+    await settle();
+    first.mark('surface-visible');
+    provider.details[0].request.resolve(
+      columnarSurface(cells, { withDetail: true }).detail!,
+    );
+    await settle();
+    // "Retry globe": the cached surface's detail tier needs no network, so it does not wait for
+    // the new scene's borders, and the starfield waits only for them.
+    const borders = deferred<void>();
+    const second = fakeScene(borders.promise);
+    const starfield = vi.fn();
+    render('a', second);
+    await settle();
+    second.mark('surface-visible');
+    expect(second.markValuesReady).toHaveBeenCalledWith(keys.a);
+    expect(second.queueDetail).not.toHaveBeenCalled();
+    second.order.starfield(starfield);
+    borders.resolve();
+    await settle();
+    expect(starfield).toHaveBeenCalledTimes(1);
+    expect(provider.getSurfaceDetail).toHaveBeenCalledTimes(1);
+  });
+
   it('drops a queued detail tier for an artifact the user left before its turn', async () => {
     const { provider, render } = mountPipeline();
     const borders = deferred<void>();
