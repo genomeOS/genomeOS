@@ -1,7 +1,9 @@
 /**
  * Columnar surface model for Atlas design §11 and fast-load design §B.2, §B.6.4. Two accessors make
  * the precision rule a type guarantee: `renderAt` (float32 render tier) drives colour, height and
- * anchors; `cellAt` (float64 detail tier) is the only source of displayed numbers.
+ * anchors; `cellAt` (float64 detail tier) is the only source of exact displayed numbers. Render
+ * values reach the screen only as `ProvisionalCellValues` (surface-cell-view.ts), which print with
+ * the "≈" marker (§B.2, amended 2026-10-13).
  */
 
 import { splitLongToH3Index } from 'h3-js';
