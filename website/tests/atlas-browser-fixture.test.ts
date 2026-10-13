@@ -10,6 +10,7 @@ import {
   artifactTierKey,
   corruptArtifactTier,
   delayArtifactTier,
+  extractArtifactDataBase,
   extractInlineCatalog,
   fetchedKeys,
   GTAG_SCRIPT_PATTERN,
@@ -150,6 +151,7 @@ describe('fixture module boundary', () => {
         'corruptArtifactTier',
         'delayArtifactTier',
         'displayedArtifactIds',
+        'extractArtifactDataBase',
         'extractInlineCatalog',
         'failArtifactTier',
         'fetchedKeys',
@@ -235,6 +237,24 @@ describe('catalog helpers', () => {
       'surfaces/hbs-rs334/v3/map-2026-08/render.1111.gosa',
       'surfaces/no-observations/v1/d/detail.4444.gosa',
       'surfaces/no-observations/v1/d/render.3333.gosa',
+    ]);
+  });
+
+  it('leaves artifact objects to the network when the build bakes an absolute base', async () => {
+    const html = appHtml(readE2eCatalog()).replace(
+      'id="atlas-catalog"',
+      'id="atlas-catalog" data-artifact-data-base="http://127.0.0.1:4323/"',
+    );
+    expect(extractArtifactDataBase(html)).toBe('http://127.0.0.1:4323/');
+    expect(extractArtifactDataBase(appHtml(TINY))).toBeNull();
+    const { page, routes } = fakePage(html);
+    await installAtlasBrowserFixture(page, {
+      appUrl: 'http://fixture.invalid/app/cross-origin',
+    });
+    // Only the tile block and the gtag.js stub (#422): no artifact route.
+    expect(routes.map(({ matcher }) => matcher)).toEqual([
+      'https://tile.openstreetmap.org/**',
+      GTAG_SCRIPT_PATTERN,
     ]);
   });
 

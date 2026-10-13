@@ -2,6 +2,8 @@
  * Opt-in local overrides shared by both Playwright configs (#411). CI sets neither variable, so
  * CI keeps one worker per shard and the test server on 127.0.0.1:4322.
  */
+import { readFileSync } from 'node:fs';
+
 type Environment = Readonly<Record<string, string | undefined>>;
 
 /** The `serve:test` port when `PLAYWRIGHT_PORT` is unset; package.json repeats it as the default. */
@@ -36,4 +38,30 @@ export function playwrightPort(env: Environment = process.env): number {
     DEFAULT_PLAYWRIGHT_PORT,
     65_535,
   );
+}
+
+/** The bucket's CORS document, which `serve-atlas-data` applies (design 2026-10-07 §C.2). */
+const ATLAS_CORS_FILE = new URL(
+  '../../../deploy/atlas-web-cors.json',
+  import.meta.url,
+);
+
+/** Every origin the bucket's CORS document grants. */
+export function atlasCorsOrigins(): string[] {
+  const entries = JSON.parse(readFileSync(ATLAS_CORS_FILE, 'utf8')) as {
+    origin: string[];
+  }[];
+  return entries.flatMap((entry) => entry.origin);
+}
+
+/**
+ * Extra `serve-atlas-data` arguments for the Playwright site origin. The CORS document lists the
+ * default local ports, so CI passes none; a `PLAYWRIGHT_PORT` the document does not list gets the
+ * test-only `--allow-origin`, and the document itself never widens.
+ */
+export function atlasDataServerArgs(
+  siteOrigin: string,
+  corsOrigins: readonly string[] = atlasCorsOrigins(),
+): string[] {
+  return corsOrigins.includes(siteOrigin) ? [] : ['--allow-origin', siteOrigin];
 }

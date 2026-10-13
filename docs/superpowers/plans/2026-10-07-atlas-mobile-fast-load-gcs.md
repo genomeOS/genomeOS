@@ -90,7 +90,7 @@ ruling R19 is decided (option (a)), so Task 43 (B3.4) Step 0 does not stop.
 - Part B delivery: `website/public/data/atlas/grids/` and `…/surfaces/` are git-ignored; `pages.yml` `validate`, every `e2e` shard (it builds the site, #411) and `build` install `.` with the `read` extra (`-c requirements.lock`), run `python scripts/encode_atlas_web.py`, then `git diff --exit-code website/public/data/atlas/catalog.json`; `paths` filters gain `genomeos/publication/**`, `scripts/encode_atlas_web.py`, `pyproject.toml`.
 - Bucket objects: `Cache-Control: public, max-age=31536000, immutable`; gzip by `gzip.compress(data, compresslevel=9, mtime=0)` (never `--gzip-local*`); uploads with `--if-generation-match=0`, `--content-encoding=gzip`, `--content-type` `application/octet-stream` (`.gosa`) or `application/json`, `--custom-metadata=sha256=<decoded hex>,decoded-bytes=<n>` (served as `x-goog-meta-sha256`, `x-goog-meta-decoded-bytes`); never overwritten, never deleted.
 - Bucket layout under `atlas/web/`: `grids/h3-r{res}.{container sha256[:16]}.gosa`; `surfaces/{id}/{model_version}/{data_version}/{render|detail}.{sha256[:16]}.gosa`; `downloads/{id}/{model_version}/{data_version}/{id}.{surface|observations|manifest}.{sha256[:16]}.json` with `Content-Disposition: attachment; filename="{id}.{kind}.json"`.
-- CORS: `GET`, `HEAD` from `https://genome-os.org`, `http://genome-os.org`, `https://www.genome-os.org`, `https://bschilder.github.io`, and `http://localhost` / `http://127.0.0.1` on ports 4321, 4322 and 4323; response headers `Content-Length`, `Content-Type`, `Content-Encoding`, `ETag`; `maxAgeSeconds` 3600.
+- CORS: `GET`, `HEAD` from `https://genome-os.org`, `https://www.genome-os.org`, and `http://localhost` / `http://127.0.0.1` on ports 4321, 4322 and 4323; response headers `Content-Length`, `Content-Type`, `Content-Encoding`, `ETag`; `maxAgeSeconds` 3600.
 - Bucket: `us-east1`, uniform bucket-level access, `allUsers: roles/storage.objectViewer`, no object versioning, default soft delete; `edge` mode provisioned, `cloud-cdn` scripted only.
 - Variables: build `PUBLIC_ATLAS_DATA_BASE_URL` (absolute `https://…/atlas/web/`, trailing `/`, `''` = unset); repository `ATLAS_DATA_BASE_URL`, `ATLAS_DATA_BUCKET`; build `ATLAS_CATALOG_PATH` (default `public/data/atlas/catalog.json`); opt-in `ATLAS_DATA_DIR`; fake gcloud `GENOMEOS_GCLOUD_EXECUTABLE`; no variable named with `ORIGIN`.
 - No GCP project id or bucket name in any tracked file — this plan included (`docs/repo-gcloud-auth.md`); every gcloud call goes through `python scripts/gcloud_repo.py run …`, never bare `gcloud`.
@@ -39610,11 +39610,11 @@ Then confirm Part C's issue cites #172 (the spec requires every part's issue to 
 transition/progress rules; Plan ruling R2 checked labels and the #33 comment, not this):
 
 ```bash
-gh issue view 406 --repo bschilder/genomeOS --json body,comments --jq '[.body, (.comments[].body)] | map(select(test("#172"))) | length'
+gh issue view 406 --repo genomeOS/genomeOS --json body,comments --jq '[.body, (.comments[].body)] | map(select(test("#172"))) | length'
 ```
 
 Expected: `1` or more. If `0`, before this task's first commit post
-`gh issue comment 406 --repo bschilder/genomeOS --body "Part C keeps the #172 transition and progress rules unchanged: the cross-origin artifact base changes where tiers are fetched, not how a replacement dataset is revealed or how progress is reported."`.
+`gh issue comment 406 --repo genomeOS/genomeOS --body "Part C keeps the #172 transition and progress rules unchanged: the cross-origin artifact base changes where tiers are fetched, not how a replacement dataset is revealed or how progress is reported."`.
 
 - [ ] Step 1: Write the shared fixture module and the failing test.
 
@@ -39796,9 +39796,7 @@ def test_cors_policy_is_exactly_the_published_origin_list() -> None:
         {
             "origin": [
                 "https://genome-os.org",
-                "http://genome-os.org",
                 "https://www.genome-os.org",
-                "https://bschilder.github.io",
                 "http://localhost:4321",
                 "http://localhost:4322",
                 "http://localhost:4323",
@@ -40029,9 +40027,7 @@ CONTENT_TYPES: Mapping[str, str] = {".gosa": "application/octet-stream", ".json"
 DOWNLOAD_KINDS = ("surface", "observations", "manifest")
 PRODUCTION_ORIGINS = (
     "https://genome-os.org",
-    "http://genome-os.org",  # the site still answers on plain HTTP
     "https://www.genome-os.org",
-    "https://bschilder.github.io",
 )
 LOCAL_ORIGINS = tuple(
     f"http://{host}:{port}" for host in ("localhost", "127.0.0.1") for port in (4321, 4322, 4323)
@@ -40290,9 +40286,7 @@ def _require_sha256(where: str, sha256: object) -> str:
   {
     "origin": [
       "https://genome-os.org",
-      "http://genome-os.org",
       "https://www.genome-os.org",
-      "https://bschilder.github.io",
       "http://localhost:4321",
       "http://localhost:4322",
       "http://localhost:4323",
@@ -42353,7 +42347,7 @@ EOF
   `#atlas-catalog` inline catalog (Task 36 (B2.13)) for `--production`.
 - Produces: CLI `python scripts/check_atlas_web_data.py --catalog PATH --base URL --bucket NAME
   --dist DIR [--production] [--api-root URL]` (stdlib only: no install needed in CI); prints `FAIL …`
-  lines and exits 1, or `ok: N artifact objects x 4 origins, 3 checked end to end, M site files` and
+  lines and exits 1, or `ok: N artifact objects x 2 origins, 3 checked end to end, M site files` and
   exits 0. `run_checks(catalog, *, base, bucket, dist, production, api_root=…, origins=…) -> list[str]`.
 
 **Spec:** §C.1.5 (exactly), §C.2 (metadata trusted only because keys are content-addressed, uploads
@@ -42532,7 +42526,7 @@ def _run(served: Served, tmp_path: Path, *extra: str, base: str | None = None, d
 
 def test_a_correctly_published_bucket_passes_without_comparing_content_length(served: Served, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert _run(served, tmp_path, "--production") == 0
-    assert capsys.readouterr().out.strip() == "ok: 6 artifact objects x 4 origins, 3 checked end to end, 2 site files"
+    assert capsys.readouterr().out.strip() == "ok: 6 artifact objects x 2 origins, 3 checked end to end, 2 site files"
     render = staged_catalog()["artifacts"][0]["web"]["render"]["url"]
     assert len(served.bucket.stored(render)) != len(served.bucket.objects[render])  # CL is the gzip size
 
@@ -42588,10 +42582,10 @@ def test_transport_headers_are_required_on_every_object(served: Served, tmp_path
 
 
 def test_every_production_origin_needs_a_cors_grant(served: Served, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    served.bucket.allowed_origins.discard("http://genome-os.org")
+    served.bucket.allowed_origins.discard("https://www.genome-os.org")
     assert _run(served, tmp_path) == 1
     out = capsys.readouterr().out
-    assert "(Origin http://genome-os.org): Access-Control-Allow-Origin None" in out
+    assert "(Origin https://www.genome-os.org): Access-Control-Allow-Origin None" in out
     assert "(Origin https://genome-os.org): Access-Control-Allow-Origin" not in out
 
 
@@ -44506,9 +44500,13 @@ describe('Atlas web-object encoding prerequisites (fast-load spec §B.5)', () =>
 });
 ```
 
-Note: after this commit, `validate` on this branch's PR fails at "Check published Atlas web data"
-until C18 commits the content-addressed catalog (the gate refuses flat keys) — that is the intended
-premature-merge guard (§C.4.3).
+Note: after this commit, `validate` on this branch's PR stays red until Task 104 (C18), and it fails
+first at "Run unit and content contracts", before the gate runs (ruling PF10): with the encode step
+gone, CI has no `.gosa` objects, so `atlas-public-data.test.ts` fails "validates every allowlisted
+surface and measured-observation file" and "decodes every staged grid, render and detail object"
+until C18 moves those checks behind `ATLAS_DATA_DIR`. "Check published Atlas web data" fails as well
+until C18 commits the content-addressed catalog (the gate refuses flat keys). Both are the intended
+premature-merge guard (§C.4.3): the stack is one PR and never merges mid-way.
 
 - [ ] Step 4: Run tests; expected pass.
 
@@ -44687,9 +44685,9 @@ encoded site data under content-addressed keys below `atlas/web/`.
   balancer with a Google-managed certificate for `data.genome-os.org`; it needs a DNS A record at the
   registrar (a human step) and has a recurring load-balancer cost.
 - Provisioning reads and reports public-access prevention and the effective
-  `iam.allowedPolicyMemberDomains` and `storage.publicAccessPrevention` organization policies, and
-  stops before changing anything when one would block public objects. It is idempotent and
-  `--dry-run` prints every command.
+  `iam.allowedPolicyMemberDomains`, `iam.managed.allowedPolicyMembers` and
+  `storage.publicAccessPrevention` organization policies, and stops before changing anything when one
+  would block public objects. It is idempotent and `--dry-run` prints every command.
 
 The publish runbook is in [`data-store.md`](data-store.md#public-web-data-bucket).
 ```
@@ -44809,7 +44807,7 @@ of them:
 
 ```bash
 cd "$REPO"
-gh pr list --repo bschilder/genomeOS --head feat/atlas-fast-load --state merged --json number,mergeCommit
+gh pr list --repo genomeOS/genomeOS --head feat/atlas-fast-load --state merged --json number,mergeCommit
 ```
 
 Expected: exactly one row. Otherwise **stop**: Part B is not merged (spec §C.4.1), so nothing may be
@@ -44885,7 +44883,7 @@ taken too, stop and ask the owner.
 .venv/bin/python scripts/provision_atlas_web_bucket.py --mode edge --bucket "$ATLAS_DATA_BUCKET" | tee "$SCRATCH/provision-edge.txt"
 ```
 
-Expected: 9 `DRY-RUN` lines (the dry run reads nothing, so it always prints the new-bucket plan and
+Expected: 10 `DRY-RUN` lines (the dry run reads nothing, so it always prints the new-bucket plan and
 cannot detect an existing bucket — Step 3 is that check; the script itself also refuses an existing
 bucket without the label or in another project); then `RUN` lines for create, the
 `genomeos-purpose=atlas-web` label, IAM binding and CORS, report lines
@@ -44922,7 +44920,7 @@ printf 'export GENOMEOS_GCP_PROJECT=%s\nexport ATLAS_DATA_BUCKET=%s\nexport ATLA
 
 ```bash
 cd "$REPO" && git fetch origin
-gh pr list --repo bschilder/genomeOS --head feat/atlas-fast-load --state merged --json number,mergeCommit   # exactly one row
+gh pr list --repo genomeOS/genomeOS --head feat/atlas-fast-load --state merged --json number,mergeCommit   # exactly one row
 git merge-base --is-ancestor origin/main HEAD && echo "on main"
 git diff --quiet origin/main HEAD -- genomeos/publication/surface_codec.py website/src/atlas/gosa && echo "Part B codec unchanged"
 ```
@@ -45016,7 +45014,7 @@ ATLAS_CATALOG_PATH="$STAGING/catalog.json" PUBLIC_ATLAS_DATA_BASE_URL="$ATLAS_DA
 ../.venv/bin/python ../scripts/check_atlas_web_data.py --production --catalog "$STAGING/catalog.json" --base "$ATLAS_DATA_BASE_URL" --bucket "$ATLAS_DATA_BUCKET" --dist dist | tee "$SCRATCH/gate-live.txt"
 ```
 
-Expected: `ok: 151 artifact objects x 4 origins, 3 checked end to end, 5 site files` (2 Natural
+Expected: `ok: 151 artifact objects x 2 origins, 3 checked end to end, 5 site files` (2 Natural
 Earth files + 3 external caches). Any `FAIL` → fix the cause (re-provision CORS, re-publish) and
 re-run; never weaken the gate.
 
@@ -45038,9 +45036,9 @@ npm run build   # leave a default dist behind
 
 ```bash
 cd "$REPO" && source "$SCRATCH/atlas-web.env"
-gh variable set ATLAS_DATA_BUCKET --repo bschilder/genomeOS --body "$ATLAS_DATA_BUCKET"
-gh variable set ATLAS_DATA_BASE_URL --repo bschilder/genomeOS --body "$ATLAS_DATA_BASE_URL"
-gh variable list --repo bschilder/genomeOS | grep '^ATLAS_DATA_'
+gh variable set ATLAS_DATA_BUCKET --repo genomeOS/genomeOS --body "$ATLAS_DATA_BUCKET"
+gh variable set ATLAS_DATA_BASE_URL --repo genomeOS/genomeOS --body "$ATLAS_DATA_BASE_URL"
+gh variable list --repo genomeOS/genomeOS | grep '^ATLAS_DATA_'
 ```
 
 Expected: both rows. `main`'s workflows do not read them until Part C merges, so setting them now

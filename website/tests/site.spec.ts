@@ -9,7 +9,6 @@ import {
   corruptArtifactTier,
   delayArtifactTier,
   displayedArtifactIds,
-  E2E_ARTIFACT_DATA_BASE,
   failArtifactTier,
   installAtlasBrowserFixture,
   readInlineCatalog,
@@ -3163,6 +3162,11 @@ test('explorer provides versioned downloads and gated external lookups', async (
   });
   await expandExplorerSheet(page);
 
+  const { artifact: artifactBase } = (await page
+    .locator('#atlas-data-bases')
+    .evaluate((element) => JSON.parse(element.textContent ?? 'null'))) as {
+    artifact: string;
+  };
   await page.locator('.atlas-downloads > summary').click();
   const hbs = (await readInlineCatalog(page)).artifacts.find(
     ({ id }) => id === 'hbs-rs334',
@@ -3176,7 +3180,7 @@ test('explorer provides versioned downloads and gated external lookups', async (
   ] as const) {
     await expect(page.getByRole('link', { name })).toHaveAttribute(
       'href',
-      dataHref(key, E2E_ARTIFACT_DATA_BASE),
+      dataHref(key, artifactBase),
     );
   }
 
