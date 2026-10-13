@@ -21,7 +21,8 @@ data/
                   cells.parquet         the citable per-cell surface (§5, §6)
                   manifest.json         what was published, and under what assumptions
     INVENTORY.json                      checksums of everything above
-reference/                              committed: Natural Earth countries, Piel 2013 estimates
+reference/                              committed: Natural Earth countries (1:110m, and the 1:50m
+                                        admin-0 source of the Atlas borders), Piel 2013 estimates
 tests/fixtures/                         committed: tiny, hand-checkable inputs
 docs/figures/                           committed: review figures
 ```
@@ -89,6 +90,13 @@ whose cells differ, writes content-addressed GOSA objects under `grids/` and `su
 every object it wrote and compares it with the JSON cell by cell, and only then adds `grids`, `web`
 and `observations_bytes` to `catalog.json`. It is byte-deterministic, so CI re-runs it and fails if
 the committed catalog differs. The objects are git-ignored; the JSON stays the citable download.
+
+The explorer's country borders are derived too. `scripts/encode_natural_earth_borders.py` reads
+`reference/ne_50m_admin_0_countries.geojson`, refuses it unless its sha256 is the pinned
+revision's, and writes the committed `website/public/data/atlas/ne-50m-admin-0.borders.bin`
+(positions on a 0.0001° lattice, shared borders stored once; fast-load spec §B.10). The site no
+longer ships the GeoJSON. Re-run the script after changing the source or the format; `--check`
+fails when the committed file is stale, and the Python tests check it byte for byte.
 
 ## Immutability is enforced, not just documented
 
