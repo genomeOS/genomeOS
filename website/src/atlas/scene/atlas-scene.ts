@@ -1,7 +1,9 @@
-/** Cesium lifecycle and scientific-layer orchestration for Atlas design §11 (spec 2026-10-07 §B.6). */
+/** Cesium lifecycle and scientific-layer orchestration for Atlas design §11 (spec 2026-10-07 §B.6;
+ * the reveal wave of #453, §B.6.7 as amended 2026-10-13). */
 
 import { SceneMode, Viewer } from 'cesium';
 
+import { revealWaveTestHold } from '../e2e-hooks';
 import type {
   BasemapId,
   CameraState,
@@ -11,7 +13,11 @@ import type {
   SurfaceGeometry,
   TerrainId,
 } from '../url-state';
-import type { Metric, PaletteId } from '../visual-encoding';
+import {
+  MAX_HEIGHT_METRES,
+  type Metric,
+  type PaletteId,
+} from '../visual-encoding';
 import { bindKeyboardCamera, cameraState, setCameraState } from './camera';
 import { revealFrameBudgetMs } from './chunk-scheduler';
 import {
@@ -23,6 +29,11 @@ import { ContextOverlay } from './context-overlay';
 import { HighlightLayer } from './highlight-layer';
 import { bindAtlasPicking } from './picking';
 import { RenderLoop } from './render-loop';
+import {
+  createRevealWave,
+  waveViewOf,
+  type RevealWave,
+} from './reveal-wave-driver';
 import { createMarkTracker, type MarkTracker } from './scene-marks';
 import {
   DEFAULT_LAYERS,
@@ -35,6 +46,7 @@ import {
 } from './scene-policy';
 import { animateValue } from './scene-transition';
 import { ScientificLayers, type ScientificStyle } from './scientific-layers';
+import { SURFACE_CLEARANCE_METRES } from './surface-appearance';
 import { createSurfacePickResolver } from './surface-pick';
 import type {
   ArtifactLoad,
@@ -96,6 +108,7 @@ class CesiumAtlasScene implements AtlasSceneController {
   readonly #overlay: ContextOverlay;
   readonly #highlightLayer: HighlightLayer;
   readonly #marks: MarkTracker;
+  readonly #wave: RevealWave;
   readonly #layers: ScientificLayers;
   readonly #revealSky: () => void;
   readonly #naturalEarthUrl: string;
@@ -172,6 +185,20 @@ class CesiumAtlasScene implements AtlasSceneController {
     styleAtlasScene(this.#viewer);
     this.#highlightLayer = new HighlightLayer(this.#viewer.scene);
     this.#viewer.scene.primitives.add(this.#highlightLayer.collection);
+    this.#wave = createRevealWave({
+      hold: revealWaveTestHold(),
+      scene: this.#viewer.scene,
+      // The explorer root, like the load marks; the driver writes nothing once destroyed.
+      target: options.markTarget ?? null,
+      // The higher of the drawn and the target exaggeration, so a raised column is never cut.
+      view: () =>
+        waveViewOf(
+          this.#viewer.scene,
+          SURFACE_CLEARANCE_METRES +
+            MAX_HEIGHT_METRES *
+              Math.max(this.#elevationFactor, this.#targetElevationFactor()),
+        ),
+    });
     this.#layers = new ScientificLayers({
       frameBudgetMs:
         options.frameBudgetMs ??
@@ -181,6 +208,7 @@ class CesiumAtlasScene implements AtlasSceneController {
       onCommit: (artifactKey) => this.#commit(artifactKey),
       scene: this.#viewer.scene,
       style: () => this.#scientificStyle(),
+      wave: this.#wave,
       worker: options.worker,
     });
     this.#removeMarks = this.#marks.onMark((mark) => {
@@ -208,6 +236,7 @@ class CesiumAtlasScene implements AtlasSceneController {
         geometry: () =>
           this.#layers.displayedLayer()?.geometry ?? this.#surfaceGeometry,
         metric: () => this.#layers.displayedLayer()?.metric ?? this.#metric,
+        reveal: (direction) => this.#wave.reveal(direction),
         target: () => this.#layers.pickTarget(),
       }),
     );
@@ -522,6 +551,7 @@ class CesiumAtlasScene implements AtlasSceneController {
     this.#elevationSequence += 1;
     this.#renderLoop.stop();
     this.#layers.destroy();
+    this.#wave.destroy();
     this.#removeMarks();
     this.#marks.destroy();
     this.#unbindKeyboard();

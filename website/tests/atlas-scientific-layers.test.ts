@@ -12,6 +12,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ObservationArtifact } from '../src/atlas/contracts';
 import { LayerCache } from '../src/atlas/scene/layer-cache';
+import { REVEAL_WAVE_MS } from '../src/atlas/scene/reveal-wave';
+import { createRevealWave } from '../src/atlas/scene/reveal-wave-driver';
 import { createMarkTracker } from '../src/atlas/scene/scene-marks';
 import {
   DEFAULT_LAYERS,
@@ -156,9 +158,27 @@ function harness(overrides: Partial<ScientificStyle> = {}) {
     requestRender: vi.fn(),
   };
   const attributes = new Map<string, string>();
+  // The scene's real driver on a test clock: each `frame()` advances the wave like a render.
+  const clock = { now: 0 };
+  const wave = createRevealWave({
+    measure: vi.fn(),
+    now: () => clock.now,
+    scene,
+    target: { setAttribute: (name, value) => attributes.set(name, value) },
+    view: () => ({ origin: [0, 0, 1], reach: 1 }),
+    visibility: { isHidden: () => false, onChange: () => () => {} },
+  });
+  const realWaveStart = wave.start;
+  const waveStarts = vi.spyOn(wave, 'start');
+  const displayedHistory: string[] = [];
   const marks = createMarkTracker(
     scene,
-    { setAttribute: (name, value) => attributes.set(name, value) },
+    {
+      setAttribute: (name, value) => {
+        attributes.set(name, value);
+        if (name === 'data-atlas-displayed') displayedHistory.push(value);
+      },
+    },
     { mark: vi.fn() },
   );
   const emitted: AtlasMark[] = [];
@@ -233,12 +253,20 @@ function harness(overrides: Partial<ScientificStyle> = {}) {
     perf: { mark: vi.fn() },
     scene: scene as never,
     style: () => style,
+    wave,
     worker: worker as never,
   });
   const frame = () => {
     preUpdate.raiseEvent();
     markReady(primitives);
     postRender.raiseEvent();
+  };
+  /** Frames until the wave has passed the horizon. */
+  const finishWave = () => {
+    for (let index = 0; index < 3; index += 1) {
+      clock.now += REVEAL_WAVE_MS;
+      frame();
+    }
   };
   const pump = async (frames = 12) => {
     for (let index = 0; index < frames; index += 1) {
@@ -269,19 +297,33 @@ function harness(overrides: Partial<ScientificStyle> = {}) {
   return {
     attributes,
     childCollections,
+    clock,
     commits,
+    displayedHistory,
     emitted,
+    finishWave,
     frame,
     highlight,
     layers,
     load,
     primitives,
     pump,
+    realWaveStart,
     requests,
     show,
     style,
+    wave,
+    waveStarts,
     worker,
   };
+}
+
+/** Runs each animation frame a second later, so an animated swap ends on its first frame. */
+function runAnimationFramesAtOnce(): void {
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    queueMicrotask(() => callback(performance.now() + 1_000));
+    return 0;
+  });
 }
 
 afterEach(() => {
@@ -708,7 +750,9 @@ describe('atomic replacement', () => {
 
   it('marks ready only for the request that is still current when its swap ends', async () => {
     // A request made during another's swap animation begins a new epoch; the older request's
-    // `ready` must not land in it (ledger Task 58 ruling; spec §B.1 `atlas:ready`).
+    // `ready` must not land in it (ledger Task 58 ruling; spec §B.1 `atlas:ready`). Since #453 a
+    // dataset switch commits at once and grows by the reveal wave, so the animated swap here is
+    // a restyle (a palette change) of the displayed artifact.
     const h = harness({ reducedMotion: false });
     const animationFrames: FrameRequestCallback[] = [];
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
@@ -719,9 +763,11 @@ describe('atomic replacement', () => {
     await h.show('hbs-rs334');
     expect(readyCount()).toBe(1);
 
-    const second = h.layers.setArtifact(h.load('g6pd-deficiency'));
-    await h.pump();
-    expect(h.commits).toEqual([keyOf('hbs-rs334'), keyOf('g6pd-deficiency')]);
+    h.style.palette = 'viridis';
+    const second = h.layers.rebuild();
+    for (let index = 0; index < 4 && animationFrames.length === 0; index += 1)
+      await h.pump();
+    expect(h.commits).toEqual([keyOf('hbs-rs334'), keyOf('hbs-rs334')]);
     expect(animationFrames).not.toHaveLength(0);
     const pending = deferred<SurfaceArtifact>();
     const third = h.layers.setArtifact(h.load('kir-3ds1', pending.promise));
@@ -732,20 +778,21 @@ describe('atomic replacement', () => {
     expect(readyCount()).toBe(1);
 
     pending.resolve(surfaceFor('kir-3ds1'));
-    for (let index = 0; index < 4 && animationFrames.length === 0; index += 1)
+    for (let index = 0; index < 4 && h.commits.length < 3; index += 1)
       await h.pump();
-    while (animationFrames.length > 0)
-      animationFrames.shift()!(performance.now() + 1_000);
     await third;
     await h.pump(1);
     expect(h.commits.at(-1)).toBe(keyOf('kir-3ds1'));
+    expect(animationFrames).toHaveLength(0);
     expect(readyCount()).toBe(2);
   });
 
   it('fades the incoming surface and observations together against the outgoing pair (animated swap)', async () => {
-    // Spec §B.6.8: every replacement is one atomic swap. With motion on, each frame of the
-    // 300 ms fade gives the incoming surface and its observations the same opacity p and the
-    // outgoing pair 1 - p; reduced motion would hide a non-atomic swap (both jump to 1 at once).
+    // Spec §B.6.8: every restyle is one atomic swap. With motion on, each frame of the 300 ms
+    // fade gives the incoming surface and its observations the same opacity p and the outgoing
+    // pair 1 - p; reduced motion would hide a non-atomic swap (both jump to 1 at once). A
+    // palette and marker-shape change replaces both groups of the displayed artifact (a dataset
+    // switch commits at once since #453).
     const h = harness({ reducedMotion: false });
     const animationFrames: FrameRequestCallback[] = [];
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
@@ -757,7 +804,9 @@ describe('atomic replacement', () => {
     const [surfaceOut] = built.surfaces;
     const [pointsOut] = built.observations;
 
-    const swap = h.layers.setArtifact(h.load('g6pd-deficiency'));
+    h.style.palette = 'viridis';
+    h.style.observationStyle = { ...h.style.observationStyle, shape: 'pin' };
+    const swap = h.layers.rebuild();
     for (let index = 0; index < 4 && animationFrames.length === 0; index += 1)
       await h.pump();
     expect(animationFrames).not.toHaveLength(0);
@@ -781,7 +830,9 @@ describe('atomic replacement', () => {
     await swap;
     expect([surfaceIn.opacity(), pointsIn.opacity()]).toEqual([1, 1]);
     expect([surfaceOut.opacity(), pointsOut.opacity()]).toEqual([0, 0]);
-    expect(h.commits.at(-1)).toBe(keyOf('g6pd-deficiency'));
+    expect(h.commits.at(-1)).toBe(keyOf('hbs-rs334'));
+    // A restyle runs no wave: only the cold reveal did.
+    expect(h.waveStarts).toHaveBeenCalledTimes(1);
   });
 
   it('recolours a palette change in the worker and reuses cached groups', async () => {
@@ -845,6 +896,173 @@ describe('atomic replacement', () => {
     await rebuild();
     expect(h.worker.buildChunks).toHaveBeenCalledTimes(2);
     expect(pointHeight()).toBeCloseTo(raised(1_000), 3);
+  });
+});
+
+describe('reveal wave triggers (#453)', () => {
+  function surfaceChunkCount(): number {
+    return built.surfaces.reduce(
+      (total, group) => total + group.chunkCount(),
+      0,
+    );
+  }
+
+  it('starts the wave as the first chunk of a cold reveal is added, not before', async () => {
+    const h = harness({ reducedMotion: false });
+    const chunksAtStart: number[] = [];
+    h.waveStarts.mockImplementation((reducedMotion) => {
+      chunksAtStart.push(surfaceChunkCount());
+      h.realWaveStart(reducedMotion);
+    });
+    const surface = deferred<SurfaceArtifact>();
+    const done = h.layers.setArtifact(h.load('hbs-rs334', surface.promise));
+    await flushTasks();
+    h.frame();
+    // The observations show first; the surface has not begun.
+    expect(h.emitted).toEqual(['observations-visible']);
+    expect(h.waveStarts).not.toHaveBeenCalled();
+    expect(h.attributes.get('data-atlas-wave')).toBe('pending');
+
+    surface.resolve(surfaceFor('hbs-rs334'));
+    await h.pump();
+    await done;
+    await h.pump(1);
+
+    expect(chunksAtStart).toEqual([1]);
+    expect(h.waveStarts).toHaveBeenCalledWith(false);
+    expect(h.wave.running()).toBe(true);
+    expect(h.attributes.get('data-atlas-wave')).toBe('running');
+    // Load milestones keep their meaning: the wave delays none of them.
+    expect(h.emitted).toEqual([
+      'observations-visible',
+      'surface-first-chunk',
+      'surface-visible',
+      'ready',
+    ]);
+    h.finishWave();
+    expect(h.wave.running()).toBe(false);
+    expect(h.attributes.get('data-atlas-wave')).toBe('done');
+  });
+
+  it('shows the surface at once under reduced motion', async () => {
+    const h = harness({ reducedMotion: true });
+    await h.show('hbs-rs334');
+    expect(h.waveStarts).toHaveBeenCalledTimes(1);
+    expect(h.waveStarts).toHaveBeenCalledWith(true);
+    expect(h.wave.running()).toBe(false);
+    expect(h.attributes.get('data-atlas-wave')).toBe('done');
+  });
+
+  it('retires the old dataset at the commit and grows the new one from the centre', async () => {
+    const h = harness({ reducedMotion: false });
+    await h.show('hbs-rs334');
+    h.finishWave();
+    const [surfaceOut] = built.surfaces;
+    const [pointsOut] = built.observations;
+    const atStart: unknown[] = [];
+    h.waveStarts.mockImplementation((reducedMotion) => {
+      const surfaceIn = built.surfaces.at(-1)!;
+      const pointsIn = built.observations.at(-1)!;
+      atStart.push({
+        commits: [...h.commits],
+        incoming: [surfaceIn.opacity(), pointsIn.opacity()],
+        outgoing: [surfaceOut.opacity(), pointsOut.opacity()],
+        outgoingShown: [surfaceOut.collection.show, pointsOut.collection.show],
+      });
+      h.realWaveStart(reducedMotion);
+    });
+    h.displayedHistory.length = 0;
+
+    // No animation frame is needed: a switch does not cross-fade.
+    const swap = h.layers.setArtifact(h.load('g6pd-deficiency'));
+    await h.pump();
+    await swap;
+    await h.pump(1);
+
+    expect(atStart).toEqual([
+      {
+        commits: [keyOf('hbs-rs334'), keyOf('g6pd-deficiency')],
+        incoming: [1, 1],
+        outgoing: [0, 0],
+        outgoingShown: [false, false],
+      },
+    ]);
+    expect(h.waveStarts).toHaveBeenLastCalledWith(false);
+    expect(h.wave.running()).toBe(true);
+    // Never two datasets under one legend.
+    expect(h.displayedHistory).toEqual(['g6pd-deficiency']);
+    expect(h.emitted.filter((mark) => mark === 'ready')).toHaveLength(2);
+  });
+
+  it('switches at once and runs no wave under reduced motion', async () => {
+    const h = harness({ reducedMotion: true });
+    await h.show('hbs-rs334');
+    const swap = h.layers.setArtifact(h.load('g6pd-deficiency'));
+    await h.pump();
+    await swap;
+    expect(h.waveStarts).toHaveBeenCalledTimes(2);
+    expect(h.waveStarts).toHaveBeenLastCalledWith(true);
+    expect(h.wave.running()).toBe(false);
+    expect(h.attributes.get('data-atlas-displayed')).toBe('g6pd-deficiency');
+  });
+
+  it('keeps metric, palette and elevation changes instant: they recolour the same data', async () => {
+    const h = harness({ reducedMotion: false });
+    runAnimationFramesAtOnce();
+    await h.show('hbs-rs334');
+    h.finishWave();
+    h.style.metric = 'post_sd';
+    await Promise.all([h.layers.rebuild(), h.pump()]);
+    h.style.palette = 'viridis';
+    await Promise.all([h.layers.rebuild(), h.pump()]);
+    h.style.elevationFactor = 2;
+    h.layers.setElevationFactor(2, true);
+    await h.pump(1);
+    expect(h.commits).toHaveLength(3);
+    expect(h.waveStarts).toHaveBeenCalledTimes(1);
+    expect(h.wave.running()).toBe(false);
+  });
+
+  it('builds the cell outlines only once the wave has passed, then shows them', async () => {
+    const h = harness({ cellEdges: true, reducedMotion: false });
+    await h.show('hbs-rs334');
+    expect(h.emitted).toContain('surface-visible');
+    expect(h.wave.running()).toBe(true);
+    // Outlines added during the wave would pack every ring at once when it ends (#451).
+    expect(h.worker.buildEdges).not.toHaveBeenCalled();
+    const group = built.surfaces[0];
+    expect(group.edges.collection.show).toBe(false);
+
+    h.finishWave();
+    await h.pump(2);
+    expect(h.worker.buildEdges).toHaveBeenCalledTimes(1);
+    expect(group.edges.collection.show).toBe(true);
+    expect(h.emitted).toContain('edges-ready');
+  });
+
+  it('holds built outlines of a dataset switched back to until its wave has passed', async () => {
+    const h = harness({ cellEdges: true, reducedMotion: false });
+    await h.show('hbs-rs334');
+    h.finishWave();
+    await h.pump(2);
+    const [hbs] = built.surfaces;
+    expect(hbs.edges.isBuilt()).toBe(true);
+    for (const id of ['g6pd-deficiency', 'hbs-rs334']) {
+      const swap = h.layers.setArtifact(h.load(id));
+      await h.pump();
+      await swap;
+      await h.pump(1);
+      if (id === 'g6pd-deficiency') {
+        h.finishWave();
+        await h.pump(2);
+      }
+    }
+    expect(h.layers.displayedLayer()?.artifactKey).toBe(keyOf('hbs-rs334'));
+    expect(h.wave.running()).toBe(true);
+    expect(hbs.edges.collection.show).toBe(false);
+    h.finishWave();
+    await h.pump(2);
+    expect(hbs.edges.collection.show).toBe(true);
   });
 });
 

@@ -1,13 +1,21 @@
 /** Cold progressive reveal and atomic swaps of scientific layers for Atlas design §11
- * (spec 2026-10-07 §B.6.8; Cesium explorer design §9 and §12).
+ * (spec 2026-10-07 §B.6.8; Cesium explorer design §9 and §12; the reveal wave of #453, §B.6.7
+ * and §B.6.9 item 8 as amended 2026-10-13).
  *
  * When nothing scientific is displayed (the cold load, or a scene recreated
  * by "Retry globe") observations appear first and surface chunks appear with
- * their masks as the scheduler admits them. Whenever a layer is displayed,
- * every replacement is built in a shown collection at opacity 0 and becomes
- * visible in one `animateSwap` that also retires the outgoing surface,
- * support and observations. The commit callback fires at that swap, so the
- * legend, inspector and readiness attributes change with the pixels.
+ * their masks as the scheduler admits them; the reveal wave starts with the
+ * first chunk, so a hexagon shows once its chunk is added and the wave has
+ * reached it. Whenever a layer is displayed, every replacement is built in a
+ * shown collection at opacity 0. A restyle of the displayed artifact (metric,
+ * palette, geometry, markers) becomes visible in one `animateSwap` that also
+ * retires the outgoing surface, support and observations. A dataset switch
+ * retires the outgoing groups at its commit and shows the incoming ones at
+ * once, growing the surface from the centre with a new wave, so two datasets
+ * never share one legend. The commit callback fires at that swap, so the
+ * legend, inspector and readiness attributes change with the pixels. Cell
+ * outlines are built only once a wave has passed and are held hidden while
+ * one runs.
  */
 
 import {
@@ -37,6 +45,7 @@ import {
   type ObservationPrimitiveGroup,
   type ObservationSurfaceHeights,
 } from './observation-layer';
+import type { RevealWave } from './reveal-wave-driver';
 import { REVEAL_ATTRIBUTE, type MarkTracker } from './scene-marks';
 import { animateSwap, fadeTogether, waitForReady } from './scene-transition';
 import {
@@ -101,6 +110,8 @@ export interface ScientificLayersOptions {
   style: () => ScientificStyle;
   frameBudgetMs: number;
   onCommit: (artifactKey: string) => void;
+  /** The scene's reveal wave (#453): its uniforms are every chunk's, its runs our triggers'. */
+  wave: Pick<RevealWave, 'onChange' | 'running' | 'start' | 'uniforms'>;
   perf?: { mark(name: string, options?: PerformanceMarkOptions): unknown };
 }
 
@@ -198,6 +209,7 @@ export class ScientificLayers {
   readonly #ids = new Map<LiveGroup, string>();
   readonly #valuesReady = new Set<string>();
   readonly #removeMarkListener: () => void;
+  readonly #removeWaveListener: () => void;
   #displayed: Displayed | null = null;
   #epoch: Epoch | null = null;
   /** The cold epoch being revealed, picked until it commits or is discarded. */
@@ -228,6 +240,11 @@ export class ScientificLayers {
     );
     this.#removeMarkListener = options.marks.onMark((mark) => {
       if (mark === 'surface-visible') this.#startEdges();
+    });
+    this.#removeWaveListener = options.wave.onChange((running) => {
+      this.#displayed?.group?.setEdgesHeld(running);
+      // Outlines deferred while the wave ran are built now, sliced as usual.
+      if (!running) this.#startEdges();
     });
   }
 
@@ -365,6 +382,8 @@ export class ScientificLayers {
         if (group !== this.#displayed?.group) {
           group.collection.show = true;
           group.setOpacity(cold ? 1 : 0);
+          // Every chunk is already there, so the cold reveal's wave starts now.
+          if (cold) this.#options.wave.start(style.reducedMotion);
         }
         const heights = this.#heights.get(group);
         if (
@@ -377,6 +396,7 @@ export class ScientificLayers {
         group = partial = this.#createGroup(load, style, cold);
         epoch.group = group;
         await this.#stream({
+          cold,
           group,
           load,
           observationGroup,
@@ -537,6 +557,7 @@ export class ScientificLayers {
     this.#build?.abort();
     this.#edgeBuild?.abort();
     this.#removeMarkListener();
+    this.#removeWaveListener();
   }
 
   #probe(): AtlasMark[] {
@@ -622,6 +643,7 @@ export class ScientificLayers {
       geometry: style.geometry,
       requestRender: () => this.#options.scene.requestRender(),
       surfaceOpacity: style.surfaceOpacity,
+      wave: this.#options.wave.uniforms,
     });
     group.setOpacity(cold ? 1 : 0);
     group.setVisibility(style.layers.surface, style.layers.support);
@@ -633,6 +655,7 @@ export class ScientificLayers {
   }
 
   async #stream(input: {
+    cold: boolean;
     group: SurfaceChunkGroup;
     load: ArtifactLoad;
     observationGroup: ObservationPrimitiveGroup | null;
@@ -643,6 +666,7 @@ export class ScientificLayers {
     surface: SurfaceArtifact;
   }): Promise<void> {
     const {
+      cold,
       group,
       load,
       observationGroup,
@@ -700,6 +724,8 @@ export class ScientificLayers {
       frameBudgetMs: this.#options.frameBudgetMs,
       onAdded: (message) => {
         added += 1;
+        // The cold reveal's wave starts with its first chunk (#453).
+        if (cold && added === 1) this.#options.wave.start(style.reducedMotion);
         this.#perf.mark('atlas:chunk-add', {
           detail: { artifactKey: load.artifactKey, chunk: message.chunk },
         });
@@ -800,7 +826,15 @@ export class ScientificLayers {
     this.#syncDisplayedMarks(group, style);
     this.#raiseOverlays(observationGroup);
     this.#options.onCommit(load.artifactKey);
-    if (!cold) {
+    // A dataset switch, unlike a restyle of the displayed artifact, grows by a new wave.
+    const switching =
+      !cold && outgoing !== null && outgoing.artifactKey !== load.artifactKey;
+    if (switching) {
+      this.#switchAtOnce(group, observationGroup, outgoing);
+      this.#options.wave.start(style.reducedMotion);
+    }
+    group.setEdgesHeld(this.#options.wave.running());
+    if (!cold && !switching) {
       const incoming = fadeTogether(
         group !== outgoing?.group ? group : null,
         observationGroup !== outgoing?.observationGroup
@@ -839,6 +873,21 @@ export class ScientificLayers {
     this.#options.scene.requestRender();
   }
 
+  /** The outgoing dataset goes and the incoming one shows, in the same frame (#453). */
+  #switchAtOnce(
+    group: SurfaceChunkGroup,
+    observationGroup: ObservationPrimitiveGroup | null,
+    outgoing: Displayed,
+  ): void {
+    for (const leaving of [outgoing.group, outgoing.observationGroup])
+      if (leaving && leaving !== group && leaving !== observationGroup) {
+        leaving.setOpacity(0);
+        leaving.collection.show = false;
+      }
+    group.setOpacity(1);
+    observationGroup?.setOpacity(1);
+  }
+
   #syncDisplayedMarks(group: SurfaceChunkGroup, style: ScientificStyle): void {
     const marks = this.#options.marks;
     marks.clear('values-ready');
@@ -859,10 +908,17 @@ export class ScientificLayers {
     void this.#buildEdges(displayed, group);
   }
 
+  /**
+   * Builds the displayed group's outlines in frame-budgeted slices (§B.6.9). While a reveal wave
+   * runs, the build waits for its end (the wave listener restarts it): a hidden collection is not
+   * updated, so rings added under the wave would all be packed and uploaded in the one frame
+   * that shows them (#451).
+   */
   async #buildEdges(
     displayed: Displayed,
     group: SurfaceChunkGroup,
   ): Promise<void> {
+    if (this.#options.wave.running()) return;
     const style = this.#options.style();
     const key = edgeStyleKey(style);
     if (group.edges.isBuilt() && this.#edgeStyles.get(group) === key) {

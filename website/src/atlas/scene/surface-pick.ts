@@ -17,14 +17,20 @@
  * Cesium fakes only (ledger Task 61): the real-engine probe Task 61 asked for
  * (hover, pause and wheel; hover and wheel; a same-cell nudge, at factor 5
  * against a factor-0 reference) has not been run.
+ *
+ * A cell the reveal wave has not reached (#453) draws nothing, so the pick
+ * pass cannot hit it, but a 3 × 3 pick window can catch a grown neighbour's
+ * chunk and an extruded ray test can choose an unreached neighbour's prism:
+ * the wave's own answer for the resolved cell's centre has the last word.
  */
 
+import { cellToLatLng } from 'h3-js';
 import {
   Cartesian2,
+  Cartesian3,
   Ellipsoid,
   Math as CesiumMath,
   SceneMode,
-  type Cartesian3,
   type Scene,
 } from 'cesium';
 
@@ -35,6 +41,7 @@ import { h3At, renderAt, type SurfaceArtifact } from '../surface-columns';
 import type { SurfaceGeometry } from '../url-state';
 import { heightFor, type Metric } from '../visual-encoding';
 import { preferredAtlasPick, type PickResolver } from './picking';
+import type { Vec3 } from './reveal-wave';
 import { SURFACE_CLEARANCE_METRES } from './surface-appearance';
 
 export interface PickTarget {
@@ -48,6 +55,14 @@ export interface SurfacePickContext {
   factor(): number;
   metric(): Metric;
   geometry(): SurfaceGeometry;
+  /** How far the reveal wave has grown the cell centred along `direction` (ECEF); 0 is unpickable. */
+  reveal?(direction: Vec3): number;
+}
+
+function cellDirection(h3Index: string): Vec3 {
+  const [lat, lon] = cellToLatLng(h3Index);
+  const point = Cartesian3.fromDegrees(lon, lat);
+  return [point.x, point.y, point.z];
 }
 
 type DepthPickScene = Pick<
@@ -253,13 +268,15 @@ export function createSurfacePickResolver(
       },
       (candidate) => isSupportedCode(target.surface.support[candidate]),
     );
-    return row === null
-      ? null
-      : {
-          artifactKey: target.artifactKey,
-          h3Index: h3At(target.surface, row),
-          kind: 'surface',
-          row,
-        };
+    if (row === null) return null;
+    const h3Index = h3At(target.surface, row);
+    if (context.reveal && context.reveal(cellDirection(h3Index)) <= 0)
+      return null;
+    return {
+      artifactKey: target.artifactKey,
+      h3Index,
+      kind: 'surface',
+      row,
+    };
   };
 }
