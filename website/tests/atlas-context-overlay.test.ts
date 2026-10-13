@@ -803,7 +803,7 @@ describe('Natural Earth context built across several slices', () => {
 
     await expect(overlay.load('/a.geojson')).resolves.toBe('fallback');
 
-    // The credit display went with the viewer.
+    // The credit display went with the CesiumWidget.
     expect(removeCredit).not.toHaveBeenCalled();
     expect(console.warn).not.toHaveBeenCalled();
   });
