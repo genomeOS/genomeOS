@@ -806,7 +806,13 @@ error.)
   (compressed `Content-Length`, hidden `Content-Encoding` → total = declared bytes; no declared bytes →
   null; aggregate stays < 1 until observations finish); inline-catalog parse and escaping; fixture
   catalogs pass `atlasCatalogSchema` and their objects match declared digests/bytes; the island chunk
-  contains no Cesium.
+  contains no Cesium. Added under #446 (`tests/atlas-bundle.test.ts`): the Cesium chunk carries none
+  of the widget layer's markers (`knockout` and one class name per `@cesium/widgets` widget); its
+  gzip size (zlib default level) is at most 1,032,528 × 1.01 bytes, the size measured on
+  darwin-arm64 with Node 23.9 once the globe was built on `CesiumWidget`, and the test prints the
+  size it measures so drift toward the limit shows in CI logs; `/app/` ships the credit-row CSS
+  (`.cesium-widget-credits`, `.cesium-viewer-bottom`, `.cesium-viewer-cesiumWidgetContainer`) and
+  none of the widget layer's rules.
 - **Playwright** (`tests/atlas-browser-fixture.ts` rewritten, importing no app modules so the capture
   scripts keep running under Node type stripping): the e2e build sets `ATLAS_CATALOG_PATH` to the e2e
   fixture catalog, and the fixture fulfils grid/render/detail/observations URLs from the committed e2e
