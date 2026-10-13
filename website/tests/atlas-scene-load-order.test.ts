@@ -36,6 +36,8 @@ const harness = vi.hoisted(() => ({
     url: string;
     /** The bytes have arrived; parsing and drawing go on. */
     fetched: () => void;
+    /** A body chunk has arrived. */
+    progress: () => void;
     settle: (status: 'ready' | 'fallback') => void;
   }[],
   revealSky: vi.fn(),
@@ -74,9 +76,18 @@ vi.mock('../src/atlas/scene/context-controller', () => ({
 }));
 vi.mock('../src/atlas/scene/context-overlay', () => ({
   ContextOverlay: class {
-    load = (url: string, onFetched: () => void = () => {}) =>
+    load = (
+      url: string,
+      onFetched: () => void = () => {},
+      onProgress: () => void = () => {},
+    ) =>
       new Promise<'ready' | 'fallback'>((settle) =>
-        harness.overlayLoads.push({ fetched: onFetched, settle, url }),
+        harness.overlayLoads.push({
+          fetched: onFetched,
+          progress: onProgress,
+          settle,
+          url,
+        }),
       );
   },
 }));
@@ -293,6 +304,21 @@ describe('scene post-reveal load order (spec 2026-10-07 §B.6.9)', () => {
     harness.overlayLoads[0].settle('ready');
     await flush();
     expect(harness.queuedMarks).toEqual(['context-ready']);
+    controller.destroy();
+  });
+
+  it('postpones the borders’ stall while their body chunks arrive', async () => {
+    const { controller, detail } = scene();
+    mark('surface-visible');
+    const first = detail();
+    vi.advanceTimersByTime(900);
+    harness.overlayLoads[0].progress();
+    vi.advanceTimersByTime(900);
+    await flush();
+    expect(first.started).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(100);
+    await flush();
+    expect(first.started).toHaveBeenCalledTimes(1);
     controller.destroy();
   });
 

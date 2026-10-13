@@ -253,15 +253,19 @@ class CesiumAtlasScene implements AtlasSceneController {
   /**
    * Step 1 of the load order, once. It settles when the borders' bytes have arrived, so the detail
    * tier downloads while they are parsed and drawn, or when their load ends without them (it
-   * falls back on a failed fetch; the overlay never rejects). It reports no body progress, so a
-   * download still running after the stall window releases the detail tier.
+   * falls back on a failed fetch; the overlay never rejects). It reports each body chunk, so only
+   * a download with no new chunk for the stall window releases the detail tier early.
    */
   #startContext(): void {
     if (this.#destroyed) return;
     this.#loadOrder.borders(
-      () =>
+      (progress) =>
         new Promise<void>((settle) => {
-          const loading = this.#overlay.load(this.#naturalEarthUrl, settle);
+          const loading = this.#overlay.load(
+            this.#naturalEarthUrl,
+            settle,
+            progress,
+          );
           // A throwing status listener stays an unhandled rejection, not an outcome of the step.
           void loading.then((status) => {
             if (this.#destroyed) return;

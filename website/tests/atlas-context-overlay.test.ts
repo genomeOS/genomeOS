@@ -37,8 +37,10 @@ interface SetupOptions {
   slice?: { sliceMs?: number; yieldFn: () => Promise<void> };
 }
 
+/** `fetchBytes: null` leaves the overlay its own fetch, for tests that stub `fetch`. */
 function setup(
-  fetchBytes = async () => new ArrayBuffer(8),
+  fetchBytes: ((url: string) => Promise<ArrayBuffer>) | null = async () =>
+    new ArrayBuffer(8),
   config: SetupOptions = {},
 ) {
   const context = config.context ?? parsed;
@@ -93,7 +95,7 @@ function setup(
   const overlay = new ContextOverlay({
     addCredit,
     createLabels: () => labels as never,
-    fetchBytes,
+    fetchBytes: fetchBytes ?? undefined,
     now: config.now,
     removeCredit,
     scene,
@@ -204,6 +206,38 @@ describe('Natural Earth context overlay', () => {
     finishParse();
     await expect(loading).resolves.toBe('ready');
     expect(fetched).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports each body chunk of the borders as progress, then their arrival (§B.6.9)', async () => {
+    const chunks = [Uint8Array.of(1, 2), Uint8Array.of(3), Uint8Array.of(4, 5)];
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              for (const chunk of chunks) controller.enqueue(chunk);
+              controller.close();
+            },
+          }),
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { overlay, worker } = setup(null);
+    const fetched = vi.fn();
+    const progress = vi.fn();
+    await expect(overlay.load('/a.geojson', fetched, progress)).resolves.toBe(
+      'ready',
+    );
+    expect(fetchMock).toHaveBeenCalledWith('/a.geojson');
+    expect(progress).toHaveBeenCalledTimes(chunks.length);
+    expect(fetched).toHaveBeenCalledTimes(1);
+    expect(progress.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      fetched.mock.invocationCallOrder[0],
+    );
+    const [bytes] = worker.parseContext.mock.calls[0] as unknown as [
+      ArrayBuffer,
+    ];
+    expect([...new Uint8Array(bytes)]).toEqual([1, 2, 3, 4, 5]);
   });
 
   it('does not report arrival when the borders cannot be fetched', async () => {

@@ -114,19 +114,50 @@ export interface ContextOverlayOptions {
   };
   addCredit: (credit: Credit) => void;
   removeCredit: (credit: Credit) => void;
-  fetchBytes?: (url: string) => Promise<ArrayBuffer>;
+  /** Fetches the borders, calling `onProgress` once per body chunk. */
+  fetchBytes?: (url: string, onProgress?: () => void) => Promise<ArrayBuffer>;
   createLabels?: () => LabelSink;
   slice?: Omit<SliceOptions, 'onSlice' | 'signal'>;
   now?: () => number;
 }
 
-async function fetchArrayBuffer(url: string): Promise<ArrayBuffer> {
+/**
+ * Reads the body chunk by chunk and reports each one, so the post-reveal load order sees a slow
+ * download making progress rather than a stall (spec 2026-10-07 §B.6.9).
+ */
+async function fetchArrayBuffer(
+  url: string,
+  onProgress?: () => void,
+): Promise<ArrayBuffer> {
   const response = await fetch(url);
   if (!response.ok)
     throw new Error(
       `Natural Earth request failed with HTTP ${response.status}`,
     );
-  return response.arrayBuffer();
+  if (!response.body) return response.arrayBuffer();
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      length += value.byteLength;
+      onProgress?.();
+    }
+  } catch (error) {
+    // A failed read or a throwing listener releases the body rather than leaving it downloading.
+    void reader.cancel(error).catch(() => undefined);
+    throw error;
+  }
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes.buffer;
 }
 
 export class ContextOverlay {
@@ -175,12 +206,17 @@ export class ContextOverlay {
   }
 
   /**
-   * Loads once; a later call returns the first call's promise. `onFetched` hears when the bytes
-   * have arrived, before they are parsed and drawn: the borders no longer need the network, so the
-   * next post-reveal load may start (spec 2026-10-07 §B.6.9). A failed fetch never calls it.
+   * Loads once; a later call returns the first call's promise. `onProgress` hears each body chunk,
+   * and `onFetched` hears when the bytes have arrived, before they are parsed and drawn: the
+   * borders no longer need the network, so the next post-reveal load may start (spec 2026-10-07
+   * §B.6.9). A failed fetch never calls `onFetched`.
    */
-  load(url: string, onFetched?: () => void): Promise<ContextLoadStatus> {
-    this.#loading ??= this.#load(url, onFetched);
+  load(
+    url: string,
+    onFetched?: () => void,
+    onProgress?: () => void,
+  ): Promise<ContextLoadStatus> {
+    this.#loading ??= this.#load(url, onFetched, onProgress);
     return this.#loading;
   }
 
@@ -240,9 +276,16 @@ export class ContextOverlay {
     this.#options.scene.requestRender();
   }
 
-  async #load(url: string, onFetched?: () => void): Promise<ContextLoadStatus> {
+  async #load(
+    url: string,
+    onFetched?: () => void,
+    onProgress?: () => void,
+  ): Promise<ContextLoadStatus> {
     try {
-      const bytes = await (this.#options.fetchBytes ?? fetchArrayBuffer)(url);
+      const bytes = await (this.#options.fetchBytes ?? fetchArrayBuffer)(
+        url,
+        onProgress,
+      );
       onFetched?.();
       this.#throwIfDestroyed();
       const parsed = await this.#options.worker.parseContext(bytes);
