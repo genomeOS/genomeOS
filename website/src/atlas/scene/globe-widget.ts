@@ -11,7 +11,8 @@
 
 import { CesiumWidget } from 'cesium';
 
-/** A CesiumWidget in its frame; `destroy` removes both, as `Viewer.destroy` did. */
+/** A CesiumWidget in its frame; `destroy` removes both, as `Viewer.destroy` did, even when
+ * the widget's own teardown throws. */
 export interface GlobeWidget {
   readonly widget: CesiumWidget;
   destroy(): void;
@@ -31,23 +32,36 @@ export function createGlobeWidget(container: HTMLElement): GlobeWidget {
   credits.style.bottom = '3px';
   credits.style.right = '0px';
   frame.append(widgetContainer, credits);
+  // Attached before the widget is built, as Viewer did: the widget sizes its canvas as it starts.
   container.append(frame);
-  const widget = new CesiumWidget(widgetContainer, {
-    baseLayer: false,
-    creditContainer: credits,
-    maximumRenderTimeChange: Number.POSITIVE_INFINITY,
-    requestRenderMode: true,
-    scene3DOnly: false,
-    // Cesium's own panel is a dead end, and its loop stops silently on errors outside
-    // Scene.render; the Atlas loop sends every render error to the explorer's retry instead.
-    showRenderLoopErrors: false,
-    useDefaultRenderLoop: false,
-  });
+  let widget: CesiumWidget;
+  try {
+    widget = new CesiumWidget(widgetContainer, {
+      baseLayer: false,
+      creditContainer: credits,
+      maximumRenderTimeChange: Number.POSITIVE_INFINITY,
+      requestRenderMode: true,
+      scene3DOnly: false,
+      // Cesium's own panel is a dead end, and its loop stops silently on errors outside
+      // Scene.render; the Atlas loop sends every render error to the explorer's retry instead.
+      showRenderLoopErrors: false,
+      useDefaultRenderLoop: false,
+    });
+  } catch (error) {
+    // "Retry globe" builds the next frame in this container; a failed one must not stay beside it.
+    frame.remove();
+    throw error;
+  }
   return {
     widget,
     destroy() {
-      widget.destroy();
-      frame.remove();
+      // Viewer.destroy removed its frame first. The frame goes even when the widget's teardown
+      // throws (say, after a lost context), so a retry never builds a second one beside it.
+      try {
+        widget.destroy();
+      } finally {
+        frame.remove();
+      }
     },
   };
 }

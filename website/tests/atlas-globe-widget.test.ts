@@ -11,6 +11,8 @@ const widgets = vi.hoisted(
       destroy: ReturnType<typeof vi.fn>;
     }[],
 );
+/** Set to make the next CesiumWidget constructor throw, as it does when WebGL cannot start. */
+const construction = vi.hoisted(() => ({ error: null as Error | null }));
 
 vi.mock('cesium', async (importOriginal) => ({
   ...(await importOriginal<typeof import('cesium')>()),
@@ -19,6 +21,7 @@ vi.mock('cesium', async (importOriginal) => ({
     readonly options: Record<string, unknown>;
     readonly destroy = vi.fn();
     constructor(container: FakeElement, options: Record<string, unknown>) {
+      if (construction.error) throw construction.error;
       this.container = container;
       this.options = options;
       widgets.push(this);
@@ -56,6 +59,7 @@ function build() {
 
 afterEach(() => {
   widgets.length = 0;
+  construction.error = null;
 });
 
 describe('Atlas globe widget', () => {
@@ -97,6 +101,28 @@ describe('Atlas globe widget', () => {
     const { container, globe, widget } = build();
     globe.destroy();
     expect(widget.destroy).toHaveBeenCalledOnce();
+    expect(container.children).toEqual([]);
+  });
+
+  it('removes its frame even when the widget teardown throws', () => {
+    // Say, teardown after a lost WebGL context. "Retry globe" builds the next frame in the same
+    // container, so a frame left here would sit beside it.
+    const { container, globe, widget } = build();
+    const failure = new Error('teardown after a lost context');
+    widget.destroy.mockImplementationOnce(() => {
+      throw failure;
+    });
+    expect(() => globe.destroy()).toThrow(failure);
+    expect(container.children).toEqual([]);
+  });
+
+  it('leaves no frame behind when the widget cannot be built', () => {
+    const container = new FakeElement();
+    const failure = new Error('WebGL could not start');
+    construction.error = failure;
+    expect(() =>
+      createGlobeWidget(container as unknown as HTMLElement),
+    ).toThrow(failure);
     expect(container.children).toEqual([]);
   });
 });
