@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { gzipSync } from 'node:zlib';
 
 import { describe, expect, it } from 'vitest';
 
@@ -16,6 +17,42 @@ const STATIC_IMPORT =
 // The Vite 8 Oxc minifier writes string literals, dynamic-import specifiers included, as
 // template literals (import(`./atlas-scene.<hash>.js`)), so backticks are accepted here.
 const DYNAMIC_IMPORT = /\bimport\(\s*["'`](\.\.?\/[^"'`]+\.js)["'`]\s*\)/g;
+
+// Cesium's widget layer (@cesium/widgets), which `Viewer` pulls in even with every widget hidden:
+// one class name or library name per part that survives minification (issue #446).
+const WIDGET_LAYER_MARKERS = [
+  'knockout',
+  'cesium-viewer-toolbar',
+  'cesium-animation-svg',
+  'cesium-baseLayerPicker-dropDown',
+  'cesium-fullscreenButton',
+  'cesium-geocoder-input',
+  'cesium-home-button',
+  'cesium-infoBox-iframe',
+  'cesium-navigationHelpButton-wrapper',
+  'cesium-sceneModePicker',
+  'cesium-selection-wrapper',
+  'cesium-timeline-main',
+  'cesium-vrButton',
+];
+// The widget layer's stylesheet rules, by the class each part's CSS styles.
+const WIDGET_LAYER_CSS = [
+  '.cesium-animation',
+  '.cesium-baseLayerPicker',
+  '.cesium-button',
+  '.cesium-geocoder',
+  '.cesium-infoBox',
+  '.cesium-navigation-help',
+  '.cesium-sceneModePicker',
+  '.cesium-selection-wrapper',
+  '.cesium-timeline',
+];
+// The Cesium chunk's gzip size (zlib default level, as `serve` compresses) after #446 built the
+// globe on CesiumWidget: 1,101,646 bytes with Viewer at 0c9f328, 1,032,528 bytes without. Pinned
+// with 1% headroom, so Cesium-chunk edits such as the render loop pass, and the widget layer
+// (+69,118 bytes) or another Cesium module family of similar size coming back fails.
+const CESIUM_CHUNK_GZIP_BYTES = 1_032_528;
+const CESIUM_CHUNK_GZIP_HEADROOM = 0.01;
 
 function appHtml(): string {
   return readFileSync(path.join(dist, 'app', 'index.html'), 'utf8');
@@ -138,5 +175,50 @@ describe('Atlas client bundle', () => {
     );
     for (const href of hrefs)
       expect(existsSync(path.join(dist, href))).toBe(true);
+  });
+});
+
+describe('Cesium chunk on the /app/ critical path (issue #446)', () => {
+  function cesiumChunk(): string {
+    const cesium = staticGraph(sceneChunk()).find((file) =>
+      path.posix.basename(file).startsWith('cesium.'),
+    );
+    if (!cesium) throw new Error('the scene chunk imports no Cesium chunk');
+    return cesium;
+  }
+
+  it("builds the globe without Cesium's widget layer", () => {
+    const source = code(cesiumChunk());
+    expect(
+      WIDGET_LAYER_MARKERS.filter((marker) => source.includes(marker)),
+    ).toEqual([]);
+  });
+
+  it('keeps the Cesium chunk within its pinned gzip size', () => {
+    const bytes = gzipSync(
+      readFileSync(path.join(assets, cesiumChunk())),
+    ).length;
+    expect(bytes).toBeLessThanOrEqual(
+      Math.round(CESIUM_CHUNK_GZIP_BYTES * (1 + CESIUM_CHUNK_GZIP_HEADROOM)),
+    );
+  });
+
+  it("ships the credit-row CSS to /app/ but none of the widget layer's", () => {
+    const css = [
+      ...appHtml().matchAll(
+        /<link rel="stylesheet" href="\/_astro\/([^"]+\.css)">/g,
+      ),
+    ]
+      .map((match) => code(match[1]))
+      .join('\n');
+    for (const selector of [
+      '.cesium-widget-credits',
+      '.cesium-viewer-bottom',
+      '.cesium-viewer-cesiumWidgetContainer',
+    ])
+      expect(css.includes(selector), selector).toBe(true);
+    expect(
+      WIDGET_LAYER_CSS.filter((selector) => css.includes(selector)),
+    ).toEqual([]);
   });
 });
