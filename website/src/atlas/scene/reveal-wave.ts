@@ -81,6 +81,15 @@ export function waveTimeline(
   };
 }
 
+/**
+ * How far one frame `frameMs` long moves the wave's clock: its own time, but at most a quarter
+ * of the wave. A stalled frame (a long task, a texture upload) would otherwise swallow most of the
+ * wave, and the ring would freeze and then pop to the end instead of spreading.
+ */
+export function waveStep(timeline: WaveTimeline, frameMs: number): number {
+  return Math.min(timeline.durationMs / 4, Math.max(0, frameMs));
+}
+
 export function waveDone(timeline: WaveTimeline, elapsedMs: number): boolean {
   return elapsedMs >= timeline.durationMs;
 }

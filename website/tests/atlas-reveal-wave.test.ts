@@ -14,6 +14,7 @@ import {
   waveOrigin,
   waveRadius,
   waveReach,
+  waveStep,
   waveTimeline,
   type Vec3,
 } from '../src/atlas/scene/reveal-wave';
@@ -104,6 +105,16 @@ describe('reveal wave timeline', () => {
     expect(WAVE_COMPLETE_RADIUS).toBeGreaterThan(
       Math.PI * (1 + REVEAL_WAVE_BAND_FRACTION),
     );
+  });
+
+  it('advances by a frame’s time, but a stalled frame by at most a quarter of the wave', () => {
+    const timeline = waveTimeline(1.3);
+    expect(waveStep(timeline, 16)).toBe(16);
+    expect(waveStep(timeline, 120)).toBe(120);
+    // A 700 ms stall (a long task or a texture upload) leaves most of the wave to be seen.
+    expect(waveStep(timeline, 700)).toBe(REVEAL_WAVE_MS / 4);
+    expect(waveStep(waveTimeline(1.3, 400), 700)).toBe(100);
+    expect(waveStep(timeline, -5)).toBe(0);
   });
 
   it('grows a cell from nothing at the ring’s leading edge to full one ring width behind it', () => {

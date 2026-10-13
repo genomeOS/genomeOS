@@ -10,6 +10,9 @@
  * - `prefers-reduced-motion: reduce` runs no wave: everything shows at once, as before #453.
  * - A hidden tab renders no frames, so a wave hidden mid-way finishes at once (and one started in
  *   a hidden tab never runs): the page comes back to the whole surface, not to a stale wave.
+ * - The wave's clock sums frame times, but one frame moves it by at most a quarter of the wave
+ *   (`waveStep`), so a stalled frame (a long task or texture upload elsewhere in the page) pauses
+ *   the ring rather than popping it to the end.
  * - `data-atlas-wave` on the explorer reads `pending` until the scene's first wave, then `running`
  *   or `done`; the User Timing measure `atlas:reveal-wave` spans the end of the wave's first
  *   drawn frame (where its clock starts) to its last frame. Tests and the cold-load harness read both.
@@ -37,6 +40,7 @@ import {
   waveOrigin,
   waveRadius,
   waveReach,
+  waveStep,
   waveTimeline,
   WAVE_ATTRIBUTE,
   type RevealWaveUniforms,
@@ -124,6 +128,9 @@ export function createRevealWave(options: RevealWaveOptions): RevealWave {
   const listeners = new Set<(running: boolean) => void>();
   let timeline: WaveTimeline | null = null;
   let startedAt: number | null = null;
+  // The wave's own clock: frame times summed, each at most a quarter of the wave (`waveStep`).
+  let progressMs = 0;
+  let lastFrameAt = 0;
   let removeFrame: (() => void) | null = null;
   let removeDrawn: (() => void) | null = null;
   let removeVisibility: (() => void) | null = null;
@@ -157,11 +164,13 @@ export function createRevealWave(options: RevealWaveOptions): RevealWave {
     options.scene.requestRender();
     notify(false);
   };
-  const elapsed = (current: WaveTimeline, at: number): number => {
+  const advance = (current: WaveTimeline, at: number): number => {
     const held = options.hold?.() ?? null;
     if (held !== null && Number.isFinite(held))
-      return Math.min(1, Math.max(0, held)) * current.durationMs;
-    return at - (startedAt ?? at);
+      progressMs = Math.min(1, Math.max(0, held)) * current.durationMs;
+    else progressMs += waveStep(current, at - lastFrameAt);
+    lastFrameAt = at;
+    return progressMs;
   };
   // The wave's clock starts once its first frame is drawn: that frame may compile shaders and
   // upload the first chunk, and the ring must not be part way out before anything shows.
@@ -170,13 +179,14 @@ export function createRevealWave(options: RevealWaveOptions): RevealWave {
     removeDrawn = null;
     if (!timeline || startedAt !== null) return;
     startedAt = now();
+    lastFrameAt = startedAt;
+    progressMs = 0;
     options.scene.requestRender();
   };
   const frame = () => {
     const current = timeline;
     if (!current || startedAt === null) return;
-    const at = now();
-    const time = elapsed(current, at);
+    const time = advance(current, now());
     if (waveDone(current, time)) {
       end();
       return;

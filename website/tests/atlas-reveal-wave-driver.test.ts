@@ -130,7 +130,8 @@ describe('reveal wave driver', () => {
     h.wave.start(false);
     h.frame();
     const started = h.clock.now;
-    h.frame(REVEAL_WAVE_MS - 1);
+    for (let step = 0; step < 7; step += 1) h.frame(100);
+    h.frame(99);
     expect(h.wave.running()).toBe(true);
     h.frame(1);
 
@@ -224,7 +225,7 @@ describe('reveal wave driver', () => {
     h.wave.start(false);
     h.wave.start(false);
     h.frame();
-    h.frame(REVEAL_WAVE_MS);
+    for (let step = 0; step < 4; step += 1) h.frame(REVEAL_WAVE_MS / 4);
     h.wave.start(true);
     expect(changes).toEqual([true, false]);
     remove();
@@ -286,10 +287,35 @@ describe('reveal wave driver', () => {
     hold = 0.5;
     h.frame(16);
     expect(h.scene.requestRender).toHaveBeenCalledTimes(1);
+    // Released, it runs on from where it stood, not from its first frame.
     hold = null;
     h.frame(16);
+    expect(h.wave.running()).toBe(true);
+    expect(h.wave.uniforms.radius).toBeCloseTo(
+      waveRadius(timeline, 0.5 * REVEAL_WAVE_MS + 16),
+    );
+    h.frame(200);
+    h.frame(184);
     expect(h.wave.running()).toBe(false);
     expect(h.attributes.at(-1)).toBe('done');
+  });
+
+  it('lets a stalled frame move the wave by at most a quarter of its duration', () => {
+    // A long task or a texture upload can hold one frame for 0.6–0.8 s; the ring must then go
+    // on spreading, not pop to the end.
+    const h = harness();
+    const timeline = waveTimeline(REACH);
+    h.wave.start(false);
+    h.frame();
+    h.frame(700);
+    expect(h.wave.running()).toBe(true);
+    expect(h.wave.uniforms.radius).toBeCloseTo(
+      waveRadius(timeline, REVEAL_WAVE_MS / 4),
+    );
+    h.frame(16);
+    expect(h.wave.uniforms.radius).toBeCloseTo(
+      waveRadius(timeline, REVEAL_WAVE_MS / 4 + 16),
+    );
   });
 
   it('writes nothing and requests nothing once destroyed', () => {

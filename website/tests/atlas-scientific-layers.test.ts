@@ -261,10 +261,10 @@ function harness(overrides: Partial<ScientificStyle> = {}) {
     markReady(primitives);
     postRender.raiseEvent();
   };
-  /** Frames until the wave has passed the horizon. */
+  /** Frames until the wave has passed the horizon (one frame moves it a quarter at most). */
   const finishWave = () => {
-    for (let index = 0; index < 3; index += 1) {
-      clock.now += REVEAL_WAVE_MS;
+    for (let index = 0; index < 6; index += 1) {
+      clock.now += REVEAL_WAVE_MS / 4;
       frame();
     }
   };
