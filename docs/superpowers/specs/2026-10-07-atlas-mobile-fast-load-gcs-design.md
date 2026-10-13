@@ -384,20 +384,31 @@ rendition splits into immutable, content-addressed binary objects. **Normative p
 | `render` | `support` u8 `raw`; `post_mean` f32 `shuffle`; `post_sd` f32 `shuffle`                                                      | 700 KB / ~433 KB  | on selection (critical)   |
 | `detail` | `post_mean`, `post_sd`, `q025`, `q975`, `posterior_contraction`, `dist_nearest_obs_km` — all f64 `shuffle`, in that order | 3.7 MB / ~3 MB    | after reveal, low priority |
 
-- **Render values drive colour, height and bins only; they are never displayed as numbers.** Every
-  number the hover preview or inspector shows comes from the f64 detail tier, bit-identical to the
-  published artifact. Two accessors make this a type guarantee:
+- **Render values drive colour, height and bins; they are displayed as numbers only when marked
+  provisional.** Every unmarked number the hover preview or inspector shows comes from the f64
+  detail tier, bit-identical to the published artifact. Two accessors make this a type guarantee:
   `renderAt(row) → { h3, support, post_mean, post_sd }` (render tier; used by heights, highlight,
-  observation anchors, Natural Earth heights) and `cellAt(row) → SurfaceCell` (detail tier; throws
-  if not loaded; the only source for `HoverPreview` and `InspectorPanel` values). Heights always
-  come from the render tier, even after the detail tier loads (`heightFor(supportCode, value,
-  domain, exaggeration)` replaces `heightForCell(SurfaceCell, …)`), so highlight and anchors stay
-  bit-consistent with the worker mesh.
-- Before the detail tier loads, hover and the inspector show the cell id, the support label (exact,
-  from the u8 column; Cesium design §8.4) and "Loading cell values…", never a number. If the detail
-  tier fails or stalls (15 s stall timeout), they show "Cell values unavailable" with a retry. If it
-  fails its checksum or validation, the artifact's surface and support layers are removed, the map is
-  marked not ready, and the validation error appears with "Retry data" (Cesium design §12).
+  observation anchors, Natural Earth heights and the provisional readout below) and
+  `cellAt(row) → SurfaceCell` (detail tier; throws if not loaded; the only source of exact
+  `HoverPreview` and `InspectorPanel` values). The cell view wraps the render values in
+  `ProvisionalCellValues`, whose members are opaque rather than `number`, so neither the exact
+  formatter nor JSX accepts one; the only way to print one is `provisionalPercent`, which always
+  adds "≈". Heights always come from the render tier, even after the detail tier loads
+  (`heightFor(supportCode, value, domain, exaggeration)` replaces `heightForCell(SurfaceCell, …)`),
+  so highlight and anchors stay bit-consistent with the worker mesh.
+- Before the detail tier loads, hover and the inspector show the render tier's mean and SD as
+  provisional numbers: "≈" before the exact readout format (percent, two decimals), and in the
+  inspector a visually hidden note after each, "approximate; exact value loading". The 95% credible
+  interval and the nearest-measurement distance, which only the detail tier has, show "Loading…".
+  The inspector also shows the cell id, the support label (exact, from the u8 column; Cesium design
+  §8.4) and its "Loading cell values…" status; the hover shows the support label. A support code
+  shows a provisional number wherever it would show the exact one (today the mean and SD show for
+  all four codes). When the detail tier arrives, both show the exact values, unmarked, as before. If
+  the detail tier fails or stalls (15 s stall timeout), the provisional numbers stay, with the note
+  "approximate; exact value unavailable"; the interval and distance show "Unavailable"; and "Cell
+  values unavailable" appears, with a retry in the inspector. If it fails its checksum or
+  validation, the artifact's surface and support layers are removed, the map is marked not ready,
+  and the validation error appears with "Retry data" (Cesium design §12).
 - **Cross-tier binding** (worker, O(n)): `Math.fround(detail.post_mean[i]) === render.post_mean[i]`
   and the same for `post_sd`; the decoded support histogram equals the catalog ref's
   `support_counts`. Either failing is a validation failure as above. Render and detail headers carry
@@ -407,6 +418,16 @@ rendition splits into immutable, content-addressed binary objects. **Normative p
   object (AGENTS: observations and surfaces never conflated).
 - `posterior_contraction` is kept in the detail tier although no UI reads it: the surface contract
   requires it and AGENTS forbids omitting an uncertainty column.
+
+(Amended 2026-10-13 under #444: the first two bullets. Before, the render tier was never displayed,
+and until the ~3 MB detail tier arrived the hover and inspector showed no number. At the readout's
+precision the f32 values almost always print the f64 digits. Over all 30 published surfaces
+(77,844 cells, mean and SD: 4,670,640 values), 77 readouts differ, each by one unit in the last
+digit (0.01 percentage points); the largest raw difference is 3.0 × 10⁻⁶ percentage points. That is
+close enough to show while the detail tier loads, but not as the published number, so the "≈"
+marker and the type separation keep a provisional value from being read or cited as exact. In this
+state the hover drops the cell id it showed before and takes the same rows as the exact preview, so
+the swap changes only the numbers.)
 
 ### B.3 Container format `GOSA`, version 1
 
@@ -813,9 +834,11 @@ error.)
   `site.spec.ts:121-147` (#172 transition) and `scripts/capture-atlas-progress.mjs` use it, plus a
   variant that delays only the render tier while observations load fast — asserting via
   `data-atlas-displayed` that only `hbs-rs334` is displayed while G6PD is pending. Detail tier delayed:
-  hover/click shows cell id, support label and "Loading cell values…", no number, no exception, then
-  updates in place. A corrupted render object shows "Retry data" and renders nothing. Existing explorer
-  tests keep passing. The cold-load spec (B.1) runs locally; its numbers go in the PR.
+  hover/click shows the "≈" mean and SD with "Loading…" for the interval (the inspector also shows
+  the cell id, support label and "Loading cell values…"), no unmarked number, no exception, then
+  updates in place to the exact values (amended 2026-10-13 under #444, with §B.2). A corrupted
+  render object shows "Retry data" and renders nothing. Existing explorer tests keep passing. The
+  cold-load spec (B.1) runs locally; its numbers go in the PR.
 - `playwright.performance.config.ts`: `testMatch: /atlas-(performance|cold-load)\.spec\.ts/`, with
   the cold-load spec creating its own contexts per profile.
 
@@ -958,7 +981,7 @@ gzip'`).
 | Ruling | Why | Cost if wrong |
 | --- | --- | --- |
 | No coarse aggregated preview; camera-ordered chunked reveal | Aggregating masked cells is a `needs-human-decision` scientific rule | A `preview` tier can be added later; the client supports tiers |
-| f64 detail tier for every displayed number; f32 render tier for colour/height/bins | Displayed values stay bit-identical to the citable artifact | ~3 MB extra, fetched lazily per layer |
+| f64 detail tier for every exact displayed number; f32 render tier for colour/height/bins, and, marked "≈", for the mean and SD until the detail tier loads (amended 2026-10-13 under #444) | Unmarked values stay bit-identical to the citable artifact; 77 of 4,670,640 provisional readouts differ from the exact ones, each in the last digit | ~3 MB extra, fetched lazily per layer |
 | Bins from the render tier; the one f32 bin flip is reported | Recolouring when detail arrives would visibly change the map after load | One cell in one layer differs by one bin from an f64 binning |
 | Progressive reveal only on cold load/retry; every replacement is one atomic swap | Never show two artifacts (or two palettes) under one legend (Cesium design §9) | Warm switches stay all-at-once, as today |
 | Support mask built in the worker per chunk, in lockstep with the surface | A chunk without its mask reads as "low value" | Replaces Cesium's async `PolygonGeometry` path for support cells |
