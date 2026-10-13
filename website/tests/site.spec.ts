@@ -3641,9 +3641,10 @@ test('cold load shows observations, then the surface, then outlines and borders'
   page,
 }) => {
   test.setTimeout(90_000);
-  const responses = new Map<string, number>();
+  // Every response in arrival order, so a file fetched twice is listed twice.
+  const responses: { status: number; url: URL }[] = [];
   page.on('response', (response) =>
-    responses.set(response.url(), response.status()),
+    responses.push({ status: response.status(), url: new URL(response.url()) }),
   );
   await page.goto('/app/');
   const explorer = page.locator('.atlas-explorer');
@@ -3700,13 +3701,11 @@ test('cold load shows observations, then the surface, then outlines and borders'
     ({ id }) => id === 'natural-earth-admin-0',
   )!.url;
   expect(borders).toBe('ne-50m-admin-0.borders.bin');
-  const fetched = [...responses].filter(([url]) =>
-    urlMatchesKey(new URL(url), borders),
-  );
-  expect(fetched.map(([, status]) => status)).toEqual([200]);
-  expect([...responses.keys()].filter((url) => /\.geojson$/.test(url))).toEqual(
-    [],
-  );
+  const fetched = responses.filter(({ url }) => urlMatchesKey(url, borders));
+  expect(fetched.map(({ status }) => status)).toEqual([200]);
+  expect(
+    responses.filter(({ url }) => url.pathname.endsWith('.geojson')),
+  ).toEqual([]);
 });
 
 test('style choices in the URL reach the scene that renders them', async ({
