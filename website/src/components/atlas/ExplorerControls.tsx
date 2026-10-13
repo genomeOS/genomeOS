@@ -154,7 +154,7 @@ export function ExplorerControls({
   const datasetTip = (
     <InfoTip carryKey="dataset-tip" label="map selection">
       Choose a versioned genetic variant, allele, gene, or phenotype map from
-      the public genomeOS catalog.
+      the public <span className="brand-name">genomeOS</span> catalog.
     </InfoTip>
   );
   const picker = (

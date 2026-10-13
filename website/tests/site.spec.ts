@@ -1725,46 +1725,91 @@ test(
   },
 );
 
+/**
+ * Runs in the page: each shown "genomeOS" text node under `selector` must sit
+ * in a wordmark (`.brand-name`, or Starlight's `.site-title`) set in Raleway.
+ */
+function auditBrandText(selector: string): {
+  checked: number;
+  failures: string[];
+} {
+  const failures: string[] = [];
+  let checked = 0;
+  for (const root of document.querySelectorAll(selector)) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node) {
+      if (node.nodeValue?.includes('genomeOS')) {
+        const parent = node.parentElement;
+        const nonVisual = parent?.closest('script, style, title, code, pre');
+        if (
+          parent &&
+          !nonVisual &&
+          getComputedStyle(parent).display !== 'none'
+        ) {
+          checked += 1;
+          // The header wordmark is the logo image, so it has no text node.
+          const wordmark = parent.closest<HTMLElement>(
+            '.brand-name, .site-title',
+          );
+          if (!wordmark) {
+            failures.push(`${parent.tagName.toLowerCase()}: missing wordmark`);
+          } else if (
+            !getComputedStyle(wordmark).fontFamily.includes('Raleway')
+          ) {
+            failures.push(`${parent.tagName.toLowerCase()}: wrong font`);
+          }
+        }
+      }
+      node = walker.nextNode();
+    }
+  }
+  return { checked, failures };
+}
+
 test('visible project names use the wordmark typography', async ({ page }) => {
   for (const route of brandAuditRoutes) {
     await page.goto(route);
-    const unstyled = await page.evaluate(() => {
-      const failures: string[] = [];
-      const walker = document.createTreeWalker(
-        document.body,
-        NodeFilter.SHOW_TEXT,
-      );
-      let node = walker.nextNode();
-      while (node) {
-        if (node.nodeValue?.includes('genomeOS')) {
-          const parent = node.parentElement;
-          const nonVisual = parent?.closest('script, style, title, code, pre');
-          if (
-            parent &&
-            !nonVisual &&
-            getComputedStyle(parent).display !== 'none'
-          ) {
-            // The header wordmark is the logo image, so it has no text node.
-            const wordmark = parent.closest<HTMLElement>(
-              '.brand-name, .site-title',
-            );
-            if (!wordmark) {
-              failures.push(
-                `${parent.tagName.toLowerCase()}: missing wordmark`,
-              );
-            } else if (
-              !getComputedStyle(wordmark).fontFamily.includes('Raleway')
-            ) {
-              failures.push(`${parent.tagName.toLowerCase()}: wrong font`);
-            }
-          }
-        }
-        node = walker.nextNode();
-      }
-      return failures;
-    });
-    expect(unstyled, `${route} has unstyled genomeOS text`).toEqual([]);
+    // The explorer mounts its controls, the basemap picker among them, after
+    // the load event: audit the mounted explorer, not the page before it.
+    if (route === '/app/')
+      await expect(page.locator('[data-atlas-ready="true"]')).toBeVisible({
+        timeout: 45_000,
+      });
+    const { failures } = await page.evaluate(auditBrandText, 'body');
+    expect(failures, `${route} has unstyled genomeOS text`).toEqual([]);
   }
+});
+
+test('the basemap picker sets genomeOS basemap names in the wordmark', async ({
+  page,
+}) => {
+  await page.goto('/app/');
+  await expect(page.locator('[data-atlas-ready="true"]')).toBeVisible({
+    timeout: 45_000,
+  });
+  await expandExplorerSheet(page);
+  await page.locator('summary').filter({ hasText: /^Map$/ }).click();
+  // The default basemap is genomeOS Dark; the button's name stays plain text.
+  const trigger = page.getByRole('button', {
+    name: 'Choose basemap and terrain',
+  });
+  await expect(trigger.locator('strong')).toHaveText('genomeOS Dark');
+  await expect(trigger.locator('strong .brand-name')).toHaveText('genomeOS');
+  await trigger.click();
+  const dialog = page.getByRole('dialog', { name: 'Basemap and terrain' });
+  // Focusing an option shows its detail at once and drops a pending hover.
+  await dialog.getByRole('radio', { name: 'genomeOS Dark basemap' }).focus();
+  await expect(dialog.getByRole('tooltip').locator('strong')).toHaveText(
+    'genomeOS Dark',
+  );
+  // The trigger label, the detail title, the group heading and the option.
+  expect(
+    await page.evaluate(
+      auditBrandText,
+      '.atlas-earth-style__trigger, .atlas-earth-picker',
+    ),
+  ).toEqual({ checked: 4, failures: [] });
 });
 
 test('project page labels all three capability states', async ({ page }) => {

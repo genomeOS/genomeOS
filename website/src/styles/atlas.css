@@ -491,7 +491,8 @@ html.atlas-page .site-header--compact .site-header__inner {
   font-size: 0.86rem;
 }
 
-.atlas-earth-picker__detail span {
+/* The provider only: a wordmark inside the label keeps the label's colour. */
+.atlas-earth-picker__detail > div > span {
   color: #9eb3c9;
   text-align: right;
 }

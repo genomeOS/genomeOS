@@ -558,6 +558,42 @@ export async function recordLegendLoading(page: Page): Promise<void> {
   })();`);
 }
 
+/**
+ * Call before navigating. Records the legend row in the frame the explorer
+ * first reports data-atlas-ready, before anything the cold load defers past
+ * the reveal (outlines, the Natural Earth overlay) arrives.
+ */
+export async function recordLegendRowAtReady(page: Page): Promise<void> {
+  await page.addInitScript(`(() => {
+    const measure = ${measureLegendRow.toString()};
+    const observer = new MutationObserver(() => {
+      const legend = document.querySelector(
+        '.atlas-explorer[data-atlas-ready="true"] .atlas-legend',
+      );
+      if (!legend) return;
+      observer.disconnect();
+      window.atlasLegendRowAtReady = measure(legend);
+    });
+    observer.observe(document, {
+      attributeFilter: ['data-atlas-ready'],
+      attributes: true,
+      childList: true,
+      subtree: true,
+    });
+  })();`);
+}
+
+/** What `recordLegendRowAtReady` measured; fails if the explorer never got ready with a legend. */
+export async function recordedLegendRowAtReady(page: Page): Promise<LegendRow> {
+  const row = await page.evaluate(
+    () =>
+      (window as unknown as { atlasLegendRowAtReady?: LegendRow })
+        .atlasLegendRowAtReady ?? null,
+  );
+  expect(row, 'the legend row at data-atlas-ready').not.toBeNull();
+  return row!;
+}
+
 /** What `recordLegendLoading` saw, or null if the legend never showed its loading state. */
 export async function recordedLegendLoading(
   page: Page,
