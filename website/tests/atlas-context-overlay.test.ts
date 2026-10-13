@@ -184,6 +184,38 @@ describe('Natural Earth context overlay', () => {
     expect(worker.parseContext).toHaveBeenCalledTimes(1);
   });
 
+  it('reports when the bytes have arrived, before it parses and draws them (§B.6.9)', async () => {
+    const { overlay, worker } = setup();
+    let finishParse!: () => void;
+    worker.parseContext.mockImplementationOnce(
+      () =>
+        new Promise<typeof parsed>((resolve) => {
+          finishParse = () => resolve(parsed);
+        }),
+    );
+    const fetched = vi.fn();
+    const loading = overlay.load('/a.geojson', fetched);
+    await flushTasks();
+    expect(fetched).toHaveBeenCalledTimes(1);
+    expect(fetched.mock.invocationCallOrder[0]).toBeLessThan(
+      worker.parseContext.mock.invocationCallOrder[0],
+    );
+    expect(overlay.isReady()).toBe(false);
+    finishParse();
+    await expect(loading).resolves.toBe('ready');
+    expect(fetched).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not report arrival when the borders cannot be fetched', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { overlay } = setup(async () => {
+      throw new Error('offline');
+    });
+    const fetched = vi.fn();
+    await expect(overlay.load('/a.geojson', fetched)).resolves.toBe('fallback');
+    expect(fetched).not.toHaveBeenCalled();
+  });
+
   it('asks the worker for surface heights only on the first non-zero factor', async () => {
     const { added, overlay, worker } = setup();
     await overlay.load('/a.geojson');

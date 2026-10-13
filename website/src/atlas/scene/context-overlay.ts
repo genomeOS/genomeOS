@@ -174,8 +174,13 @@ export class ContextOverlay {
     return this.#ready;
   }
 
-  load(url: string): Promise<ContextLoadStatus> {
-    this.#loading ??= this.#load(url);
+  /**
+   * Loads once; a later call returns the first call's promise. `onFetched` hears when the bytes
+   * have arrived, before they are parsed and drawn: the borders no longer need the network, so the
+   * next post-reveal load may start (spec 2026-10-07 §B.6.9). A failed fetch never calls it.
+   */
+  load(url: string, onFetched?: () => void): Promise<ContextLoadStatus> {
+    this.#loading ??= this.#load(url, onFetched);
     return this.#loading;
   }
 
@@ -235,9 +240,10 @@ export class ContextOverlay {
     this.#options.scene.requestRender();
   }
 
-  async #load(url: string): Promise<ContextLoadStatus> {
+  async #load(url: string, onFetched?: () => void): Promise<ContextLoadStatus> {
     try {
       const bytes = await (this.#options.fetchBytes ?? fetchArrayBuffer)(url);
+      onFetched?.();
       this.#throwIfDestroyed();
       const parsed = await this.#options.worker.parseContext(bytes);
       this.#throwIfDestroyed();

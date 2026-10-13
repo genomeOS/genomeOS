@@ -1,7 +1,13 @@
-/** Cesium lifecycle and scientific-layer orchestration for Atlas design §11 (spec 2026-10-07 §B.6). */
+/** Cesium lifecycle and scientific-layer orchestration for Atlas design §11 (spec 2026-10-07 §B.6).
+ *
+ * After the surface is visible, the scene runs the post-reveal load order (§B.6.9, `load-order.ts`):
+ * the Natural Earth borders' download, then each displayed artifact's detail tier (`queueDetail`),
+ * then the starfield, which is also held until `ready`. A failed artifact request starts the same
+ * order. */
 
 import { SceneMode, Viewer } from 'cesium';
 
+import { createLoadOrder, type LoadOrder, type LoadTask } from '../load-order';
 import type {
   BasemapId,
   CameraState,
@@ -98,6 +104,7 @@ class CesiumAtlasScene implements AtlasSceneController {
   readonly #marks: MarkTracker;
   readonly #layers: ScientificLayers;
   readonly #revealSky: () => void;
+  readonly #loadOrder: LoadOrder;
   readonly #naturalEarthUrl: string;
   #metric: Metric = 'post_mean';
   #palette: PaletteId = 'rainbow';
@@ -115,7 +122,6 @@ class CesiumAtlasScene implements AtlasSceneController {
   #elevationSequence = 0;
   #mode: ExplorerSceneMode = 'globe';
   #destroyed = false;
-  #contextStarted = false;
   #contextStatus: ContextStatus = 'loading';
   #reducedMotion: boolean;
 
@@ -150,6 +156,7 @@ class CesiumAtlasScene implements AtlasSceneController {
       (_scene, error: unknown) => this.#renderLoop.fail(error),
     );
     this.#revealSky = hideSkyUntilReady(this.#viewer.scene);
+    this.#loadOrder = createLoadOrder(options.loadStallMs);
     this.#marks = createMarkTracker(
       this.#viewer.scene,
       options.markTarget ?? null,
@@ -184,7 +191,7 @@ class CesiumAtlasScene implements AtlasSceneController {
       worker: options.worker,
     });
     this.#removeMarks = this.#marks.onMark((mark) => {
-      if (mark === 'ready') this.#revealSky();
+      if (mark === 'ready') this.#queueStarfield();
       if (mark === 'surface-visible') this.#startContext();
     });
     this.#unbindKeyboard = bindKeyboardCamera(this.#viewer, container);
@@ -243,14 +250,35 @@ class CesiumAtlasScene implements AtlasSceneController {
     for (const listener of this.#commitListeners) listener(artifactKey);
   }
 
+  /**
+   * Step 1 of the load order, once. It settles when the borders' bytes have arrived, so the detail
+   * tier downloads while they are parsed and drawn, or when their load ends without them (it
+   * falls back on a failed fetch; the overlay never rejects). It reports no body progress, so a
+   * download still running after the stall window releases the detail tier.
+   */
   #startContext(): void {
-    if (this.#contextStarted || this.#destroyed) return;
-    this.#contextStarted = true;
-    void this.#overlay.load(this.#naturalEarthUrl).then((status) => {
-      if (this.#destroyed) return;
-      if (status === 'ready') this.#marks.queue('context-ready');
-      this.#setContextStatus(status);
-    });
+    if (this.#destroyed) return;
+    this.#loadOrder.borders(
+      () =>
+        new Promise<void>((settle) => {
+          const loading = this.#overlay.load(this.#naturalEarthUrl, settle);
+          // A throwing status listener stays an unhandled rejection, not an outcome of the step.
+          void loading.then((status) => {
+            if (this.#destroyed) return;
+            if (status === 'ready') this.#marks.queue('context-ready');
+            this.#setContextStatus(status);
+          });
+          void loading.then(() => settle());
+        }),
+    );
+  }
+
+  /** Step 3, once: the sky-box textures load when it is shown (§B.6.9). */
+  #queueStarfield(): void {
+    if (this.#destroyed) return;
+    // The borders start no later than this, so the starfield always has a step 1 to follow.
+    this.#startContext();
+    this.#loadOrder.starfield(() => this.#revealSky());
   }
 
   #setContextStatus(status: ContextStatus): void {
@@ -276,10 +304,7 @@ class CesiumAtlasScene implements AtlasSceneController {
     try {
       await this.#layers.setArtifact(load, progress);
     } catch (error) {
-      if (!isAbortError(error)) {
-        this.#revealSky();
-        this.#startContext();
-      }
+      if (!isAbortError(error)) this.#queueStarfield();
       throw error;
     }
   }
@@ -474,6 +499,10 @@ class CesiumAtlasScene implements AtlasSceneController {
     this.#layers.removeSurface(artifactKey);
   }
 
+  queueDetail(task: LoadTask): () => void {
+    return this.#loadOrder.detail(task);
+  }
+
   onCommit(listener: (artifactKey: string) => void): () => void {
     this.#commitListeners.add(listener);
     return () => this.#commitListeners.delete(listener);
@@ -519,6 +548,7 @@ class CesiumAtlasScene implements AtlasSceneController {
   destroy(): void {
     if (this.#destroyed) return;
     this.#destroyed = true;
+    this.#loadOrder.destroy();
     this.#elevationSequence += 1;
     this.#renderLoop.stop();
     this.#layers.destroy();

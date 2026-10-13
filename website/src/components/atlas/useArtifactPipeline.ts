@@ -1,10 +1,13 @@
 /** Artifact fetch, scene handoff, commit and detail-tier lifecycle for Atlas design §11
- * (spec 2026-10-07 §B.2, §B.6.2, §B.6.8, §B.6.12).
+ * (spec 2026-10-07 §B.2, §B.6.2, §B.6.8, §B.6.9, §B.6.12).
  *
  * Downloads start as soon as the catalog and URL state exist, independent of
  * the scene. The scene receives promises, so observations can appear before
- * the surface. The displayed artifact changes only at the scene's commit, and
- * the f64 detail tier is fetched after `atlas:surface-visible`.
+ * the surface. The displayed artifact changes only at the scene's commit. The
+ * f64 detail tier is queued at `atlas:surface-visible` as step 2 of the
+ * scene's post-reveal load order: it starts once the Natural Earth borders
+ * have settled, at once on a later artifact switch, and the starfield waits
+ * for it to settle. A retry starts it at once.
  *
  * Marks describe the scene's current epoch, so they are read against the
  * request last handed to the scene, never a newer one still on its way. A
@@ -69,6 +72,12 @@ interface PipelineActivity {
   fail(id: number): void;
 }
 
+/** One artifact's detail-tier request; `settled` never rejects. */
+interface DetailRequest {
+  abort: AbortController;
+  settled: Promise<void>;
+}
+
 interface ArtifactRequest {
   sequence: number;
   entry: LoadedArtifact;
@@ -117,7 +126,9 @@ export function useArtifactPipeline(
   const sceneEntry = useRef<LoadedArtifact | null>(null);
   const displayedRef = useRef<LoadedArtifact | null>(null);
   const targetRef = useRef<LoadedArtifact | null>(null);
-  const detailRequests = useRef(new Map<string, AbortController>());
+  const detailRequests = useRef(new Map<string, DetailRequest>());
+  /** Cancels a detail tier queued in the scene's load order that has not started. */
+  const detailTurns = useRef(new Map<string, () => void>());
   const [request, setRequest] = useState<ArtifactRequest | null>(null);
   const [displayed, setDisplayed] = useState<LoadedArtifact | null>(null);
   const [revealing, setRevealing] = useState<LoadedArtifact | null>(null);
@@ -135,7 +146,11 @@ export function useArtifactPipeline(
     displayedRef.current?.artifactKey === key ||
     latestRequest.current?.entry.artifactKey === key;
 
-  const loadDetail = (entry: LoadedArtifact): void => {
+  /** Resolves when the request settles, whatever its outcome; undefined when there is none to make. */
+  const loadDetail = (
+    entry: LoadedArtifact,
+    progress?: () => void,
+  ): Promise<void> | undefined => {
     const surface = entry.surface;
     const key = entry.artifactKey;
     const detailProvider = latest.current.provider;
@@ -146,17 +161,19 @@ export function useArtifactPipeline(
       latest.current.controller?.markValuesReady(key);
       return;
     }
-    if (detailRequests.current.has(key)) return;
+    const pending = detailRequests.current.get(key);
+    if (pending) return pending.settled;
     const abort = new AbortController();
-    detailRequests.current.set(key, abort);
+    const request: DetailRequest = { abort, settled: Promise.resolve() };
+    detailRequests.current.set(key, request);
     setFailures((current) => withoutKey(current, key));
     // A request aborted at a commit may settle after a newer one for the same key started.
     const release = () => {
-      if (detailRequests.current.get(key) === abort)
+      if (detailRequests.current.get(key) === request)
         detailRequests.current.delete(key);
     };
-    detailProvider
-      .getSurfaceDetail(entry.ref, abort.signal)
+    request.settled = detailProvider
+      .getSurfaceDetail(entry.ref, abort.signal, progress)
       .then(() => {
         release();
         setDetailVersion((version) => version + 1);
@@ -196,6 +213,20 @@ export function useArtifactPipeline(
           }),
         );
       });
+    return request.settled;
+  };
+
+  /** Step 2 of the scene's load order (§B.6.9); a newer turn for the same artifact replaces it. */
+  const queueDetail = (
+    scene: PipelineController,
+    entry: LoadedArtifact,
+  ): void => {
+    const key = entry.artifactKey;
+    detailTurns.current.get(key)?.();
+    detailTurns.current.set(
+      key,
+      scene.queueDetail((progress) => loadDetail(entry, progress)),
+    );
   };
 
   useEffect(() => {
@@ -278,8 +309,13 @@ export function useArtifactPipeline(
       ]);
       for (const key of [...entries.current.keys()])
         if (!keep.has(key)) entries.current.delete(key);
-      // A left artifact's detail tier is neither awaited nor reported.
-      for (const [key, abort] of [...detailRequests.current])
+      // A left artifact's detail tier is neither started, awaited nor reported.
+      for (const [key, cancel] of [...detailTurns.current])
+        if (!keep.has(key)) {
+          detailTurns.current.delete(key);
+          cancel();
+        }
+      for (const [key, { abort }] of [...detailRequests.current])
         if (!keep.has(key)) {
           detailRequests.current.delete(key);
           abort.abort();
@@ -302,11 +338,14 @@ export function useArtifactPipeline(
         setRevealing(entry);
         if (mark === 'surface-first-chunk') setRevealLegend(true);
       }
-      if (mark === 'surface-visible') loadDetail(entry);
+      if (mark === 'surface-visible') queueDetail(controller, entry);
     });
     return () => {
       removeCommit();
       removeMark();
+      // The scene's order dies with it; a turn queued there must not start a request later.
+      for (const cancel of detailTurns.current.values()) cancel();
+      detailTurns.current.clear();
     };
   }, [controller]);
 
@@ -392,7 +431,7 @@ export function useArtifactPipeline(
 
   useEffect(
     () => () => {
-      for (const abort of detailRequests.current.values()) abort.abort();
+      for (const { abort } of detailRequests.current.values()) abort.abort();
     },
     [],
   );
@@ -407,7 +446,7 @@ export function useArtifactPipeline(
     legendLayer,
     retryDetail: () => {
       const entry = targetRef.current;
-      if (entry) loadDetail(entry);
+      if (entry) void loadDetail(entry);
     },
     revealLegend,
     revealing,

@@ -1,5 +1,5 @@
 /** The artifact pipeline hook's mark attribution and detail-tier lifecycle (Atlas design §11;
- * spec 2026-10-07 §B.2, §B.6.2, §B.6.8). */
+ * spec 2026-10-07 §B.2, §B.6.2, §B.6.8, §B.6.9). */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // The hook runs without a DOM: React's hooks are replaced by stand-ins that keep refs and state
@@ -96,6 +96,12 @@ vi.mock('../src/components/atlas/useAtlasActivity', () => ({
 
 import type { ArtifactRef, AtlasCatalog } from '../src/atlas/contracts';
 import type { DecodedDetail } from '../src/atlas/gosa/types';
+import {
+  createLoadOrder,
+  type LoadOrder,
+  type LoadTask,
+} from '../src/atlas/load-order';
+import type { TransferProgressListener } from '../src/atlas/progress';
 import type { ArtifactLoad, AtlasMark } from '../src/atlas/scene/types';
 import {
   artifactKeyFor,
@@ -167,6 +173,7 @@ function fakeProvider() {
   const surfaces = new Map<string, SurfaceArtifact>();
   const details: {
     id: string;
+    progress: TransferProgressListener | undefined;
     request: Deferred<DecodedDetail>;
     signal: AbortSignal;
   }[] = [];
@@ -182,17 +189,33 @@ function fakeProvider() {
     details,
     getObservations: vi.fn(() => Promise.resolve(null)),
     getSurface: vi.fn((ref: ArtifactRef) => Promise.resolve(surfaceOf(ref))),
-    getSurfaceDetail: vi.fn(async (ref: ArtifactRef, signal?: AbortSignal) => {
-      const request = deferred<DecodedDetail>();
-      details.push({ id: ref.id, request, signal: signal! });
-      const detail = await request.promise;
-      surfaceOf(ref).detail = detail;
-      return detail;
-    }),
+    getSurfaceDetail: vi.fn(
+      async (
+        ref: ArtifactRef,
+        signal?: AbortSignal,
+        progress?: TransferProgressListener,
+      ) => {
+        const request = deferred<DecodedDetail>();
+        details.push({ id: ref.id, progress, request, signal: signal! });
+        const detail = await request.promise;
+        surfaceOf(ref).detail = detail;
+        return detail;
+      },
+    ),
   };
 }
 
-function fakeScene() {
+const orders: LoadOrder[] = [];
+
+/**
+ * A scene with the real post-reveal load order (§B.6.9). Its borders have settled unless the test
+ * passes the promise they settle with.
+ */
+function fakeScene(borders?: Promise<void>) {
+  const order = createLoadOrder();
+  orders.push(order);
+  order.borders(() => borders);
+  const detailProgress = vi.fn();
   const commits = new Set<(artifactKey: string) => void>();
   const marks = new Set<(mark: AtlasMark) => void>();
   const loads: ArtifactLoad[] = [];
@@ -202,6 +225,7 @@ function fakeScene() {
     commit(artifactKey: string) {
       for (const listener of [...commits]) listener(artifactKey);
     },
+    detailProgress,
     displayedLayer: () => null,
     loads,
     mark(mark: AtlasMark) {
@@ -216,6 +240,15 @@ function fakeScene() {
       marks.add(listener);
       return () => void marks.delete(listener);
     },
+    order,
+    queueDetail: vi.fn((task: LoadTask) =>
+      order.detail((progress) =>
+        task(() => {
+          detailProgress();
+          progress();
+        }),
+      ),
+    ),
     removeSurface: vi.fn<(artifactKey: string) => void>(),
     results,
     setArtifact: vi.fn((load: ArtifactLoad) => {
@@ -276,6 +309,7 @@ function mountPipeline() {
 afterEach(() => {
   react.unmount();
   react.reset();
+  for (const order of orders.splice(0)) order.destroy();
   paint.next.mockReset();
   paint.next.mockImplementation(() => Promise.resolve());
 });
@@ -495,5 +529,158 @@ describe('artifact pipeline detail tier', () => {
     scene.commit(keys.b);
     render('b', scene);
     expect(status).toBe('ready');
+  });
+});
+
+describe('artifact pipeline load order (spec 2026-10-07 §B.6.9)', () => {
+  it('starts the detail tier only once the scene’s borders have settled', async () => {
+    const { provider, render } = mountPipeline();
+    const borders = deferred<void>();
+    const scene = fakeScene(borders.promise);
+    render('a', scene);
+    await settle();
+    scene.mark('surface-visible');
+    await settle();
+    expect(scene.queueDetail).toHaveBeenCalledTimes(1);
+    expect(provider.getSurfaceDetail).not.toHaveBeenCalled();
+    borders.resolve();
+    await settle();
+    expect(provider.getSurfaceDetail.mock.calls.map(([ref]) => ref.id)).toEqual(
+      ['a'],
+    );
+  });
+
+  it('starts the detail tier when the borders fail', async () => {
+    const { provider, render } = mountPipeline();
+    const borders = deferred<void>();
+    const scene = fakeScene(borders.promise);
+    render('a', scene);
+    await settle();
+    scene.mark('surface-visible');
+    borders.reject(new Error('Natural Earth request failed with HTTP 503'));
+    await settle();
+    expect(provider.getSurfaceDetail.mock.calls.map(([ref]) => ref.id)).toEqual(
+      ['a'],
+    );
+  });
+
+  it('holds the starfield until the detail tier settles', async () => {
+    const { provider, render } = mountPipeline();
+    const scene = fakeScene();
+    const starfield = vi.fn();
+    render('a', scene);
+    await settle();
+    scene.mark('surface-visible');
+    scene.order.starfield(starfield);
+    await settle();
+    expect(starfield).not.toHaveBeenCalled();
+    provider.details[0].request.resolve(
+      columnarSurface(cells, { withDetail: true }).detail!,
+    );
+    await settle();
+    expect(starfield).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the starfield when the detail tier fails', async () => {
+    const { provider, render } = mountPipeline();
+    const scene = fakeScene();
+    const starfield = vi.fn();
+    render('a', scene);
+    await settle();
+    scene.commit(keys.a);
+    scene.mark('surface-visible');
+    scene.order.starfield(starfield);
+    provider.details[0].request.reject(
+      new Error('Atlas request stalled: no data for 15000 ms: detail'),
+    );
+    await settle();
+    expect(render('a', scene).detailStatus).toBe('unavailable');
+    expect(starfield).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the starfield when the commit that leaves an artifact aborts its detail tier', async () => {
+    const { provider, render } = mountPipeline();
+    const scene = fakeScene();
+    const starfield = vi.fn();
+    render('a', scene);
+    await settle();
+    scene.commit(keys.a);
+    scene.mark('surface-visible');
+    scene.order.starfield(starfield);
+    render('b', scene);
+    await settle();
+    scene.commit(keys.b);
+    expect(provider.details[0].signal.aborted).toBe(true);
+    await settle();
+    expect(starfield).not.toHaveBeenCalled();
+    // The provider rejects an aborted request with the abort's reason.
+    provider.details[0].request.reject(
+      new DOMException('Aborted', 'AbortError'),
+    );
+    await settle();
+    expect(starfield).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports detail transfer progress to the load order, so a slow transfer is not a stall', async () => {
+    const { provider, render } = mountPipeline();
+    const scene = fakeScene();
+    render('a', scene);
+    await settle();
+    scene.mark('surface-visible');
+    provider.details[0].progress?.({ loadedBytes: 10, totalBytes: 100 });
+    provider.details[0].progress?.({ loadedBytes: 20, totalBytes: 100 });
+    expect(scene.detailProgress).toHaveBeenCalledTimes(2);
+  });
+
+  it('drops a queued detail tier for an artifact the user left before its turn', async () => {
+    const { provider, render } = mountPipeline();
+    const borders = deferred<void>();
+    const scene = fakeScene(borders.promise);
+    render('a', scene);
+    await settle();
+    scene.mark('surface-visible');
+    scene.commit(keys.a);
+    render('b', scene);
+    await settle();
+    scene.mark('surface-visible');
+    scene.commit(keys.b);
+    borders.resolve();
+    await settle();
+    expect(provider.getSurfaceDetail.mock.calls.map(([ref]) => ref.id)).toEqual(
+      ['b'],
+    );
+  });
+
+  it('drops its queued detail tiers when the scene is replaced', async () => {
+    const { provider, render } = mountPipeline();
+    const borders = deferred<void>();
+    const first = fakeScene(borders.promise);
+    render('a', first);
+    await settle();
+    first.mark('surface-visible');
+    // "Retry globe": a new scene; the old one's queued turn must not start a request.
+    const second = fakeScene(new Promise<void>(() => undefined));
+    render('a', second);
+    await settle();
+    borders.resolve();
+    await settle();
+    expect(provider.getSurfaceDetail).not.toHaveBeenCalled();
+  });
+
+  it('retries a failed detail tier at once, without waiting for a turn', async () => {
+    const { provider, render } = mountPipeline();
+    const scene = fakeScene();
+    render('a', scene);
+    await settle();
+    scene.commit(keys.a);
+    scene.mark('surface-visible');
+    provider.details[0].request.reject(new Error('network down'));
+    await settle();
+    const pipeline = render('a', scene);
+    expect(pipeline.detailStatus).toBe('unavailable');
+    scene.queueDetail.mockClear();
+    pipeline.retryDetail();
+    expect(scene.queueDetail).not.toHaveBeenCalled();
+    expect(provider.getSurfaceDetail).toHaveBeenCalledTimes(2);
   });
 });
