@@ -377,6 +377,39 @@ describe('Natural Earth borders decoded in the worker (fast-load §B.6.9, §B.10
     },
   );
 
+  // JSON.parse reads 2.0 and 2e0 as the Number 2, so this decoder accepts them where an integer is
+  // due; the Python decoder refuses them (its _is_count). Canonical JSON never writes either.
+  it.each([
+    [
+      'a quantization written 1e4',
+      (text: string) =>
+        text.replace('"quantization":10000', '"quantization":1e4'),
+    ],
+    [
+      'arc counts written with .0',
+      (text: string) =>
+        text.replace(
+          /"arcs":\[([^\]]*)\]/,
+          (_, counts: string) =>
+            `"arcs":[${counts
+              .split(',')
+              .map((count) => `${count}.0`)
+              .join(',')}]`,
+        ),
+    ],
+    [
+      'an arc reference written 0.0',
+      (text: string) => text.replace('"polygons":[[[0]', '"polygons":[[[0.0]'),
+    ],
+  ])('accepts %s, as the same Number', (_name, rewrite) => {
+    const { header, points } = unpackBorders(COLLECTION);
+    const text = rewrite(JSON.stringify(header));
+    expect(text).not.toBe(JSON.stringify(header));
+    expect(decodeBytes(packBorders(header, points, text))).toEqual(
+      decodeBytes(COLLECTION),
+    );
+  });
+
   it('accepts the bytes as an ArrayBuffer or a view of one', () => {
     const view = new Uint8Array(COLLECTION.length + 8);
     view.set(COLLECTION, 8);

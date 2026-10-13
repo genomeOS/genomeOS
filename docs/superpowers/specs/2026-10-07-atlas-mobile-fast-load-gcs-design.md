@@ -908,6 +908,11 @@ references walk an arc backwards). The header is 59,132 bytes (17,039 gzip), the
 - per ring, in order: arcs that do not meet end to start, a ring that does not close, or fewer
   than four positions.
 
+One check differs between the two. `JSON.parse` reads `2.0` and `2e0` as the Number 2, so the
+TypeScript decoder accepts an integral count, quantization or arc reference written with a fraction
+or exponent, and the Python decoder (`_is_count`, `isinstance(ref, int)`) refuses it. The generator's
+canonical JSON never writes one. A test on each side pins its behaviour.
+
 The worker posts a decode failure as a `validation` error, and the overlay falls back as before.
 
 **What the overlay draws (unchanged).** The decoder fills the same `NaturalEarthBuffers` the

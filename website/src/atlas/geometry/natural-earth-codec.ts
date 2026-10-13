@@ -32,7 +32,9 @@
  * As before, one ring is drawn per polygon outer boundary (holes are decoded and checked, not
  * drawn), closed by repeating its first coordinate, and one label per distinct country text.
  * Every violation of the format is a hard error (AGENTS; spec v1 §12): a `TypeError` that names
- * the check, raised in the same order as the Python decoder, never a silent skip.
+ * the check, raised in the same order as the Python decoder, never a silent skip. One check
+ * differs: an integer written with a fraction or exponent (`2.0`, `2e0`) is the Number 2 after
+ * `JSON.parse`, so `isCount` and `isArcRef` accept it where the Python decoder refuses it.
  */
 
 import {
@@ -76,6 +78,8 @@ const hasKeys = (value: Record<string, unknown>, keys: readonly string[]) => {
   return own.length === keys.length && keys.every((key) => own.includes(key));
 };
 
+/** A safe integer ≥ `minimum`. JSON `2.0` is the Number 2 here, so it passes; Python's `_is_count`
+ * refuses it (the one check the two decoders do not share). */
 const isCount = (value: unknown, minimum: number): value is number =>
   Number.isSafeInteger(value) && (value as number) >= minimum;
 

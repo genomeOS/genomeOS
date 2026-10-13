@@ -277,6 +277,29 @@ def test_the_decoder_refuses_malformed_containers(data: Any, message: str) -> No
         borders.decode(data(_encode()))
 
 
+def _first_ref_as_float(header: dict[str, Any]) -> None:
+    ring = header["features"][0]["polygons"][0][0]
+    ring[0] = float(ring[0])
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (lambda h: h.update(quantization=float(h["quantization"])), "quantization"),
+        (lambda h: h["arcs"].__setitem__(0, float(h["arcs"][0])), "arcs must be vertex counts"),
+        (_first_ref_as_float, "refers to arc 0.0"),
+    ],
+)
+def test_an_integer_written_as_a_float_is_refused_though_the_typescript_decoder_accepts_it(
+    change: Any, message: str
+) -> None:
+    """The one check the decoders do not share: JSON.parse reads 2.0 as 2 (spec §B.10)."""
+    data = _with_header(change)
+    assert b".0" in data[12 : 12 + struct.unpack_from("<I", data, 8)[0]]
+    with pytest.raises(ValueError, match=message):
+        borders.decode(data)
+
+
 def test_the_decoder_refuses_a_non_zero_padding_byte() -> None:
     data = bytearray(_encode())
     header_length = struct.unpack_from("<I", data, 8)[0]

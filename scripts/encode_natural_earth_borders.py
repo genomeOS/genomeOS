@@ -62,7 +62,10 @@ vertex, which closes it. The payload is the arc vertices in arc order as interle
 lattice integers, delta-coded from (0, 0) along that whole sequence, zigzag-coded
 (``(d << 1) ^ (d >> 31)``) and then byte-shuffled: byte ``k`` of element ``i`` is at
 ``k·n + i`` for ``n = 2·V`` elements. Every violation is a hard error in both decoders (this one
-and ``website/src/atlas/geometry/natural-earth-codec.ts``).
+and ``website/src/atlas/geometry/natural-earth-codec.ts``), in the same order; the one difference
+is that the TypeScript decoder cannot tell ``2.0`` from ``2`` after ``JSON.parse``, so it accepts
+an integral count, quantization or arc reference written with a fraction or exponent, which
+``_is_count`` here refuses. Canonical JSON never writes one.
 
 Byte-deterministic; the encoding is decoded back and compared with the snapped lattice before it
 is written (to a temporary sibling, then renamed). Needs numpy and h3 (a core dependency).
@@ -434,7 +437,8 @@ def encode_source(collection: Any, resolutions: Sequence[int]) -> bytes:
     )
 
 
-# Decoding: the same checks, in the same order, as natural-earth-codec.ts.
+# Decoding: the same checks, in the same order, as natural-earth-codec.ts (see the module
+# docstring for the one difference, in _is_count).
 
 
 def read_container(data: bytes) -> Container:
@@ -463,6 +467,8 @@ def read_container(data: bytes) -> Container:
 
 
 def _is_count(value: Any, minimum: int) -> bool:
+    """A JSON integer in [minimum, 2⁵³ − 1]. ``2.0`` parses to a float and is refused; the
+    TypeScript ``isCount`` sees the same text as the Number 2 and accepts it."""
     return isinstance(value, int) and not isinstance(value, bool) and minimum <= value <= 2**53 - 1
 
 
