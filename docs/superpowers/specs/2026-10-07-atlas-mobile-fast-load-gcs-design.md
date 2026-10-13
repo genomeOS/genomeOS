@@ -378,11 +378,11 @@ All 30 published surfaces share one sorted, unique 77,844-cell H3 resolution-4 g
 rendition splits into immutable, content-addressed binary objects. **Normative per-tier columns**
 (name, dtype, encoding, in this order):
 
-| Tier     | Columns                                                                                                                     | HbS raw / gzip    | Fetched                   |
-| -------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------- | ------------------------- |
-| `grid`   | `h3` u64 `delta_shuffle`                                                                                                    | 623 KB / ~15 KB   | once per session          |
-| `render` | `support` u8 `raw`; `post_mean` f32 `shuffle`; `post_sd` f32 `shuffle`                                                      | 700 KB / ~433 KB  | on selection (critical)   |
-| `detail` | `post_mean`, `post_sd`, `q025`, `q975`, `posterior_contraction`, `dist_nearest_obs_km` — all f64 `shuffle`, in that order | 3.7 MB / ~3 MB    | after reveal, low priority |
+| Tier     | Columns                                                                                                                     | HbS raw / gzip    | Fetched                                  |
+| -------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------- | ---------------------------------------- |
+| `grid`   | `h3` u64 `delta_shuffle`                                                                                                    | 623 KB / ~15 KB   | once per session                         |
+| `render` | `support` u8 `raw`; `post_mean` f32 `shuffle`; `post_sd` f32 `shuffle`                                                      | 700 KB / ~433 KB  | on selection (critical)                  |
+| `detail` | `post_mean`, `post_sd`, `q025`, `q975`, `posterior_contraction`, `dist_nearest_obs_km` — all f64 `shuffle`, in that order | 3.7 MB / ~3 MB    | after the borders, low priority (§B.6.9) |
 
 - **Render values drive colour, height and bins only; they are never displayed as numbers.** Every
   number the hover preview or inspector shows comes from the f64 detail tier, bit-identical to the
@@ -623,7 +623,8 @@ scene (when import resolves) ── observations → chunk scheduler (B.6.7) →
    `crossorigin="anonymous"`) and transfers each `ArrayBuffer`. A **stall timeout** (15 s without a
    new body chunk) replaces the 15 s whole-request budget; abort and retry are otherwise unchanged.
    Each tier is fetched at its preload's priority (observations `high`, grid and render `low`), and
-   the detail tier with `priority: 'low'` after `atlas:surface-visible`.
+   the detail tier with `priority: 'low'` after `atlas:surface-visible`, once the borders' bytes
+   have arrived (the post-reveal load order, §B.6.9).
 3. **Worker.** One dedicated module worker
    (`new Worker(new URL('./atlas-data.worker.ts', import.meta.url), { type: 'module' })`; Vite
    `worker.format: 'es'`; no dynamic `import()` inside it). Typed request/response messages with ids;
@@ -740,7 +741,39 @@ scene (when import resolves) ── observations → chunk scheduler (B.6.7) →
    and computed in the worker from grid rows on the first non-zero factor (or, when that factor
    comes first, as soon as the worker has parsed the GeoJSON). The sky box is hidden
    (`viewer.scene.skyBox.show = false` right after `new Viewer`, keeping sun and moon) until
-   `data-atlas-ready`, then shown.
+   `data-atlas-ready` and its turn in the load order below, then shown.
+
+   **Post-reveal load order.** Three downloads follow the reveal. Each starts only when the one
+   before it has settled, so none of them shares the connection with another (`load-order.ts`):
+
+   1. **Borders.** The Natural Earth request starts at `atlas:surface-visible`, or when an artifact
+      request fails, as before. The step settles when the bytes have arrived or the fetch has
+      failed. Parsing and drawing go on while step 2 downloads, and `context-ready` still marks the
+      drawn borders.
+   2. **Detail tier** of the displayed artifact, `priority: 'low'`, queued at that artifact's
+      `atlas:surface-visible`. It starts when the borders have settled, and at once when they
+      already have, so a later artifact switch starts its detail tier as soon as its surface is
+      visible. It settles when the tier is decoded and validated, fails, or is aborted. The commit
+      that leaves an artifact aborts its request and drops a queued one that has not started. The
+      inspector's retry starts it at once.
+   3. **Starfield.** The sky box is shown when the borders and every detail step started so far
+      have settled, and not before `data-atlas-ready`. Its six textures (~870 KB) load then.
+
+   A failure never blocks the next step, and neither does a stall. A step that neither settles nor
+   reports progress for the provider's request stall window (15 s, §B.6.2) releases the next one and
+   keeps running. The detail tier reports each body chunk, so a slow transfer is not a stall. The
+   borders report none, so their window runs from their start. A scene rebuilt by "Retry globe"
+   starts a new order.
+
+   (Amended for #443, 2026-10-13. Before, the borders, the detail tier and the starfield started
+   together after the reveal and shared the connection. On a phone that delayed the borders, which
+   every visitor sees, behind a 3 MB tier that only the hover readout and the inspector read, and
+   behind cosmetic textures. The borders settle at their last byte, not when drawn, because the
+   parse and draw use no network. In an interleaved local probe of the e2e build (4× CPU, load
+   average 19–24, medians after `surface-visible`), settling when drawn left the link idle for
+   4.2–5.2 s and gave `values-ready` at 11,512 ms. Settling at the last byte gave 2,740 ms, with
+   `context-ready` unchanged within noise (8,595 against 8,670 ms). The detail tier settles when
+   decoded, so the starfield never competes with it.)
 10. **No coarse aggregated tier.** Averaging res-4 children into res-3/2 parents is an aggregation that
     must exclude masked cells and report the excluded fraction (AGENTS invariant; spec v1 §10) — a
     `needs-human-decision` this work does not take. Camera-ordered chunked reveal of the real res-4

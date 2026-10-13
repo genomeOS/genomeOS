@@ -79,7 +79,8 @@ export function styleAtlasScene(viewer: Viewer): void {
   viewer.resolutionScale = Math.min(window.devicePixelRatio || 1, 1.5);
 }
 
-/** Defers the sky-box textures until the map is ready (spec 2026-10-07 §B.6.9). */
+/** Defers the sky-box textures until the returned reveal runs: after the map is ready and the
+ * post-reveal load order's earlier steps have settled (spec 2026-10-07 §B.6.9). */
 export function hideSkyUntilReady(scene: {
   skyBox?: { show: boolean } | undefined;
   requestRender(): void;
