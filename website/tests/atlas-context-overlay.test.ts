@@ -11,8 +11,12 @@ import {
   PrimitiveCollection,
   VerticalOrigin,
 } from 'cesium';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { NATURAL_EARTH_BORDERS } from '../src/atlas/context-sources';
+import { decodeNaturalEarth } from '../src/atlas/geometry/natural-earth-codec';
 import {
   BORDER_CLEARANCE_METRES,
   ContextOverlay,
@@ -911,4 +915,76 @@ describe('Natural Earth context built across several slices', () => {
       expect(console.warn).not.toHaveBeenCalled();
     },
   );
+});
+
+describe('compact borders in the post-reveal load order (§B.6.9, §B.10)', () => {
+  const ATLAS = new URL('../public/data/atlas/', import.meta.url);
+
+  it('reports each chunk of the GOBD file, then its last byte, before the worker decodes it', async () => {
+    // The file the catalog names for the borders, as the explorer resolves it (#445).
+    const { context_sources } = JSON.parse(
+      readFileSync(fileURLToPath(new URL('catalog.json', ATLAS)), 'utf8'),
+    ) as { context_sources: { id: string; url: string }[] };
+    const name = context_sources.find(
+      (source) => source.id === NATURAL_EARTH_BORDERS,
+    )?.url;
+    expect(name).toMatch(/\.bin$/);
+    const file = new Uint8Array(
+      readFileSync(fileURLToPath(new URL(name!, ATLAS))),
+    );
+    const CHUNK = 64 * 1024;
+    const chunks: Uint8Array[] = [];
+    for (let start = 0; start < file.length; start += CHUNK)
+      chunks.push(file.slice(start, start + CHUNK));
+    expect(chunks.length).toBeGreaterThan(1);
+    const url = `/data/atlas/${name}`;
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              for (const chunk of chunks) controller.enqueue(chunk);
+              controller.close();
+            },
+          }),
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    // The overlay's own fetch (no fetchBytes), and the decoder the data worker runs on the bytes.
+    const { overlay, worker } = setup(null);
+    let decoded: ReturnType<typeof decodeNaturalEarth> | undefined;
+    let readyAtArrival: boolean | undefined;
+    worker.parseContext.mockImplementationOnce(async (...args: unknown[]) => {
+      decoded = decodeNaturalEarth(args[0] as ArrayBuffer);
+      return parsed;
+    });
+    const progress = vi.fn();
+    const fetched = vi.fn(() => {
+      readyAtArrival = overlay.isReady();
+    });
+
+    await expect(overlay.load(url, fetched, progress)).resolves.toBe('ready');
+
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(url);
+    expect(progress).toHaveBeenCalledTimes(chunks.length);
+    expect(fetched).toHaveBeenCalledTimes(1);
+    // Arrival is the last byte: after every chunk, before the decode, with nothing drawn yet.
+    expect(progress.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      fetched.mock.invocationCallOrder[0],
+    );
+    expect(fetched.mock.invocationCallOrder[0]).toBeLessThan(
+      worker.parseContext.mock.invocationCallOrder[0],
+    );
+    expect(readyAtArrival).toBe(false);
+    // The streamed bytes are the file, and they decode as the file does.
+    const [bytes] = worker.parseContext.mock.calls[0] as unknown as [
+      ArrayBuffer,
+    ];
+    expect(new Uint8Array(bytes)).toEqual(file);
+    const direct = decodeNaturalEarth(file);
+    expect(decoded!.ringOffsets).toEqual(direct.ringOffsets);
+    expect(decoded!.lonLat).toEqual(direct.lonLat);
+    expect(decoded!.labels).toEqual(direct.labels);
+    expect(decoded!.labels.length).toBeGreaterThan(200);
+  });
 });
