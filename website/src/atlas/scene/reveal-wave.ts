@@ -27,6 +27,24 @@ export const MIN_WAVE_REACH = 1e-5;
  */
 export const WAVE_COMPLETE_RADIUS = 8;
 
+/** What every surface and mask chunk's shader reads on each draw; the scene's driver writes it. */
+export interface RevealWaveUniforms {
+  /** Unit ECEF direction of the wave's origin (a Cesium `vec3` uniform takes any x, y, z). */
+  origin: { x: number; y: number; z: number };
+  /** The ring's leading edge. */
+  radius: number;
+  band: number;
+}
+
+/** The state outside a wave: complete, so every cell is whole. */
+export function restingWave(): RevealWaveUniforms {
+  return {
+    band: 1,
+    origin: { x: 1, y: 0, z: 0 },
+    radius: WAVE_COMPLETE_RADIUS,
+  };
+}
+
 export interface WaveTimeline {
   /** The angle from the origin the wave must cover: the horizon or the edge of the view. */
   reach: number;
