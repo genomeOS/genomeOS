@@ -46,6 +46,19 @@ export async function waitForAtlasReady(page: Page): Promise<void> {
   });
 }
 
+/**
+ * The surface reveal wave (#453) has passed: every cell is grown and can be hovered or picked.
+ * Every test that points at the surface waits here first. The explorer reads `pending` until
+ * the scene's first wave, which starts with the first surface chunk, so call it once the map is
+ * ready; under reduced motion it reads `done` at once.
+ */
+export async function waitForRevealWave(page: Page): Promise<void> {
+  await expect(page.locator('.atlas-explorer')).toHaveAttribute(
+    'data-atlas-wave',
+    'done',
+  );
+}
+
 export type SheetStateName = 'peek' | 'half' | 'full';
 
 export function controlsSheet(page: Page): Locator {
@@ -251,6 +264,7 @@ async function canvasAt(page: Page, point: Point): Promise<boolean> {
  * point is still bare canvas; otherwise it would tap the new sheet's handle.
  */
 export async function tapSelectNearCenter(page: Page): Promise<void> {
+  await waitForRevealWave(page);
   const inspector = page.locator('.atlas-inspector');
   const centre = await centreOf(page.locator('.atlas-scene canvas').first());
   for (const [dx, dy] of CENTRE_OFFSETS) {

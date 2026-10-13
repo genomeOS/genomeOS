@@ -22,8 +22,21 @@ import {
   markLegendLoading,
   recordedLegendLoading,
   recordLegendLoading,
+  waitForRevealWave,
   type LegendRow,
 } from './atlas-mobile-helpers';
+import {
+  cameraAtRest,
+  cellCamera,
+  EARLY_PROGRESS,
+  globeView,
+  holdRevealWave,
+  holdRevealWaveFromStart,
+  readWave,
+  renderedFrames,
+  SURFACE_ONLY,
+  waveFrame,
+} from './atlas-reveal-wave-helpers';
 import { topLevelRoutes } from './site-routes';
 
 test.beforeEach(async ({ page }) => installAtlasBrowserFixture(page));
@@ -3300,6 +3313,7 @@ test('explorer previews and opens separate surface and observation inspectors', 
   const canvas = page.locator('.atlas-scene canvas').first();
   const hoverPreview = page.locator('.atlas-hover-preview');
   const hoverNearCenter = async () => {
+    await waitForRevealWave(page);
     const box = await canvas.boundingBox();
     expect(box).not.toBeNull();
     for (const [offsetX, offsetY] of [
@@ -3321,6 +3335,7 @@ test('explorer previews and opens separate surface and observation inspectors', 
     }
   };
   const clickNearCenter = async (inspector: Locator) => {
+    await waitForRevealWave(page);
     const box = await canvas.boundingBox();
     expect(box).not.toBeNull();
     for (const [offsetX, offsetY] of [
@@ -3691,6 +3706,227 @@ test('cold load shows observations, then the surface, then outlines and borders'
   expect(reveal.longestFrameMs).toBeGreaterThanOrEqual(0);
 });
 
+test('the surface reveals as a wave from the view centre to the horizon (#453)', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await holdRevealWaveFromStart(page, 0);
+  await page.goto(`/app/?${SURFACE_ONLY}`);
+  const explorer = page.locator('.atlas-explorer');
+  await expect(explorer).toHaveAttribute('data-atlas-ready', 'true', {
+    timeout: 45_000,
+  });
+  // Held at its start: every chunk is added, and nothing has grown yet.
+  await expect(explorer).toHaveAttribute('data-atlas-surface-visible', 'true');
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'running');
+  await cameraAtRest(page);
+  const view = await globeView(page);
+  const before = await waveFrame(page);
+  await holdRevealWave(page, EARLY_PROGRESS);
+  const early = await waveFrame(page);
+  await holdRevealWave(page, null);
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'done');
+  await renderedFrames(page);
+  const done = await waveFrame(page);
+
+  const reading = await readWave(page, { before, done, early }, view);
+  // Early in the wave the view centre is coloured and the limb is not; after it, both are.
+  expect(reading.centreEarly).toBeGreaterThan(0);
+  expect(reading.centreDone).toBeGreaterThan(0);
+  expect(reading.far).toBeGreaterThan(0);
+  expect(reading.farEarly).toBe(0);
+  expect(
+    await page.evaluate(
+      () => performance.getEntriesByName('atlas:reveal-wave').length,
+    ),
+  ).toBe(1);
+});
+
+test('a dataset switch retires the old surface at once and grows the new one from the centre (#453)', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await holdRevealWaveFromStart(page, 0);
+  await page.goto(`/app/?${SURFACE_ONLY}`);
+  const explorer = page.locator('.atlas-explorer');
+  await expect(explorer).toHaveAttribute('data-atlas-ready', 'true', {
+    timeout: 45_000,
+  });
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'running');
+  await cameraAtRest(page);
+  const view = await globeView(page);
+  const empty = await waveFrame(page);
+  await holdRevealWave(page, null);
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'done');
+  await renderedFrames(page);
+  const hbs = await waveFrame(page);
+
+  await holdRevealWave(page, 0);
+  await chooseAtlasMap(page, 'g6pd-deficiency');
+  await expect(explorer).toHaveAttribute(
+    'data-atlas-active',
+    'g6pd-deficiency',
+    { timeout: 45_000 },
+  );
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'running');
+  await expect(
+    page.locator('[role="option"][data-map-id="g6pd-deficiency"]'),
+  ).toBeHidden();
+  await renderedFrames(page);
+  const before = await waveFrame(page);
+  // At the commit the old surface is gone: none of HbS shows, near the centre or the limb.
+  const gone = await readWave(
+    page,
+    { before: empty, done: hbs, early: before },
+    view,
+  );
+  expect(gone.centreDone).toBeGreaterThan(0);
+  expect(gone.far).toBeGreaterThan(0);
+  expect(gone.centreEarly).toBe(0);
+  expect(gone.farEarly).toBe(0);
+
+  await holdRevealWave(page, EARLY_PROGRESS);
+  const early = await waveFrame(page);
+  await holdRevealWave(page, null);
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'done');
+  await renderedFrames(page);
+  const done = await waveFrame(page);
+  const reading = await readWave(page, { before, done, early }, view);
+  expect(reading.centreEarly).toBeGreaterThan(0);
+  expect(reading.far).toBeGreaterThan(0);
+  expect(reading.farEarly).toBe(0);
+});
+
+test('reduced motion shows the whole surface at once, with no wave (#453)', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  // A wave would stand at nothing for the whole test.
+  await holdRevealWaveFromStart(page, 0);
+  await page.addInitScript(() => {
+    const states: string[] = [];
+    (window as Window & { __atlasWaveStates?: string[] }).__atlasWaveStates =
+      states;
+    new MutationObserver(() => {
+      const explorer = document.querySelector('.atlas-explorer');
+      const state = explorer?.getAttribute('data-atlas-wave');
+      if (state && states.at(-1) !== state) states.push(state);
+    }).observe(document, {
+      attributeFilter: ['data-atlas-wave'],
+      attributes: true,
+      subtree: true,
+    });
+  });
+  const render = await delayArtifactTier(
+    page,
+    'hbs-rs334',
+    'render',
+    Number.POSITIVE_INFINITY,
+  );
+  await page.goto(`/app/?${SURFACE_ONLY}`);
+  const explorer = page.locator('.atlas-explorer');
+  await expect.poll(() => render.hits(), { timeout: 30_000 }).toBe(1);
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'pending');
+  await cameraAtRest(page);
+  const view = await globeView(page);
+  const before = await waveFrame(page);
+
+  render.release();
+  await expect(explorer).toHaveAttribute('data-atlas-ready', 'true', {
+    timeout: 45_000,
+  });
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'done');
+  await renderedFrames(page);
+  const shown = await waveFrame(page);
+  const reading = await readWave(
+    page,
+    { before, done: shown, early: shown },
+    view,
+  );
+  expect(reading.centreEarly).toBeGreaterThan(0);
+  expect(reading.far).toBeGreaterThan(0);
+  expect(reading.farEarly).toBe(reading.far);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as Window & { __atlasWaveStates?: string[] }).__atlasWaveStates,
+    ),
+  ).toEqual(['pending', 'done']);
+  expect(
+    await page.evaluate(
+      () => performance.getEntriesByName('atlas:reveal-wave').length,
+    ),
+  ).toBe(0);
+});
+
+test('hexagons the wave has not reached cannot be hovered (#453)', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(
+    isMobile,
+    'coordinate-sensitive canvas picking is covered in the desktop project',
+  );
+  test.setTimeout(120_000);
+  // Close enough for hexagons several pixels wide. The cold reveal runs at the home view, so
+  // this wave is a dataset switch's, started once the camera has flown in.
+  await page.goto(`/app/?${cellCamera(4_000_000, { geometry: 'hexagons' })}`);
+  const explorer = page.locator('.atlas-explorer');
+  await expect(explorer).toHaveAttribute('data-atlas-ready', 'true', {
+    timeout: 45_000,
+  });
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'done');
+  await cameraAtRest(page);
+  await holdRevealWave(page, 0);
+  await chooseAtlasMap(page, 'g6pd-deficiency');
+  await expect(explorer).toHaveAttribute(
+    'data-atlas-active',
+    'g6pd-deficiency',
+    { timeout: 45_000 },
+  );
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'running');
+  await expect(
+    page.locator('[role="option"][data-map-id="g6pd-deficiency"]'),
+  ).toBeHidden();
+  await renderedFrames(page);
+  const box = (await page
+    .locator('.atlas-scene canvas')
+    .first()
+    .boundingBox())!;
+  // The globe fills this view; "far" is half way from the centre to a corner.
+  const view = {
+    centre: { x: box.x + box.width / 2, y: box.y + box.height / 2 },
+    farFrom: Math.hypot(box.width, box.height) / 4,
+    near: 3,
+  };
+  const before = await waveFrame(page);
+  // Nearly at its end the wave has grown every visible hexagon (stepping back is test-only).
+  await holdRevealWave(page, 0.9999);
+  const grown = await waveFrame(page);
+  await holdRevealWave(page, EARLY_PROGRESS);
+  const early = await waveFrame(page);
+  const reading = await readWave(page, { before, done: grown, early }, view);
+  expect(reading.centreEarly).toBeGreaterThan(0);
+  expect(reading.far).toBeGreaterThan(0);
+  expect(reading.farEarly).toBe(0);
+  expect(reading.farPoint).not.toBeNull();
+
+  const preview = page.locator('.atlas-hover-preview');
+  const far = reading.farPoint!;
+  await page.mouse.move(far.x, far.y);
+  await renderedFrames(page);
+  await page.waitForTimeout(500);
+  await expect(preview).toBeHidden();
+  await page.mouse.move(view.centre.x, view.centre.y);
+  await expect(preview).toBeVisible();
+
+  await holdRevealWave(page, null);
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'done');
+  await page.mouse.move(far.x, far.y);
+  await expect(preview).toBeVisible();
+});
+
 test('style choices in the URL reach the scene that renders them', async ({
   page,
 }) => {
@@ -3778,6 +4014,7 @@ async function pointNearCanvasCentre(
   action: 'move' | 'click',
   until: Locator,
 ): Promise<void> {
+  await waitForRevealWave(page);
   const box = await page.locator('.atlas-scene canvas').first().boundingBox();
   expect(box).not.toBeNull();
   for (const [offsetX, offsetY] of CANVAS_CENTRE_OFFSETS) {
