@@ -750,7 +750,7 @@ describe('atlas browser contracts', () => {
             license: 'public_domain',
             revision: 'r1',
             source_url: 'https://example.org/ne.geojson',
-            url: '/ne-50m-admin-0.geojson',
+            url: '/ne-50m-admin-0.borders.bin',
           },
         ],
       },

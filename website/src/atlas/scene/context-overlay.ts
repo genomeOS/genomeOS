@@ -1,11 +1,12 @@
-/** Worker-parsed Natural Earth borders and labels for Atlas design §11 (spec 2026-10-07 §B.6.9).
+/** Worker-decoded Natural Earth borders and labels for Atlas design §11 (spec 2026-10-07 §B.6.9,
+ * §B.10).
  *
  * Replaces GeoJsonDataSource, whose single onload task exceeded every
- * long-task budget. The GeoJSON is parsed in the data worker; borders and
- * labels are added in frame-budgeted slices; the surface-following height
- * adjustment is skipped at elevation 0 and computed in the worker from
- * render-tier rows on the first non-zero factor, or once the worker has parsed
- * the context when that factor came first.
+ * long-task budget. The compact GOBD borders (§B.10, issue #445) are decoded
+ * in the data worker; borders and labels are added in frame-budgeted slices;
+ * the surface-following height adjustment is skipped at elevation 0 and
+ * computed in the worker from render-tier rows on the first non-zero factor,
+ * or once the worker has decoded the context when that factor came first.
  *
  * Calls may land between slices. The renderer for the latest view is built
  * and shown; an elevation or style change reaches the rings and labels added

@@ -18,7 +18,10 @@ within half a step, ``MAX_ERROR_DEGREES`` = 0.00005°, of the source on each axi
 that is at most 7.86 m (at the equator), stated as ``MAX_ERROR_METRES`` = 7.9 m; the committed
 file's worst position is 7.82 m off. Ring structure, vertex counts and order, and the label
 properties are exact. ``tests/test_encode_natural_earth_borders.py`` and
-``website/tests/atlas-geometry-natural-earth.test.ts`` pin both bounds against the source.
+``website/tests/atlas-geometry-natural-earth.test.ts`` pin both bounds against the source. The
+site's border heights follow from the positions: 8 of the 101,052 vertices it draws move into a
+neighbouring H3 resolution-4 cell and take that cell's heights (natural-earth-codec.ts states the
+measured effect); every other height is unchanged.
 
 **Container ("GOBD" v1, little-endian; fast-load spec §B.10):**
 

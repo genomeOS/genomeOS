@@ -41,7 +41,7 @@ const ACCEPTED_KEYS = [
   GRID_KEY,
   'hbs-rs334.surface.json',
   'external/gnomad/chr11-5227002-t-a.json',
-  'ne-50m-admin-0.geojson',
+  'ne-50m-admin-0.borders.bin',
 ];
 const REJECTED_KEYS = [
   '',

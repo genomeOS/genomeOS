@@ -106,7 +106,7 @@ function runFrame(): void {
 function scene() {
   const controller = createAtlasScene({} as HTMLElement, {
     frameBudgetMs: 8,
-    naturalEarthUrl: 'ne.geojson',
+    naturalEarthUrl: 'borders.bin',
     worker: {} as AtlasWorkerClient,
   });
   const viewer = viewers.at(-1)!;

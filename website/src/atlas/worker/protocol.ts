@@ -83,7 +83,8 @@ export interface WorkerRequestMap {
   'load-detail': { buf: ArrayBuffer; ref: ArtifactRef; render: DecodedRender };
   'load-grid': { buf: ArrayBuffer; expect: GridExpect };
   'load-render': { buf: ArrayBuffer; ref: ArtifactRef };
-  'parse-context': { json: ArrayBuffer };
+  /** The compact Natural Earth borders (GOBD, §B.10), transferred. */
+  'parse-context': { bytes: ArrayBuffer };
   recolour: RecolourBody;
 }
 

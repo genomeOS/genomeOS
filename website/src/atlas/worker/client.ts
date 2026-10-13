@@ -268,14 +268,14 @@ export class AtlasWorkerClient {
     );
   }
 
-  /** Parses the Natural Earth GeoJSON in the worker; `json` is transferred. */
+  /** Decodes the compact Natural Earth borders (GOBD, §B.10) in the worker; `bytes` is transferred. */
   async parseContext(
-    json: ArrayBuffer,
+    bytes: ArrayBuffer,
     signal?: AbortSignal,
   ): Promise<NaturalEarthBuffers> {
     const { buffers } = await this.#request<'context-ready'>(
-      (id) => ({ id, json, type: 'parse-context' }),
-      [json],
+      (id) => ({ bytes, id, type: 'parse-context' }),
+      [bytes],
       signal,
     );
     return buffers;

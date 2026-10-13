@@ -339,6 +339,13 @@ def test_the_committed_borders_are_the_encoding_of_the_pinned_source() -> None:
     }
 
 
+def test_the_site_ships_the_compact_borders_and_not_the_geojson() -> None:
+    public = ROOT / "website" / "public" / "data" / "atlas"
+    assert not (public / "ne-50m-admin-0.geojson").exists()
+    catalog = json.loads((public / "catalog.json").read_text())
+    assert catalog["context_sources"][0]["url"] == borders.OUTPUT_KEY
+
+
 def test_the_committed_borders_are_several_times_smaller_over_gzip() -> None:
     source_gzip = len(gzip.compress(borders.SOURCE_PATH.read_bytes(), mtime=0))
     compact_gzip = len(gzip.compress(borders.OUTPUT_PATH.read_bytes(), mtime=0))
