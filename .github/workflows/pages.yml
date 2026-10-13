@@ -8,8 +8,6 @@ on:
       - ".github/workflows/pages.yml"
       - "genomeos/publication/**"
       - "scripts/encode_atlas_web.py"
-      - "scripts/encode_natural_earth_borders.py"
-      - "reference/ne_50m_admin_0_countries.geojson"
       - "pyproject.toml"
       - "requirements.lock"
   pull_request:
@@ -18,8 +16,6 @@ on:
       - ".github/workflows/pages.yml"
       - "genomeos/publication/**"
       - "scripts/encode_atlas_web.py"
-      - "scripts/encode_natural_earth_borders.py"
-      - "reference/ne_50m_admin_0_countries.geojson"
       - "pyproject.toml"
       - "requirements.lock"
   workflow_dispatch:
