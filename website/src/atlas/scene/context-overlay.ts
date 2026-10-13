@@ -275,7 +275,7 @@ export class ContextOverlay {
     }
   }
 
-  /** Viewer.destroy() destroys the scene's primitives, this collection among them. */
+  /** CesiumWidget.destroy() destroys the scene's primitives, this collection among them. */
   #isDestroyed(): boolean {
     return this.collection.isDestroyed();
   }

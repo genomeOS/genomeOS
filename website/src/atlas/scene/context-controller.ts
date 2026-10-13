@@ -15,7 +15,7 @@ import {
   buildModuleUrl,
   createWorldImageryAsync,
   createWorldTerrainAsync,
-  type Viewer,
+  type CesiumWidget,
 } from 'cesium';
 
 import {
@@ -172,7 +172,7 @@ async function galleryMapLayer(
 }
 
 export class ContextController {
-  readonly #viewer: Viewer;
+  readonly #widget: CesiumWidget;
   readonly #token: string;
   readonly #publicImageryUrl: string;
   readonly #onWarning: ContextWarningListener;
@@ -189,12 +189,12 @@ export class ContextController {
   #terrainSequence = 0;
 
   constructor(
-    viewer: Viewer,
+    widget: CesiumWidget,
     token: string,
     publicImageryUrl: string,
     onWarning: ContextWarningListener,
   ) {
-    this.#viewer = viewer;
+    this.#widget = widget;
     this.#token = token.trim();
     this.#publicImageryUrl = publicImageryUrl;
     this.#onWarning = onWarning;
@@ -244,9 +244,9 @@ export class ContextController {
         this.#basemapBrightness,
       );
       const previous = this.#activeLayer;
-      this.#viewer.imageryLayers.add(incoming, 0);
+      this.#widget.imageryLayers.add(incoming, 0);
       this.#activeLayer = incoming;
-      if (previous) this.#viewer.imageryLayers.remove(previous, true);
+      if (previous) this.#widget.imageryLayers.remove(previous, true);
       incoming.errorEvent.addEventListener(() => {
         if (this.#activeLayer !== incoming) return;
         this.#onWarning({
@@ -255,7 +255,7 @@ export class ContextController {
         });
       });
       this.#onWarning({ id: 'basemap', message: null });
-      this.#viewer.scene.requestRender();
+      this.#widget.scene.requestRender();
       return true;
     } catch {
       if (sequence === this.#basemapSequence) {
@@ -286,9 +286,9 @@ export class ContextController {
               requestWaterMask: true,
             });
       if (sequence !== this.#terrainSequence) return false;
-      this.#viewer.terrainProvider = provider;
+      this.#widget.terrainProvider = provider;
       this.#onWarning({ id: 'terrain', message: null });
-      this.#viewer.scene.requestRender();
+      this.#widget.scene.requestRender();
       return true;
     } catch {
       if (sequence === this.#terrainSequence) {
@@ -310,6 +310,6 @@ export class ContextController {
     this.#basemapBrightness = brightness;
     if (this.#activeLayer)
       applyBasemapAppearance(this.#activeLayer, opacity, brightness);
-    this.#viewer.scene.requestRender();
+    this.#widget.scene.requestRender();
   }
 }

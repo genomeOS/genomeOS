@@ -82,7 +82,7 @@ function setup(
   const scene = {
     postRender: new FakeEvent(),
     primitives,
-    // A destroyed Cesium Scene throws here too; Viewer.destroy() destroys the primitives with it.
+    // A destroyed Cesium Scene throws here too; CesiumWidget.destroy() destroys the primitives with it.
     requestRender: vi.fn(() => {
       if (primitives.isDestroyed())
         throw new DeveloperError('This object was destroyed');
