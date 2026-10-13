@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { cellToLatLng } from 'h3-js';
+import { cellToLatLng, latLngToCell } from 'h3-js';
 
 import { StaticAtlasDataProvider } from '../src/atlas/static-provider';
 import { dataHref } from '../src/lib/data-url';
@@ -15,6 +15,13 @@ import {
   readInlineCatalog,
   urlMatchesKey,
 } from './atlas-browser-fixture';
+import {
+  canvasCentre,
+  GLOBE_DISC_QUERY,
+  globeViewCentre,
+  measureGlobeDisc,
+  type Point,
+} from './atlas-globe-helpers';
 import {
   expandExplorerSheet,
   INSPECTOR_CAMERA,
@@ -3299,9 +3306,9 @@ test('explorer previews and opens separate surface and observation inspectors', 
   });
   const canvas = page.locator('.atlas-scene canvas').first();
   const hoverPreview = page.locator('.atlas-hover-preview');
+  // Near the camera target, which desktop draws in the open area beside the controls (#452).
   const hoverNearCenter = async () => {
-    const box = await canvas.boundingBox();
-    expect(box).not.toBeNull();
+    const centre = await globeViewCentre(page);
     for (const [offsetX, offsetY] of [
       [0, 0],
       [-18, 0],
@@ -3313,16 +3320,13 @@ test('explorer previews and opens separate surface and observation inspectors', 
       [-18, 18],
       [18, 18],
     ]) {
-      await page.mouse.move(
-        box!.x + box!.width / 2 + offsetX,
-        box!.y + box!.height / 2 + offsetY,
-      );
+      await page.mouse.move(centre.x + offsetX, centre.y + offsetY);
       if (await hoverPreview.isVisible()) return;
     }
   };
+  // Near the camera target, which desktop draws in the open area beside the controls (#452).
   const clickNearCenter = async (inspector: Locator) => {
-    const box = await canvas.boundingBox();
-    expect(box).not.toBeNull();
+    const centre = await globeViewCentre(page);
     for (const [offsetX, offsetY] of [
       [0, 0],
       [-18, 0],
@@ -3334,10 +3338,7 @@ test('explorer previews and opens separate surface and observation inspectors', 
       [-18, 18],
       [18, 18],
     ]) {
-      await page.mouse.click(
-        box!.x + box!.width / 2 + offsetX,
-        box!.y + box!.height / 2 + offsetY,
-      );
+      await page.mouse.click(centre.x + offsetX, centre.y + offsetY);
       if (await inspector.isVisible()) return;
     }
   };
@@ -3466,6 +3467,175 @@ test('explorer previews and opens separate surface and observation inspectors', 
   await page.keyboard.press('Escape');
   await expect(observationInspector).toHaveCount(0);
 });
+
+test.describe(
+  'the desktop globe beside the controls panel (#452)',
+  { tag: '@desktop-chromium' },
+  () => {
+    /** Covered canvas width from the layout: the panel's right edge minus the canvas's left. */
+    const coveredWidth = (page: Page) =>
+      page.evaluate(() => {
+        const canvas = document
+          .querySelector('.atlas-scene canvas')!
+          .getBoundingClientRect();
+        const panel = document
+          .querySelector('aside.atlas-controls')!
+          .getBoundingClientRect();
+        return panel.right - canvas.left;
+      });
+    const discOffCentre = async (page: Page, expected: () => Promise<Point>) =>
+      Math.abs((await measureGlobeDisc(page)).centreX - (await expected()).x);
+
+    test('is drawn centred in the open area, and at the canvas centre while the panel is hidden', async ({
+      page,
+    }) => {
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.goto(`/app/?${GLOBE_DISC_QUERY}`);
+      await expect(page.locator('[data-atlas-ready="true"]')).toBeVisible({
+        timeout: 45_000,
+      });
+      const covered = await coveredWidth(page);
+      const centre = await canvasCentre(page);
+      // The panel covers the left of the full-width canvas, and the camera target is drawn
+      // half that width right of the canvas centre, in the middle of the open area.
+      expect(covered).toBeGreaterThan(300);
+      await expect
+        .poll(() =>
+          discOffCentre(page, async () => ({
+            x: centre.x + covered / 2,
+            y: centre.y,
+          })),
+        )
+        .toBeLessThanOrEqual(4);
+      expect((await measureGlobeDisc(page)).left).toBeGreaterThan(covered);
+
+      const panel = page.locator('aside.atlas-controls');
+      await panel.evaluate((element: HTMLElement) => {
+        element.hidden = true;
+      });
+      await expect
+        .poll(() => discOffCentre(page, () => canvasCentre(page)))
+        .toBeLessThanOrEqual(4);
+      await panel.evaluate((element: HTMLElement) => {
+        element.hidden = false;
+      });
+      await expect
+        .poll(() =>
+          discOffCentre(page, async () => ({
+            x: centre.x + covered / 2,
+            y: centre.y,
+          })),
+        )
+        .toBeLessThanOrEqual(4);
+
+      // A narrower window narrows the dock (21rem below 75rem) and moves the globe with it.
+      await page.setViewportSize({ height: 720, width: 1100 });
+      await expect.poll(() => coveredWidth(page)).toBeLessThan(covered);
+      await expect
+        .poll(() => discOffCentre(page, () => globeViewCentre(page)))
+        .toBeLessThanOrEqual(4);
+    });
+
+    test('hover and click select the cell drawn under the pointer', async ({
+      page,
+    }) => {
+      test.setTimeout(120_000);
+      // Held cell values keep the cell ID in the hover preview (it shows values once they load).
+      const detail = await delayArtifactTier(
+        page,
+        'hbs-rs334',
+        'detail',
+        Number.POSITIVE_INFINITY,
+      );
+      // A camera straight above a resolution-4 cell's centroid (the e2e grid's resolution).
+      const cell = latLngToCell(40.4407, -3.7201, 4);
+      const [lat, lon] = cellToLatLng(cell);
+      const query = new URLSearchParams({
+        heading: '0',
+        height: '1000000',
+        lat: String(lat),
+        layers: 'surface,support,context,countries',
+        lon: String(lon),
+        pitch: '-90',
+        // No measured points or their sampling radii: they would win the pick over the cell.
+        samplingAreas: 'false',
+      });
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.goto(`/app/?${query}`);
+      await expect(page.locator('[data-atlas-ready="true"]')).toBeVisible({
+        timeout: 45_000,
+      });
+      const target = await globeViewCentre(page);
+      expect(target.x - (await canvasCentre(page)).x).toBeGreaterThan(150);
+
+      const hoverPreview = page.locator('.atlas-hover-preview');
+      await page.mouse.move(target.x, target.y);
+      await expect(hoverPreview).toContainText(`Cell ${cell}`);
+      const inspector = page.getByRole('complementary', {
+        name: 'Selected map cell',
+      });
+      const cellId = inspector
+        .locator('dt', { hasText: 'Cell ID' })
+        .locator('..')
+        .locator('dd');
+      await page.mouse.click(target.x, target.y);
+      await expect(cellId).toHaveText(cell);
+
+      detail.release();
+    });
+
+    test('wheel zoom keeps the ground under the cursor there, as on a centred globe', async ({
+      page,
+    }) => {
+      test.setTimeout(120_000);
+      const detail = await delayArtifactTier(
+        page,
+        'hbs-rs334',
+        'detail',
+        Number.POSITIVE_INFINITY,
+      );
+      // Above 1,000 km Cesium zooms to the cursor by turning the globe towards its canvas centre.
+      const cell = latLngToCell(40.4407, -3.7201, 4);
+      const [lat, lon] = cellToLatLng(cell);
+      const query = new URLSearchParams({
+        heading: '0',
+        height: '4000000',
+        lat: String(lat),
+        layers: 'surface,support,context,countries',
+        lon: String(lon),
+        pitch: '-90',
+        samplingAreas: 'false',
+      });
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.goto(`/app/?${query}`);
+      await expect(page.locator('[data-atlas-ready="true"]')).toBeVisible({
+        timeout: 45_000,
+      });
+      const target = await globeViewCentre(page);
+      await page.mouse.move(target.x, target.y);
+      await expect(page.locator('.atlas-hover-preview')).toContainText(
+        `Cell ${cell}`,
+      );
+      for (let notch = 0; notch < 3; notch += 1)
+        await page.mouse.wheel(0, -120);
+      // The URL takes the camera once it settles.
+      await expect
+        .poll(() => Number(new URL(page.url()).searchParams.get('height')))
+        .toBeLessThan(3_500_000);
+      const inspector = page.getByRole('complementary', {
+        name: 'Selected map cell',
+      });
+      await page.mouse.click(target.x, target.y);
+      await expect(
+        inspector
+          .locator('dt', { hasText: 'Cell ID' })
+          .locator('..')
+          .locator('dd'),
+      ).toHaveText(cell);
+      detail.release();
+    });
+  },
+);
 
 test('explorer reports unavailable WebGL with a retry action', async ({
   page,
@@ -3732,7 +3902,7 @@ test('switching dataset closes the inspector instead of keeping the old artifact
   const inspector = page.getByRole('complementary', {
     name: 'Selected map cell',
   });
-  await pointNearCanvasCentre(page, 'click', inspector);
+  await pointNearGlobeCentre(page, 'click', inspector);
   await expect(inspector).toBeVisible();
 
   await chooseAtlasMap(page, 'g6pd-deficiency');
@@ -3746,7 +3916,7 @@ test('switching dataset closes the inspector instead of keeping the old artifact
   await expect(inspector).toBeHidden();
 });
 
-const CANVAS_CENTRE_OFFSETS = [
+const GLOBE_CENTRE_OFFSETS = [
   [0, 0],
   [-18, 0],
   [18, 0],
@@ -3773,16 +3943,16 @@ const STALL_ABORT_SETTLE_MS = 2_000;
 const HELD_PAST_PRODUCTION_STALL =
   'the provider aborted the held detail tier at the production stall window (build with npm run build:e2e)';
 
-async function pointNearCanvasCentre(
+/** Points near the camera target, which desktop draws in the open area beside the controls (#452). */
+async function pointNearGlobeCentre(
   page: Page,
   action: 'move' | 'click',
   until: Locator,
 ): Promise<void> {
-  const box = await page.locator('.atlas-scene canvas').first().boundingBox();
-  expect(box).not.toBeNull();
-  for (const [offsetX, offsetY] of CANVAS_CENTRE_OFFSETS) {
-    const x = box!.x + box!.width / 2 + offsetX;
-    const y = box!.y + box!.height / 2 + offsetY;
+  const centre = await globeViewCentre(page);
+  for (const [offsetX, offsetY] of GLOBE_CENTRE_OFFSETS) {
+    const x = centre.x + offsetX;
+    const y = centre.y + offsetY;
     if (action === 'move') await page.mouse.move(x, y);
     else await page.mouse.click(x, y);
     if (await until.isVisible()) return;
@@ -3830,7 +4000,7 @@ test('surface hover and inspector wait for the detail tier without showing numbe
   await expect(explorer).not.toHaveAttribute('data-atlas-values-ready', 'true');
 
   const hoverPreview = page.locator('.atlas-hover-preview');
-  await pointNearCanvasCentre(page, 'move', hoverPreview);
+  await pointNearGlobeCentre(page, 'move', hoverPreview);
   await expect(hoverPreview).toContainText('Loading cell values…');
   // innerText: `.atlas-hover-preview` is a grid, so its <small> rows are separated by line breaks.
   await expect(hoverPreview).toContainText(CELL_ID, { useInnerText: true });
@@ -3840,7 +4010,7 @@ test('surface hover and inspector wait for the detail tier without showing numbe
   const inspector = page.getByRole('complementary', {
     name: 'Selected map cell',
   });
-  await pointNearCanvasCentre(page, 'click', inspector);
+  await pointNearGlobeCentre(page, 'click', inspector);
   await expect(inspector).toBeVisible();
   await expect(inspector).toContainText('Loading cell values…');
   await expect(inspector).toContainText(SUPPORT_LABEL);
@@ -3905,7 +4075,7 @@ test('surface values report an unavailable detail tier and recover on retry', as
   const inspector = page.getByRole('complementary', {
     name: 'Selected map cell',
   });
-  await pointNearCanvasCentre(page, 'click', inspector);
+  await pointNearGlobeCentre(page, 'click', inspector);
   await expect(inspector).toContainText('Cell values unavailable', {
     timeout: 20_000,
   });

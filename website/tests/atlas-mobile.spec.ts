@@ -3,6 +3,11 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { installAtlasBrowserFixture } from './atlas-browser-fixture';
 import {
+  canvasCentre,
+  GLOBE_DISC_QUERY,
+  measureGlobeDisc,
+} from './atlas-globe-helpers';
+import {
   canvasCoverage,
   centreOf,
   controlsSheet,
@@ -237,6 +242,20 @@ for (const phone of PHONE_PROFILES) {
         expect(fit.scale).toBe(1);
       });
     }
+
+    test('draws the globe at the canvas centre: the controls sheet does not offset it (#452)', async ({
+      page,
+    }) => {
+      await page.goto(`/app/?${GLOBE_DISC_QUERY}`);
+      await waitForAtlasReady(page);
+      const offCentre = async () =>
+        Math.abs(
+          (await measureGlobeDisc(page)).centreX - (await canvasCentre(page)).x,
+        );
+      await expect.poll(offCentre).toBeLessThanOrEqual(4);
+      await setSheetState(controlsSheet(page), 'half');
+      await expect.poll(offCentre).toBeLessThanOrEqual(4);
+    });
 
     test('the site header fits the FOUNDATION lockup beside genomeOS Atlas and Menu', async ({
       page,
