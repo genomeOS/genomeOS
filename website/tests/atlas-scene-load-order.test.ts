@@ -1,6 +1,6 @@
 /** The scene's post-reveal load order: borders, then the detail tier, then the starfield (spec
- * 2026-10-07 §B.6.9; #443). The real scene class runs over a mocked Cesium viewer, overlay, layers
- * and mark tracker, as in `atlas-render-loop.test.ts`. */
+ * 2026-10-07 §B.6.9; #443). The real scene class runs over a mocked CesiumWidget globe, overlay,
+ * layers and mark tracker, as in `atlas-render-loop.test.ts`. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { LoadProgress } from '../src/atlas/load-order';
@@ -54,19 +54,21 @@ function fakeEvent() {
   };
 }
 
-vi.mock('cesium', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('cesium')>()),
-  Viewer: class {
-    readonly scene = {
-      primitives: { add: vi.fn() },
-      renderError: fakeEvent(),
-      requestRender: vi.fn(),
-    };
-    readonly camera = { moveEnd: fakeEvent() };
-    readonly resize = vi.fn();
-    readonly render = vi.fn();
-    readonly destroy = vi.fn();
-  },
+// The scene renders through the engine CesiumWidget that globe-widget builds (issue #446).
+vi.mock('../src/atlas/scene/globe-widget', () => ({
+  createGlobeWidget: () => ({
+    widget: {
+      scene: {
+        primitives: { add: vi.fn() },
+        renderError: fakeEvent(),
+        requestRender: vi.fn(),
+      },
+      camera: { moveEnd: fakeEvent() },
+      resize: vi.fn(),
+      render: vi.fn(),
+    },
+    destroy: vi.fn(),
+  }),
 }));
 vi.mock('../src/atlas/scene/context-controller', () => ({
   ContextController: class {
@@ -150,7 +152,7 @@ function scene() {
   const controller = createAtlasScene({} as HTMLElement, {
     frameBudgetMs: 8,
     loadStallMs: 1_000,
-    naturalEarthUrl: 'ne.geojson',
+    naturalEarthUrl: 'borders.bin',
     worker: {} as AtlasWorkerClient,
   });
   const statuses: ContextStatus[] = [];
@@ -190,7 +192,7 @@ describe('scene post-reveal load order (spec 2026-10-07 §B.6.9)', () => {
     expect(harness.overlayLoads).toHaveLength(0);
     mark('surface-visible');
     expect(harness.overlayLoads.map((load) => load.url)).toEqual([
-      'ne.geojson',
+      'borders.bin',
     ]);
     mark('surface-visible');
     expect(harness.overlayLoads).toHaveLength(1);
