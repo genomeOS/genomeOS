@@ -15,6 +15,11 @@
 
 export type Vec3 = readonly [number, number, number];
 
+/** The explorer attribute that reads `pending`, `running` or `done` (tests and the harness). */
+export const WAVE_ATTRIBUTE = 'data-atlas-wave';
+/** The User Timing measure of a wave, from its first drawn frame to its last frame. */
+export const REVEAL_WAVE_MEASURE = 'atlas:reveal-wave';
+
 /** From the wave's first frame to the horizon. The one tunable timing constant. */
 export const REVEAL_WAVE_MS = 800;
 /** The ring's width, as a fraction of the angle the wave covers. */

@@ -30,6 +30,7 @@ import {
 import {
   angleBetween,
   cellReveal,
+  REVEAL_WAVE_MEASURE,
   restingWave,
   WAVE_COMPLETE_RADIUS,
   waveDone,
@@ -37,13 +38,13 @@ import {
   waveRadius,
   waveReach,
   waveTimeline,
+  WAVE_ATTRIBUTE,
   type RevealWaveUniforms,
   type Vec3,
   type WaveTimeline,
 } from './reveal-wave';
 
-export const WAVE_ATTRIBUTE = 'data-atlas-wave';
-export const REVEAL_WAVE_MEASURE = 'atlas:reveal-wave';
+export { REVEAL_WAVE_MEASURE, WAVE_ATTRIBUTE };
 
 /** Where a wave spreads from and how far it goes, read from the camera when it starts. */
 export interface WaveView {

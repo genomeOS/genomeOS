@@ -3571,6 +3571,13 @@ test('explorer recovers from a render-loop error through Retry globe', async ({
   expect(restored.get('entity')).toBe('g6pd-deficiency');
   expect(restored.get('metric')).toBe('post_sd');
   expect(restored.get('opacity')).toBe('0.4');
+  // The recovered globe reveals its surface as a wave again (#453).
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'done');
+  expect(
+    await page.evaluate(
+      () => performance.getEntriesByName('atlas:reveal-wave').length,
+    ),
+  ).toBe(1);
   await expect(failure).toHaveCount(0);
   await expect(rawPanel).toHaveCount(0);
   expect(rawPanelSeen).toBe(false);
