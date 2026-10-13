@@ -28,7 +28,8 @@ function harness(
 ) {
   const clock = { now: 1_000 };
   const preUpdate = new FakeEvent();
-  const scene = { preUpdate, requestRender: vi.fn() };
+  const postRender = new FakeEvent();
+  const scene = { postRender, preUpdate, requestRender: vi.fn() };
   const attributes: string[] = [];
   const measure = vi.fn();
   const visibility = new FakeEvent();
@@ -51,9 +52,12 @@ function harness(
       onChange: (listener) => visibility.addEventListener(listener),
     },
   });
-  const frame = (advanceMs = 0) => {
+  /** One rendered frame: Cesium raises preUpdate, draws, then raises postRender. */
+  const frame = (advanceMs = 0, drawMs = 0) => {
     clock.now += advanceMs;
     preUpdate.raiseEvent();
+    clock.now += drawMs;
+    postRender.raiseEvent();
   };
   const hide = () => {
     hidden = true;
@@ -65,6 +69,7 @@ function harness(
     frame,
     hide,
     measure,
+    postRender,
     preUpdate,
     scene,
     view,
@@ -95,7 +100,7 @@ describe('reveal wave driver', () => {
     expect(h.wave.uniforms.radius).toBe(0);
     expect(h.scene.requestRender).toHaveBeenCalled();
 
-    // The clock starts at the wave's first frame, not at the call.
+    // The clock starts once the wave's first frame is drawn, not at the call.
     h.clock.now += 5_000;
     h.frame();
     expect(h.wave.uniforms.radius).toBe(0);
@@ -105,6 +110,19 @@ describe('reveal wave driver', () => {
       expect(h.wave.uniforms.radius).toBeCloseTo(waveRadius(timeline, step));
       expect(h.scene.requestRender).toHaveBeenCalledTimes(1);
     }
+  });
+
+  it('starts its clock once its first frame is drawn, so a slow first frame takes none of it', () => {
+    // The first frame of a wave can compile shaders and upload the first chunk (~230 ms on an
+    // M3 Pro); the ring must not be a third of the way out by the time anything shows.
+    const h = harness();
+    h.wave.start(false);
+    h.frame(0, 230);
+    expect(h.wave.uniforms.radius).toBe(0);
+    h.frame(16);
+    expect(h.wave.uniforms.radius).toBeCloseTo(
+      waveRadius(waveTimeline(REACH), 16),
+    );
   });
 
   it('ends at the horizon with a measure and stops requesting renders', () => {
@@ -127,6 +145,7 @@ describe('reveal wave driver', () => {
       expect.objectContaining({ reach: REACH }),
     );
     expect(h.preUpdate.numberOfListeners).toBe(0);
+    expect(h.postRender.numberOfListeners).toBe(0);
     expect(h.visibility.numberOfListeners).toBe(0);
     h.scene.requestRender.mockClear();
     for (let index = 0; index < 5; index += 1) h.frame(16);
@@ -259,6 +278,14 @@ describe('reveal wave driver', () => {
     expect(h.wave.uniforms.radius).toBeCloseTo(
       waveRadius(timeline, 0.25 * REVEAL_WAVE_MS),
     );
+    // A held wave draws nothing new, so it requests no render until the hold moves.
+    h.scene.requestRender.mockClear();
+    h.frame(16);
+    h.frame(16);
+    expect(h.scene.requestRender).not.toHaveBeenCalled();
+    hold = 0.5;
+    h.frame(16);
+    expect(h.scene.requestRender).toHaveBeenCalledTimes(1);
     hold = null;
     h.frame(16);
     expect(h.wave.running()).toBe(false);
@@ -271,6 +298,7 @@ describe('reveal wave driver', () => {
     h.frame();
     h.wave.destroy();
     expect(h.preUpdate.numberOfListeners).toBe(0);
+    expect(h.postRender.numberOfListeners).toBe(0);
     expect(h.visibility.numberOfListeners).toBe(0);
     const writes = h.attributes.length;
     h.scene.requestRender.mockClear();

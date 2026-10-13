@@ -2,16 +2,17 @@
  * 2026-10-13).
  *
  * Thin by design: the timeline lives in `reveal-wave.ts`. A wave starts from the centre of the
- * current view; on each frame the driver moves the shared uniforms along the timeline and requests
- * the next render (the scene renders on request), and once the wave is done it stops requesting
- * renders and unsubscribes. It writes no buffer, so nothing is rebuilt or downloaded for it.
+ * current view; on each frame (Cesium raises `preUpdate` on every tick of the render loop) the
+ * driver moves the shared uniforms along the timeline and requests a render whenever the ring has
+ * moved (the scene renders on request), and once the wave is done it stops requesting renders
+ * and unsubscribes. It writes no buffer, so nothing is rebuilt or downloaded for it.
  *
  * - `prefers-reduced-motion: reduce` runs no wave: everything shows at once, as before #453.
  * - A hidden tab renders no frames, so a wave hidden mid-way finishes at once (and one started in
  *   a hidden tab never runs): the page comes back to the whole surface, not to a stale wave.
  * - `data-atlas-wave` on the explorer reads `pending` until the scene's first wave, then `running`
- *   or `done`; the User Timing measure `atlas:reveal-wave` spans the wave's first frame to its
- *   last. Tests and the cold-load harness read both.
+ *   or `done`; the User Timing measure `atlas:reveal-wave` spans the end of the wave's first
+ *   drawn frame (where its clock starts) to its last frame. Tests and the cold-load harness read both.
  * - E2E builds alone may hold the wave at a progress (`hold`), so a browser test can sample a
  *   frame mid-wave deterministically (`atlasRevealWaveHold`, boot.ts).
  */
@@ -52,6 +53,7 @@ export interface WaveView {
 
 export interface RevealWaveScene {
   preUpdate: { addEventListener(listener: () => void): () => void };
+  postRender: { addEventListener(listener: () => void): () => void };
   requestRender(): void;
 }
 
@@ -122,6 +124,7 @@ export function createRevealWave(options: RevealWaveOptions): RevealWave {
   let timeline: WaveTimeline | null = null;
   let startedAt: number | null = null;
   let removeFrame: (() => void) | null = null;
+  let removeDrawn: (() => void) | null = null;
   let removeVisibility: (() => void) | null = null;
   let destroyed = false;
 
@@ -133,6 +136,8 @@ export function createRevealWave(options: RevealWaveOptions): RevealWave {
   const unsubscribe = () => {
     removeFrame?.();
     removeFrame = null;
+    removeDrawn?.();
+    removeDrawn = null;
     removeVisibility?.();
     removeVisibility = null;
   };
@@ -157,17 +162,28 @@ export function createRevealWave(options: RevealWaveOptions): RevealWave {
       return Math.min(1, Math.max(0, held)) * current.durationMs;
     return at - (startedAt ?? at);
   };
+  // The wave's clock starts once its first frame is drawn: that frame may compile shaders and
+  // upload the first chunk, and the ring must not be part way out before anything shows.
+  const drawn = () => {
+    removeDrawn?.();
+    removeDrawn = null;
+    if (!timeline || startedAt !== null) return;
+    startedAt = now();
+    options.scene.requestRender();
+  };
   const frame = () => {
     const current = timeline;
-    if (!current) return;
+    if (!current || startedAt === null) return;
     const at = now();
-    startedAt ??= at;
     const time = elapsed(current, at);
     if (waveDone(current, time)) {
       end();
       return;
     }
-    uniforms.radius = waveRadius(current, time);
+    const radius = waveRadius(current, time);
+    // The scene renders on request: a frame whose ring has not moved (a held wave) needs none.
+    if (radius === uniforms.radius) return;
+    uniforms.radius = radius;
     options.scene.requestRender();
   };
 
@@ -198,6 +214,7 @@ export function createRevealWave(options: RevealWaveOptions): RevealWave {
       uniforms.band = next.band;
       uniforms.radius = 0;
       removeFrame ??= options.scene.preUpdate.addEventListener(frame);
+      removeDrawn ??= options.scene.postRender.addEventListener(drawn);
       removeVisibility ??= visibility.onChange(() => {
         if (visibility.isHidden()) end();
       });
