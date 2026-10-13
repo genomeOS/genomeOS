@@ -7,7 +7,8 @@
  * f64 detail tier is queued at `atlas:surface-visible` as step 2 of the
  * scene's post-reveal load order: it starts once the Natural Earth borders
  * have settled, at once on a later artifact switch, and the starfield waits
- * for it to settle. A retry starts it at once.
+ * for it to settle. A turn that finds the request already in flight joins it
+ * and hears its body chunks too. A retry starts it at once.
  *
  * Marks describe the scene's current epoch, so they are read against the
  * request last handed to the scene, never a newer one still on its way. A
@@ -75,6 +76,8 @@ interface PipelineActivity {
 /** One artifact's detail-tier request; `settled` never rejects. */
 interface DetailRequest {
   abort: AbortController;
+  /** Every load-order turn waiting on this request; each hears every body chunk. */
+  progress: Set<() => void>;
   settled: Promise<void>;
 }
 
@@ -162,9 +165,17 @@ export function useArtifactPipeline(
       return;
     }
     const pending = detailRequests.current.get(key);
-    if (pending) return pending.settled;
+    if (pending) {
+      // A turn that joins the request must hear its chunks, or its order counts it as stalled.
+      if (progress) pending.progress.add(progress);
+      return pending.settled;
+    }
     const abort = new AbortController();
-    const request: DetailRequest = { abort, settled: Promise.resolve() };
+    const request: DetailRequest = {
+      abort,
+      progress: new Set(progress ? [progress] : []),
+      settled: Promise.resolve(),
+    };
     detailRequests.current.set(key, request);
     setFailures((current) => withoutKey(current, key));
     // A request aborted at a commit may settle after a newer one for the same key started.
@@ -173,7 +184,9 @@ export function useArtifactPipeline(
         detailRequests.current.delete(key);
     };
     request.settled = detailProvider
-      .getSurfaceDetail(entry.ref, abort.signal, progress)
+      .getSurfaceDetail(entry.ref, abort.signal, () => {
+        for (const notify of [...request.progress]) notify();
+      })
       .then(() => {
         release();
         setDetailVersion((version) => version + 1);

@@ -632,6 +632,24 @@ describe('artifact pipeline load order (spec 2026-10-07 §B.6.9)', () => {
     expect(scene.detailProgress).toHaveBeenCalledTimes(2);
   });
 
+  it('reports the progress of a request in flight to a turn that joins it', async () => {
+    const { provider, render } = mountPipeline();
+    const first = fakeScene();
+    render('a', first);
+    await settle();
+    first.mark('surface-visible');
+    // "Retry globe" while the request is in flight: the new scene's turn joins that request.
+    const second = fakeScene();
+    render('a', second);
+    await settle();
+    second.mark('surface-visible');
+    expect(second.queueDetail).toHaveBeenCalledTimes(1);
+    expect(provider.getSurfaceDetail).toHaveBeenCalledTimes(1);
+    provider.details[0].progress?.({ loadedBytes: 10, totalBytes: 100 });
+    provider.details[0].progress?.({ loadedBytes: 20, totalBytes: 100 });
+    expect(second.detailProgress).toHaveBeenCalledTimes(2);
+  });
+
   it('drops a queued detail tier for an artifact the user left before its turn', async () => {
     const { provider, render } = mountPipeline();
     const borders = deferred<void>();
