@@ -110,8 +110,8 @@ export default defineConfig({
               {
                 name: 'cesium',
                 // JavaScript only. CSS must stay out of the group: AtlasExplorer.tsx
-                // still imports cesium/Build/Cesium/Widgets/widgets.css, and if that
-                // stub lands in the Cesium chunk the island gains a static
+                // still imports Cesium's CesiumWidget and Viewer stylesheets, and if
+                // their stub lands in the Cesium chunk the island gains a static
                 // import"./cesium.<hash>.js", loading all of Cesium with the island
                 // and undoing Task 35 (B2.12)'s lazy scene chunk.
                 //
@@ -136,7 +136,16 @@ export default defineConfig({
     worker: { format: 'es' },
     plugins: [
       viteStaticCopy({
-        targets: ['Assets', 'ThirdParty', 'Widgets', 'Workers'].map((name) => ({
+        // The engine reads Assets, ThirdParty and Workers through CESIUM_BASE_URL. Of the
+        // widget layer only the Earth style picker's thumbnails are used: the globe is a
+        // CesiumWidget whose CSS is bundled (issue #446).
+        targets: [
+          'Assets',
+          'ThirdParty',
+          'Workers',
+          'Widgets/Images/ImageryProviders',
+          'Widgets/Images/TerrainProviders',
+        ].map((name) => ({
           src: `node_modules/cesium/Build/Cesium/${name}`,
           dest: 'cesium',
           rename: { stripBase: 4 },
