@@ -171,7 +171,9 @@ phones under 34rem tall use the same sheets with `peek` reduced to the handle ro
      the A.1.9 Escape stack, whose listener calls `preventDefault()` and `stopPropagation()`),
      which it lacks today (interaction design §9.2).
    - **Credit block** — Cesium's `bottomContainer` stays inside `.atlas-scene` (Viewer.resize writes
-     inline left/bottom/right, so placement rules keep `!important`); on mobile it and the data
+     inline left/bottom/right, so placement rules keep `!important`; amended under #446: the globe
+     is a `CesiumWidget`, and `scene/globe-widget.ts` builds the same `.cesium-viewer` frame and
+     `.cesium-viewer-bottom` container and writes the same inline offsets); on mobile it and the data
      credit form one wrapping block (not limited to one line): the ion logo at its native size plus
      map credits, then the data credit as a short link "Data: genomeOS" at the same 10 px size.
      `.atlas-data-credit` is re-enabled at ≤ 52rem (hidden today). Its height is measured with a
@@ -739,7 +741,7 @@ scene (when import resolves) ── observations → chunk scheduler (B.6.7) →
    `GeoJsonDataSource` and its entities are dropped. Its height adjustment is skipped at elevation 0
    and computed in the worker from grid rows on the first non-zero factor (or, when that factor
    comes first, as soon as the worker has parsed the GeoJSON). The sky box is hidden
-   (`viewer.scene.skyBox.show = false` right after `new Viewer`, keeping sun and moon) until
+   (`scene.skyBox.show = false` right after the globe is built, keeping sun and moon) until
    `data-atlas-ready`, then shown.
 10. **No coarse aggregated tier.** Averaging res-4 children into res-3/2 parents is an aggregation that
     must exclude masked cells and report the excluded fraction (AGENTS invariant; spec v1 §10) — a

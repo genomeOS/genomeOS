@@ -132,8 +132,8 @@ describe('Atlas client bundle', () => {
 
   it('bundles the Atlas render loop into the Cesium chunk, so its frames count as Cesium', () => {
     // Fast-load design §B.1 attributes long animation frames by script source: Cesium-chunk work
-    // outside chunk frames is Cesium. The owned RenderLoop's tick is only viewer.resize() and
-    // viewer.render(), the work Cesium's default loop did from the Cesium chunk; in the scene
+    // outside chunk frames is Cesium. The owned RenderLoop's tick is only widget.resize() and
+    // widget.render(), the work Cesium's default loop did from the Cesium chunk; in the scene
     // chunk every Cesium render would be charged to Atlas.
     const message = 'The Atlas globe stopped rendering.';
     const scene = sceneChunk();
