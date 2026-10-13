@@ -421,13 +421,13 @@ rendition splits into immutable, content-addressed binary objects. **Normative p
 
 (Amended 2026-10-13 under #444: the first two bullets. Before, the render tier was never displayed,
 and until the ~3 MB detail tier arrived the hover and inspector showed no number. At the readout's
-precision the f32 values almost always print the f64 digits. Over all 30 published surfaces
-(77,844 cells, mean and SD: 4,670,640 values), 77 readouts differ, each by one unit in the last
-digit (0.01 percentage points); the largest raw difference is 3.0 × 10⁻⁶ percentage points. That is
-close enough to show while the detail tier loads, but not as the published number, so the "≈"
-marker and the type separation keep a provisional value from being read or cited as exact. In this
-state the hover drops the cell id it showed before and takes the same rows as the exact preview, so
-the swap changes only the numbers.)
+precision the f32 values almost always print the f64 digits. Each of the 30 published surfaces has
+77,844 cells, and each cell has a mean and an SD, so there are 77,844 × 2 × 30 = 4,670,640
+readouts. Of these, 77 differ, each by one unit in the last digit (0.01 percentage points); the
+largest raw difference is 3.0 × 10⁻⁶ percentage points. That is close enough to show while the
+detail tier loads, but not as the published number, so the "≈" marker and the type separation keep
+a provisional value from being read or cited as exact. In this state the hover drops the cell id it
+showed before and takes the same rows as the exact preview, so the swap changes only the numbers.)
 
 ### B.3 Container format `GOSA`, version 1
 
