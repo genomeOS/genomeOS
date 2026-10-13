@@ -3496,8 +3496,8 @@ test('explorer recovers from a render-loop error through Retry globe', async ({
   // panel, and rendering stopped for good. The fast-load scene builds no Cesium PolygonGeometry,
   // so it never requests that module, and a failed terrain worker fetch fails only its tile. The
   // sky box is the same failure class: its cube-map faces are fetched from inside Scene.render once
-  // the map is ready (fast-load design §B.6.9), and Cesium rethrows a failed face load on the next
-  // frame. Aborting only the first request for one face reproduces the raw panel without the
+  // the map is ready and the borders and detail-tier steps of the post-reveal load order have
+  // settled (fast-load design §B.6.9), and Cesium rethrows a failed face load on the next frame. Aborting only the first request for one face reproduces the raw panel without the
   // Atlas render loop, and the sky box draws only in the 3-D globe view.
   let skyFaceRequests = 0;
   await context.route(
