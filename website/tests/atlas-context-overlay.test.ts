@@ -82,7 +82,7 @@ function setup(
   const scene = {
     postRender: new FakeEvent(),
     primitives,
-    // A destroyed Cesium Scene throws here too; Viewer.destroy() destroys the primitives with it.
+    // A destroyed Cesium Scene throws here too; CesiumWidget.destroy() destroys the primitives with it.
     requestRender: vi.fn(() => {
       if (primitives.isDestroyed())
         throw new DeveloperError('This object was destroyed');
@@ -806,7 +806,7 @@ describe('Natural Earth context built across several slices', () => {
 
     await expect(overlay.load('/borders.bin')).resolves.toBe('fallback');
 
-    // The credit display went with the viewer.
+    // The credit display went with the CesiumWidget.
     expect(removeCredit).not.toHaveBeenCalled();
     expect(console.warn).not.toHaveBeenCalled();
   });

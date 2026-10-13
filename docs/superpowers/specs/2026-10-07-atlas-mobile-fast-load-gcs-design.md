@@ -171,7 +171,9 @@ phones under 34rem tall use the same sheets with `peek` reduced to the handle ro
      the A.1.9 Escape stack, whose listener calls `preventDefault()` and `stopPropagation()`),
      which it lacks today (interaction design §9.2).
    - **Credit block** — Cesium's `bottomContainer` stays inside `.atlas-scene` (Viewer.resize writes
-     inline left/bottom/right, so placement rules keep `!important`); on mobile it and the data
+     inline left/bottom/right, so placement rules keep `!important`; amended under #446: the globe
+     is a `CesiumWidget`, and `scene/globe-widget.ts` builds the same `.cesium-viewer` frame and
+     `.cesium-viewer-bottom` container and writes the same inline offsets); on mobile it and the data
      credit form one wrapping block (not limited to one line): the ion logo at its native size plus
      map credits, then the data credit as a short link "Data: genomeOS" at the same 10 px size.
      `.atlas-data-credit` is re-enabled at ≤ 52rem (hidden today). Its height is measured with a
@@ -740,7 +742,7 @@ scene (when import resolves) ── observations → chunk scheduler (B.6.7) →
    entities are dropped. Their height adjustment is skipped at elevation 0 and computed in the worker
    from grid rows on the first non-zero factor (or, when that factor comes first, as soon as the
    worker has decoded the borders). The sky box is hidden
-   (`viewer.scene.skyBox.show = false` right after `new Viewer`, keeping sun and moon) until
+   (`scene.skyBox.show = false` right after the globe is built, keeping sun and moon) until
    `data-atlas-ready`, then shown.
 10. **No coarse aggregated tier.** Averaging res-4 children into res-3/2 parents is an aggregation that
     must exclude masked cells and report the excluded fraction (AGENTS invariant; spec v1 §10) — a
@@ -805,7 +807,14 @@ error.)
   (compressed `Content-Length`, hidden `Content-Encoding` → total = declared bytes; no declared bytes →
   null; aggregate stays < 1 until observations finish); inline-catalog parse and escaping; fixture
   catalogs pass `atlasCatalogSchema` and their objects match declared digests/bytes; the island chunk
-  contains no Cesium.
+  contains no Cesium. Added under #446 (`tests/atlas-bundle.test.ts`): the Cesium chunk carries none
+  of the widget layer's markers (`knockout` and one class name per `@cesium/widgets` widget); its
+  gzip size (zlib default level) is at most 1,037,389 × 1.01 bytes, the size CI (ubuntu x64,
+  Node 24) measured once the globe was built on `CesiumWidget` (1,032,528 bytes on darwin-arm64
+  with Node 23.9), and the test prints the size it measures so drift toward the limit shows in CI
+  logs; `/app/` ships the credit-row CSS
+  (`.cesium-widget-credits`, `.cesium-viewer-bottom`, `.cesium-viewer-cesiumWidgetContainer`) and
+  none of the widget layer's rules.
 - **Playwright** (`tests/atlas-browser-fixture.ts` rewritten, importing no app modules so the capture
   scripts keep running under Node type stripping): the e2e build sets `ATLAS_CATALOG_PATH` to the e2e
   fixture catalog, and the fixture fulfils grid/render/detail/observations URLs from the committed e2e
