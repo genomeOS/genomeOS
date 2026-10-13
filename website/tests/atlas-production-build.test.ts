@@ -13,8 +13,6 @@ interface CatalogJson {
   grids: Record<string, unknown>;
   artifacts: {
     id: string;
-    model_version: string;
-    data_version: string;
     surface_url: string;
     observations_url: string | null;
     downloads: Record<string, { sha256: string; url: string } | null>;
@@ -43,13 +41,15 @@ function serve(catalog: unknown, status = 200): void {
   );
 }
 
-/** What Part C's `encode_atlas_web.py --with-downloads` does to the catalog (design §C.2). */
-function withBucketDownloadKeys(catalog: CatalogJson): CatalogJson {
+/**
+ * The catalog with its canonical JSON files back at Part B's flat keys (`<id>.<kind>.json`) and
+ * every sha256 unchanged. The repository catalog has held the bucket keys since Part C (design
+ * §C.1.3), so this is the variant whose keys differ from it.
+ */
+function withFlatDownloadKeys(catalog: CatalogJson): CatalogJson {
   for (const artifact of catalog.artifacts) {
-    for (const [kind, entry] of Object.entries(artifact.downloads)) {
-      if (entry === null) continue;
-      entry.url = `downloads/${artifact.id}/${artifact.model_version}/${artifact.data_version}/${artifact.id}.${kind}.${entry.sha256.slice(0, 16)}.json`;
-    }
+    for (const [kind, entry] of Object.entries(artifact.downloads))
+      if (entry !== null) entry.url = `${artifact.id}.${kind}.json`;
     artifact.surface_url = artifact.downloads.surface!.url;
     if (artifact.observations_url !== null)
       artifact.observations_url = artifact.downloads.observations!.url;
@@ -69,13 +69,13 @@ describe('assertProductionBuild', () => {
     );
   });
 
-  it('accepts the staged catalog, whose JSON downloads sit at bucket keys', async () => {
-    const staged = withBucketDownloadKeys(production());
-    expect(staged.artifacts[0].surface_url).not.toBe(
+  it('compares content, not the keys of the canonical JSON files (same sha256)', async () => {
+    const moved = withFlatDownloadKeys(production());
+    expect(moved.artifacts[0].surface_url).not.toBe(
       production().artifacts[0].surface_url,
     );
-    serve(staged);
-    await expect(assertProductionBuild(BASE_URL)).resolves.toEqual(staged);
+    serve(moved);
+    await expect(assertProductionBuild(BASE_URL)).resolves.toEqual(moved);
   });
 
   it('rejects a subset catalog on the production grid', async () => {

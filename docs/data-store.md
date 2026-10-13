@@ -75,20 +75,23 @@ explicitly unavailable; the builder never manufactures them from a surface.
 
 ## Building the static web export
 
-The `/app/` explorer reads `website/public/data/atlas/`. `scripts/export_atlas_web.py` writes the
-canonical, citable JSON (surface, observations and manifest per artifact, plus `catalog.json`).
-`export_atlas_web.py` output is an intermediate; the site build fails until `encode_atlas_web.py`
-has run:
+The `/app/` explorer reads `catalog.json` from the site (`website/public/data/atlas/`) and every
+per-artifact object from the public web data bucket. `scripts/export_atlas_web.py` writes the
+canonical, citable JSON (surface, observations and manifest per artifact, plus `catalog.json`) to
+an export directory. `export_atlas_web.py` output is an intermediate; the site build fails until
+`encode_atlas_web.py` has run on it and the result is published:
 
 ```bash
-python scripts/encode_atlas_web.py   # default --in and --out: website/public/data/atlas
+python scripts/encode_atlas_web.py --in <export-dir> --out data/atlas-web --with-downloads
 ```
 
 The encoder takes the first artifact's H3 sequence as the shared grid and refuses any surface
 whose cells differ, writes content-addressed GOSA objects under `grids/` and `surfaces/`, decodes
 every object it wrote and compares it with the JSON cell by cell, and only then adds `grids`, `web`
-and `observations_bytes` to `catalog.json`. It is byte-deterministic, so CI re-runs it and fails if
-the committed catalog differs. The objects are git-ignored; the JSON stays the citable download.
+and `observations_bytes` to `catalog.json`. It is byte-deterministic. The objects are git-ignored;
+with `--with-downloads` they and the canonical JSON are published to the public bucket (the "Public
+web data bucket" section below), the JSON stays the citable download, and only `catalog.json` is
+committed.
 
 ## Immutability is enforced, not just documented
 
@@ -123,6 +126,66 @@ Fitting is ~20 min per variant on a laptop. **Do not run it on a pod expecting t
 nothing copies `/workspace` off a pod, and that is how three runs' fits were lost. A pod can render
 figures and push them to a branch (`runpod_fit.py --job surfaces` does), but a 6 MB fit has to be
 produced where it will be kept.
+
+## Public web data bucket
+
+The website's per-artifact data is published to a public bucket that is separate from #33's
+private artifact staging: it serves only encoded site data and neither pins nor replaces the citable
+artifacts above. Run the steps from a checkout, with the repository-local gcloud configuration
+initialised first:
+
+```bash
+python scripts/gcloud_repo.py init --account <account> --project <project>
+export GENOMEOS_GCP_PROJECT=<project> ATLAS_DATA_BUCKET=<bucket>
+export ATLAS_DATA_BASE_URL="https://storage.googleapis.com/$ATLAS_DATA_BUCKET/atlas/web/"
+python scripts/provision_atlas_web_bucket.py --mode edge --bucket "$ATLAS_DATA_BUCKET" --dry-run
+python scripts/provision_atlas_web_bucket.py --mode edge --bucket "$ATLAS_DATA_BUCKET"
+python scripts/encode_atlas_web.py --in <export-dir> --out data/atlas-web --with-downloads
+python scripts/publish_atlas_web.py --staging data/atlas-web --bucket "$ATLAS_DATA_BUCKET" --dry-run
+python scripts/publish_atlas_web.py --staging data/atlas-web --bucket "$ATLAS_DATA_BUCKET"
+cp data/atlas-web/catalog.json website/public/data/atlas/catalog.json
+gh variable set ATLAS_DATA_BUCKET --body "$ATLAS_DATA_BUCKET"
+gh variable set ATLAS_DATA_BASE_URL --body "$ATLAS_DATA_BASE_URL"
+(cd website && PUBLIC_ATLAS_DATA_BASE_URL="$ATLAS_DATA_BASE_URL" npm run build)
+python scripts/check_atlas_web_data.py --production --catalog website/public/data/atlas/catalog.json \
+    --base "$ATLAS_DATA_BASE_URL" --bucket "$ATLAS_DATA_BUCKET" --dist website/dist
+```
+
+`encode_atlas_web.py --with-downloads` copies each canonical JSON byte-for-byte to its
+content-addressed `downloads/` key and rewrites `surface_url`, `observations_url` and
+`downloads.*.url`; every SHA-256 is unchanged. Publishing compresses each file itself (gzip level 9,
+mtime 0), uploads with `--if-generation-match=0`, and treats the decoded SHA-256 and size in object
+metadata as identity: an identical object is skipped and a different one is a hard error, never an
+overwrite, so a second run skips everything. The catalog commit comes last, after the deploy gate
+passes against the bucket.
+
+If provisioning stops right after creating the bucket (the ownership label is a separate update),
+confirm that `gs://<bucket>` is the bucket just created (same project, no objects), run
+`python scripts/gcloud_repo.py run storage buckets update gs://<bucket> --update-labels=genomeos-purpose=atlas-web`,
+then re-run provisioning. If publishing reports a failed post-upload verification, resolve that
+object with the owner before any re-run, because a re-run does not repair it: it skips the object
+as identical when the object's identity metadata matches the catalog, and stops with a hard error
+when it does not.
+
+### Re-encoding after the per-artifact files left the repository
+
+`main` tracks only `catalog.json`. To re-encode (after a codec change, say), first rebuild an export
+tree, either with a full `scripts/export_atlas_web.py` run from the store, or by downloading the
+published tree and adding the repository catalog (its keys already name the downloaded files):
+
+```bash
+python scripts/gcloud_repo.py run storage cp -r "gs://$ATLAS_DATA_BUCKET/atlas/web/*" <export-dir>/
+cp website/public/data/atlas/catalog.json <export-dir>/catalog.json
+(cd website && ATLAS_DATA_DIR=<export-dir> npx vitest run tests/atlas-public-data.test.ts)
+```
+
+The integrity test runs from `website/`, so `<export-dir>` must be an absolute path there. It
+proves the download decompressed to the catalog's bytes. Then run
+`encode_atlas_web.py --in <export-dir> --out <staging> --with-downloads`, publish, and copy only
+`<staging>/catalog.json` back into the repository. The surface and observations JSON must stay
+byte-identical: their SHA-256 values are in the catalog and in every citation, and a changed digest
+is a new publication, not a re-encode. `scripts/build_atlas_e2e_fixture.py --from-dir <export-dir>`
+regenerates the browser-test fixture from the same tree.
 
 ## Known gap
 

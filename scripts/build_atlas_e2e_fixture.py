@@ -11,14 +11,16 @@ sampled), one compact grid, and a catalog whose ``n_cells``, ``n_observations``,
 objects. Values are copied bit-for-bit and encoded by ``encode_atlas_web.encode_catalog``, which
 verifies every object from disk. ``surface_sha256``, ``surface_url`` and the surface and manifest
 downloads keep naming the full canonical artifact the subset was cut from; those files are not
-copied. ``--from-dir`` reads catalog keys, so a bucket download works after Part C too.
+copied. ``--from-dir`` reads catalog keys, so it takes the staging tree of
+``encode_atlas_web.py --with-downloads`` (default ``data/atlas-web``) or a bucket download plus the
+repository catalog (``docs/data-store.md``).
 
 The tree is written to a hidden sibling of ``--out`` and renamed onto it only once complete, so a
 failed or interrupted run leaves the previous tree (or none), never a partial one that the next run
 would refuse. ``--out`` may not be, contain or lie inside ``--from-dir``.
 
     python scripts/build_atlas_e2e_fixture.py \\
-        --from-dir website/public/data/atlas --out website/tests/fixtures/atlas/e2e
+        --from-dir data/atlas-web --out website/tests/fixtures/atlas/e2e
 """
 
 from __future__ import annotations
@@ -42,7 +44,7 @@ sys.path.insert(0, str(ROOT))
 
 from scripts import encode_atlas_web  # noqa: E402
 
-DEFAULT_FROM = ROOT / "website" / "public" / "data" / "atlas"
+DEFAULT_FROM = ROOT / "data" / "atlas-web"
 DEFAULT_OUT = ROOT / "website" / "tests" / "fixtures" / "atlas" / "e2e"
 #: ``RENDER_CELL_BUDGET``, ``RENDER_OBSERVATION_BUDGET`` and ``INSPECTOR_TARGET`` of the former
 #: ``website/tests/atlas-browser-fixture.ts``.

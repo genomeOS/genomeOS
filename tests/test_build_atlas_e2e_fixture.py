@@ -157,7 +157,7 @@ def test_cli_writes_the_tree_named_by_from_dir_and_out(tmp_path: Path) -> None:
     assert _tree(out) == _tree(tmp_path / "api")
 
 
-def test_cli_defaults_read_the_published_export_and_write_the_committed_tree(
+def test_cli_defaults_read_the_staging_tree_and_write_the_committed_tree(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple[Path, Path]] = []
@@ -168,7 +168,7 @@ def test_cli_defaults_read_the_published_export_and_write_the_committed_tree(
 
     monkeypatch.setattr(e2e, "build_fixture", build)
     assert e2e.main([]) == 0
-    assert calls == [(ROOT / "website" / "public" / "data" / "atlas", COMMITTED)]
+    assert calls == [(ROOT / "data" / "atlas-web", COMMITTED)]
 
 
 def test_committed_e2e_tree_is_complete_and_self_consistent() -> None:

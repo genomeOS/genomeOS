@@ -854,12 +854,14 @@ gzip'`).
    `check_commercial_use.py`). History is not rewritten. `.gitignore` gains separate lines for the
    staging directory and `website/public/data/atlas/*.surface.json`, `*.observations.json`,
    `*.manifest.json`.
-4. No GCP project id or bucket name is committed (`docs/repo-gcloud-auth.md`). The artifact base is
-   the build variable `PUBLIC_ATLAS_DATA_BASE_URL`: an absolute `https://` URL that includes the
+4. No GCP project id or bucket name is committed (`docs/repo-gcloud-auth.md`), in any GCS URL form;
+   tests and docs write `example-*` or a placeholder, and only third-party public data buckets the
+   pipeline reads (gnomAD's) are named. The artifact base is the build variable
+   `PUBLIC_ATLAS_DATA_BASE_URL`: an absolute `https://` URL that includes the
    `atlas/web/` prefix and ends in `/`; empty means unset (same-origin fallback, used only by local dev
    and tests). `pages.yml` sets it from the repository variable `ATLAS_DATA_BASE_URL` in the
-   production `build` job only. `tests/setup/build.ts` and the `test:e2e` build set it to `''`
-   explicitly. A wiring test (like `google-maps-config.test.ts`) pins the `pages.yml` line, the
+   production `build` job only. `tests/setup/build.ts` sets it to `''` explicitly; the `test:e2e`
+   build sets it to the local cross-origin data server, `http://127.0.0.1:4323/` (C.3, E2E). A wiring test (like `google-maps-config.test.ts`) pins the `pages.yml` line, the
    `.env.example` entry and the absence of any `ORIGIN`-named variant.
 5. **Deploy gate** (`scripts/check_atlas_web_data.py`, run in `pages.yml` `build` before deploy, and in
    `validate` for same-repo PRs): fails when the baked-in base is empty or not absolute; for every
@@ -904,9 +906,9 @@ gzip'`).
   `hashlib.md5`, no new dependency). `--dry-run` prints every command. Compressed bytes and CRC32C are
   never compared across runs.
 - **CORS** (`gcloud storage buckets update --cors-file`): `GET`, `HEAD` from `https://genome-os.org`,
-  `http://genome-os.org` (the site still answers on HTTP), `https://www.genome-os.org`,
-  `https://bschilder.github.io`, and `http://localhost` / `http://127.0.0.1` on ports 4321, 4322 and
-  4323; response headers `Content-Length`, `Content-Type`, `Content-Encoding`, `ETag`;
+  `https://www.genome-os.org`, and `http://localhost` / `http://127.0.0.1` on ports 4321, 4322 and
+  4323 (amended 2026-10-10: Pages enforces HTTPS and `genomeos.github.io` only redirects to
+  `genome-os.org`, so no page is served from `http://genome-os.org` or a `github.io` origin); response headers `Content-Length`, `Content-Type`, `Content-Encoding`, `ETag`;
   `maxAgeSeconds` 3600.
 - **CDN modes** (`scripts/provision_atlas_web_bucket.py --mode edge|cloud-cdn`, idempotent,
   `--dry-run`):

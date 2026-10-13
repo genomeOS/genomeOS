@@ -41,4 +41,14 @@ describe('technical documentation routes', () => {
     expect(html).toContain('href="/contribute/"');
     expect(html).toContain('href="/docs/"');
   });
+
+  it('documents where Atlas data is hosted, how it is checked and how to run against it', () => {
+    const deployment = read('docs/deployment/index.html');
+    expect(deployment).toContain('PUBLIC_ATLAS_DATA_BASE_URL');
+    expect(deployment).toContain('ATLAS_DATA_BUCKET');
+    expect(deployment).toContain('check_atlas_web_data.py');
+    const development = read('docs/local-development/index.html');
+    expect(development).toContain('ATLAS_DATA_DIR');
+    expect(development).toContain('http://127.0.0.1:4323/');
+  });
 });
