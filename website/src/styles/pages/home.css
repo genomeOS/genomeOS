@@ -335,11 +335,32 @@
       animation-timeline: --home-hero;
       animation-range: exit-crossing 0% exit-crossing 75%;
     }
+
+    /* The film's Pause control goes with the film: it fades as the film does, and once the film is
+       gone, so is the control (visibility, so no one tabs to a control for nothing). */
+    .hero-media__toggle {
+      animation-name: hero-recede-control;
+      animation-duration: auto;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: --home-hero;
+      animation-range: exit-crossing 0% exit-crossing 75%;
+    }
   }
 
   .hero-media[data-recede='script'] .hero-media__backdrop {
     opacity: calc(1 - var(--hero-recede, 0));
     scale: calc(1 - 0.06 * var(--hero-recede, 0));
+  }
+
+  .hero-media[data-recede='script'] .hero-media__toggle {
+    opacity: calc(1 - var(--hero-recede, 0));
+  }
+
+  /* A keyboard visitor who reaches the control while the film is fading sees it whole. Important,
+     because an animation's value outranks every normal declaration. */
+  .hero-media__toggle:focus-visible {
+    opacity: 1 !important;
   }
 }
 
@@ -350,7 +371,19 @@
   }
 }
 
+@keyframes hero-recede-control {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
 /* ---------------------------------------------------------------- the genomeOS Atlas preview */
+
+/* The film melts into the page above (.hero-media__scrim), so no hairline marks where it ends. */
+.band.home-atlas {
+  border-top: 0;
+}
 
 /* The flagship project (round 2, ruling R2-2): its words, then the toy globe; from 72rem, a
    figure-led split with the words on the left and the globe on the right, as in the film above. */

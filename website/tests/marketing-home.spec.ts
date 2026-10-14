@@ -258,6 +258,29 @@ test('the film recedes as the page scrolls into the content', async ({
   expect(await recededAt(page, 0)).toBeCloseTo(1, 2);
 });
 
+test('the film’s Pause control fades with the film, and no hairline marks the film’s end', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await playingFilm(page);
+  const toggle = filmToggle(page);
+  const opacity = () =>
+    toggle.evaluate((element) => Number(getComputedStyle(element).opacity));
+  expect(await recededAt(page, 0)).toBeCloseTo(1, 2);
+  expect(await opacity()).toBeCloseTo(1, 2);
+  const middle = await recededAt(page, 0.375);
+  expect(Math.abs((await opacity()) - middle)).toBeLessThan(0.05);
+  await recededAt(page, 0.8);
+  expect(await opacity()).toBeLessThan(0.02);
+  await expect(toggle).toBeHidden();
+  // Back at the top it is whole again, and still works.
+  await recededAt(page, 0);
+  await expect(toggle).toBeVisible();
+  expect(await opacity()).toBeCloseTo(1, 2);
+  // The film's foot melts into the page: the Atlas section below draws no top rule.
+  await expect(page.locator('#atlas')).toHaveCSS('border-top-width', '0px');
+});
+
 test('reduced motion: the film never recedes with the scroll, and nothing runs', async ({
   page,
 }) => {
