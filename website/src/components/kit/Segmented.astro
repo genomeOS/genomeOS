@@ -137,4 +137,15 @@ const {
       outline-offset: -2px;
     }
   }
+
+  /* Print drops backgrounds, so starlight on plate-raised would print white on white: the pressed
+     segment prints in dark text with an underline (spec §8). */
+  @media print {
+    .kit-segmented button[aria-pressed='true'] {
+      color-scheme: light;
+      color: CanvasText;
+      text-decoration: underline 2px;
+      text-underline-offset: 0.3em;
+    }
+  }
 </style>
