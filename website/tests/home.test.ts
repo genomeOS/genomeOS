@@ -10,7 +10,9 @@ import { describe, expect, it } from 'vitest';
 import {
   ENTRANCE_MS,
   REST_VIEW,
+  STUD_REFERENCE_RADIUS,
   describeHit,
+  heroStudScale,
   entranceAt,
   formatKm,
   formatRange,
@@ -244,19 +246,63 @@ describe('homepage figures', () => {
     ).toBe(2);
   });
 
-  it('gives assistive technology each corpus total, whatever the count-up shows', () => {
+  it('shows each corpus total as its real value, never a count from zero', () => {
+    // A statistic never reads as zero on screen (design review, round 1): the totals are static
+    // text that sight and assistive technology read alike; only the composition bars animate.
     const metrics = section(/<section\b[^>]*\bid="metrics"/);
-    const totals = [
-      ...metrics.matchAll(
-        /<data\b([^>]*)>([^<]*)<\/data>\s*<span class="visually-hidden">([^<]*)<\/span>/g,
-      ),
-    ];
-    expect(totals.map((match) => match[3])).toEqual(['4,392', '6.69M', '2']);
-    for (const [, attributes, shown, spoken] of totals) {
-      // The animated digits are for sight only; the final value is what is read.
-      expect(attributes).toContain('aria-hidden="true"');
-      expect(attributes).toContain('data-count-to');
-      expect(shown).toBe(spoken);
+    const totals = [...metrics.matchAll(/<data\b([^>]*)>([^<]*)<\/data>/g)];
+    expect(totals.map((match) => match[2])).toEqual(['4,392', '6.69M', '2']);
+    for (const [, attributes] of totals) {
+      expect(attributes).not.toContain('aria-hidden');
+      expect(attributes).not.toContain('data-count-to');
+    }
+  });
+
+  it('orders the hero as it reads: heading, lede, calls to action, then the figure', () => {
+    // WCAG 2.4.3: the DOM order is the focus order, so the calls to action precede the globe's
+    // nine controls (design review, round 1).
+    const hero = section(/<section\b[^>]*\bid="hero"/);
+    const at = (needle: string) => hero.indexOf(needle);
+    expect(at('<h1')).toBeGreaterThan(-1);
+    expect(at('home-hero__lede')).toBeGreaterThan(at('<h1'));
+    expect(at('home-hero__actions')).toBeGreaterThan(at('home-hero__lede'));
+    expect(at('data-graphic="hero-globe"')).toBeGreaterThan(
+      at('home-hero__actions'),
+    );
+  });
+
+  it('arms the hero before its first paint, and only when motion is allowed', () => {
+    // Spec §2.7 rule 5: a head script marks the hero armed before any of it paints, so the rest
+    // state never shows and then blanks; it stands down at 1,200 ms if the island has not begun.
+    const head = html.slice(0, html.indexOf('</head>'));
+    const script = head.match(
+      /<script>((?:(?!<\/script>)[\s\S])*data-arm-hero(?:(?!<\/script>)[\s\S])*)<\/script>/,
+    )?.[1];
+    expect(script).toBeDefined();
+    expect(script).toContain('prefers-reduced-motion: reduce');
+    expect(script).toContain('forced-colors: active');
+    expect(script).toContain('saveData');
+    expect(script).toContain('1200');
+  });
+
+  it('draws row B’s untested alleles as a ghost grid, never an empty box', () => {
+    const why = section(/<section\b[^>]*\bid="why"/);
+    expect(why).not.toContain('cf-grid__room');
+    const grids = [
+      ...why.matchAll(/<svg\b[^>]*data-grid="b"[^>]*>[\s\S]*?<\/svg>/g),
+    ].map(([svg]) => svg);
+    expect(grids).toHaveLength(2);
+    for (const svg of grids) {
+      const columns = Number(svg.match(/data-columns="(\d+)"/)![1]);
+      const pitch = Number(svg.match(/data-pitch="([\d.]+)"/)![1]);
+      const ghost = svg.match(/<rect\b[^>]*data-ghost[^>]*>/)?.[0] ?? '';
+      // All 2,000 squares, as whole rows: the room the slider fills.
+      expect(Number(ghost.match(/\bwidth="([\d.]+)"/)?.[1])).toBe(
+        columns * pitch,
+      );
+      expect(Number(ghost.match(/\bheight="([\d.]+)"/)?.[1])).toBe(
+        Math.ceil(2000 / columns) * pitch,
+      );
     }
   });
 
@@ -286,6 +332,15 @@ describe('homepage figures', () => {
 });
 
 describe('hero globe logic', () => {
+  it('shrinks the studs with a smaller disc, never below 0.6 of full size', () => {
+    // A 390 px phone's disc (radius about 172 px) is a quarter smaller than the 1440 px one, and
+    // its studs shrink with it, so they stop merging into blobs (design review, round 1).
+    expect(heroStudScale(STUD_REFERENCE_RADIUS)).toBe(1);
+    expect(heroStudScale(260)).toBe(1);
+    expect(heroStudScale(172)).toBeCloseTo(0.76, 2);
+    expect(heroStudScale(100)).toBe(0.6);
+  });
+
   it('plays in evidence order over 2.8 s and turns 20° east to rest', () => {
     expect(ENTRANCE_MS).toBe(2800);
     expect(REST_VIEW).toEqual([18, 8]);

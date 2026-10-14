@@ -15,12 +15,20 @@ export const COUNT_STOPS = [20, 50, 100, 200, 500, 1000, 2000] as const;
 export const ROW_A = { ac: 61, an: 412 } as const;
 /** The shared axis runs from 0 to 25%. */
 export const AXIS_MAX = 0.25;
-/** One square per allele: 4 px on a 5 px pitch, 60 columns (wide); 3 on 4, 80 columns (narrow). */
+/**
+ * One square per allele, in grids that span the figure (each scales to its width): wide, 125
+ * columns of 6 on a 7 pitch (about 6 px squares at 1440 px), so 2,000 alleles are sixteen rows;
+ * narrow, 80 columns of 3 on a 4 pitch. The marks carry the comparison, not a corner of the figure
+ * (spec §4.1 H2; design review, round 1).
+ */
 export const GRID = {
-  wide: { columns: 60, pitch: 5, size: 4 },
+  wide: { columns: 125, pitch: 7, size: 6 },
   narrow: { columns: 80, pitch: 4, size: 3 },
 } as const;
-/** Row B reserves the height of the largest stop, so the slider never moves the page. */
+/**
+ * Row B reserves the height of the largest stop, so the slider never moves the page; the room is
+ * drawn as a ghost grid of the alleles not yet tested, which the slider fills.
+ */
 export const ROW_B_MAX = COUNT_STOPS[COUNT_STOPS.length - 1];
 
 export type Interval = (

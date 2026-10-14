@@ -8,7 +8,10 @@
  *
  * The intervals are computed here, at build time (jeffreys.ts), and shipped as a table: nothing is
  * fitted in the browser. Server-rendered at the default stop (20), the final state, so the figure
- * is complete without JavaScript; counts.ts adds the slider and the entrance.
+ * is complete without JavaScript; counts.ts adds the slider and the entrance. Row B's room for
+ * 2,000 alleles is a ghost grid (faint outlines: alleles not yet tested) that the tested squares
+ * fill as the slider moves, so at rest the figure shows sample size, not an empty box. Each row
+ * stacks its label, grid and bar across the figure's full width, both bars on one 0–25% axis.
  */
 import Figure from '../kit/Figure.astro';
 import StatusTag from '../kit/StatusTag.astro';
@@ -43,7 +46,10 @@ const clientTable = JSON.stringify({
 type Layout = keyof typeof GRID;
 const layouts = Object.keys(GRID) as Layout[];
 
-/** One grid: `total` squares (row B reserves room for the largest stop), the first `ac` lit. */
+/**
+ * One grid: `n` tested squares, the first `ac` lit. Row B reserves room for the largest stop and
+ * draws it as a ghost grid of the alleles not yet tested, under the tested ones.
+ */
 const grid = (row: 'a' | 'b', layout: Layout, n: number, ac: number) => {
   const { columns, pitch, size } = GRID[layout];
   const capacity = row === 'b' ? ROW_B_MAX : n;
@@ -134,14 +140,31 @@ const aOrigin = ((table.a.mean - table.a.lo) / (table.a.hi - table.a.lo)) * 100;
                       style="fill: var(--color-starlight)"
                     />
                   </pattern>
+                  {row === 'b' && (
+                    <pattern
+                      id={`${g.id}-ghost`}
+                      width={g.pitch}
+                      height={g.pitch}
+                      patternUnits="userSpaceOnUse"
+                    >
+                      <rect
+                        x="0.25"
+                        y="0.25"
+                        width={g.size - 0.5}
+                        height={g.size - 0.5}
+                        style="fill: none; stroke: rgb(165 185 211 / 14%); stroke-width: 0.5"
+                      />
+                    </pattern>
+                  )}
                 </defs>
                 {row === 'b' && (
                   <rect
-                    class="cf-grid__room"
-                    x="0.5"
-                    y="0.5"
-                    width={g.width - 1}
-                    height={g.height - 1}
+                    data-ghost
+                    x="0"
+                    y="0"
+                    width={g.width}
+                    height={g.height}
+                    fill={`url(#${g.id}-ghost)`}
                   />
                 )}
                 <g class="cf-grid__off">
@@ -203,6 +226,7 @@ const aOrigin = ((table.a.mean - table.a.lo) / (table.a.hi - table.a.lo)) * 100;
               <label for="cf-slider">Alleles tested in B</label>
               <input
                 id="cf-slider"
+                class="kit-range"
                 type="range"
                 min="0"
                 max={table.stops.length - 1}

@@ -53,6 +53,12 @@ export interface HexFieldOptions {
   /** An extra outline for an area (threshold maps): solid, dashed, or none. */
   areaOutline?(area: Area): 'solid' | 'dashed' | null;
   dprCap?: number;
+  /**
+   * Stud size for a canvas of this CSS size, as a share of STUD_RADIUS (default 1). A small
+   * stage's studs shrink with its disc, so they read as points rather than merging into blobs; the
+   * 1.5 px void ring and the 9 px hit radius stay as they are.
+   */
+  studScale?(width: number, height: number): number;
 }
 
 /** Entrance progress per pass, each 0…1 (1 = fully drawn). */
@@ -125,6 +131,8 @@ export class HexField {
   hover: HexHit | null = null;
   pinned: HexHit | null = null;
   graticule: boolean;
+  /** The studs' share of STUD_RADIUS at the current size (options.studScale). */
+  studScale = 1;
   width = 0;
   height = 0;
   private dpr = 1;
@@ -187,6 +195,7 @@ export class HexField {
     this.height = this.canvas.clientHeight;
     this.canvas.width = Math.round(this.width * this.dpr);
     this.canvas.height = Math.round(this.height * this.dpr);
+    this.studScale = this.options.studScale?.(this.width, this.height) ?? 1;
     if (this.options.fit)
       this.options.fit(this.width, this.height, this.projection);
     else {
@@ -444,7 +453,8 @@ export class HexField {
       const alpha = this.alphaFor(geometry.order, this.reveal.studs, 0.25);
       if (alpha <= 0) continue;
       this.visibleSurveys.push({ geometry, x, y });
-      const r = STUD_RADIUS[geometry.size] * (0.4 + 0.6 * alpha);
+      const r =
+        STUD_RADIUS[geometry.size] * this.studScale * (0.4 + 0.6 * alpha);
       marks[geometry.size].push({ x, y, r, alpha });
     }
     for (const size of STUD_PAINT_ORDER)
@@ -464,7 +474,7 @@ export class HexField {
     for (const hit of [this.pinned, this.hover]) {
       if (hit?.type !== 'surveys') continue;
       g.beginPath();
-      g.arc(hit.x, hit.y, STUD_RADIUS.lg + 4, 0, Math.PI * 2);
+      g.arc(hit.x, hit.y, STUD_RADIUS.lg * this.studScale + 4, 0, Math.PI * 2);
       g.strokeStyle = FOCUS;
       g.lineWidth = 1.5;
       g.stroke();

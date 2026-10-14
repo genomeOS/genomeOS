@@ -102,6 +102,43 @@ const routes = [
     type="font/woff2"
     crossorigin
   />
+  {
+    /*
+     * Spec §2.7 rule 5, above the fold never flashes: before any of the page paints, mark the hero
+     * armed (home.css hides its poster, callouts and step lights), so its rest state never shows
+     * and then blanks for the entrance. Only where the entrance can play: motion allowed, no
+     * forced colours or Save-Data (both keep the poster), and the page arriving within 1,200 ms.
+     * If the island has not taken the figure over by then, stand down: the poster shows, at rest.
+     */
+  }
+  <script is:inline slot="head">
+    (function (root) {
+      try {
+        var media = function (query) {
+          return matchMedia(query).matches;
+        };
+        var connection = navigator.connection;
+        if (
+          media('(prefers-reduced-motion: reduce)') ||
+          media('(forced-colors: active)') ||
+          (connection && connection.saveData) ||
+          performance.now() > 1200
+        )
+          return;
+        root.setAttribute('data-arm-hero', '');
+        setTimeout(
+          function () {
+            var figure = document.querySelector('[data-graphic="hero-globe"]');
+            if (!figure || !figure.hasAttribute('data-figure-state'))
+              root.removeAttribute('data-arm-hero');
+          },
+          Math.max(0, 1200 - performance.now()),
+        );
+      } catch (error) {
+        root.removeAttribute('data-arm-hero');
+      }
+    })(document.documentElement);
+  </script>
   <Glyph sprite />
 
   <section
@@ -117,9 +154,10 @@ const routes = [
         </p>
         <h1 id="hero-title">Explore genomes across the world.</h1>
       </div>
-      <div class="home-hero__figure">
-        <HeroGlobe />
-      </div>
+      {
+        /* The text comes before the figure at every width, so the calls to action are read and
+           tabbed to before the globe's own controls (WCAG 2.4.3). */
+      }
       <div class="home-hero__body">
         <p class="home-hero__lede">
           Make the world’s genetic diversity legible and useful, for every
@@ -129,6 +167,9 @@ const routes = [
           <a class="button-link" href={sitePath('/app/')}>Open the Atlas</a>
           <a class="button-link button-link--quiet" href="#how">How it works</a>
         </div>
+      </div>
+      <div class="home-hero__figure">
+        <HeroGlobe />
       </div>
     </div>
   </section>
@@ -305,7 +346,6 @@ const routes = [
    * The page's one island (site redesign spec §7; #454): every Home figure starts here, so the
    * page fetches one module instead of one per figure, as Project and Contribute do.
    */
-  import { initCountUp } from '../components/home/count-up';
   import { initCounts } from '../components/home/counts';
   import { initHeroGlobe } from '../components/home/hero-globe';
   import { FigureController } from '../graphics/figure';
@@ -317,7 +357,11 @@ const routes = [
 
   each('figure[data-graphic="hero-globe"]', initHeroGlobe);
   each('figure[data-graphic="counts"]', initCounts);
-  each('figure[data-graphic="evidence-base"]', initCountUp);
+  // The evidence base's totals are static text; its composition bars grow once (CSS, home.css).
+  each(
+    'figure[data-graphic="evidence-base"]',
+    (figure) => new FigureController(figure, { duration: 600, rest() {} }),
+  );
   // The application glyphs draw in once, 90 ms apart (CSS, home.css); each replays its mechanism
   // on hover.
   each(

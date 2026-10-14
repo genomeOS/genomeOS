@@ -6,8 +6,9 @@
  * outside the bar) for variants and people, two labelled glyphs for diseases. The people total adds
  * its sources together, so its bar ends in a hatch cap: "not deduplicated". Each source keeps one
  * tone in every tile (HbS light, AFND grey, G6PD faint). The collapsed definition and its revision
- * hash are unchanged. Final values are in the HTML; count-up.ts only animates the visible digits,
- * which are aria-hidden: assistive technology reads the final value beside them, never a zero.
+ * hash are unchanged. The totals are static text: only the composition bars grow on entrance
+ * (home.css), so a total never reads as zero on screen, in a screenshot or to a screen reader
+ * (design review, round 1: an armed count-up showed 0 / 0.00M / 0 while partly in view).
  */
 import Figure from '../kit/Figure.astro';
 import { corpusMetrics, metricTotal } from '../../data/corpusMetrics';
@@ -33,7 +34,6 @@ const tiles: {
   kind: 'variants' | 'people';
   total: number;
   shown: string;
-  format: 'int' | 'millions';
   label: string;
   parts: Part[];
   cap?: string;
@@ -42,7 +42,6 @@ const tiles: {
     kind: 'variants',
     total: metricTotal(variants),
     shown: int(metricTotal(variants)),
-    format: 'int',
     label: 'Genetic variants & alleles',
     parts: [
       {
@@ -67,7 +66,6 @@ const tiles: {
     kind: 'people',
     total: metricTotal(people),
     shown: millions(metricTotal(people)),
-    format: 'millions',
     label: 'People represented',
     parts: [
       {
@@ -96,7 +94,7 @@ const tiles: {
   },
 ];
 const diseases = metricTotal(corpusMetrics.diseases);
-// Home's one island, in src/pages/index.astro, starts this figure with initCountUp (count-up.ts).
+// Home's one island, in src/pages/index.astro, plays the bars' entrance once (FigureController).
 ---
 
 <Figure
@@ -109,15 +107,7 @@ const diseases = metricTotal(corpusMetrics.diseases);
     {
       tiles.map((tile) => (
         <div class="metric" data-metric-kind={tile.kind}>
-          <data
-            value={tile.total}
-            data-count-to={tile.total}
-            data-count-format={tile.format}
-            aria-hidden="true"
-          >
-            {tile.shown}
-          </data>
-          <span class="visually-hidden">{tile.shown}</span>
+          <data value={tile.total}>{tile.shown}</data>
           <h3>{tile.label}</h3>
           <div class="eb-bar" aria-hidden="true">
             {tile.parts.map((part) => (
@@ -166,13 +156,7 @@ const diseases = metricTotal(corpusMetrics.diseases);
       ))
     }
     <div class="metric" data-metric-kind="diseases">
-      <data
-        value={diseases}
-        data-count-to={diseases}
-        data-count-format="int"
-        aria-hidden="true">{int(diseases)}</data
-      >
-      <span class="visually-hidden">{int(diseases)}</span>
+      <data value={diseases}>{int(diseases)}</data>
       <h3>Diseases represented</h3>
       <ul class="eb-diseases">
         <li>

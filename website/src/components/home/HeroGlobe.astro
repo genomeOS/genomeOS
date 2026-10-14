@@ -8,9 +8,10 @@
  * all placed from the provenance sidecar's disc coordinates. hero-globe.ts swaps in the live canvas.
  *
  * Two forms by the figure's own width (container query): from 33rem a 4:3 stage with the callouts
- * in its corners, off the disc, and the steps under it; below, a full-width layer row, a square
- * globe with numbered markers and a three-row key that pins each object in the readout. The readout
- * docks under the stage, never over the globe. Status ("Not yet validated") sits inside the figure.
+ * in its corners, off the disc, and the steps in its bottom band, under the disc; below, a
+ * full-width layer row, a square globe with numbered markers, the readout docked straight under it
+ * and then a three-row key that pins each object in the readout. The readout is never over the
+ * globe. Status ("Not yet validated") sits inside the figure.
  * Without JavaScript the readout keeps its box but offers no hint, since nothing turns or inspects.
  */
 import Figure from '../kit/Figure.astro';
@@ -289,36 +290,43 @@ const hexPath =
       </p>
     ))
   }
-  <ol class="hg-steps">
+  <Fragment slot="readout">
+    <Readout class="hg-readout" id="hero-readout">
+      <span data-readout-text aria-hidden="true"
+        >Drag to turn. Tap to inspect.</span
+      ><span class="visually-hidden" data-readout-sr></span>
+    </Readout>
     {
-      items.map((item) => (
-        <li class="hg-step">
-          <button
-            type="button"
-            data-pin={item.kind}
-            aria-controls="hero-readout"
-          >
-            <span class="hg-step__name">{item.step}</span>
-            <span class="hg-step__detail">
-              <strong>{item.label}</strong> {item.value}
-              {item.range && (
-                <Fragment>
-                  {' '}
-                  <span class="hg-nowrap">{item.range}</span>
-                </Fragment>
-              )}
-            </span>
-          </button>
-        </li>
-      ))
+      /* The steps follow the readout: on a phone they are the key under it, so the readout docks
+         straight under the disc, where a tap lands; from 33rem home.css lays them back over the
+         stage's bottom band, under the disc and above the readout. Each pins its object in the
+         readout, and the one shown there is marked current. */
     }
-  </ol>
-
-  <Readout slot="readout" class="hg-readout" id="hero-readout">
-    <span data-readout-text aria-hidden="true"
-      >Drag to turn. Tap to inspect.</span
-    ><span class="visually-hidden" data-readout-sr></span>
-  </Readout>
+    <ol class="hg-steps">
+      {
+        items.map((item) => (
+          <li class="hg-step">
+            <button
+              type="button"
+              data-pin={item.kind}
+              aria-controls="hero-readout"
+            >
+              <span class="hg-step__name">{item.step}</span>
+              <span class="hg-step__detail">
+                <strong>{item.label}</strong> {item.value}
+                {item.range && (
+                  <Fragment>
+                    {' '}
+                    <span class="hg-nowrap">{item.range}</span>
+                  </Fragment>
+                )}
+              </span>
+            </button>
+          </li>
+        ))
+      }
+    </ol>
+  </Fragment>
 
   <Fragment slot="legend">
     <div class="hg-legend">

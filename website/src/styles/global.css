@@ -60,6 +60,50 @@ svg {
   max-width: 100%;
 }
 
+/* The site's one range control (spec §2.4, square corners): a hairline ion track and a square ion
+   thumb, on Project's threshold map and Home's counts figure alike. */
+.kit-range {
+  width: 100%;
+  min-height: 2rem;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+}
+
+.kit-range::-webkit-slider-runnable-track {
+  height: 2px;
+  background: var(--color-line-strong);
+}
+
+.kit-range::-moz-range-track {
+  height: 2px;
+  background: var(--color-line-strong);
+}
+
+.kit-range::-webkit-slider-thumb {
+  width: 14px;
+  height: 22px;
+  margin-top: -10px;
+  border: 2px solid var(--color-void);
+  background: var(--color-ion);
+  appearance: none;
+}
+
+.kit-range::-moz-range-thumb {
+  width: 12px;
+  height: 20px;
+  border: 2px solid var(--color-void);
+  border-radius: 0;
+  background: var(--color-ion);
+}
+
+.kit-range:focus-visible {
+  border-radius: 0;
+  outline: 2px solid var(--color-ion);
+  outline-offset: 4px;
+}
+
 .skip-link {
   position: fixed;
   z-index: 100;

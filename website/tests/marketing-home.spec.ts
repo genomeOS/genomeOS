@@ -150,6 +150,137 @@ test('after a deep link, the hero is lit and at rest when scrolled back to', asy
   await expect(figure.locator('.hg-callout.is-off')).toHaveCount(0);
 });
 
+declare global {
+  interface Window {
+    __heroPaints?: {
+      state: string | null;
+      poster: boolean;
+      marks: boolean[];
+    }[];
+  }
+}
+
+// Spec §2.7 rule 5: above the fold never flashes. The server renders the hero at rest (poster,
+// callouts, lit steps); with motion allowed the figure must arm before its first paint, so the
+// rest state never shows and then blanks for the entrance (design review, round 1).
+test('the hero never paints its rest state and then blanks it for the entrance', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const paints: NonNullable<Window['__heroPaints']> = [];
+    window.__heroPaints = paints;
+    const shown = (element: Element) => {
+      const style = getComputedStyle(element);
+      return (
+        style.display !== 'none' &&
+        style.visibility === 'visible' &&
+        Number(style.opacity) > 0.05
+      );
+    };
+    // Every frame, before it paints: what the hero is about to show.
+    const sample = () => {
+      const figure = document.querySelector('[data-graphic="hero-globe"]');
+      const poster = figure?.querySelector<HTMLImageElement>('.hg-poster');
+      if (figure && poster && figure.querySelector('.hg-steps'))
+        paints.push({
+          state: figure.getAttribute('data-figure-state'),
+          poster: poster.complete && poster.naturalWidth > 0 && shown(poster),
+          marks: [
+            ...figure.querySelectorAll<HTMLElement>('.hg-callout, .hg-marker'),
+          ]
+            .filter((element) => getComputedStyle(element).display !== 'none')
+            .map(shown),
+        });
+      if (performance.now() < 6000) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+  await page.goto('/');
+  await expect(hero(page)).toHaveAttribute('data-figure-state', 'rest', {
+    timeout: 8_000,
+  });
+  await page.waitForTimeout(200);
+  const paints = await page.evaluate(() => window.__heroPaints ?? []);
+  expect(paints.length).toBeGreaterThan(5);
+  // A callout (or marker), once painted, stays painted.
+  for (let index = 0; index < paints[0].marks.length; index += 1) {
+    const shown = paints.map((paint) => paint.marks[index]);
+    const first = shown.indexOf(true);
+    if (first >= 0)
+      expect(shown.slice(first).every(Boolean), `callout ${index + 1}`).toBe(
+        true,
+      );
+  }
+  // Once the poster (the rest view) has painted, the entrance never starts after it.
+  const poster = paints.findIndex((paint) => paint.poster);
+  if (poster >= 0)
+    expect(
+      paints
+        .slice(poster)
+        .some((paint) => paint.state === 'armed' || paint.state === 'playing'),
+    ).toBe(false);
+});
+
+// WCAG 2.4.3: the calls to action are read and reached before the figure's own controls.
+test('the hero’s calls to action come right after its heading in the focus order', async ({
+  page,
+}) => {
+  for (const [width, height] of [
+    [1440, 900],
+    [390, 844],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await page.goto('/');
+    await page.locator('h1').evaluate((title: HTMLElement) => {
+      title.tabIndex = -1;
+      title.focus();
+    });
+    await page.keyboard.press('Tab');
+    await expect(
+      page.locator('.home-hero__actions .button-link').nth(0),
+      `${width}`,
+    ).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(
+      page.locator('.home-hero__actions .button-link').nth(1),
+      `${width}`,
+    ).toBeFocused();
+    await page.keyboard.press('Tab');
+    // Then the figure: its first control, never something above the calls to action.
+    const next = await page.evaluate(() =>
+      document.activeElement?.closest('[data-graphic="hero-globe"]')
+        ? 'figure'
+        : document.activeElement?.outerHTML.slice(0, 80),
+    );
+    expect(next, `${width}`).toBe('figure');
+  }
+});
+
+// A statistic never reads as zero on screen (design review, round 1): partly in view, short of
+// the 35% that plays an entrance, the tiles already show their totals.
+test('the evidence base shows its real totals while only partly in view', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const figure = page.locator('figure[data-graphic="evidence-base"]');
+  await figure.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    window.scrollTo({
+      top: window.scrollY + box.top - innerHeight + box.height * 0.2,
+      behavior: 'instant',
+    });
+  });
+  await page.waitForTimeout(1200);
+  const numbers = page.locator('.metric data');
+  expect(
+    await numbers.first().evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      return box.top < innerHeight && box.bottom > 0;
+    }),
+  ).toBe(true);
+  expect(await numbers.allTextContents()).toEqual(['4,392', '6.69M', '2']);
+});
+
 test('public typography keeps body and supporting text comfortably large', async ({
   page,
 }) => {
@@ -192,7 +323,7 @@ test('metric digits use a common height and baseline', async ({ page }) => {
   expect(numericStyle.family).toContain('Figtree');
   expect(numericStyle.variant).toContain('lining-nums');
   expect(numericStyle.variant).toContain('tabular-nums');
-  // The final values are in the page, and the count-up ends on them.
+  // The final values are in the page, as static text.
   await page.locator('.metric').first().scrollIntoViewIfNeeded();
   await expect(page.locator('.metric data')).toHaveText([
     '4,392',
@@ -235,13 +366,14 @@ test('the hero stage opens in the first phone viewport @mobile-chromium', async 
     .locator('[data-figure-stage]')
     .evaluate((stage) => stage.getBoundingClientRect().top);
   expect(top).toBeLessThan(844);
-  // Kicker, H1, figure, then the lede and the calls to action.
+  // Kicker, H1, lede, calls to action, then the figure: the order the page is read and tabbed in.
   const order = await page.evaluate(() =>
     [
       '.home-hero__kicker',
       'h1',
-      '[data-graphic="hero-globe"]',
       '.home-hero__lede',
+      '.home-hero__actions',
+      '[data-graphic="hero-globe"]',
     ].map(
       (selector) =>
         document.querySelector(selector)!.getBoundingClientRect().top,
@@ -434,6 +566,9 @@ test('at 320 px the layer segments stay inside their row @mobile-chromium', asyn
 }) => {
   await page.setViewportSize({ width: 320, height: 640 });
   await page.goto('/');
+  // At 320×640 the text fills the first view and the globe starts below it, so its entrance waits
+  // to be scrolled to (the hero's calls to action come first, WCAG 2.4.3).
+  await hero(page).locator('.hg-globe').scrollIntoViewIfNeeded();
   const figure = await liveHero(page);
   const group = figure.getByRole('group', { name: 'Layer' });
   const row = (await group.boundingBox())!;
@@ -700,6 +835,60 @@ test('a tap pins what is under it @mobile-chromium', async ({ page }) => {
   await expect(readout(page)).toContainText('No estimate');
 });
 
+// A tap on the globe answers where the eye already is (design review, round 1): the readout docks
+// directly under the disc, above the three-row key, and the tapped key row is marked current.
+test('on a phone the readout docks under the globe, above the key @mobile-chromium', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const figure = await liveHero(page);
+  const globe = (await figure.locator('.hg-globe').boundingBox())!;
+  const strip = (await figure.locator('.hg-readout').boundingBox())!;
+  const key = (await figure.locator('.hg-step').first().boundingBox())!;
+  expect(strip.y).toBeGreaterThanOrEqual(globe.y + globe.height - 0.5);
+  expect(strip.y - (globe.y + globe.height)).toBeLessThan(24);
+  expect(key.y).toBeGreaterThanOrEqual(strip.y + strip.height - 0.5);
+
+  const third = figure.locator('.hg-step button').nth(2);
+  await third.tap();
+  await expect(readout(page)).toContainText('No estimate');
+  await expect(third).toHaveAttribute('aria-current', 'true');
+  await expect(figure.locator('.hg-step button[aria-current]')).toHaveCount(1);
+});
+
+// The counts figure reads as sample size at rest (design review, round 1): row B's reserved room
+// is a faint ghost grid of untested alleles that the slider fills, and the grids span the figure.
+test('the counts grids span the figure, and row B’s room is alleles not yet tested', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const why = page.locator('#why');
+  const figure = why.locator('figure[data-graphic="counts"]');
+  await figure.scrollIntoViewIfNeeded();
+  await expect(figure).toHaveAttribute('data-figure-state', 'rest');
+  const stage = (await figure.locator('[data-figure-stage]').boundingBox())!;
+  for (const row of ['a', 'b']) {
+    const grid = figure.locator(`[data-grid="${row}"]:visible`);
+    const box = (await grid.boundingBox())!;
+    expect(box.width, `grid ${row}`).toBeGreaterThanOrEqual(stage.width * 0.9);
+  }
+  const ghost = figure.locator('[data-grid="b"]:visible [data-ghost]');
+  await expect(ghost).toHaveCount(1);
+  const tested = figure.locator('[data-grid="b"]:visible [data-squares]');
+  const height = async (locator: typeof ghost) =>
+    (await locator.boundingBox())?.height ?? 0;
+  const room = await height(ghost);
+  // At the default stop, 20 of the 2,000 squares are tested: one short row.
+  expect(await height(tested.first())).toBe(0);
+  expect(await height(tested.nth(1))).toBeLessThan(room / 10);
+  await why.getByRole('slider', { name: 'Alleles tested in B' }).focus();
+  await page.keyboard.press('End');
+  await expect
+    .poll(async () => Math.abs((await height(tested.first())) - room))
+    .toBeLessThan(1);
+});
+
 // A mouse drag; the phone's touch drag is tested on its own below.
 test('dragging turns the globe: the callouts step aside until Reset view @desktop-chromium', async ({
   page,
@@ -789,6 +978,33 @@ test('the counts slider moves bar B and its sentence together, both in view on a
     expect(box.y).toBeGreaterThanOrEqual(0);
     expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
   }
+});
+
+// The closing band sits on the calls-to-action grid: the field spans the last two cards' columns
+// and the text the first two, so nothing ends on a ragged gap (design review, round 1).
+test('the open field lines up with the calls to action below it @desktop-chromium', async ({
+  page,
+}) => {
+  for (const width of [1280, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    const field = (await page.locator('.of-stage svg').boundingBox())!;
+    const ctas = await page
+      .locator('.home-open__routes .github-cta')
+      .evaluateAll((links) =>
+        links.map((link) => link.getBoundingClientRect().toJSON()),
+      );
+    expect(ctas, `${width}`).toHaveLength(4);
+    expect(Math.abs(field.x - ctas[2].left), `${width} left`).toBeLessThan(1.5);
+    expect(
+      Math.abs(field.x + field.width - ctas[3].right),
+      `${width} right`,
+    ).toBeLessThan(1.5);
+  }
+  // One range style on the site: Home's counts slider is Project's.
+  await expect(
+    page.getByRole('slider', { name: 'Alleles tested in B' }),
+  ).toHaveCSS('appearance', 'none');
 });
 
 test('without JavaScript every figure shows its final state', async ({

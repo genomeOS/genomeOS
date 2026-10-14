@@ -49,7 +49,7 @@ import {
   type FrameScheduler,
   type Tween,
 } from '../../graphics/tween';
-import { steadyEntrance } from './count-up';
+import { steadyEntrance } from './steady-entrance';
 
 /** Entrance length (spec §4.1 motion table). */
 export const ENTRANCE_MS = 2800;
@@ -59,7 +59,19 @@ export const REST_VIEW: readonly [number, number] = [18, 8];
 export const TURN_DEG = 20;
 /** The globe box is this much wider than the disc, so limb studs keep their rings. */
 export const DISC_PAD = 1.04;
+/** The disc radius (CSS px) whose studs are drawn at full size: the hero's disc at 1440 px. */
+export const STUD_REFERENCE_RADIUS = 225;
 
+/**
+ * The studs' share of their full size on a disc of this radius: they shrink with the disc (a
+ * phone's is about a quarter smaller), so over West Africa or India they stay points and the
+ * Modeled layer shows between them (design review, round 1). Never below 0.6.
+ */
+export const heroStudScale = (radius: number): number =>
+  Math.min(1, Math.max(0.6, radius / STUD_REFERENCE_RADIUS));
+
+/** The lead figure plays at load once this share of the globe is in view (see leadFigure). */
+const LEAD_VISIBLE_SHARE = 0.25;
 const LAT_LIMITS = [-60, 70] as const;
 const KEY_STEP_DEG = 8;
 const INERTIA_MS = 1000;
@@ -282,6 +294,9 @@ export function initHeroGlobe(figure: HTMLElement): void {
   });
 
   figure.dataset.view = 'rest';
+  /** The head script's pre-paint arming (index.astro) is over once the island owns the figure. */
+  const standDown = () =>
+    document.documentElement.removeAttribute('data-arm-hero');
   // Printing shows the final state (spec §8). FigureController handles a print once it exists; the
   // data can arrive after printing began, so remember it here too.
   let printing =
@@ -477,6 +492,7 @@ export function initHeroGlobe(figure: HTMLElement): void {
   };
   /** The poster is the Modeled layer at rest: the figure's legend, readouts and view match it. */
   const usePoster = (hold = true) => {
+    standDown();
     posterHeld ||= hold;
     posterOnly = true;
     stopMotion();
@@ -535,6 +551,7 @@ export function initHeroGlobe(figure: HTMLElement): void {
       domain: config.domain,
       layer,
       globe: true,
+      studScale: (width) => heroStudScale(width / 2 / DISC_PAD),
       fit(width, height, target) {
         target.scale = width / 2 / DISC_PAD;
         target.translate = [width / 2, height / 2];
@@ -559,6 +576,8 @@ export function initHeroGlobe(figure: HTMLElement): void {
   const start = async () => {
     await ensureData();
     if (posterOnly) return;
+    // The controller now holds the figure's state (armed, playing or rest), which ends the head
+    // script's pre-paint arming (home.css keys it on a figure with no state yet).
     controller = steadyEntrance(figure, {
       duration: ENTRANCE_MS,
       arm() {
@@ -584,7 +603,22 @@ export function initHeroGlobe(figure: HTMLElement): void {
         restState();
       },
     });
+    standDown();
     if (printing) controller.finish();
+    else if (controller.state === 'armed') leadFigure(controller);
+  };
+
+  /**
+   * The hero is the page's lead figure. On a phone the text comes first, so the first view shows
+   * only the globe's top: short of the 35% the page's observer waits for, it would sit blank until
+   * the visitor scrolled. With a quarter of the globe showing it plays now; with less, it rests at
+   * once (spec §2.7 rule 5); off screen (a deep link), it waits to be scrolled to.
+   */
+  const leadFigure = (entrance: FigureController) => {
+    const box = globe.getBoundingClientRect();
+    const showing = Math.min(box.bottom, innerHeight) - Math.max(box.top, 0);
+    if (showing >= box.height * LEAD_VISIBLE_SHARE) entrance.play();
+    else if (showing > 0) entrance.finish();
   };
 
   /* ---- interaction ---- */
@@ -593,8 +627,19 @@ export function initHeroGlobe(figure: HTMLElement): void {
     const box = canvas.getBoundingClientRect();
     return [event.clientX - box.left, event.clientY - box.top];
   };
-  const pin = (hit: HexHit | null) => {
+  const stepButtons = [
+    ...figure.querySelectorAll<HTMLButtonElement>('.hg-step button[data-pin]'),
+  ];
+  /** The step whose object is pinned is marked current; any other pin clears it. */
+  const pressStep = (kind: CalloutKind | null) => {
+    for (const button of stepButtons)
+      if (button.dataset.pin === kind)
+        button.setAttribute('aria-current', 'true');
+      else button.removeAttribute('aria-current');
+  };
+  const pin = (hit: HexHit | null, step: CalloutKind | null = null) => {
     pinned = hit;
+    pressStep(hit ? step : null);
     if (field) {
       field.pinned = hit;
       draw();
@@ -723,6 +768,7 @@ export function initHeroGlobe(figure: HTMLElement): void {
     const y = canvas.clientHeight / 2;
     const hit = field.hit(x, y);
     pinned = hit;
+    pressStep(null);
     field.pinned = hit;
     draw();
     show(hit);
@@ -776,12 +822,14 @@ export function initHeroGlobe(figure: HTMLElement): void {
     goHome();
   });
 
-  // The steps pin the object their callout describes.
-  for (const button of figure.querySelectorAll<HTMLButtonElement>(
-    '.hg-step button[data-pin]',
-  ))
+  // The steps pin the object their callout describes; pressing the current one lets it go.
+  for (const button of stepButtons)
     button.addEventListener('click', () => {
       const kind = button.dataset.pin as CalloutKind;
+      if (button.getAttribute('aria-current') === 'true') {
+        pin(null);
+        return;
+      }
       void ensureData().then(() => {
         if (!field || !data) return;
         finishEntrance();
@@ -802,7 +850,7 @@ export function initHeroGlobe(figure: HTMLElement): void {
                 x,
                 y,
               };
-        pin(hit);
+        pin(hit, kind);
       });
     });
 

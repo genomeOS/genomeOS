@@ -369,7 +369,10 @@ describe('measured studs: a white disc on a 1.5 px void ring, like the poster an
   });
   /** The longitude that lands `px` CSS pixels east of the centre on a 100 px globe. */
   const east = (px: number) => (Math.asin(px / 100) * 180) / Math.PI;
-  const draw = (surveys: ReturnType<typeof survey>[]) => {
+  const draw = (
+    surveys: ReturnType<typeof survey>[],
+    studScale?: (width: number, height: number) => number,
+  ) => {
     const { canvas, top } = recordingCanvas(200, 200);
     new HexField(canvas, {
       areas: [],
@@ -384,9 +387,24 @@ describe('measured studs: a white disc on a 1.5 px void ring, like the poster an
         projection.translate = CENTRE;
       },
       domain: [0, 0.2],
+      studScale,
     });
     return (dx: number, dy = 0) => top(CENTRE[0] + dx, CENTRE[1] + dy);
   };
+
+  it('scales the white disc with a small stage and keeps its 1.5 px void ring', () => {
+    // A phone's disc is a quarter smaller than a laptop's: its studs shrink with it, so they stop
+    // merging into blobs over the modeled layer (design review, round 1). The ring stays whole.
+    const at = draw([survey(0, 500)], (width) => (width < 300 ? 0.75 : 1));
+    const r = STUD_RADIUS.md * 0.75;
+    for (const angle of angles) {
+      const point = (d: number) => at(d * Math.cos(angle), d * Math.sin(angle));
+      expect(point(r - 0.05)).toBe(ENC.obs);
+      expect(point(r + 0.05)).toBe(VOID);
+      expect(point(r + STUD_RING - 0.05)).toBe(VOID);
+      expect(point(r + STUD_RING + 0.05)).toBe('none');
+    }
+  });
   const angles = Array.from({ length: 8 }, (_, k) => (k * Math.PI) / 4);
 
   beforeEach(() => {

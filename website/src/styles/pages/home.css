@@ -97,11 +97,13 @@
   );
 }
 
+/* Read and tabbed in one order at every width: kicker and H1, lede and calls to action, then the
+   figure (WCAG 2.4.3; the DOM is in this order too). */
 .home-hero__grid {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: 'head' 'figure' 'body';
+  grid-template-areas: 'head' 'body' 'figure';
   row-gap: 1.6rem;
 }
 
@@ -190,8 +192,12 @@
 
 /* --------------------------------------------------------------------- the evidence globe */
 
+/* One column of rows: toolbar, stage, readout, steps, legend. From 33rem the steps move up into
+   the stage's row (below), over its bottom band. */
 .hg {
   container: hg / inline-size;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .hg .kit-figure__toolbar {
@@ -235,10 +241,20 @@
 }
 
 /* The layer control only does something once the live canvas is up; the poster (Modeled, at
-   rest) neither switches nor turns. */
+   rest) neither switches nor turns. It fades in with the canvas rather than popping in. */
+.hg .hg-layers {
+  transition:
+    opacity var(--dur-ui) var(--ease-ui),
+    visibility 0s;
+}
+
 .hg:not([data-live]) .hg-layers,
 .hg[data-mode='poster'] :is(.hg-layers, .hg-reset) {
+  opacity: 0;
   visibility: hidden;
+  transition:
+    opacity var(--dur-ui) var(--ease-ui),
+    visibility 0s var(--dur-ui);
 }
 
 .hg .kit-figure__stage {
@@ -286,6 +302,54 @@
   width: 100%;
   height: 100%;
   opacity: 0;
+}
+
+/* Armed before the first paint (the head script in index.astro, spec §2.7 rule 5): until the
+   island takes the figure over, it shows what the entrance starts from, never its rest state. The
+   poster, callouts, leaders and markers are hidden and the steps unlit; an empty ocean disc with
+   its limb (the canvas's first frame, hexfield.ts) holds the globe's place. Screens only: print
+   shows the final state. */
+@media screen {
+  :root[data-arm-hero] .hg:not([data-figure-state], [data-mode]) .hg-poster {
+    visibility: hidden;
+  }
+
+  :root[data-arm-hero]
+    .hg:not([data-figure-state], [data-mode])
+    .hg-globe::before {
+    content: '';
+    position: absolute;
+    inset: 1.923%;
+    border-radius: 50%;
+    background: radial-gradient(
+      ellipse 73% 73% at 35% 32.5%,
+      #071831 7%,
+      #020712 100%
+    );
+    box-shadow: 0 0 0 1px rgb(112 230 255 / 28%);
+  }
+
+  :root[data-arm-hero]
+    .hg:not([data-figure-state], [data-mode])
+    :is(.hg-callout, .hg-leader, .hg-marker) {
+    opacity: 0;
+    visibility: hidden;
+    transition: none;
+  }
+
+  :root[data-arm-hero]
+    .hg:not([data-figure-state], [data-mode])
+    .hg-step
+    button::before {
+    border-color: var(--color-deep-line);
+    color: var(--color-faint);
+  }
+
+  :root[data-arm-hero]
+    .hg:not([data-figure-state], [data-mode])
+    .hg-step__name {
+    color: var(--color-muted);
+  }
 }
 
 .hg[data-live] .hg-canvas {
@@ -439,6 +503,13 @@
   font-weight: 600;
 }
 
+/* The step whose object is pinned in the readout (an inset ring: the wide row drops shared
+   borders). */
+.hg-step button[aria-current='true'] {
+  background: var(--color-plate-raised);
+  box-shadow: inset 0 0 0 1px var(--color-ion);
+}
+
 /* Unlit during the entrance: the number dims; the words stay legible. */
 .hg-step.is-off button::before {
   border-color: var(--color-deep-line);
@@ -584,14 +655,21 @@
     top: calc(var(--cy) * 1cqw);
   }
 
+  /* The steps share the stage's grid cell, centred on its bottom band under the disc, and paint
+     over it (the stage is positioned). */
+  .hg .kit-figure__stage,
   .hg-steps {
-    position: absolute;
-    right: 0;
-    bottom: 0;
-    left: 0;
+    grid-row: 2;
+    grid-column: 1;
+  }
+
+  .hg-steps {
+    position: relative;
+    z-index: 1;
+    align-self: end;
+    justify-self: center;
     margin: 0;
     display: flex;
-    justify-content: center;
     gap: 0;
   }
 
@@ -769,20 +847,8 @@
   height: auto;
 }
 
-.cf-grid--narrow {
-  max-width: 320px;
-}
-
 .cf-grid--wide {
   display: none;
-  max-width: 300px;
-}
-
-.cf-grid__room {
-  fill: none;
-  stroke: rgb(165 185 211 / 22%);
-  stroke-width: 1;
-  stroke-dasharray: 2 3;
 }
 
 .cf-grid [data-squares] {
@@ -865,12 +931,9 @@
   font-weight: 620;
 }
 
+/* The site's range control (.kit-range, global.css), with a phone-sized target. */
 .cf-slider input {
-  width: 100%;
   min-height: 44px;
-  margin: 0;
-  accent-color: var(--color-ion);
-  cursor: pointer;
 }
 
 .cf-slider__ends {
@@ -881,67 +944,15 @@
   font-variant-numeric: lining-nums tabular-nums;
 }
 
-/* Wide: grids in a 300 px column, bars on the shared axis beside them; the axis heads the bar
-   column on row A's label row, and the slider sits under grid B. */
+/* Wide: the same stacked rows, in larger grids of a hundred alleles per row, each grid and bar
+   spanning the figure (spec §4.1 H2; design review, round 1). */
 @container cf (min-width: 36rem) {
-  .cf-stage {
-    grid-template-columns: 300px minmax(0, 1fr);
-    column-gap: 2rem;
-    row-gap: 0.6rem;
-    align-items: center;
-  }
-
-  .cf-axis {
-    grid-area: 1 / 2;
-    align-self: end;
-    margin-top: 0;
-  }
-
-  [data-row='a'] .cf-row__label {
-    grid-area: 1 / 1;
-    align-self: end;
-  }
-
-  [data-row='a'] .cf-row__grid {
-    grid-area: 2 / 1;
-  }
-
-  [data-row='a'] .cf-row__bar {
-    grid-area: 2 / 2;
-  }
-
-  [data-row='b'] .cf-row__label {
-    grid-area: 3 / 1;
-    margin-top: 1rem;
-  }
-
-  [data-row='b'] .cf-row__grid,
-  [data-row='b'] .cf-row__bar {
-    align-self: start;
-  }
-
-  [data-row='b'] .cf-row__grid {
-    grid-area: 4 / 1;
-  }
-
-  [data-row='b'] .cf-row__bar {
-    grid-area: 4 / 2;
-  }
-
-  .cf-slider {
-    grid-area: 5 / 1;
-  }
-
   .cf-grid--wide {
     display: block;
   }
 
   .cf-grid--narrow {
     display: none;
-  }
-
-  .cf-slider input {
-    min-height: 24px;
   }
 }
 
@@ -956,7 +967,7 @@
   }
 
   .cf[data-figure-state='playing'] [data-row='a'] .cf-grid {
-    animation: home-unroll 600ms steps(7, end) both;
+    animation: home-unroll 600ms steps(5, end) both;
   }
 
   .cf[data-figure-state='playing'] [data-row='a'] .cf-grid__on {
@@ -1573,12 +1584,27 @@
 
 /* --------------------------------------------------------------------- built in the open */
 
+/* The band sits on its calls to action's columns (design review, round 1): two from 52rem (text
+   over the first card, the field over the second), four from 64rem (text over the first two, the
+   field across the last two), the cards a subgrid of the same tracks, so the field ends where the
+   last card ends. */
 .home-open__grid {
   display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   column-gap: var(--grid-gap);
   row-gap: var(--head-gap);
   align-items: center;
+}
+
+@media (min-width: 64rem) {
+  .home-open__grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .home-open__text,
+  .home-open__figure {
+    grid-column: span 2;
+  }
 }
 
 .home-open__line {
@@ -1590,6 +1616,7 @@
 
 .home-open__routes {
   grid-column: 1 / -1;
+  grid-template-columns: subgrid;
 }
 
 .of {
@@ -1598,7 +1625,6 @@
 
 .of-stage svg {
   width: 100%;
-  max-width: 34rem;
   height: auto;
 }
 
@@ -1635,6 +1661,16 @@
 @media (max-width: 52rem) {
   .home-open__grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* One column: the cards keep the link row's own two-up layout where it fits, and the field
+     keeps a modest size. */
+  .home-open__routes {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  }
+
+  .of-stage svg {
+    max-width: 34rem;
   }
 }
 
