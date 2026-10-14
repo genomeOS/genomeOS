@@ -43,6 +43,13 @@ const {
   class: className,
   tableSummary = 'View as table',
 } = Astro.props;
+// A slot passed inside a false expression still counts as present, so each optional part is drawn
+// only when its slot renders something (as in Plate.astro): no empty chrome bars.
+const render = async (name: string) =>
+  Astro.slots.has(name) ? (await Astro.slots.render(name)).trim() : '';
+const [toolbar, readout, footnote, table] = await Promise.all(
+  ['toolbar', 'readout', 'footnote', 'table'].map(render),
+);
 ---
 
 <figure
@@ -52,9 +59,9 @@ const {
   id={id}
 >
   {
-    Astro.slots.has('toolbar') && (
+    toolbar && (
       <div class="kit-figure__toolbar" data-figure-chrome>
-        <slot name="toolbar" />
+        <Fragment set:html={toolbar} />
       </div>
     )
   }
@@ -69,22 +76,22 @@ const {
   >
     <slot />
   </div>
-  {Astro.slots.has('readout') && <slot name="readout" />}
+  {readout && <Fragment set:html={readout} />}
   <figcaption class="kit-figure__legend" data-figure-chrome>
     <slot name="legend" />
   </figcaption>
   {
-    Astro.slots.has('footnote') && (
+    footnote && (
       <p class="kit-figure__footnote" data-figure-chrome>
-        <slot name="footnote" />
+        <Fragment set:html={footnote} />
       </p>
     )
   }
   {
-    Astro.slots.has('table') && (
+    table && (
       <details class="kit-figure__table" data-figure-chrome>
         <summary>{tableSummary}</summary>
-        <slot name="table" />
+        <Fragment set:html={table} />
       </details>
     )
   }
