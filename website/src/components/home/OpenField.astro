@@ -1,0 +1,108 @@
+---
+/**
+ * Built in the open (site redesign spec §4.1 H7; #454): a small abstract hex field, no geography,
+ * mostly modeled colour, with one hatched cell: "Your expertise". Hovering or focusing any of the
+ * band's calls to action (`[data-open-cta]` in the same section) fills that cell (600 ms) and lands
+ * a survey stud in it: a contribution turns unknown into known. Leaving reverts it; reduced motion
+ * makes it instant. The colours are seeded (SEED = 42), so the field is the same on every build.
+ */
+import Glyph from '../kit/Glyph.astro';
+import { ENC, STUD_RADIUS } from '../../graphics/encoding';
+import { mulberry32 } from '../../graphics/rng';
+import { cssVarStyles, studSvg } from '../kit/svg';
+
+const COLS = 12;
+const ROWS = 5;
+const R = 15;
+const W = Math.sqrt(3) * R;
+const PAD = 4;
+const width = +(PAD * 2 + COLS * W + W / 2).toFixed(1);
+const height = PAD * 2 + R * 2 + (ROWS - 1) * 1.5 * R;
+const TARGET = { col: 7, row: 2 };
+
+const hex = (cx: number, cy: number, r: number) =>
+  Array.from({ length: 6 }, (_, k) => {
+    const a = (Math.PI / 3) * k - Math.PI / 2;
+    return `${k ? 'L' : 'M'}${(cx + r * Math.cos(a)).toFixed(1)} ${(cy + r * Math.sin(a)).toFixed(1)}`;
+  }).join('') + 'Z';
+
+// A smooth abstract surface with a little seeded grain: two rises, fading toward the edges the way
+// the Atlas fades away from evidence (partial and weak tiers at the margins).
+const random = mulberry32();
+const cells = Array.from({ length: ROWS }, (_, row) =>
+  Array.from({ length: COLS }, (_, col) => {
+    const x = PAD + W / 2 + col * W + (row % 2 ? W / 2 : 0);
+    const y = PAD + R + row * 1.5 * R;
+    const rise =
+      Math.exp(-((col - 3) ** 2 + (row - 2) ** 2) / 9) +
+      0.8 * Math.exp(-((col - 9) ** 2 + (row - 1) ** 2) / 7);
+    const value = Math.min(
+      0.999,
+      Math.max(0, rise * 0.85 + (random() - 0.5) * 0.25),
+    );
+    const edge = Math.min(col, COLS - 1 - col, row, ROWS - 1 - row);
+    const fill =
+      edge === 0
+        ? random() < 0.5
+          ? ENC.meanWeak
+          : ENC.meanPartial[Math.floor(value * 3)]
+        : ENC.mean[Math.floor(value * 6)];
+    return { x, y, fill, target: col === TARGET.col && row === TARGET.row };
+  }),
+).flat();
+const target = cells.find((cell) => cell.target)!;
+const hatch = `<pattern id="of-hatch" width="${ENC.hatchPitch}" height="${ENC.hatchPitch}" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="${ENC.hatchPitch}" height="${ENC.hatchPitch}" fill="var(--enc-land)"/><path d="M${ENC.hatchPitch / 2} 0V${ENC.hatchPitch}" stroke="var(--enc-hatch)" stroke-opacity="${ENC.hatchAlpha}" stroke-width="${ENC.hatchWidth}"/></pattern>`;
+const art =
+  `<defs>${hatch}</defs>` +
+  cells
+    .filter((cell) => !cell.target)
+    .map(
+      (cell) =>
+        `<path d="${hex(cell.x, cell.y, R - 0.8)}" fill="${cell.fill}"/>`,
+    )
+    .join('') +
+  `<path d="${hex(target.x, target.y, R - 0.8)}" fill="url(#of-hatch)"/>` +
+  `<path class="of-fill" d="${hex(target.x, target.y, R - 0.8)}" fill="${ENC.mean[4]}"/>` +
+  `<g class="of-stud">${studSvg(target.x, target.y, STUD_RADIUS.lg)}</g>` +
+  `<path class="of-outline" d="${hex(target.x, target.y, R - 0.2)}" fill="none" stroke="var(--color-ion)" stroke-width="1.5"/>`;
+---
+
+<figure class="of" data-graphic="open-field" data-kind="mechanism">
+  <div
+    class="of-stage"
+    data-figure-stage
+    role="img"
+    aria-label="An abstract field of modeled estimates with one cell still hatched, marked your expertise"
+  >
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      width={width}
+      height={height}
+      aria-hidden="true"
+      focusable="false"
+      set:html={cssVarStyles(art)}
+    />
+  </div>
+  <figcaption class="of-legend" data-figure-chrome>
+    <Glyph name="hatch" />
+    <span>Your expertise</span>
+  </figcaption>
+</figure>
+
+<script>
+  // Any call to action in the band fills the hatched cell while it is hovered or focused.
+  for (const figure of document.querySelectorAll<HTMLElement>(
+    'figure[data-graphic="open-field"]',
+  )) {
+    const band = figure.closest('section') ?? document;
+    const fill = (on: boolean) => figure.toggleAttribute('data-filled', on);
+    for (const cta of band.querySelectorAll<HTMLElement>('[data-open-cta]')) {
+      cta.addEventListener('pointerenter', () => fill(true));
+      cta.addEventListener('pointerleave', () =>
+        fill(cta === document.activeElement),
+      );
+      cta.addEventListener('focus', () => fill(true));
+      cta.addEventListener('blur', () => fill(false));
+    }
+  }
+</script>

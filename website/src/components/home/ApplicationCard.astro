@@ -1,0 +1,31 @@
+---
+/**
+ * One potential application (site redesign spec §4.1 H5; #454): its glyph, title, horizon and one
+ * line. The horizon is words with a status dot (aurora: first release; signal: needs clinical
+ * validation; ion: active study, output or hypothesis; genome: future), never colour alone. The
+ * `.application-card` class, its reveal and the hover lift stay (tests pin them); the 3D tilt goes.
+ */
+import ApplicationGlyph from './ApplicationGlyph.astro';
+
+interface Props {
+  index: number;
+  title: string;
+  horizon: string;
+  tone: 'aurora' | 'signal' | 'ion' | 'genome';
+  line: string;
+  glyph: 1 | 2 | 3 | 4 | 5 | 6;
+}
+
+const { index, title, horizon, tone, line, glyph } = Astro.props;
+---
+
+<article
+  class="application-card"
+  data-reveal
+  style={`--reveal-delay: ${Math.min(index * 70, 280)}ms; --i: ${index}`}
+>
+  <ApplicationGlyph variant={glyph} />
+  <h3>{title}</h3>
+  <p class="application-card__horizon" data-tone={tone}>{horizon}</p>
+  <p class="application-card__line">{line}</p>
+</article>
