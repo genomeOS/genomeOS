@@ -3,10 +3,12 @@
  * The shared evidence Pipeline (site redesign spec §3.1, #454): Home shows 3 stages, Project 6 parts
  * with a morph between them, the Docs landing a static map of links to the guides.
  *
- * Rendered on the server in its final state, horizontally at 72rem and up and vertically below
- * (each layout about 1 unit per CSS px at its narrowest width, so labels stay 13 px or more). The
- * island (pipeline.ts) adds packets, focus, the 3 ↔ 6 morph and Replay; `variant="links"` ships
- * no script at all.
+ * Rendered on the server in its final state, in both layouts: CSS shows the horizontal one when the
+ * plate's stage is at least PIPELINE_STAGE_WIDTH.h.min wide (a container query, so a narrow column
+ * gets the vertical one at any viewport) and the vertical one below that. Each layout is about
+ * 1 unit per CSS px at its narrowest width, so labels stay 13 px or more. The island
+ * (pipeline.ts) adds packets, focus, the 3 ↔ 6 morph and Replay; `variant="links"` ships no
+ * script at all.
  *
  * Two lanes that never join: measured studs bypass every model and the gate and reach the map at
  * its upper port; on the modeled lane a stud becomes a hex only on leaving a model node. No
@@ -14,13 +16,16 @@
  */
 import {
   ALL_KEYS,
-  CENTRE_COLUMN,
   PIPELINE,
+  PIPELINE_TYPE,
   SOCKET,
   edgePath,
   laneTagPosition,
+  pipelineLayout,
+  viewBoxOf,
   type NodeGlyph,
   type Orientation,
+  type PipelineLayout,
   type PipelineMode,
   type PipelineNode,
 } from '../../data/pipeline';
@@ -36,7 +41,8 @@ interface Props {
   variant?: 'interactive' | 'links';
   /** Offer the 3 stages ↔ 6 parts toggle (interactive only). */
   modeToggle?: boolean;
-  /** Draw the stage brackets in mode 6 too (mode 3 always has them). */
+  /** Draw the stage brackets in mode 6 too (mode 3 always has them). Without them the figure
+   * drops the band they sit in. */
   stageBrackets?: boolean;
   /** Unique per page: prefixes every id this instance renders. */
   idPrefix: string;
@@ -63,6 +69,8 @@ const inModes = (key: string) =>
 const nodeIn = (key: string, m: PipelineMode) =>
   PIPELINE[m].nodes.find((node) => node.key === key);
 const showBrackets = (m: PipelineMode) => m === 3 || stageBrackets;
+const layoutOf = (m: PipelineMode, o: Orientation): PipelineLayout =>
+  pipelineLayout(m, o, showBrackets(m));
 
 const LANE_COLOUR = {
   source: 'var(--color-faint)',
@@ -169,15 +177,11 @@ const GLYPH: Record<NodeGlyph, () => string> = {
 };
 
 /* ---------- labels ---------- */
-const TYPE = {
-  h: { label: 17, sub: 16, line: 19 },
-  v: { label: 15.5, sub: 15, line: 17.5 },
-} as const;
-function labelPlacement(o: Orientation, x: number) {
-  const left = o === 'v' && x !== CENTRE_COLUMN;
-  return left
+// Under the socket, or to its left in the vertical layout's modeled-only column.
+function labelPlacement(layout: PipelineLayout, key: string) {
+  return layout.column[key] === 'lane'
     ? { x: -R - 14, y: -12, anchor: 'end' }
-    : { x: 0, y: R + (o === 'h' ? 24 : 22), anchor: 'middle' };
+    : { x: 0, y: R + (layout.orient === 'h' ? 24 : 22), anchor: 'middle' };
 }
 const nodeName = (node: PipelineNode) =>
   `${node.label.join(' ')}${node.sub ? ` (${node.sub})` : ''}`;
@@ -242,17 +246,14 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
   {
     orientations.map((o) => {
       const viewBoxes = Object.fromEntries(
-        modes.map((m) => [
-          `data-viewbox-${m}`,
-          `0 0 ${PIPELINE[m].layouts[o].width} ${PIPELINE[m].layouts[o].height}`,
-        ]),
+        modes.map((m) => [`data-viewbox-${m}`, viewBoxOf(layoutOf(m, o))]),
       );
-      const layout = PIPELINE[mode].layouts[o];
+      const T = PIPELINE_TYPE[o];
       return (
         <svg
           class:list={['kit-pipeline__svg', `kit-pipeline__svg--${o}`]}
           data-orient={o}
-          viewBox={`0 0 ${layout.width} ${layout.height}`}
+          viewBox={viewBoxOf(layoutOf(mode, o))}
           {...viewBoxes}
         >
           <defs>
@@ -276,7 +277,7 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
             ))}
           </defs>
           {modes.filter(showBrackets).map((m) => {
-            const L = PIPELINE[m].layouts[o];
+            const L = layoutOf(m, o);
             return (
               <g class="pl-brackets" data-modes={String(m)} aria-hidden="true">
                 {PIPELINE[m].stages.map((stage, index) => {
@@ -287,19 +288,27 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
                     return (
                       <g class="pl-bracket">
                         <path d={`M${x0} 54V46H${x1}V54`} />
-                        <text x={x0} y="34" font-size="16">
+                        <text x={x0} y="34" font-size={T.stage}>
                           {stage.label}
                         </text>
                       </g>
                     );
                   }
-                  const y = L.heads![index];
+                  // A title block with a short rule under it, clear of both lanes' wires.
+                  const head = L.heads![index];
                   return (
                     <g class="pl-bracket">
-                      <text x="56" y={y + 5} font-size="15">
-                        {stage.label}
+                      <text x={head.x} y={head.y} font-size={T.stage}>
+                        {head.lines.map((line, row) => (
+                          <tspan
+                            x={head.x}
+                            dy={row ? PIPELINE_TYPE.v.stageLine : 0}
+                          >
+                            {row < head.lines.length - 1 ? `${line} ` : line}
+                          </tspan>
+                        ))}
                       </text>
-                      <path d={`M56 ${y + 16}H348`} />
+                      <path d={`M${head.x} ${head.ruleY}h${head.rule}`} />
                     </g>
                   );
                 })}
@@ -315,7 +324,7 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
                     `pl-edge--${edge.lane}`,
                     { 'pl-edge--draw': edge.lane !== 'source' },
                   ]}
-                  d={edgePath(PIPELINE[m], edge, o)}
+                  d={edgePath(layoutOf(m, o), edge)}
                   data-modes={String(m)}
                   data-edge={edge.id}
                   data-from={edge.from}
@@ -334,11 +343,11 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
               (['measured', 'modeled'] as const).map((lane) => {
                 const { x, y, vertical } = laneTagPosition(
                   PIPELINE[m],
+                  layoutOf(m, o),
                   lane,
-                  o,
                 );
                 const text = lane === 'measured' ? 'Measured' : 'Modeled';
-                const size = o === 'h' ? 16 : 15;
+                const size = T.lane;
                 const width = text.length * size * 0.56 + 18;
                 return (
                   <g
@@ -364,17 +373,13 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
           <g class="pl-nodes">
             {keys.map((key) => {
               const present = inModes(key);
-              const node = nodeIn(
-                key,
-                present.includes(mode) ? mode : present[0],
-              )!;
-              const [x, y] =
-                PIPELINE[present.includes(mode) ? mode : present[0]].layouts[o]
-                  .pos[key];
+              const home = present.includes(mode) ? mode : present[0];
+              const node = nodeIn(key, home)!;
+              const [x, y] = layoutOf(home, o).pos[key];
               const positions = Object.fromEntries(
                 present.map((m) => [
                   `data-pos-${m}`,
-                  PIPELINE[m].layouts[o].pos[key].join(' '),
+                  layoutOf(m, o).pos[key].join(' '),
                 ]),
               );
               const perMode = Object.fromEntries(
@@ -400,9 +405,7 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
                   </g>
                   {present.map((m) => {
                     const variantNode = nodeIn(key, m)!;
-                    const [px] = PIPELINE[m].layouts[o].pos[key];
-                    const place = labelPlacement(o, px);
-                    const t = TYPE[o];
+                    const place = labelPlacement(layoutOf(m, o), key);
                     return (
                       <g
                         class="pl-node__text"
@@ -414,10 +417,10 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
                           x={place.x}
                           y={place.y}
                           text-anchor={place.anchor}
-                          font-size={t.label}
+                          font-size={T.label}
                         >
                           {variantNode.label.map((line, index) => (
-                            <tspan x={place.x} dy={index ? t.line : 0}>
+                            <tspan x={place.x} dy={index ? T.line : 0}>
                               {line}
                             </tspan>
                           ))}
@@ -426,9 +429,9 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
                           <text
                             class="pl-node__sub"
                             x={place.x}
-                            y={place.y + variantNode.label.length * t.line}
+                            y={place.y + variantNode.label.length * T.line}
                             text-anchor={place.anchor}
-                            font-size={t.sub}
+                            font-size={T.sub}
                           >
                             {variantNode.sub}
                           </text>
@@ -497,6 +500,12 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
 {!links && <PipelineMotion />}
 
 <style is:global>
+  /* The layout follows the plate's own width (PIPELINE_STAGE_WIDTH in data/pipeline.ts), so a
+     Pipeline in a narrow column is vertical at any viewport and its labels stay 13 px or more. */
+  .kit-pipeline > .kit-plate__stage {
+    container: kit-pipeline / inline-size;
+  }
+
   .kit-pipeline__svg {
     display: block;
     width: 100%;
@@ -505,19 +514,22 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
     font-family: var(--font-body);
   }
 
-  .kit-pipeline__svg--v {
+  .kit-pipeline__svg--h {
     display: none;
-    max-width: 26rem;
+  }
+
+  .kit-pipeline__svg--v {
+    max-width: 352px;
     margin-inline: auto;
   }
 
-  @media (max-width: 71.99rem) {
+  @container kit-pipeline (min-width: 1000px) {
     .kit-pipeline__svg--h {
-      display: none;
+      display: block;
     }
 
     .kit-pipeline__svg--v {
-      display: block;
+      display: none;
     }
   }
 

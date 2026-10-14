@@ -13,11 +13,62 @@ import { describe, expect, it } from 'vitest';
 import {
   PIPELINE,
   PIPELINE_MODES,
+  PIPELINE_STAGE_WIDTH,
+  PIPELINE_TYPE,
+  SOCKET,
   edgePath,
+  pipelineLayout,
+  type Orientation,
   type PipelineMode,
 } from '../src/data/pipeline';
 
 const MODEL_KINDS = new Set(['model']);
+const LAYOUTS = (['h', 'v'] as const).flatMap((orient) =>
+  [true, false].map((brackets) => ({ orient, brackets })),
+);
+
+/** Points along an SVG path made of M, L and C commands (absolute), 24 per segment. */
+function samplePath(d: string): [number, number][] {
+  const tokens = d.match(/[MLC]|-?[\d.]+/g)!;
+  const points: [number, number][] = [];
+  let index = 0;
+  let current: [number, number] = [0, 0];
+  const read = (): [number, number] => [
+    Number(tokens[index++]),
+    Number(tokens[index++]),
+  ];
+  while (index < tokens.length) {
+    const command = tokens[index++];
+    if (command === 'M') {
+      current = read();
+      points.push(current);
+    } else if (command === 'L') {
+      const end = read();
+      for (let k = 1; k <= 24; k += 1) {
+        const t = k / 24;
+        points.push([
+          current[0] + (end[0] - current[0]) * t,
+          current[1] + (end[1] - current[1]) * t,
+        ]);
+      }
+      current = end;
+    } else if (command === 'C') {
+      const [a, b, end] = [read(), read(), read()];
+      for (let k = 1; k <= 24; k += 1) {
+        const t = k / 24;
+        const u = 1 - t;
+        const at = (axis: 0 | 1) =>
+          u * u * u * current[axis] +
+          3 * u * u * t * a[axis] +
+          3 * u * t * t * b[axis] +
+          t * t * t * end[axis];
+        points.push([at(0), at(1)]);
+      }
+      current = end;
+    } else throw new Error(`unexpected path command ${command} in ${d}`);
+  }
+  return points;
+}
 
 describe.each(PIPELINE_MODES)('Pipeline mode %s', (mode: PipelineMode) => {
   const data = PIPELINE[mode];
@@ -111,22 +162,121 @@ describe.each(PIPELINE_MODES)('Pipeline mode %s', (mode: PipelineMode) => {
   });
 
   it('routes every edge in both orientations', () => {
-    for (const orient of ['h', 'v'] as const)
+    for (const { orient, brackets } of LAYOUTS)
       for (const edge of data.edges)
-        expect(edgePath(data, edge, orient)).toMatch(/^M[\d.-]+ [\d.-]+/);
+        expect(edgePath(pipelineLayout(mode, orient, brackets), edge)).toMatch(
+          /^M[\d.-]+ [\d.-]+/,
+        );
   });
 
-  it('places every node inside its layout', () => {
-    for (const orient of ['h', 'v'] as const) {
-      const layout = data.layouts[orient];
-      for (const node of data.nodes) {
-        const [x, y] = layout.pos[node.key];
-        expect(x).toBeGreaterThan(0);
-        expect(x).toBeLessThan(layout.width);
-        expect(y).toBeGreaterThan(0);
-        expect(y).toBeLessThan(layout.height);
-      }
+  it('places every node and wire inside its layout', () => {
+    for (const { orient, brackets } of LAYOUTS) {
+      const layout = pipelineLayout(mode, orient, brackets);
+      const inside = ([x, y]: readonly [number, number], margin: number) => {
+        expect(x).toBeGreaterThanOrEqual(margin);
+        expect(x).toBeLessThanOrEqual(layout.width - margin);
+        expect(y).toBeGreaterThanOrEqual(layout.top + margin);
+        expect(y).toBeLessThanOrEqual(layout.top + layout.height - margin);
+      };
+      for (const node of data.nodes) inside(layout.pos[node.key], SOCKET);
+      for (const edge of data.edges)
+        for (const point of samplePath(edgePath(layout, edge)))
+          inside(point, 0);
     }
+  });
+
+  it('keeps the vertical stage heads clear of every wire', () => {
+    // Each head is a block of text with a short hairline under it (design review, fix round 1:
+    // the hairline used to run the full width and cross both lanes).
+    const layout = pipelineLayout(mode, 'v', true);
+    expect(layout.heads).toHaveLength(data.stages.length);
+    for (const head of layout.heads!) {
+      const box = {
+        left: head.x - 4,
+        right: head.x + head.rule + 4,
+        top: head.y - PIPELINE_TYPE.v.stage,
+        bottom: head.ruleY + 4,
+      };
+      for (const edge of data.edges)
+        for (const [x, y] of samplePath(edgePath(layout, edge)))
+          expect(
+            x > box.left && x < box.right && y > box.top && y < box.bottom,
+            `${edge.id} crosses "${head.lines.join(' ')}" at ${x.toFixed(0)}, ${y.toFixed(0)}`,
+          ).toBe(false);
+    }
+  });
+
+  it('drops the bracket band when it draws no stage brackets', () => {
+    for (const orient of ['h', 'v'] as const) {
+      const bare = pipelineLayout(mode, orient, false);
+      const full = pipelineLayout(mode, orient, true);
+      expect(bare.heads).toBeNull();
+      expect(bare.height).toBeLessThan(full.height);
+      // The first mark sits near the top of the box: no empty band above it.
+      const firstMark = Math.min(
+        ...data.nodes.map((node) => bare.pos[node.key][1] - SOCKET),
+        ...data.edges.flatMap((edge) =>
+          samplePath(edgePath(bare, edge)).map(([, y]) => y),
+        ),
+      );
+      expect(firstMark - bare.top, orient).toBeLessThanOrEqual(30);
+    }
+  });
+});
+
+describe('Pipeline labels stay 13 px or more (spec §2.3)', () => {
+  const smallest = (orient: Orientation) =>
+    Math.min(
+      PIPELINE_TYPE[orient].label,
+      PIPELINE_TYPE[orient].sub,
+      PIPELINE_TYPE[orient].stage,
+      PIPELINE_TYPE[orient].lane,
+    );
+
+  it.each(['h', 'v'] as const)(
+    'the %s layout at the narrowest stage it is drawn in',
+    (orient) => {
+      for (const { brackets } of LAYOUTS)
+        for (const mode of PIPELINE_MODES) {
+          const { width } = pipelineLayout(mode, orient, brackets);
+          const scale = PIPELINE_STAGE_WIDTH[orient].min / width;
+          expect(smallest(orient) * scale).toBeGreaterThanOrEqual(13);
+          // One unit is about one CSS px at that width: the viewBox is within ±20% of it.
+          expect(width / PIPELINE_STAGE_WIDTH[orient].min).toBeLessThanOrEqual(
+            1.2,
+          );
+          expect(
+            width / PIPELINE_STAGE_WIDTH[orient].min,
+          ).toBeGreaterThanOrEqual(0.8);
+        }
+    },
+  );
+
+  it('chooses the layout from the plate, not the viewport', () => {
+    // The Docs column is narrower than the page, so a viewport breakpoint drew the horizontal
+    // layout there at half size (design review, fix round 1).
+    const source = readFileSync(
+      path.resolve(import.meta.dirname, '../src/components/kit/Pipeline.astro'),
+      'utf8',
+    );
+    expect(source).toMatch(/container:\s*kit-pipeline\s*\/\s*inline-size/);
+    expect(source).toContain(
+      `@container kit-pipeline (min-width: ${PIPELINE_STAGE_WIDTH.h.min}px)`,
+    );
+    expect(source).not.toMatch(/@media \((max|min)-width: [\d.]+rem\)/);
+    // The vertical layout stops growing before its labels get coarse.
+    expect(source).toContain(`max-width: ${PIPELINE_STAGE_WIDTH.v.max}px`);
+    expect(
+      PIPELINE_STAGE_WIDTH.v.max / pipelineLayout(6, 'v', true).width,
+    ).toBeLessThanOrEqual(1.35);
+  });
+
+  it('wraps a stage title in the vertical layout without changing its words', () => {
+    for (const mode of PIPELINE_MODES)
+      for (const head of pipelineLayout(mode, 'v', true).heads!)
+        expect(PIPELINE[mode].stages.map((stage) => stage.label)).toContain(
+          head.lines.join(' '),
+        );
   });
 });
 
