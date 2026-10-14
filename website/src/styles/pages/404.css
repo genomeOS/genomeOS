@@ -1,1 +1,53 @@
-/* 404 page styles (site redesign #454). Owned by the 404 page task; loaded after the shared CSS. */
+/*
+ * 404 page styles (site redesign spec §4.6, #454). Owned by the 404 page task; loaded after the
+ * shared CSS, and scoped to the page's own wrappers.
+ */
+
+/* The intro is the shared PageIntro, split. On a wide screen its figure stands at the right of the
+   heading and the lede (spec §4.6), instead of under them as on the other pages; on a phone it
+   follows the lede, as PageIntro lays it out. A figure taller than the heading and the lede gives
+   its spare height to the empty first row, so the lede stays under the heading. */
+@media (width > 52rem) {
+  .notfound-intro .page-intro--split .page-intro__inner {
+    grid-template-rows: 1fr auto auto;
+  }
+
+  .notfound-intro .page-intro--split .page-intro__head {
+    grid-row: 2;
+  }
+
+  .notfound-intro .page-intro--split .page-intro__lede {
+    grid-column: 1 / span 6;
+    grid-row: 3;
+    margin-top: 1.5rem;
+  }
+
+  .notfound-intro .page-intro--split .page-intro__figure {
+    grid-column: 8 / -1;
+    grid-row: 1 / -1;
+    align-self: end;
+    margin-top: 0;
+  }
+}
+
+/* No one-word last line under the heading. */
+.notfound-intro .page-intro__lede {
+  text-wrap: pretty;
+}
+
+/* Three routes back: a link row of cards (spec §2.4), navigation only. */
+.notfound-routes {
+  padding-block: clamp(2.5rem, 5vw, 4rem) clamp(4rem, 8vw, 6rem);
+}
+
+.notfound-routes .github-cta > span:not([aria-hidden]) {
+  margin-top: 0.2rem;
+  color: var(--color-text-soft);
+  font-size: 1rem;
+  line-height: 1.4;
+  text-wrap: pretty;
+}
+
+.notfound-routes .github-cta > span[aria-hidden] {
+  line-height: 0;
+}
