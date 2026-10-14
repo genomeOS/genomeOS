@@ -22,6 +22,13 @@ export default defineConfig({
     'atlas-mobile.spec.ts',
     'atlas-cross-origin.spec.ts',
     'analytics.spec.ts',
+    // The site redesign's per-page and cross-page suites (#454, spec §9). The marketing
+    // performance budgets run under playwright.performance.config.ts instead.
+    /marketing-(home|project|contribute|privacy|404)\.spec\.ts$/,
+    'word-budget.spec.ts',
+    'figures.spec.ts',
+    'motion.spec.ts',
+    'redirect.spec.ts',
   ],
   fullyParallel: false,
   workers: playwrightWorkers(),

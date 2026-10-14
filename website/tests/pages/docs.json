@@ -1,0 +1,15 @@
+{
+  "route": "/docs/",
+  "words": 200,
+  "wordsEnforced": false,
+  "conceptsEnforced": false,
+  "wordsExclude": "table",
+  "jsKbGz": null,
+  "dataKbGz": 0,
+  "transferKbGz": null,
+  "lcpMs": {
+    "desktop": 1200,
+    "phone": 2500
+  },
+  "cls": 0.02
+}

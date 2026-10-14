@@ -3,9 +3,17 @@
 export const topLevelRoutes = [
   '/',
   '/project/',
-  '/working-groups/',
   '/contribute/',
   '/app/',
   '/docs/',
   '/privacy/',
+] as const;
+
+/** The marketing pages the site redesign rebuilds (#454, spec §9.1). */
+export const marketingRoutes = [
+  '/',
+  '/project/',
+  '/contribute/',
+  '/privacy/',
+  '/404.html',
 ] as const;

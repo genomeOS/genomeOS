@@ -370,7 +370,7 @@ test.describe('opt-in in an EEA, UK or Swiss time zone', () => {
       { name: 'unrelated', value: 'kept', url: baseURL },
     ]);
     const requests = gtagRequests(page);
-    await page.goto('/working-groups/');
+    await page.goto('/contribute/');
     await waitForCookieControl(page);
     await panel(page).getByRole('button', { name: 'Decline' }).click();
     await expect(panel(page)).toBeHidden();

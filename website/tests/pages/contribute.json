@@ -1,0 +1,15 @@
+{
+  "route": "/contribute/",
+  "words": 330,
+  "wordsEnforced": false,
+  "conceptsEnforced": false,
+  "jsKbGz": 10,
+  "dataKbGz": 0,
+  "transferKbGz": 160,
+  "lcpMs": {
+    "desktop": 1000,
+    "phone": 2200
+  },
+  "cls": 0.02,
+  "leadFigure": true
+}

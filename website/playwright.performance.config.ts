@@ -20,7 +20,8 @@ const target = atlasDataTarget(
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: /atlas-(performance|cold-load)\.spec\.ts/,
+  // The Atlas budgets, and the marketing pages' (site redesign #454, spec §7).
+  testMatch: /(atlas-(performance|cold-load)|marketing-performance)\.spec\.ts/,
   forbidOnly: Boolean(process.env.CI),
   reporter: process.env.CI ? 'github' : 'list',
   retries: 0,

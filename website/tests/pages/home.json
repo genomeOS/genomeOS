@@ -1,0 +1,15 @@
+{
+  "route": "/",
+  "words": 425,
+  "wordsEnforced": false,
+  "conceptsEnforced": false,
+  "jsKbGz": 24,
+  "dataKbGz": 60,
+  "transferKbGz": 300,
+  "lcpMs": {
+    "desktop": 1200,
+    "phone": 2500
+  },
+  "cls": 0.02,
+  "heroStage": true
+}

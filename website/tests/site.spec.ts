@@ -15,7 +15,6 @@ import {
   delayArtifactTier,
   displayedArtifactIds,
   failArtifactTier,
-  installAtlasBrowserFixture,
   readInlineCatalog,
   urlMatchesKey,
 } from './atlas-browser-fixture';
@@ -28,12 +27,10 @@ import {
   recordLegendLoading,
   type LegendRow,
 } from './atlas-mobile-helpers';
+import { useSiteFixtures } from './helpers/marketing';
 import { topLevelRoutes } from './site-routes';
 
-test.beforeEach(async ({ page }) => installAtlasBrowserFixture(page));
-test.afterEach(async ({ page }) => {
-  await page.unrouteAll({ behavior: 'ignoreErrors' });
-});
+useSiteFixtures();
 
 async function chooseAtlasMap(page: Page, id: string): Promise<void> {
   await page
@@ -74,7 +71,7 @@ for (const route of topLevelRoutes) {
   });
 }
 
-test('primary navigation reaches working groups and exposes GitHub access', async ({
+test('primary navigation reaches Contribute and exposes GitHub access', async ({
   page,
   isMobile,
 }) => {
@@ -105,11 +102,11 @@ test('primary navigation reaches working groups and exposes GitHub access', asyn
     await expect(atlas).toBeVisible();
     await page
       .getByRole('navigation', { name: 'Mobile navigation' })
-      .getByRole('link', { name: 'Working groups' })
+      .getByRole('link', { name: 'Contribute' })
       .click();
   } else {
-    // GitHub is the nav's last link, right after Technical docs; genomeOS
-    // Atlas stands outside the nav.
+    // GitHub is the nav's last link, right after Docs; genomeOS Atlas stands
+    // outside the nav.
     const primary = page.getByRole('navigation', {
       name: 'Primary navigation',
     });
@@ -122,22 +119,16 @@ test('primary navigation reaches working groups and exposes GitHub access', asyn
               link.getAttribute('aria-label') ?? link.textContent!.trim(),
           ),
         ),
-    ).toEqual([
-      'Project',
-      'Working groups',
-      'Contribute',
-      'Technical docs',
-      'View genomeOS on GitHub',
-    ]);
+    ).toEqual(['Project', 'Contribute', 'Docs', 'View genomeOS on GitHub']);
     await expect(
       primary.getByRole('link', { name: 'genomeOS Atlas' }),
     ).toHaveCount(0);
-    await primary.getByRole('link', { name: 'Working groups' }).click();
+    await primary.getByRole('link', { name: 'Contribute' }).click();
   }
 
-  await expect(page).toHaveURL(/\/working-groups\/$/);
+  await expect(page).toHaveURL(/\/contribute\/$/);
   await expect(page.getByRole('heading', { level: 1 })).toContainText(
-    'Choose the part of the problem',
+    'Find work that fits how you think.',
   );
 });
 
@@ -446,16 +437,14 @@ test(
 );
 
 test(
-  'GitHub sits in the primary nav right after Technical docs, set exactly like it',
+  'GitHub sits in the primary nav right after Docs, set exactly like it',
   { tag: '@desktop-chromium' },
   async ({ page }) => {
     const compare = () =>
       page.evaluate(() => {
         const nav = document.querySelector('nav.desktop-nav')!;
         const links = [...nav.querySelectorAll('a')];
-        const docs = links.find(
-          (link) => link.textContent!.trim() === 'Technical docs',
-        )!;
+        const docs = links.find((link) => link.textContent!.trim() === 'Docs')!;
         const github = nav.querySelector<HTMLAnchorElement>('.github-link')!;
         const githubText = github.querySelector('span')!;
         const type = (element: Element) => {
@@ -1333,7 +1322,7 @@ test(
 );
 
 test(
-  'the Atlas nav keeps its labels on one line, GitHub on Technical docs, while the status chip loads',
+  'the Atlas nav keeps its labels on one line, GitHub on Docs, while the status chip loads',
   { tag: '@desktop-chromium' },
   async ({ page }) => {
     // Hold the default map's surface, so the chip keeps its loading copy, a
@@ -1377,9 +1366,7 @@ test(
           return { bottom, lines: lines.size, top };
         };
         const links = [...nav.querySelectorAll('a')];
-        const docs = links.find(
-          (link) => link.textContent!.trim() === 'Technical docs',
-        )!;
+        const docs = links.find((link) => link.textContent!.trim() === 'Docs')!;
         const inner = document.querySelector('.site-header__inner')!;
         return {
           docs: textBox(docs),
@@ -1391,7 +1378,7 @@ test(
           overflow: inner.scrollWidth - inner.clientWidth,
         };
       });
-      expect(row.lines, label).toEqual([1, 1, 1, 1, 1]);
+      expect(row.lines, label).toEqual([1, 1, 1, 1]);
       for (const edge of ['top', 'bottom'] as const)
         expect(
           Math.abs(row.github[edge] - row.docs[edge]),
@@ -1816,27 +1803,6 @@ test('the basemap picker sets genomeOS basemap names in the wordmark', async ({
   ).toEqual({ checked: 4, failures: [] });
 });
 
-test('project page labels all three capability states', async ({ page }) => {
-  await page.goto('/project/');
-  await expect(
-    page.getByRole('heading', { name: 'Available now' }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole('heading', { name: 'In active development' }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole('heading', { name: 'Future exploration' }),
-  ).toBeVisible();
-});
-
-test('working-group page links each group to issue work', async ({ page }) => {
-  await page.goto('/working-groups/');
-  await expect(
-    page.getByRole('link', { name: 'Browse matching issues' }),
-  ).toHaveCount(3);
-  await expect(page.getByText('Group forming')).toHaveCount(3);
-});
-
 test('mobile navigation is a keyboard-operable disclosure', async ({
   page,
   isMobile,
@@ -1855,7 +1821,7 @@ test('mobile navigation is a keyboard-operable disclosure', async ({
   await expect(
     page
       .getByRole('navigation', { name: 'Mobile navigation' })
-      .getByRole('link', { name: 'Technical docs' }),
+      .getByRole('link', { name: 'Docs' }),
   ).toBeVisible();
 });
 
@@ -1881,7 +1847,7 @@ test('the Menu panel scrolls inside short viewports and closes on Escape or when
     await page.goto('/');
     await summary.click();
     await expect(menu).toHaveAttribute('open', '');
-    await expect(links).toHaveCount(5);
+    await expect(links).toHaveCount(4);
     for (const link of await links.all()) {
       const reachable = await link.evaluate((element) => {
         element.scrollIntoView({ block: 'nearest' });
@@ -1974,12 +1940,12 @@ test('the Menu closes on a click or focus anywhere outside it', async ({
   await expect(menu).toHaveAttribute('open', '');
 
   // And a press on one of its links still follows the link.
-  const link = panel.getByRole('link', { name: 'Working groups' });
+  const link = panel.getByRole('link', { name: 'Contribute' });
   if (isMobile) await link.tap();
   else await link.click();
-  await expect(page).toHaveURL(/\/working-groups\/$/);
+  await expect(page).toHaveURL(/\/contribute\/$/);
   await expect(page.getByRole('heading', { level: 1 })).toContainText(
-    'Choose the part of the problem',
+    'Find work that fits how you think.',
   );
 });
 
@@ -2236,21 +2202,6 @@ test('landscape phones get the shorter landing bar', async ({ page }) => {
   }
 });
 
-test('404 page offers three recovery routes', async ({ page }) => {
-  await page.goto('/404.html');
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText(
-    'That route is outside the atlas.',
-  );
-  const recovery = page.locator('main');
-  await expect(recovery.getByRole('link', { name: /Home/ })).toBeVisible();
-  await expect(
-    recovery.getByRole('link', { name: /Contribute/ }),
-  ).toBeVisible();
-  await expect(
-    recovery.getByRole('link', { name: /Technical docs/ }),
-  ).toBeVisible();
-});
-
 for (const route of topLevelRoutes) {
   test(`${route} does not create horizontal page scrolling`, async ({
     page,
@@ -2267,91 +2218,6 @@ for (const route of topLevelRoutes) {
   });
 }
 
-test('reduced-motion preferences disable decorative hero movement', async ({
-  page,
-}) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.goto('/');
-
-  const animationName = await page
-    .locator('.hero__image')
-    .evaluate((element) => getComputedStyle(element).animationName);
-  expect(animationName).toBe('none');
-
-  // The header still compacts, at once: no transition to animate it.
-  const header = page.locator('.site-header');
-  await expect(header).toHaveCSS('transition-duration', '0s');
-  await expect(page.locator('.site-header__inner')).toHaveCSS(
-    'transition-duration',
-    '0s',
-  );
-  await page.evaluate(() => window.scrollTo(0, 900));
-  await expect(header).toHaveClass(/site-header--compact/);
-  const box = (await header.boundingBox())!;
-  expect(Math.abs(box.y)).toBeLessThanOrEqual(1);
-  expect(box.height).toBeCloseTo(71.2, 0);
-});
-
-test('public typography keeps body and supporting text comfortably large', async ({
-  page,
-}) => {
-  await page.goto('/');
-
-  const typeSizes = await page.evaluate(() => {
-    const selectors = [
-      'body',
-      '.desktop-nav a',
-      '.section-kicker',
-      '.site-footer p',
-      '.mission-copy p',
-    ];
-    return Object.fromEntries(
-      selectors.map((selector) => [
-        selector,
-        Number.parseFloat(
-          getComputedStyle(document.querySelector(selector)!).fontSize,
-        ),
-      ]),
-    );
-  });
-
-  expect(typeSizes.body).toBeGreaterThanOrEqual(19);
-  for (const [selector, size] of Object.entries(typeSizes)) {
-    if (selector !== 'body') expect(size).toBeGreaterThanOrEqual(16);
-  }
-});
-
-test('metric digits use a common height and baseline', async ({ page }) => {
-  await page.goto('/');
-
-  const numericStyle = await page
-    .locator('.metric data')
-    .first()
-    .evaluate((element) => ({
-      family: getComputedStyle(element).fontFamily,
-      variant: getComputedStyle(element).fontVariantNumeric,
-    }));
-  expect(numericStyle.family).toContain('Figtree');
-  expect(numericStyle.variant).toContain('lining-nums');
-  expect(numericStyle.variant).toContain('tabular-nums');
-});
-
-test('multi-scale illustrations load with accessible descriptions', async ({
-  page,
-}) => {
-  await page.goto('/project/');
-  const images = page.locator('.vision-card img');
-  await expect(images).toHaveCount(3);
-  for (const image of await images.all()) {
-    await image.scrollIntoViewIfNeeded();
-    await expect(image).toHaveJSProperty('complete', true);
-    expect(await image.getAttribute('alt')).not.toBe('');
-    expect(
-      await image.evaluate((element: HTMLImageElement) => element.naturalWidth),
-    ).toBe(1536);
-  }
-});
-
 test('introduction pages avoid unexplained internal milestone codes', async ({
   page,
 }) => {
@@ -2360,27 +2226,6 @@ test('introduction pages avoid unexplained internal milestone codes', async ({
     const text = await page.locator('main').innerText();
     expect(text).not.toMatch(/\bP[0-9]+\b/);
   }
-});
-
-test('application cards reveal on scroll and respond to hover', async ({
-  page,
-  isMobile,
-}) => {
-  test.skip(isMobile, 'hover movement is a pointer interaction');
-  await page.goto('/');
-
-  const card = page.locator('.application-card').first();
-  await card.scrollIntoViewIfNeeded();
-  await expect(card).toHaveClass(/is-visible/);
-  const restingTransform = await card.evaluate(
-    (element) => getComputedStyle(element).transform,
-  );
-  await card.hover();
-  await page.waitForTimeout(250);
-  const hoverTransform = await card.evaluate(
-    (element) => getComputedStyle(element).transform,
-  );
-  expect(hoverTransform).not.toBe(restingTransform);
 });
 
 test('explorer changes entity, metric, context, and elevation', async ({

@@ -1,0 +1,15 @@
+{
+  "route": "/privacy/",
+  "words": 575,
+  "wordsEnforced": false,
+  "conceptsEnforced": false,
+  "jsKbGz": 6,
+  "dataKbGz": 0,
+  "transferKbGz": 130,
+  "lcpMs": {
+    "desktop": 1000,
+    "phone": 2000
+  },
+  "cls": 0.02,
+  "leadFigure": true
+}
