@@ -12,6 +12,12 @@
  * directly after it, then Search and the Atlas link on the right (DOM order too, so focus follows);
  * labels at the site's weight and colours (muted, the current page starlight); every item centring
  * its link, so GitHub's label shares the others' baseline.
+ *
+ * Design review, round 3: the lockup and the nav also stand where the site's compact header puts
+ * them. From 50em the header's contents sit in the site's content column (starlight.css pads the
+ * bar to the site gutter and the 76rem container), the lockup is the compact one (2.6rem tall, the
+ * site's --lockup-compact-width) and, as on the site, it keeps the landing lockup's slot, so the
+ * nav starts where it starts on every site page.
  */
 import Search from '@astrojs/starlight/components/Search.astro';
 
@@ -160,8 +166,9 @@ import '../../styles/tokens.css';
     }
 
     @media (min-width: 50em) {
+      /* The site's compact lockup: 2.6rem tall, so calc(2.6rem * 1395 / 300) wide (global.css). */
       .docs-header__lockup {
-        height: 2.4rem;
+        height: 2.6rem;
       }
 
       .docs-header__atlas {
@@ -177,8 +184,18 @@ import '../../styles/tokens.css';
       }
     }
 
-    /* The whole nav, set after the lockup with the site header's room (global.css). */
+    /* The whole nav, set after the lockup with the site header's room (global.css): the row gap
+       (1.25rem), and after the lockup the rest of the landing lockup's slot, which the site's
+       brand slot keeps when its header is compact, then the nav's own margin. */
     @media (min-width: 72em) {
+      .docs-header {
+        gap: 1.25rem;
+      }
+
+      .docs-header__home {
+        margin-inline-end: calc((3.6rem - 2.6rem) * 1395 / 300);
+      }
+
       .docs-header__nav {
         margin-inline-start: clamp(0rem, 9.7vw - 6.22rem, 2.25rem);
       }

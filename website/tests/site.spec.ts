@@ -212,6 +212,27 @@ test(
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/contribute/');
       const site = await style();
+      // Design review, round 3: the lockup and the nav also stand where the compact site header
+      // puts them (the site gutter and 76rem container, the compact lockup), so neither jumps.
+      await page.evaluate(() => window.scrollTo(0, 900));
+      await expect(page.locator('.site-header')).toHaveClass(
+        /site-header--compact/,
+      );
+      const siteLogo = page.locator('.wordmark__logo');
+      const compactWidth = (2.6 * 18 * 1395) / 300;
+      await expect
+        .poll(async () => (await siteLogo.boundingBox())!.width)
+        .toBeCloseTo(compactWidth, 0);
+      const siteHeader = await page.evaluate(() => ({
+        lockup: document
+          .querySelector('.wordmark__logo')!
+          .getBoundingClientRect()
+          .toJSON() as DOMRect,
+        firstLink: document
+          .querySelector('nav[aria-label="Primary navigation"] a')!
+          .getBoundingClientRect()
+          .toJSON() as DOMRect,
+      }));
       for (const route of ['/docs/', '/docs/system-overview/']) {
         await page.goto(route);
         const docs = await style();
@@ -237,6 +258,7 @@ test(
           return {
             lockup: box(header.querySelector('.docs-header__lockup')!),
             nav: box(nav),
+            firstLink: box(nav.querySelector('a')!),
             search: box(search),
             atlas: box(header.querySelector('.docs-header__atlas')!),
             navFirst: Boolean(
@@ -247,8 +269,18 @@ test(
           };
         });
         const at = `${route} at ${width}`;
+        for (const edge of ['left', 'width'] as const)
+          expect(
+            Math.abs(geometry.lockup[edge] - siteHeader.lockup[edge]),
+            `${at}: lockup ${edge}`,
+          ).toBeLessThan(1);
+        expect(
+          Math.abs(geometry.firstLink.left - siteHeader.firstLink.left),
+          `${at}: first nav link`,
+        ).toBeLessThan(1);
+        // (Round 2 held the nav within 80 px of the lockup; it now stands exactly where the site
+        // header puts it, after the landing lockup's slot, 134 px after the compact lockup at 1440.)
         expect(geometry.nav.left, at).toBeGreaterThan(geometry.lockup.right);
-        expect(geometry.nav.left - geometry.lockup.right, at).toBeLessThan(80);
         expect(geometry.search.left, at).toBeGreaterThan(geometry.nav.right);
         expect(geometry.atlas.left, at).toBeGreaterThanOrEqual(
           geometry.search.right,
@@ -298,6 +330,49 @@ test('the docs shell uses the site’s type, square controls and current-page ma
     await expect(docs).toHaveCSS('color', 'rgb(242, 248, 255)');
     await expect(docs).toHaveCSS('box-shadow', 'none');
     await expect(docs).toHaveCSS('text-decoration-line', 'none');
+  }
+});
+
+// Design review, round 3: the previous and next cards were Starlight's rounded grey cards, set
+// 4 px above the footer's Privacy link, and the docs H1 ran larger than the site's page H1.
+test('the docs pager cards are the site’s square link cards, clear of the footer links', async ({
+  page,
+  isMobile,
+}) => {
+  await page.goto('/contribute/');
+  const siteH1 = await page
+    .getByRole('heading', { level: 1 })
+    .evaluate((heading) => getComputedStyle(heading).fontSize);
+  await page.goto('/docs/system-overview/');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveCSS(
+    'font-size',
+    siteH1,
+  );
+  const cards = page.locator('.pagination-links a');
+  await expect(cards).toHaveCount(2);
+  for (const card of await cards.all()) {
+    await expect(card).toHaveCSS('border-radius', '0px');
+    await expect(card).toHaveCSS(
+      'border-top-color',
+      'rgba(112, 230, 255, 0.18)',
+    );
+    await expect(card).toHaveCSS('box-shadow', 'none');
+  }
+  const gap = await page.evaluate(() => {
+    const last = [...document.querySelectorAll('.pagination-links a')].at(-1)!;
+    const privacy = document.querySelector('.docs-site-links a')!;
+    return (
+      privacy.getBoundingClientRect().top - last.getBoundingClientRect().bottom
+    );
+  });
+  // At least 2rem (36 px at the 18 px root).
+  expect(gap).toBeGreaterThanOrEqual(36);
+  if (!isMobile) {
+    await cards.first().hover();
+    await expect(cards.first()).toHaveCSS(
+      'border-top-color',
+      'rgb(112, 230, 255)',
+    );
   }
 });
 
