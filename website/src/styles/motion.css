@@ -29,18 +29,6 @@
   translate: 0 0;
 }
 
-.atlas-grid article {
-  transition:
-    background-color 240ms ease,
-    transform 240ms ease;
-}
-
-.atlas-grid article:hover {
-  z-index: 1;
-  background: rgb(112 230 255 / 5%);
-  transform: translateY(-0.45rem);
-}
-
 @media (prefers-reduced-motion: reduce) {
   .scroll-progress {
     display: none;

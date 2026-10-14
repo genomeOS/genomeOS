@@ -799,30 +799,6 @@ svg {
     white-space: nowrap;
   }
 
-  .hero {
-    min-height: min(43rem, calc(100svh - var(--site-header-height)));
-  }
-  .hero__image {
-    background-position: 69% center;
-    opacity: 0.85;
-  }
-  .hero::after {
-    background: linear-gradient(
-      90deg,
-      #020712 1%,
-      rgb(2 7 18 / 80%) 58%,
-      rgb(2 7 18 / 28%)
-    );
-  }
-  .hero h1 {
-    max-width: 10ch;
-  }
-  .hero__lede {
-    max-width: 27rem;
-  }
-  .intro-section__grid {
-    grid-template-columns: 1fr;
-  }
   .site-footer__inner {
     align-items: flex-start;
     flex-direction: column;
@@ -877,9 +853,7 @@ svg {
   html {
     scroll-behavior: auto;
   }
-  .hero__image {
-    animation: none;
-  }
+
   .site-header,
   .site-header__inner,
   .wordmark__logo,

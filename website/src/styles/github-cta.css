@@ -57,11 +57,6 @@
   background: linear-gradient(115deg, rgb(22 66 73 / 88%), rgb(7 24 49 / 92%));
 }
 
-.github-cta--compact:not(.button-link) {
-  min-height: 5.2rem;
-  min-width: 15rem;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .github-cta:not(.button-link),
   .github-cta:not(.button-link) > span:last-child {
