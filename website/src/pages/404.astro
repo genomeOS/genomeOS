@@ -1,36 +1,60 @@
 ---
+/**
+ * 404 (site redesign spec §4.6, plan Task 6; #454): the shared PageIntro, split, whose figure is
+ * this address drawn as an unknown cell, then three routes back. No script of its own and no
+ * motion. GitHub Pages serves this file, with status 404, for every address it has no page for.
+ */
+import Glyph from '../components/kit/Glyph.astro';
+import Icon from '../components/kit/Icon.astro';
+import NoEstimate from '../components/notfound/NoEstimate.astro';
+import PageIntro from '../components/PageIntro.astro';
+import { PRIMARY_NAV } from '../data/nav';
 import SiteLayout from '../layouts/SiteLayout.astro';
 import { sitePath } from '../lib/paths';
 import '../styles/pages/404.css';
+
+// Contribute and Docs take their labels and addresses from the primary nav (spec §1.1), so a
+// rename there reaches this page; a route the nav no longer has fails the build.
+const nav = (href: string) => {
+  const link = PRIMARY_NAV.find((item) => item.href === href);
+  if (!link) throw new Error(`404: the primary nav has no ${href}`);
+  return link;
+};
+const ROUTES = [
+  { label: 'Home', href: '/', line: 'The globe.' },
+  { ...nav('/contribute/'), line: 'Find a group and a scoped task.' },
+  { ...nav('/docs/'), line: 'Science and engineering guides.' },
+];
 ---
 
 <SiteLayout
   title="Page not found"
   description="The requested genomeOS page could not be found."
 >
-  <section class="page-intro">
-    <div class="section-shell page-intro__inner">
-      <p class="page-intro__note">404</p>
-      <h1>That route is outside the atlas.</h1>
-      <p>
-        The page may have moved. Choose a reliable path back into the project.
-      </p>
+  <div class="notfound-intro" data-concept>
+    <PageIntro
+      layout="split"
+      note="404"
+      title="That route is outside the atlas."
+      lede="No evidence here, and no page either."
+    >
+      <NoEstimate slot="figure" />
+    </PageIntro>
+  </div>
+  <nav class="notfound-routes" aria-label="Ways back">
+    <div class="section-shell link-row">
+      {
+        ROUTES.map(({ label, href, line }) => (
+          <a class="github-cta" href={sitePath(href)}>
+            <strong>{label}</strong> <span>{line}</span>{' '}
+            <span aria-hidden="true">
+              <Icon name="arrow" size={22} />
+            </span>
+          </a>
+        ))
+      }
     </div>
-  </section>
-  <section class="resource-links">
-    <div class="section-shell resource-links__grid">
-      <a href={sitePath('/')}>
-        <strong>Home</strong>
-        <span>Return to the public project introduction.</span>
-      </a>
-      <a href={sitePath('/contribute/')}>
-        <strong>Contribute</strong>
-        <span>Find a working group and a scoped task.</span>
-      </a>
-      <a href={sitePath('/docs/')}>
-        <strong>Docs</strong>
-        <span>Open the scientific and engineering guides.</span>
-      </a>
-    </div>
-  </section>
+  </nav>
+  <Glyph sprite />
+  <Icon sprite />
 </SiteLayout>
