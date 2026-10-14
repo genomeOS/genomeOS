@@ -1,0 +1,429 @@
+---
+/**
+ * The hero evidence globe (site redesign spec §4.1 H1, §2.5, §5, §6.1; #454): the real HbS (rs334)
+ * v3 surface, coarsened for display, with all 1,071 measured surveys as studs.
+ *
+ * Server-rendered at rest so the figure is complete without JavaScript: the Modeled layer as a
+ * build-time poster (the LCP candidate), three callouts with leader lines and the numbered step row,
+ * all placed from the provenance sidecar's disc coordinates. hero-globe.ts swaps in the live canvas.
+ *
+ * Two forms by the figure's own width (container query): from 33rem a 4:3 stage with the callouts
+ * in its margins and the steps under the disc; below, a square globe with numbered markers and a
+ * three-row key that pins each object in the readout. The readout docks under the stage, never over
+ * the globe. Status ("Not yet validated") sits inside the figure.
+ */
+import Figure from '../kit/Figure.astro';
+import Glyph from '../kit/Glyph.astro';
+import Readout from '../kit/Readout.astro';
+import Segmented from '../kit/Segmented.astro';
+import StatusTag from '../kit/StatusTag.astro';
+import provenance from '../../data/figures/hbs.provenance.json';
+import { sitePath } from '../../lib/paths';
+import { DISC_PAD, formatKm, formatRange, formatShare } from './hero-globe';
+
+const posters = import.meta.glob('../../data/figures/hbs-globe-poster.*.svg', {
+  query: '?url',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>;
+const poster = Object.values(posters)[0];
+
+type Kind = 'survey' | 'modeled' | 'unknown';
+const callout = (kind: Kind) =>
+  provenance.callouts.find((entry) => entry.kind === kind)!;
+const survey = callout('survey');
+const modeled = callout('modeled');
+const unknown = callout('unknown');
+const tiers = provenance.tier_limits_km;
+const [domainLo, domainHi] = provenance.metric_domain.post_mean;
+const revision = provenance.hf_revision.slice(0, 7);
+// The ramp's domain in whole percent, outward ("0–17%").
+const domainMin = Math.floor(domainLo * 100);
+const domainMax = Math.round(domainHi * 100);
+
+/*
+ * Wide-form geometry, in stage units (1 unit = 1cqw; the stage is 100 × 75): the disc is centred
+ * at (50, 32.25) with radius 30, leaving the bottom band for the steps and the side margins for
+ * the callouts. CSS (home.css) uses the same numbers.
+ */
+const R = 30;
+const CX = 50;
+const CY = 32.25;
+const sx = (d: number) => +(CX + d * R).toFixed(2);
+const sy = (d: number) => +(CY + d * R).toFixed(2);
+const clamp = (value: number, lo: number, hi: number) =>
+  Math.min(hi, Math.max(lo, value));
+
+// Where each callout box sits: its side, the x of its inner edge and its vertical offset from the
+// target, in disc radii. Chosen so every box keeps to ocean or margin at rest.
+const PLACEMENT: Record<
+  Kind,
+  { side: 'left' | 'right'; ax: number; dy: number }
+> = {
+  survey: { side: 'left', ax: -0.78, dy: -0.22 },
+  modeled: { side: 'right', ax: 0.72, dy: 0.34 },
+  unknown: { side: 'right', ax: 0.8, dy: -0.24 },
+};
+
+const pct = (value: number) => `${(50 + (value * 50) / DISC_PAD).toFixed(3)}%`;
+const items = (
+  [
+    [
+      'survey',
+      survey,
+      'stud-md',
+      'Measured:',
+      `${survey.ac!.toLocaleString('en-US')} of ${survey.an!.toLocaleString('en-US')} alleles`,
+      'Surveys counted',
+    ],
+    [
+      'modeled',
+      modeled,
+      'hex',
+      'Modeled:',
+      `about ${formatShare(modeled.mean!)} (95%: ${formatRange(modeled.lo!, modeled.hi!)})`,
+      'Model fitted offline',
+    ],
+    [
+      'unknown',
+      unknown,
+      'hatch',
+      'No estimate:',
+      'no survey in range',
+      'Gaps stay hatched',
+    ],
+  ] as const
+).map(([kind, entry, glyph, label, value, step], index) => {
+  const [tx, ty] = entry.disc;
+  const place = PLACEMENT[kind];
+  const ay = clamp(ty + place.dy, -0.92, 0.86);
+  return {
+    kind,
+    order: index + 1,
+    glyph,
+    label,
+    value,
+    step,
+    tx,
+    ty,
+    side: place.side,
+    anchor: [sx(place.ax), sy(ay)] as const,
+    target: [sx(tx), sy(ty)] as const,
+  };
+});
+
+const config = JSON.stringify({
+  domain: provenance.metric_domain.post_mean,
+  tiers,
+  survey: survey.survey_index,
+  modeled: modeled.area_index,
+  unknown: unknown.area_index,
+});
+
+const latLon = (lat: number, lon: number) =>
+  `${Math.abs(lat).toFixed(1)}°${lat < 0 ? 'S' : 'N'} ${Math.abs(lon).toFixed(1)}°${lon < 0 ? 'W' : 'E'}`;
+const share = (value: number) => `${(value * 100).toFixed(1)}%`;
+const tierRows = [
+  [
+    `Survey within ${formatKm(tiers.strong)}`,
+    provenance.table.model_cell_share_by_tier.strong,
+  ],
+  [
+    `Within ${formatKm(tiers.partial)}`,
+    provenance.table.model_cell_share_by_tier.partial,
+  ],
+  [
+    `Within ${formatKm(tiers.weak)}`,
+    provenance.table.model_cell_share_by_tier.weak,
+  ],
+  ['No estimate', provenance.table.model_cell_share_by_tier.none],
+] as const;
+
+// Evidence-layer swatches: one hex per distance tier (light = close to a survey).
+const hexPath =
+  Array.from({ length: 6 }, (_, k) => {
+    const a = (Math.PI / 3) * k;
+    return `${k ? 'L' : 'M'}${(9 + 8 * Math.cos(a)).toFixed(2)} ${(9 + 8 * Math.sin(a)).toFixed(2)}`;
+  }).join('') + 'Z';
+---
+
+<Figure
+  graphic="hero-globe"
+  interactive
+  label="The sickle-cell variant HbS on a globe: measured surveys and the modeled surface"
+  class="hg"
+  id="hero-globe"
+>
+  <Fragment slot="toolbar">
+    <StatusTag kind="not-validated" />
+    <div class="hg-toolbar__end">
+      <button class="kit-text-button hg-reset" type="button" hidden
+        >Reset view</button
+      >
+      <Segmented
+        label="Layer"
+        class="hg-layers"
+        items={[
+          { value: 'measured', label: 'Measured' },
+          { value: 'modeled', label: 'Modeled' },
+          { value: 'evidence', label: 'Evidence' },
+        ]}
+        selected="modeled"
+      />
+    </div>
+  </Fragment>
+
+  <div
+    class="hg-globe"
+    tabindex="0"
+    role="img"
+    aria-label={provenance.alt}
+    aria-describedby="hero-globe-keys"
+    aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Home"
+    data-config={config}
+  >
+    <img
+      class="hg-poster"
+      src={poster}
+      width="640"
+      height="640"
+      alt=""
+      fetchpriority="high"
+    />
+    <canvas class="hg-canvas" aria-hidden="true"></canvas>
+    <span class="hg-reticle" aria-hidden="true"></span>
+    {
+      items.map((item) => (
+        <span
+          class="hg-marker"
+          data-callout={item.kind}
+          data-callout-order={item.order}
+          style={`--mx: ${pct(item.tx)}; --my: ${pct(item.ty)}`}
+          aria-hidden="true"
+        >
+          <span class="hg-marker__ring" />
+          <span class="hg-marker__badge" data-n={item.order} />
+        </span>
+      ))
+    }
+  </div>
+  <p class="visually-hidden" id="hero-globe-keys">
+    Arrow keys turn the globe and the readout describes the area at its centre.
+    Home returns it to rest.
+  </p>
+
+  <svg
+    class="hg-leaders"
+    viewBox="0 0 100 75"
+    preserveAspectRatio="xMidYMid meet"
+    aria-hidden="true"
+    focusable="false"
+  >
+    {
+      items.map((item) => (
+        <g
+          class="hg-leader"
+          data-callout={item.kind}
+          data-callout-order={item.order}
+        >
+          <line
+            x1={item.anchor[0]}
+            y1={item.anchor[1]}
+            x2={item.target[0]}
+            y2={item.target[1]}
+            data-target-line={item.kind}
+            vector-effect="non-scaling-stroke"
+          />
+          <circle
+            cx={item.target[0]}
+            cy={item.target[1]}
+            r="0.95"
+            data-target-ring={item.kind}
+            vector-effect="non-scaling-stroke"
+          />
+        </g>
+      ))
+    }
+  </svg>
+  {
+    items.map((item) => (
+      <p
+        class:list={['hg-callout', `hg-callout--${item.side}`]}
+        data-callout={item.kind}
+        data-callout-order={item.order}
+        data-target={item.kind}
+        data-disc-x={item.tx}
+        data-disc-y={item.ty}
+        style={`--ax: ${item.anchor[0]}; --ay: ${item.anchor[1]}`}
+      >
+        <Glyph name={item.glyph} size={14} />
+        <span>
+          <strong>{item.label}</strong> {item.value}
+        </span>
+      </p>
+    ))
+  }
+  <ol class="hg-steps">
+    {
+      items.map((item) => (
+        <li class="hg-step">
+          <button
+            type="button"
+            data-pin={item.kind}
+            aria-controls="hero-readout"
+          >
+            <span class="hg-step__name">{item.step}</span>
+            <span class="hg-step__detail">
+              <strong>{item.label}</strong> {item.value}
+            </span>
+          </button>
+        </li>
+      ))
+    }
+  </ol>
+
+  <Readout slot="readout" class="hg-readout" id="hero-readout">
+    <span data-readout-text aria-hidden="true"
+      >Drag to turn. Tap to inspect.</span
+    ><span class="visually-hidden" data-readout-sr></span>
+  </Readout>
+
+  <Fragment slot="legend">
+    <div class="hg-legend">
+      <div class="hg-legend__variant" data-legend="modeled" data-active>
+        <span class="hg-key">
+          <span class="hg-key__studs">
+            <Glyph name="stud-sm" />
+            <Glyph name="stud-md" />
+            <Glyph name="stud-lg" />
+          </span>
+          <span
+            >Survey (<abbr title="allele count: alleles carrying HbS">AC</abbr> of
+            <abbr title="allele number: alleles tested">AN</abbr>)</span
+          >
+        </span>
+        <span class="hg-key hg-key--wedge">
+          <span class="hg-wedge__top"
+            >Modeled frequency, {domainMin}–{domainMax}%</span
+          >
+          <Glyph name="vsup-wedge" size={22} />
+          <span class="hg-wedge__side">Fades away from surveys</span>
+        </span>
+        <span class="hg-key"
+          ><Glyph name="hatch" /><span>No estimate</span></span
+        >
+      </div>
+      <div class="hg-legend__variant" data-legend="measured">
+        <span class="hg-key">
+          <span class="hg-key__studs">
+            <Glyph name="stud-sm" />
+            <Glyph name="stud-md" />
+            <Glyph name="stud-lg" />
+          </span>
+          <span>Survey, sized by alleles tested (AC of AN)</span>
+        </span>
+        <span class="hg-key"
+          ><Glyph name="hex-land" /><span>Model grid, no values drawn</span
+          ></span
+        >
+      </div>
+      <div class="hg-legend__variant" data-legend="evidence">
+        {
+          (['strong', 'partial', 'weak'] as const).map((tier, index) => (
+            <span class="hg-key">
+              <svg
+                class="kit-glyph"
+                width="18"
+                height="18"
+                viewBox="0 0 18 18"
+                aria-hidden="true"
+              >
+                <path
+                  d={hexPath}
+                  style={`fill: var(--enc-evidence-${index + 1})`}
+                />
+              </svg>
+              <span>
+                {index === 0 ? 'Nearest survey within' : 'within'}{' '}
+                {formatKm(tiers[tier])}
+              </span>
+            </span>
+          ))
+        }
+        <span class="hg-key"
+          ><Glyph name="hatch" /><span>No estimate</span></span
+        >
+      </div>
+    </div>
+  </Fragment>
+
+  <Fragment slot="footnote">
+    {provenance.label} · model {provenance.model_version} · data {
+      provenance.data_version
+    } · revision {revision} · coarsened for display ·{' '}
+    <a href={sitePath('/app/?entity=hbs-rs334&palette=genome')}
+      >Open in the Atlas</a
+    >
+  </Fragment>
+
+  <div slot="table" class="hg-table">
+    <table>
+      <caption class="visually-hidden">
+        The ten areas with the highest modeled frequency
+      </caption>
+      <thead>
+        <tr>
+          <th scope="col">Area centre</th>
+          <th scope="col">Modeled</th>
+          <th scope="col">95% range across the area</th>
+          <th scope="col">Nearest survey</th>
+        </tr>
+      </thead>
+      <tbody>
+        {
+          provenance.table.top_areas.map((area) => (
+            <tr>
+              <td>{latLon(area.lat, area.lon)}</td>
+              <td>{formatShare(area.mean)}</td>
+              <td>{formatRange(area.lo, area.hi)}</td>
+              <td>{formatKm(area.nearest_survey_km)}</td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+    <table>
+      <caption class="visually-hidden"
+        >Model cells by distance to the nearest survey</caption
+      >
+      <thead>
+        <tr>
+          <th scope="col">Distance to the nearest survey</th>
+          <th scope="col">Share of model cells</th>
+        </tr>
+      </thead>
+      <tbody>
+        {
+          tierRows.map(([label, value]) => (
+            <tr>
+              <td>{label}</td>
+              <td>{share(value)}</td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+    <p>
+      Measured surveys: {provenance.counts.surveys.toLocaleString('en-US')}
+    </p>
+  </div>
+</Figure>
+
+<script>
+  import { initHeroGlobe } from './hero-globe';
+
+  for (const figure of document.querySelectorAll<HTMLElement>(
+    'figure[data-graphic="hero-globe"]',
+  ))
+    initHeroGlobe(figure);
+</script>
