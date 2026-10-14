@@ -6,6 +6,7 @@ import {
   canvasCentre,
   GLOBE_DISC_QUERY,
   measureGlobeDisc,
+  waitForSettledGlobe,
 } from './atlas-globe-helpers';
 import {
   canvasCoverage,
@@ -249,6 +250,7 @@ for (const phone of PHONE_PROFILES) {
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.goto(`/app/?${GLOBE_DISC_QUERY}`);
       await waitForAtlasReady(page);
+      await waitForSettledGlobe(page);
       // A chord 20 px above the sheet and the strips docked on it, which can reach the canvas
       // centre: every chord of the disc is bisected by its vertical diameter.
       const offCentre = async () => {

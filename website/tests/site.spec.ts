@@ -26,6 +26,7 @@ import {
   globeViewCentre,
   heldReadoutsOf,
   measureGlobeDisc,
+  waitForSettledGlobe,
   type Point,
 } from './atlas-globe-helpers';
 import {
@@ -3519,9 +3520,7 @@ test.describe(
     }) => {
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.goto(`/app/?${GLOBE_DISC_QUERY}`);
-      await expect(page.locator('[data-atlas-ready="true"]')).toBeVisible({
-        timeout: 45_000,
-      });
+      await waitForSettledGlobe(page);
       const covered = await coveredWidth(page);
       const centre = await canvasCentre(page);
       // The panel covers the left of the full-width canvas, and the camera target is drawn

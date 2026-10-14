@@ -5,7 +5,7 @@
  * Also the fixture readouts by which the picking tests tell which cell a hover found.
  */
 
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import { splitLongToH3Index } from 'h3-js';
 
 import { atlasCatalogSchema } from '../src/atlas/contracts';
@@ -22,6 +22,21 @@ export interface Point {
  * An unlit globe with a magenta ocean and nothing on it but country borders, so its disc can be
  * found in a screenshot. The default camera shows the whole globe.
  */
+/**
+ * Wait for the cold reveal and the loads after it to finish: ready, cell edges, the drawn borders
+ * and the exact cell values. Until then the scene requests a frame per border slice, and under the
+ * CI runners' software WebGL each frame is a long task, so a measurement queued behind them can
+ * take more than a poll's 5 s (as analytics.spec.ts found for its layout claims). Where the globe is
+ * drawn is a claim about the steady page, so it is measured on the settled page.
+ */
+export async function waitForSettledGlobe(page: Page): Promise<void> {
+  await expect(
+    page.locator(
+      '[data-atlas-ready="true"][data-atlas-edges-ready="true"][data-atlas-context-ready="true"][data-atlas-values-ready="true"]',
+    ),
+  ).toBeVisible({ timeout: 45_000 });
+}
+
 export const GLOBE_DISC_QUERY = new URLSearchParams({
   dayNight: 'false',
   layers: 'countries',
