@@ -18,7 +18,8 @@
  * 3. The pick passes behind `scene.pick`, `drillPick` and the translucent depth pick render through
  *    the shifted working frustum but cull to a pick volume built without the shift, around the
  *    point drawn the shift further right. While shifted, each pick pass culls to the camera
- *    frustum's sub-volume behind its own scissor rectangle instead.
+ *    frustum's sub-volume behind its own scissor rectangle instead. Offscreen ray picks render
+ *    through their own camera and keep Cesium's volume.
  * 4. Beyond `Globe.nightFadeOutDistance` the globe computes its ground atmosphere per fragment and
  *    rebuilds the view ray from `gl_FragCoord` for a centred frustum, which paints the far limb
  *    white. The globe's fragment shader is patched to rebuild it from the frustum planes, which is
@@ -241,18 +242,43 @@ function patchGlobeShaders(globe: Globe | undefined): () => void {
   };
 }
 
-/** Replaces one member of a Cesium object and returns the undo, own or inherited alike. */
-function override<T extends object, K extends keyof T>(
+/**
+ * Replaces one method of a Cesium object and returns the undo, own or inherited alike. A method
+ * Cesium no longer has throws: an override nothing calls would quietly undo the shift's fix.
+ */
+function override<T extends object, K extends keyof T & string>(
   target: T,
   key: K,
   value: T[K],
 ): () => void {
+  if (typeof target[key] !== 'function')
+    throw new Error(
+      `Cesium has no ${key} method; the globe offset (#452) cannot override it.`,
+    );
   const own = Object.getOwnPropertyDescriptor(target, key);
   target[key] = value;
   return () => {
     if (own) Object.defineProperty(target, key, own);
     else Reflect.deleteProperty(target, key);
   };
+}
+
+/**
+ * Runs each install step in turn and returns one undo for all of them, in reverse. A step that
+ * throws undoes the steps before it, so a refused install leaves Cesium as it was.
+ */
+function installAll(steps: readonly (() => () => void)[]): () => void {
+  const undos: (() => void)[] = [];
+  const undoAll = () => {
+    for (const undo of undos.splice(0).reverse()) undo();
+  };
+  try {
+    for (const step of steps) undos.push(step());
+  } catch (error) {
+    undoAll();
+    throw error;
+  }
+  return undoAll;
 }
 
 interface PickPassState {
@@ -263,7 +289,7 @@ interface PickPassState {
 interface SceneInternals {
   frameState: {
     cullingVolume: CullingVolume;
-    passes: { pick?: boolean; pickVoxel?: boolean };
+    passes: { offscreen?: boolean; pick?: boolean; pickVoxel?: boolean };
   };
   updateAndExecuteCommands(
     passState: PickPassState,
@@ -307,7 +333,11 @@ function centreCameraController(scene: Scene): () => void {
   const { camera } = scene;
   const controller =
     scene.screenSpaceCameraController as unknown as CameraControllerInternals;
-  const inputs = controller._aggregator;
+  const inputs = controller._aggregator as CameraInputs | undefined;
+  if (!inputs)
+    throw new Error(
+      "Cesium's camera controller has no _aggregator; the globe offset (#452) cannot centre it.",
+    );
   const depthScene = scene as unknown as DepthPickScene;
   // Non-zero only while the controller updates: the shift its frame leaves out, in CSS px and NDC.
   let shiftPx = 0;
@@ -323,72 +353,70 @@ function centreCameraController(scene: Scene): () => void {
     return copy;
   };
   const { getLastMovement, getMovement, getStartMousePosition } = inputs;
-  const restoreInputs = [
-    override(inputs, 'getLastMovement', (type, modifier) =>
-      centredMovement(getLastMovement.call(inputs, type, modifier)),
-    ),
-    override(inputs, 'getMovement', (type, modifier) =>
-      centredMovement(getMovement.call(inputs, type, modifier)),
-    ),
-    override(inputs, 'getStartMousePosition', (type, modifier) => {
-      const position = getStartMousePosition.call(inputs, type, modifier);
-      return shiftPx === 0 ? position : movedLeft(position, shiftPx);
-    }),
-  ];
-
   const pickWorld = depthScene.pickPositionWorldCoordinates;
   const drawnPosition = new Cartesian2();
-  const restorePickWorld = override(
-    depthScene,
-    'pickPositionWorldCoordinates',
-    function (
-      this: DepthPickScene,
-      windowPosition: Cartesian2,
-      result?: Cartesian3,
-    ) {
-      const { frustum } = camera;
-      if (shiftPx === 0 || !(frustum instanceof ShiftedPerspectiveFrustum))
-        return pickWorld.call(this, windowPosition, result);
-      // The depth was drawn through the shifted frustum: read it there, and unproject with it.
-      drawnPosition.x = windowPosition.x + shiftPx;
-      drawnPosition.y = windowPosition.y;
-      frustum.projectionShift = drawnShift;
-      try {
-        return pickWorld.call(this, drawnPosition, result);
-      } finally {
-        frustum.projectionShift = 0;
-      }
-    },
-  );
-
   const update = controller.update;
-  const restoreUpdate = override(
-    controller,
-    'update',
-    function (this: CameraControllerInternals) {
-      const { frustum } = camera;
-      const px = shiftPxOf(camera, scene.canvas.clientWidth);
-      if (px === 0 || !(frustum instanceof ShiftedPerspectiveFrustum)) {
-        update.call(this);
-        return;
-      }
-      drawnShift = frustum.projectionShift;
-      shiftPx = px;
-      frustum.projectionShift = 0;
-      try {
-        update.call(this);
-      } finally {
-        frustum.projectionShift = drawnShift;
-        shiftPx = 0;
-      }
-    },
-  );
 
-  return () => {
-    restoreUpdate();
-    restorePickWorld();
-    for (const restore of restoreInputs) restore();
-  };
+  return installAll([
+    () =>
+      override(inputs, 'getLastMovement', (type, modifier) =>
+        centredMovement(getLastMovement.call(inputs, type, modifier)),
+      ),
+    () =>
+      override(inputs, 'getMovement', (type, modifier) =>
+        centredMovement(getMovement.call(inputs, type, modifier)),
+      ),
+    () =>
+      override(inputs, 'getStartMousePosition', (type, modifier) => {
+        const position = getStartMousePosition.call(inputs, type, modifier);
+        return shiftPx === 0 ? position : movedLeft(position, shiftPx);
+      }),
+    () =>
+      override(
+        depthScene,
+        'pickPositionWorldCoordinates',
+        function (
+          this: DepthPickScene,
+          windowPosition: Cartesian2,
+          result?: Cartesian3,
+        ) {
+          const { frustum } = camera;
+          if (shiftPx === 0 || !(frustum instanceof ShiftedPerspectiveFrustum))
+            return pickWorld.call(this, windowPosition, result);
+          // The depth was drawn through the shifted frustum: read it there, and unproject with it.
+          drawnPosition.x = windowPosition.x + shiftPx;
+          drawnPosition.y = windowPosition.y;
+          frustum.projectionShift = drawnShift;
+          try {
+            return pickWorld.call(this, drawnPosition, result);
+          } finally {
+            frustum.projectionShift = 0;
+          }
+        },
+      ),
+    () =>
+      override(
+        controller,
+        'update',
+        function (this: CameraControllerInternals) {
+          const { frustum } = camera;
+          const px = shiftPxOf(camera, scene.canvas.clientWidth);
+          if (px === 0 || !(frustum instanceof ShiftedPerspectiveFrustum)) {
+            update.call(this);
+            return;
+          }
+          drawnShift = frustum.projectionShift;
+          shiftPx = px;
+          frustum.projectionShift = 0;
+          try {
+            update.call(this);
+          } finally {
+            frustum.projectionShift = drawnShift;
+            shiftPx = 0;
+          }
+        },
+      ),
+  ]);
 }
 
 export interface GlobeOffset {
@@ -425,51 +453,58 @@ export function installGlobeOffset(scene: Scene): GlobeOffset {
 
   const centredPickRay = camera.getPickRay;
   const shiftedPosition = new Cartesian2();
-  const restorePickRay = override(
-    camera,
-    'getPickRay',
-    function (this: Camera, windowPosition: Cartesian2, result?: Ray) {
-      const shiftPx = shiftPxOf(camera, scene.canvas.clientWidth);
-      if (shiftPx === 0)
-        return centredPickRay.call(this, windowPosition, result);
-      shiftedPosition.x = windowPosition.x - shiftPx;
-      shiftedPosition.y = windowPosition.y;
-      return centredPickRay.call(this, shiftedPosition, result);
-    },
-  );
-
   const execute = internals.updateAndExecuteCommands;
-  const restoreExecute = override(
-    internals,
-    'updateAndExecuteCommands',
-    function (
-      this: SceneInternals,
-      passState: PickPassState,
-      backgroundColor: unknown,
-    ) {
-      const { frameState } = internals;
-      const { frustum } = camera;
-      const scissor = passState?.scissorTest;
-      if (
-        (frameState.passes.pick || frameState.passes.pickVoxel) &&
-        scissor?.enabled &&
-        frustum instanceof ShiftedPerspectiveFrustum &&
-        frustum.projectionShift !== 0
-      )
-        frameState.cullingVolume = pickRegionCullingVolume(
-          camera,
-          frustum,
-          scissor.rectangle,
-          scene.drawingBufferWidth,
-          scene.drawingBufferHeight,
-        );
-      execute.call(this, passState, backgroundColor);
-    },
-  );
 
-  const restoreShaders = patchGlobeShaders(scene.globe);
-  const restoreController = centreCameraController(scene);
-  const removeListener = scene.preUpdate.addEventListener(applyShift);
+  const uninstall = installAll([
+    () =>
+      override(
+        camera,
+        'getPickRay',
+        function (this: Camera, windowPosition: Cartesian2, result?: Ray) {
+          const shiftPx = shiftPxOf(camera, scene.canvas.clientWidth);
+          if (shiftPx === 0)
+            return centredPickRay.call(this, windowPosition, result);
+          shiftedPosition.x = windowPosition.x - shiftPx;
+          shiftedPosition.y = windowPosition.y;
+          return centredPickRay.call(this, shiftedPosition, result);
+        },
+      ),
+    () =>
+      override(
+        internals,
+        'updateAndExecuteCommands',
+        function (
+          this: SceneInternals,
+          passState: PickPassState,
+          backgroundColor: unknown,
+        ) {
+          const { frameState } = internals;
+          const { frustum } = camera;
+          const scissor = passState?.scissorTest;
+          if (
+            (frameState.passes.pick || frameState.passes.pickVoxel) &&
+            // Offscreen ray picks (pickFromRay, sampleHeight, clampToHeight) render through
+            // Picking's own camera, which Cesium culls correctly.
+            !frameState.passes.offscreen &&
+            scene.camera === camera &&
+            scissor?.enabled &&
+            frustum instanceof ShiftedPerspectiveFrustum &&
+            frustum.projectionShift !== 0
+          )
+            frameState.cullingVolume = pickRegionCullingVolume(
+              camera,
+              frustum,
+              scissor.rectangle,
+              scene.drawingBufferWidth,
+              scene.drawingBufferHeight,
+            );
+          execute.call(this, passState, backgroundColor);
+        },
+      ),
+    () => patchGlobeShaders(scene.globe),
+    () => centreCameraController(scene),
+    () => scene.preUpdate.addEventListener(applyShift),
+  ]);
   applyShift();
 
   return {
@@ -481,11 +516,7 @@ export function installGlobeOffset(scene: Scene): GlobeOffset {
       scene.requestRender();
     },
     destroy() {
-      removeListener();
-      restorePickRay();
-      restoreExecute();
-      restoreShaders();
-      restoreController();
+      uninstall();
     },
   };
 }

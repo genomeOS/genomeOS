@@ -21,10 +21,11 @@ import {
   OrthographicOffCenterFrustum,
   PerspectiveFrustum,
   Ray,
+  Scene,
   SceneMode,
   ScreenSpaceCameraController,
-  type Scene,
 } from 'cesium';
+import * as cesium from 'cesium';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -35,6 +36,11 @@ import {
 } from '../src/atlas/scene/globe-offset';
 import { projectionShift } from '../src/atlas/view-offset';
 import { stubCesiumBrowserImageTypes } from './helpers/cesium-stubs';
+
+// Cesium exports its frame state at runtime, but its typings leave the private class out.
+const { FrameState } = cesium as unknown as {
+  FrameState: new () => { passes: Record<string, unknown> };
+};
 
 const WIDTH = 1280;
 const HEIGHT = 720;
@@ -154,7 +160,7 @@ interface FakeScene {
   drawingBufferWidth: number;
   frameState: {
     cullingVolume: unknown;
-    passes: { pick: boolean; pickVoxel: boolean };
+    passes: { offscreen: boolean; pick: boolean; pickVoxel: boolean };
   };
   globe: Globe;
   mapProjection: GeographicProjection;
@@ -206,7 +212,7 @@ function fakeScene(): FakeScene {
     drawingBufferWidth: WIDTH,
     frameState: {
       cullingVolume: undefined,
-      passes: { pick: false, pickVoxel: false },
+      passes: { offscreen: false, pick: false, pickVoxel: false },
     },
     globe: new Globe(),
     mapProjection: new GeographicProjection(),
@@ -431,6 +437,36 @@ describe('installGlobeOffset', () => {
     expect(scene.frameState.cullingVolume).toBe(sentinel);
   });
 
+  it('leaves the culling of offscreen ray picks to Cesium', () => {
+    const scene = fakeScene();
+    const offset = install(scene);
+    offset.setCoveredLeft(COVERED);
+    scene.preUpdate.raiseEvent(scene);
+    const mainCamera = scene.camera;
+    // pickFromRay, drillPickFromRay, sampleHeight and clampToHeight render through Picking's own
+    // orthographic camera (Cesium switches scene.view, so scene.camera answers with it) and flag
+    // the pass offscreen. Its pick framebuffer still enables a scissor rectangle.
+    const offscreenCamera = new Camera(scene as unknown as Scene);
+    const passState = {
+      scissorTest: {
+        enabled: true,
+        rectangle: { height: 1, width: 1, x: 0, y: 0 },
+      },
+    };
+    const sentinel = { sentinel: true };
+    for (const [camera, offscreen] of [
+      [offscreenCamera, true],
+      [offscreenCamera, false],
+      [mainCamera, true],
+    ] as const) {
+      scene.camera = camera;
+      scene.frameState.passes = { offscreen, pick: true, pickVoxel: false };
+      scene.frameState.cullingVolume = sentinel;
+      scene.updateAndExecuteCommands(passState, {});
+      expect(scene.frameState.cullingVolume).toBe(sentinel);
+    }
+  });
+
   it('patches the globe shader for the shift, including after Cesium rebuilds it', () => {
     const scene = fakeScene();
     install(scene);
@@ -546,6 +582,104 @@ describe('installGlobeOffset', () => {
       'getStartMousePosition',
     ])
       expect(typeof aggregator[method]).toBe('function');
+    // The fake scene stands in for these, so only the real prototypes can show a rename.
+    const scenePrototype = Scene.prototype as unknown as Record<
+      string,
+      unknown
+    >;
+    for (const method of [
+      'updateAndExecuteCommands',
+      'pickPositionWorldCoordinates',
+    ])
+      expect(typeof scenePrototype[method]).toBe('function');
+    expect(
+      typeof Object.getOwnPropertyDescriptor(Scene.prototype, 'frameState')
+        ?.get,
+    ).toBe('function');
+    expect(
+      typeof Object.getOwnPropertyDescriptor(Scene.prototype, 'camera')?.get,
+    ).toBe('function');
+    expect(Object.keys(new FrameState().passes)).toEqual(
+      expect.arrayContaining(['offscreen', 'pick', 'pickVoxel']),
+    );
+    expect(typeof Camera.prototype.getPickRay).toBe('function');
+  });
+
+  it('refuses a Cesium without a member it overrides, and leaves the scene as it was', () => {
+    const breakages: [string, (scene: FakeScene) => void][] = [
+      [
+        'updateAndExecuteCommands',
+        (scene) => {
+          (
+            scene as unknown as Record<string, unknown>
+          ).updateAndExecuteCommands = undefined;
+        },
+      ],
+      [
+        'pickPositionWorldCoordinates',
+        (scene) => {
+          (
+            scene as unknown as Record<string, unknown>
+          ).pickPositionWorldCoordinates = undefined;
+        },
+      ],
+      [
+        'update',
+        (scene) => {
+          (
+            scene.screenSpaceCameraController as unknown as Record<
+              string,
+              unknown
+            >
+          ).update = undefined;
+        },
+      ],
+      [
+        'getStartMousePosition',
+        (scene) => {
+          (
+            scene.screenSpaceCameraController._aggregator as unknown as Record<
+              string,
+              unknown
+            >
+          ).getStartMousePosition = undefined;
+        },
+      ],
+      [
+        '_aggregator',
+        (scene) => {
+          (
+            scene.screenSpaceCameraController as unknown as Record<
+              string,
+              unknown
+            >
+          )._aggregator = undefined;
+        },
+      ],
+    ];
+    for (const [member, breakIt] of breakages) {
+      const scene = fakeScene();
+      breakIt(scene);
+      const controller = scene.screenSpaceCameraController;
+      const { update } = controller;
+      const aggregator = controller._aggregator as
+        FakeController['_aggregator'] | undefined;
+      const getMovement = aggregator?.getMovement;
+      const execute = scene.updateAndExecuteCommands;
+      const pickWorld = scene.pickPositionWorldCoordinates;
+      const frustum = scene.camera.frustum;
+      expect(
+        () => installGlobeOffset(scene as unknown as Scene),
+        member,
+      ).toThrow(member);
+      expect(Object.hasOwn(scene.camera, 'getPickRay'), member).toBe(false);
+      expect(scene.updateAndExecuteCommands, member).toBe(execute);
+      expect(scene.pickPositionWorldCoordinates, member).toBe(pickWorld);
+      expect(controller.update, member).toBe(update);
+      expect(aggregator?.getMovement, member).toBe(getMovement);
+      expect(scene.camera.frustum, member).toBe(frustum);
+      expect(scene.preUpdate.numberOfListeners, member).toBe(0);
+    }
   });
 
   it('restores Cesium on destroy', () => {
