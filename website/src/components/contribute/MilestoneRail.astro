@@ -1,0 +1,21 @@
+---
+/**
+ * Milestones (site redesign spec §4.3 C3, #454): four diamonds on a hairline under the work board,
+ * with "Milestones are release boundaries." as the lead-in. Static; the list is the content.
+ */
+const MILESTONES = [
+  'Data foundation',
+  'Reproduce HbS',
+  'Usable map',
+  'Safe public launch',
+];
+---
+
+<div class="wb-milestones">
+  <p class="wb-milestones__lead">
+    <strong>Milestones are release boundaries.</strong>
+  </p>
+  <ol class="wb-milestones__rail">
+    {MILESTONES.map((milestone) => <li>{milestone}</li>)}
+  </ol>
+</div>

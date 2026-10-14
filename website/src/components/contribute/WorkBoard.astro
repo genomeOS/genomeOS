@@ -1,0 +1,232 @@
+---
+/**
+ * "How work moves" (site redesign spec §4.3 C3, #454): a mechanism plate. A Discussion #76 station
+ * beside a project board with the five real statuses, each holding faint ghost cards, and one
+ * example issue that sits in exactly one place per step:
+ *
+ *   1 Say hello              beside the Discussion bubble, a dashed idea card; the bubble replies
+ *   2 Read the record        Backlog; a magnifier sweeps the column; an @author mention
+ *   3 Take Ready work        Ready; the Ready header lights
+ *   4 Build to the contract  In progress; four checks tick; the two decision labels appear
+ *   5 Open a pull request    In review; a pull request docks with "Closes #…"
+ *
+ * The steps are a tablist in the top bar and their five panels are the bottom bar. The example card
+ * is drawn once per step (all but one hidden, each holding its space), so the board's box never
+ * changes as the card moves: a move is a transform, not a layout shift. On a wide stage each card
+ * sits in its column; on a narrow one the statuses are compact rows, a small card marker moves
+ * between them, and the card itself shows in one dock under the rows. Hidden panels, cards and
+ * definition lines keep their space, so nothing below the board shifts either.
+ *
+ * Without JavaScript the tabs stay hidden, the five panels read as an ordered list, and the board
+ * shows step 3. `board.ts` (loaded once by the page, with the transit island) runs the tour
+ * (once, ≤ 6 s, rest on step 5) and the tabs.
+ */
+import Plate from '../kit/Plate.astro';
+import Mark from './Mark.astro';
+import {
+  BOARD_COLUMNS,
+  BOARD_STEPS,
+  NO_SCRIPT_STEP,
+  type BoardPlace,
+} from './board-steps';
+
+const DISCUSSION = 'https://github.com/genomeOS/genomeOS/discussions/76';
+const ISSUES = 'https://github.com/genomeOS/genomeOS/issues?q=is%3Aissue';
+const BOARD_URL = 'https://github.com/orgs/genomeOS/projects/1';
+
+const current = BOARD_STEPS[NO_SCRIPT_STEP - 1];
+const placeName = (at: BoardPlace) =>
+  at === 'discussion'
+    ? 'beside Discussion #76, as an idea'
+    : `in ${BOARD_COLUMNS.find((column) => column.key === at)!.label}`;
+/** The stage's name for a step: where the example issue is, and what that column means. */
+const boardLabel = (n: number) => {
+  const step = BOARD_STEPS[n - 1];
+  return `A project board with five statuses: Backlog, Ready, In progress, In review and Blocked. Step ${step.n}, ${step.tab}: the example issue is ${placeName(step.at)}.${step.definition ? ` ${step.definition}` : ''}`;
+};
+const cardStep = (at: BoardPlace) => BOARD_STEPS.find((step) => step.at === at);
+---
+
+<Plate
+  graphic="work-board"
+  class="wb-plate"
+  label={boardLabel(NO_SCRIPT_STEP)}
+  data-wb-labels={JSON.stringify(BOARD_STEPS.map((step) => boardLabel(step.n)))}
+>
+  <div
+    slot="top"
+    class="wb-tabs"
+    role="tablist"
+    aria-label="How work moves, step by step"
+    hidden
+  >
+    {
+      BOARD_STEPS.map((step) => (
+        <button
+          type="button"
+          role="tab"
+          id={`wb-tab-${step.n}`}
+          aria-controls={`wb-panel-${step.n}`}
+          aria-selected={step.n === NO_SCRIPT_STEP ? 'true' : 'false'}
+          tabindex={step.n === NO_SCRIPT_STEP ? 0 : -1}
+        >
+          <span class="wb-tab__n">{step.n}</span>{' '}
+          <span class="wb-tab__label">{step.tab}</span>
+        </button>
+      ))
+    }
+  </div>
+
+  <div class="wb" data-step={NO_SCRIPT_STEP}>
+    <div
+      class:list={[
+        'wb-place',
+        'wb-station',
+        current.at === 'discussion' && 'is-here',
+      ]}
+      data-place="discussion"
+    >
+      <p class="wb-place__head wb-station__head">
+        <span class="wb-station__bubble">
+          <Mark icon="speech" size={20} />
+          <span class="wb-station__reply" aria-hidden="true"
+            ><i></i><i></i><i></i></span
+          >
+        </span>
+        <span>Discussion #76</span>
+      </p>
+      <span class="wb-marker wb-marker--idea" aria-hidden="true"
+        ><Mark glyph="issue-card" size={16} /></span
+      >
+    </div>
+    {
+      BOARD_COLUMNS.map((column) => (
+        <div
+          class:list={[
+            'wb-place',
+            'wb-col',
+            current.at === column.key && 'is-here',
+          ]}
+          data-place={column.key}
+        >
+          <p class="wb-place__head wb-col__head">{column.label}</p>
+          <div class="wb-ghosts" aria-hidden="true">
+            {Array.from({ length: column.ghosts }, () => (
+              <span class="wb-ghost">
+                <i />
+                <i />
+              </span>
+            ))}
+            {column.key === 'backlog' && (
+              <span class="wb-lens">
+                <Mark icon="magnifier" size={22} />
+              </span>
+            )}
+          </div>
+          {cardStep(column.key) && (
+            <span class="wb-marker" aria-hidden="true">
+              <Mark glyph="issue-card" size={16} />
+            </span>
+          )}
+        </div>
+      ))
+    }
+    {
+      BOARD_STEPS.map((step) => (
+        <div
+          class:list={['wb-card', step.n === 1 && 'wb-card--idea']}
+          data-at={step.at}
+          hidden={step.n !== NO_SCRIPT_STEP}
+        >
+          <p class="wb-card__title">
+            <Mark glyph="issue-card" size={16} /> Example issue
+          </p>
+          <p class="wb-card__labels">
+            <span>skill</span> <span>type</span> <span>priority</span>
+          </p>
+          {step.n === 2 && (
+            <p class="wb-card__mention">
+              <span>@author</span>
+            </p>
+          )}
+          {step.n === 4 && (
+            <>
+              <ul class="wb-card__checks">
+                <li>Objective</li>
+                <li>Evidence</li>
+                <li>Assumptions</li>
+                <li>Refusal conditions</li>
+              </ul>
+              <p class="wb-card__flags">
+                <span>wants-expert-review</span>{' '}
+                <span class="wb-card__flag--decision">
+                  needs-human-decision
+                </span>
+              </p>
+            </>
+          )}
+          {step.n === 5 && (
+            <p class="wb-card__pr">
+              <Mark glyph="pr" size={16} /> Closes #…
+            </p>
+          )}
+        </div>
+      ))
+    }
+    <p class="wb-def">
+      {
+        BOARD_STEPS.filter((step) => step.definition).map((step) => {
+          const [name, ...rest] = step.definition!.split(': ');
+          return (
+            <span data-definition={step.at} hidden={step.n !== NO_SCRIPT_STEP}>
+              <strong>{name}:</strong> {rest.join(': ')}
+            </span>
+          );
+        })
+      }
+    </p>
+  </div>
+
+  <ol slot="caption" class="wb-panels">
+    <li>
+      <div class="wb-panel" id="wb-panel-1">
+        Introduce yourself in <a
+          href={DISCUSSION}
+          target="_blank"
+          rel="noopener noreferrer">Discussion #76</a
+        >. Share what you know; no finished proposal needed.
+      </div>
+    </li>
+    <li>
+      <div class="wb-panel" id="wb-panel-2">
+        Search <a href={ISSUES} target="_blank" rel="noopener noreferrer"
+          >open and closed issues</a
+        > first. When you post an update, mention the original issue author.
+      </div>
+    </li>
+    <li>
+      <div class="wb-panel" id="wb-panel-3">
+        <a href={BOARD_URL} target="_blank" rel="noopener noreferrer">Ready</a> means
+        fully specified and unblocked: take it without asking. Filter by skill, type
+        and priority labels.
+      </div>
+    </li>
+    <li>
+      <div class="wb-panel" id="wb-panel-4">
+        State the objective, evidence, assumptions and refusal conditions. <span
+          class="wb-term"
+          ><span class="wb-label">wants-expert-review</span>:</span
+        > build it, then say what an expert should check. <span class="wb-term"
+          ><span class="wb-label wb-label--decision">needs-human-decision</span
+          >:</span
+        > stop at the choice and lay out the options.
+      </div>
+    </li>
+    <li>
+      <div class="wb-panel" id="wb-panel-5">
+        Open a pull request that closes the issue and reports every check you
+        ran.
+      </div>
+    </li>
+  </ol>
+</Plate>

@@ -1,0 +1,56 @@
+---
+/**
+ * One of the kit's marks drawn inline (site redesign spec §2.6, #454), from the kit's own drawings
+ * (`kit/glyphs.ts`, `kit/icons.ts`), so a legend's mark and a figure's mark stay identical. The page
+ * uses five marks, so it draws them in place rather than shipping both whole sprites (spec §7:
+ * Contribute's transfer budget). Decorative: the words beside a mark carry its meaning.
+ */
+import { GLYPHS, GLYPH_SYMBOLS } from '../kit/glyphs';
+import { ICON_PATHS } from '../kit/icons';
+import { cssVarStyles } from '../kit/svg';
+
+interface Props {
+  glyph?: 'issue-card' | 'pr';
+  icon?: 'speech' | 'magnifier' | 'arrow';
+  /** Display height in px. */
+  size: number;
+}
+
+const { glyph, icon, size } = Astro.props;
+const [w, h] = glyph ? GLYPHS[glyph] : [24, 24];
+const width = Math.round((w / h) * size * 100) / 100;
+---
+
+{
+  glyph ? (
+    <svg
+      class="contribute-mark"
+      width={width}
+      height={size}
+      viewBox={`0 0 ${w} ${h}`}
+      aria-hidden="true"
+      focusable="false"
+      set:html={cssVarStyles(GLYPH_SYMBOLS[glyph])}
+    />
+  ) : (
+    icon && (
+      <svg
+        class="contribute-mark"
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <path
+          d={ICON_PATHS[icon]}
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    )
+  )
+}
