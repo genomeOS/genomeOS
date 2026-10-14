@@ -1,1 +1,2047 @@
-/* project page styles (site redesign #454). Owned by the project page task; loaded after the shared CSS. */
+/*
+ * Project page (site redesign spec §4.2, #454). Owned by the Project task; loaded after the
+ * shared CSS. Sections alternate void and orbit bands; every concept is carried by one figure.
+ *
+ * Motion follows one pattern for every figure here: the island adds `is-armed` (the before state,
+ * screens only) and then `is-playing`, whose keyframes read `--d` (ms) for their delay and
+ * `--figure-freeze` (dev captures) to hold a moment; at rest neither class is present, so the
+ * server-rendered final state shows and nothing runs. Reduced motion never arms.
+ */
+
+/* ---------- shared heads ---------- */
+
+.proj-h2,
+.proj-head h2 {
+  max-width: 22ch;
+  margin: 0;
+  color: var(--color-starlight);
+  font-family: var(--font-display);
+  font-size: var(--type-h2);
+  font-weight: 400;
+  letter-spacing: -0.035em;
+  line-height: 1.04;
+  text-wrap: balance;
+}
+
+.proj-head {
+  margin-bottom: var(--head-gap);
+}
+
+.proj-head--split {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: var(--grid-gap);
+  align-items: end;
+}
+
+.proj-head--split h2 {
+  grid-column: 1 / span 7;
+}
+
+.proj-lede {
+  grid-column: 9 / span 4;
+  max-width: 38ch;
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: var(--type-lede);
+  line-height: 1.5;
+}
+
+.proj-vision .proj-h2,
+.proj-pipeline__title {
+  margin-bottom: var(--head-gap);
+}
+
+@media (max-width: 52rem) {
+  .proj-head--split > * {
+    grid-column: 1 / -1;
+  }
+
+  .proj-lede {
+    margin-top: 1rem;
+  }
+}
+
+@keyframes proj-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes proj-rise {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+}
+
+@keyframes proj-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+
+  60% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+}
+
+@keyframes proj-draw {
+  from {
+    transform: scale(0);
+  }
+}
+
+@keyframes proj-draw-x {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes proj-draw-y {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+/* Dev captures hold a figure at one moment of its entrance (FigureController `?t=`). */
+[data-figure-frozen] *,
+[data-figure-frozen] *::before,
+[data-figure-frozen] *::after {
+  animation-play-state: paused !important;
+}
+
+/* ---------- intro: the join-up plate (P1) ---------- */
+
+.proj-intro .page-intro__figure {
+  margin-top: var(--head-gap);
+}
+
+.joinup > .kit-plate__stage {
+  container: joinup / inline-size;
+}
+
+.joinup__grid {
+  --wire: rgb(165 185 211 / 38%);
+  --socket: 1.45rem;
+
+  position: relative;
+  display: grid;
+  grid-template-columns:
+    minmax(9.5rem, 11.5rem) repeat(6, minmax(0, 1fr))
+    minmax(12.5rem, 15rem);
+  grid-template-rows: auto repeat(5, 3.5rem);
+  align-items: center;
+}
+
+.joinup__grid > *,
+.joinup__row > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* The contract: one lit band behind the six field columns. */
+.joinup__grid > .joinup__band {
+  z-index: 0;
+  grid-row: 1 / -1;
+  grid-column: 2 / 8;
+  align-self: stretch;
+  border-inline: 1px solid var(--color-line);
+  background: rgb(10 33 64 / 62%);
+}
+
+/* The placement field: blank plate, no coastline, no real place. */
+.joinup__grid > .joinup__field {
+  z-index: 0;
+  grid-row: 2 / 5;
+  grid-column: 8;
+  align-self: stretch;
+  margin: 0.4rem 0 0.4rem 1.6rem;
+  border: 1px solid var(--color-line);
+  background-color: rgb(2 7 18 / 55%);
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    rgb(165 185 211 / 16%) 1px,
+    transparent 1.3px
+  );
+  background-size: 12px 12px;
+}
+
+.joinup__head {
+  grid-row: 1;
+  grid-column: var(--col);
+  align-self: end;
+  min-width: 0;
+  min-height: 2.75rem;
+  margin: 0;
+  padding: 0.75rem 0.3rem 0.8rem;
+  border: 0;
+  background: none;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 640;
+  line-height: 1.25;
+  text-align: center;
+  cursor: help;
+  transition: color var(--dur-micro) var(--ease-ui);
+}
+
+.joinup__head abbr {
+  text-decoration: none;
+}
+
+.joinup__head:hover,
+.joinup__head:focus-visible,
+.joinup__head.is-lit {
+  color: var(--color-starlight);
+}
+
+.joinup__head.is-lit .joinup__head-label {
+  text-decoration: underline 2px var(--color-ion);
+  text-underline-offset: 0.35em;
+}
+
+.joinup__row {
+  display: contents;
+}
+
+.joinup__source,
+.joinup__cell,
+.joinup__outcome {
+  grid-row: var(--row);
+}
+
+.joinup__source {
+  grid-column: 1;
+  padding-right: 1rem;
+}
+
+/* The wire out of the record, into the contract. */
+.joinup__source::after {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 1rem;
+  height: 1px;
+  background: var(--wire);
+  content: '';
+  transform-origin: left;
+}
+
+.joinup__record {
+  display: block;
+  width: 100%;
+  min-height: 2.5rem;
+  margin: 0;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--color-line-strong);
+  background: var(--color-plate-raised);
+  color: var(--color-starlight);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 620;
+  line-height: 1.25;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-micro) var(--ease-ui),
+    background-color var(--dur-micro) var(--ease-ui);
+}
+
+.joinup__record:hover {
+  border-color: var(--color-ion);
+}
+
+/* The unplaced label turns signal gold: the build fails on it. */
+[data-outcome='fails'] .joinup__record {
+  border-color: var(--color-signal);
+  background: rgb(244 200 106 / 8%);
+  color: var(--color-signal);
+}
+
+.joinup__cell {
+  display: grid;
+  grid-column: var(--col);
+  place-items: center;
+  align-self: stretch;
+}
+
+/* Wires through each field: in from the left, and on to the right while the record passes. */
+.joinup__cell::before,
+.joinup__cell::after {
+  position: absolute;
+  top: 50%;
+  width: 50%;
+  height: 1px;
+  background: var(--wire);
+  content: '';
+  transform-origin: left;
+}
+
+.joinup__cell::before {
+  left: 0;
+}
+
+.joinup__cell::after {
+  left: 50%;
+}
+
+.joinup__cell:is([data-state='refused'], [data-state='fail'])::after,
+.joinup__cell[data-state='skip']::before,
+.joinup__cell[data-state='skip']::after {
+  display: none;
+}
+
+.joinup__socket {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: var(--socket);
+  height: var(--socket);
+  border: 1px solid var(--color-line-strong);
+  background: var(--color-plate);
+  overflow: visible;
+  transition: opacity var(--dur-ui) var(--ease-ui);
+}
+
+/* Missing: hatched over land, never filled in. */
+.joinup__cell:is(
+    [data-state='missing'],
+    [data-state='refused'],
+    [data-state='fail']
+  )
+  .joinup__socket {
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgb(168 181 201 / 72%) 0 1.4px,
+      transparent 1.4px 5px
+    ),
+    var(--enc-land);
+}
+
+.joinup__cell:is([data-state='refused'], [data-state='fail']) .joinup__socket {
+  border-color: var(--color-signal);
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgb(168 181 201 / 34%) 0 1.4px,
+      transparent 1.4px 5px
+    ),
+    var(--enc-land);
+}
+
+.joinup__cell[data-state='flag'] .joinup__socket {
+  border-color: rgb(244 200 106 / 70%);
+}
+
+.joinup__cell[data-state='skip'] .joinup__socket {
+  border: 1px dashed rgb(165 185 211 / 28%);
+  background: transparent;
+}
+
+.joinup__outcome {
+  display: flex;
+  grid-column: 8;
+  align-items: center;
+  gap: 0.3rem;
+  align-self: stretch;
+  padding-left: 1.6rem;
+}
+
+/* Placed records carry the wire on into the field. */
+:is([data-outcome='placed'], [data-outcome='country'], [data-outcome='context'])
+  > .joinup__outcome::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 2.2rem;
+  height: 1px;
+  background: var(--wire);
+  content: '';
+  transform-origin: left;
+}
+
+.joinup__mark {
+  flex: none;
+  width: 48px;
+  height: 40px;
+  overflow: visible;
+}
+
+.joinup__result {
+  color: var(--color-text-soft);
+  font-size: 0.84rem;
+  font-weight: 620;
+  line-height: 1.25;
+}
+
+:is([data-outcome='refused'], [data-outcome='fails']) .joinup__result {
+  color: var(--color-signal);
+}
+
+/* Context only: a hollow tag, attached to the map but pinned to no place. */
+.joinup__tag {
+  margin-left: 0.9rem;
+  padding: 0.25rem 0.55rem;
+  border: 1px dashed var(--color-muted);
+  background: rgb(2 7 18 / 70%);
+  color: var(--color-text-soft);
+  font-size: 0.8rem;
+  font-weight: 620;
+  line-height: 1.25;
+}
+
+/* Focus: a record's row, or a field's column. Art dims; text never does. */
+.joinup__row.is-dim :is(.joinup__socket, .joinup__mark) {
+  opacity: 0.35;
+}
+
+.joinup__cell.is-lit .joinup__socket {
+  border-color: var(--color-ion);
+  box-shadow: 0 0 0 3px rgb(112 230 255 / 18%);
+}
+
+.joinup__caption {
+  margin: 0;
+}
+
+/* Mid widths: the field names stand upright. */
+@container joinup (max-width: 1079px) {
+  .joinup__grid {
+    grid-template-columns:
+      minmax(8.5rem, 10.5rem) repeat(6, minmax(2.1rem, 1fr))
+      minmax(11.5rem, 13.5rem);
+  }
+
+  .joinup__head {
+    display: flex;
+    justify-content: center;
+    padding: 0.7rem 0 0.75rem;
+  }
+
+  .joinup__head-label {
+    writing-mode: vertical-rl;
+    white-space: nowrap;
+    transform: rotate(180deg);
+  }
+}
+
+/* Phones: each record's outcome sits under its row. */
+@container joinup (max-width: 619px) {
+  .joinup__grid {
+    --socket: 1.3rem;
+
+    grid-template-columns: minmax(0, 1fr) repeat(6, 1.75rem);
+    grid-template-rows: auto repeat(10, auto);
+  }
+
+  .joinup__source,
+  .joinup__cell {
+    grid-row: var(--row-phone);
+  }
+
+  .joinup__cell {
+    min-height: 2.9rem;
+  }
+
+  .joinup__source {
+    padding-right: 0.6rem;
+  }
+
+  .joinup__source::after {
+    width: 0.6rem;
+  }
+
+  /* The outcome row spans the plate, so the contract band breaks between records. */
+  .joinup__outcome {
+    grid-row: var(--row-out);
+    grid-column: 1 / -1;
+    padding: 0.1rem 0 0.75rem;
+    background: var(--color-plate);
+  }
+
+  .joinup__outcome::before,
+  .joinup__grid > .joinup__field {
+    display: none;
+  }
+
+  .joinup__tag {
+    margin: 0.2rem 0 0.35rem;
+  }
+}
+
+@container joinup (max-width: 300px) {
+  .joinup__grid {
+    --socket: 1.1rem;
+
+    grid-template-columns: minmax(0, 1fr) repeat(6, 1.45rem);
+  }
+
+  .joinup__record {
+    padding-inline: 0.45rem;
+  }
+}
+
+/* The entrance: header, then each record through the contract, 450 ms apart. */
+@media screen {
+  .joinup.is-armed
+    :is(
+      .joinup__head,
+      .joinup__record,
+      .joinup__socket,
+      .joinup__mark,
+      .joinup__result,
+      .joinup__tag
+    ),
+  .joinup.is-armed
+    :is(.joinup__source, .joinup__cell, .joinup__outcome)::before,
+  .joinup.is-armed
+    :is(.joinup__source, .joinup__cell, .joinup__outcome)::after {
+    opacity: 0;
+  }
+}
+
+.joinup.is-playing .joinup__head,
+.joinup.is-playing :is(.joinup__record, .joinup__result, .joinup__tag),
+.joinup__row.is-replaying :is(.joinup__record, .joinup__result, .joinup__tag) {
+  animation: proj-rise 320ms var(--ease-figure) both;
+  animation-delay: calc(var(--d) * 1ms + var(--figure-freeze, 0ms));
+}
+
+.joinup.is-playing .joinup__socket,
+.joinup.is-playing .joinup__mark,
+.joinup__row.is-replaying :is(.joinup__socket, .joinup__mark) {
+  animation: proj-pop 300ms var(--ease-figure) both;
+  animation-delay: calc(var(--d) * 1ms + var(--figure-freeze, 0ms));
+}
+
+.joinup.is-playing
+  :is(.joinup__source, .joinup__cell, .joinup__outcome)::before,
+.joinup.is-playing :is(.joinup__source, .joinup__cell, .joinup__outcome)::after,
+.joinup__row.is-replaying
+  :is(.joinup__source, .joinup__cell, .joinup__outcome)::before,
+.joinup__row.is-replaying
+  :is(.joinup__source, .joinup__cell, .joinup__outcome)::after {
+  animation: proj-draw-x 200ms linear both;
+  animation-delay: calc((var(--d) - 60) * 1ms + var(--figure-freeze, 0ms));
+}
+
+/* A replayed record runs on its own clock, from its own start. */
+.joinup__row.is-replaying > * {
+  --d-own: calc(var(--d) - var(--row-start));
+}
+
+.joinup__row.is-replaying :is(.joinup__record, .joinup__result, .joinup__tag),
+.joinup__row.is-replaying :is(.joinup__socket, .joinup__mark),
+.joinup__row.is-replaying
+  :is(.joinup__source, .joinup__cell, .joinup__outcome)::before,
+.joinup__row.is-replaying
+  :is(.joinup__source, .joinup__cell, .joinup__outcome)::after {
+  animation-delay: calc(var(--d-own) * 1ms);
+}
+
+/* The unplaced label shakes once as the build fails on it. */
+@keyframes joinup-shake {
+  0%,
+  100% {
+    transform: none;
+  }
+
+  20% {
+    transform: translateX(-5px);
+  }
+
+  40% {
+    transform: translateX(5px);
+  }
+
+  60% {
+    transform: translateX(-4px);
+  }
+
+  80% {
+    transform: translateX(3px);
+  }
+}
+
+@keyframes joinup-turn-gold {
+  from {
+    border-color: var(--color-line-strong);
+    background-color: var(--color-plate-raised);
+    color: var(--color-starlight);
+  }
+}
+
+.joinup.is-playing [data-outcome='fails'] .joinup__record,
+.joinup__row[data-outcome='fails'].is-replaying .joinup__record {
+  animation:
+    proj-rise 320ms var(--ease-figure) both,
+    joinup-turn-gold 240ms linear both,
+    joinup-shake 420ms var(--ease-ui) both;
+  animation-delay:
+    calc(var(--d) * 1ms + var(--figure-freeze, 0ms)),
+    calc((var(--d) + 260) * 1ms + var(--figure-freeze, 0ms)),
+    calc((var(--d) + 260) * 1ms + var(--figure-freeze, 0ms));
+}
+
+.joinup__row[data-outcome='fails'].is-replaying .joinup__record {
+  animation-delay:
+    calc(var(--d-own) * 1ms), calc((var(--d-own) + 260) * 1ms),
+    calc((var(--d-own) + 260) * 1ms);
+}
+
+/* The stud lands and its stated radius opens around it. */
+.joinup__ring {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.joinup.is-playing .joinup__ring,
+.joinup__row.is-replaying .joinup__ring {
+  animation: proj-draw 420ms var(--ease-camera) both;
+  animation-delay: calc((var(--d) + 120) * 1ms + var(--figure-freeze, 0ms));
+}
+
+.joinup__row.is-replaying .joinup__ring {
+  animation-delay: calc((var(--d-own) + 120) * 1ms);
+}
+
+/* ---------- HbS: genotypes and the threshold map (P2) ---------- */
+
+.hbs {
+  display: grid;
+  grid-template-columns:
+    minmax(10rem, 12rem) minmax(0, 1fr)
+    minmax(15rem, 17.5rem);
+  grid-template-rows: auto auto auto 1fr auto auto;
+  grid-template-areas:
+    'stage stage tool'
+    'stage stage controls'
+    'stage stage readout'
+    'stage stage legend'
+    'foot foot foot'
+    'table table table';
+  column-gap: clamp(1.25rem, 2.6vw, 2.25rem);
+}
+
+.hbs > .kit-figure__toolbar {
+  grid-area: tool;
+  margin-bottom: 1.1rem;
+}
+
+.hbs > .kit-figure__stage {
+  display: grid;
+  grid-area: stage;
+  grid-template-columns: subgrid;
+  align-items: start;
+}
+
+.hbs > .hbs__controls {
+  grid-area: controls;
+}
+
+.hbs > .kit-readout {
+  grid-area: readout;
+  margin-top: 1rem;
+}
+
+.hbs > .kit-figure__legend {
+  grid-area: legend;
+  margin-top: 1.25rem;
+}
+
+.hbs > .kit-figure__footnote {
+  grid-area: foot;
+  margin-top: 1.25rem;
+}
+
+.hbs > .kit-figure__table {
+  grid-area: table;
+}
+
+.hbs .kit-readout {
+  white-space: pre-line;
+}
+
+.hbs__map {
+  position: relative;
+  min-width: 0;
+  aspect-ratio: 4 / 3;
+  background:
+    radial-gradient(ellipse at 45% 50%, rgb(7 24 49 / 70%), transparent 70%),
+    var(--color-void);
+  cursor: crosshair;
+}
+
+.hbs__map canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The studs' canvas is laid out larger and scaled down (hbs-map.ts, studScale). */
+.hbs__map canvas[data-hbs-canvas='studs'] {
+  width: calc(100% / var(--stud-scale, 1));
+  height: calc(100% / var(--stud-scale, 1));
+  transform: scale(var(--stud-scale, 1));
+  transform-origin: 0 0;
+}
+
+.hbs__map:focus-visible {
+  outline: 2px solid var(--color-ion);
+  outline-offset: 4px;
+}
+
+/* A square reticle with a cross: where the keyboard is pointing. */
+.hbs__reticle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border: 1.5px solid var(--color-ion);
+  background:
+    linear-gradient(var(--color-ion), var(--color-ion)) center / 1.5px 8px
+      no-repeat,
+    linear-gradient(var(--color-ion), var(--color-ion)) center / 8px 1.5px
+      no-repeat;
+  box-shadow: 0 0 0 1.5px rgb(2 7 18 / 85%);
+  pointer-events: none;
+}
+
+.hbs__reticle[hidden] {
+  display: none;
+}
+
+.hbs__noscript {
+  position: absolute;
+  inset: auto 0 1rem;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--type-legend);
+  text-align: center;
+}
+
+.hbs__controls {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.hbs__slider-label {
+  color: var(--color-starlight);
+  font-size: 0.95rem;
+  font-weight: 620;
+}
+
+.hbs__slider-label output {
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.hbs__slider {
+  width: 100%;
+  min-height: 2rem;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+}
+
+.hbs__slider::-webkit-slider-runnable-track {
+  height: 2px;
+  background: var(--color-line-strong);
+}
+
+.hbs__slider::-moz-range-track {
+  height: 2px;
+  background: var(--color-line-strong);
+}
+
+.hbs__slider::-webkit-slider-thumb {
+  width: 14px;
+  height: 22px;
+  margin-top: -10px;
+  border: 2px solid var(--color-void);
+  background: var(--color-ion);
+  appearance: none;
+}
+
+.hbs__slider::-moz-range-thumb {
+  width: 12px;
+  height: 20px;
+  border: 2px solid var(--color-void);
+  border-radius: 0;
+  background: var(--color-ion);
+}
+
+.hbs__slider:focus-visible {
+  outline: 2px solid var(--color-ion);
+  outline-offset: 4px;
+}
+
+.hbs__count {
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 0.9rem;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.hbs__legend {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hbs__legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.hbs__legend li > :first-child {
+  flex: none;
+}
+
+.hbs__legend strong {
+  color: var(--color-starlight);
+  font-weight: 620;
+}
+
+.hbs__swatch {
+  width: 30px;
+  height: 22px;
+}
+
+.hbs__swatch-casing {
+  fill: none;
+  stroke: rgb(2 7 18 / 88%);
+  stroke-width: 4;
+}
+
+.hbs__swatch-fill {
+  fill: var(--enc-mean-3);
+}
+
+.hbs__swatch-solid,
+.hbs__swatch-dashed {
+  fill: none;
+  stroke: var(--color-ion);
+  stroke-width: 2;
+}
+
+.hbs__swatch-dashed {
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+
+.proj-gate {
+  max-width: 52rem;
+  margin: clamp(2rem, 4vw, 3rem) 0 0;
+  padding: 0.35rem 0 0.35rem 1.15rem;
+  border-left: 2px solid var(--color-signal);
+  color: var(--color-text-soft);
+  font-size: var(--type-lede);
+  line-height: 1.5;
+}
+
+.proj-gate strong {
+  color: var(--color-starlight);
+  font-weight: 620;
+}
+
+/* The genotype triad: one shared cell frame, three pressable genotypes. */
+.triad {
+  display: grid;
+  grid-column: 1;
+  align-content: start;
+  gap: 0.9rem;
+  min-width: 0;
+}
+
+.hbs__map {
+  grid-column: 2;
+}
+
+.triad__frame {
+  aspect-ratio: 1;
+  border: 1px solid var(--color-deep-line);
+  background: var(--color-plate);
+}
+
+.triad__svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.triad__cell {
+  stroke: var(--color-text-soft);
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+.triad__pallor {
+  fill: none;
+  stroke: rgb(165 185 211 / 50%);
+  stroke-dasharray: 3 3;
+  stroke-width: 1.2;
+  transition: opacity var(--dur-ui) var(--ease-ui);
+}
+
+.triad__frame[data-genotype='SS'] .triad__pallor {
+  opacity: 0;
+}
+
+.triad__choices {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.triad__choice {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 2.75rem;
+  margin: 0;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--color-line-strong);
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.84rem;
+  line-height: 1.25;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-micro) var(--ease-ui),
+    color var(--dur-micro) var(--ease-ui);
+}
+
+.triad__choice strong {
+  color: var(--color-starlight);
+  font-size: 0.95rem;
+  font-weight: 660;
+}
+
+.triad__choice:hover {
+  color: var(--color-starlight);
+}
+
+.triad__choice[aria-pressed='true'] {
+  background: var(--color-plate-raised);
+  box-shadow: inset 2px 0 0 var(--color-ion);
+  color: var(--color-text-soft);
+}
+
+.triad__alleles {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.triad__alleles i {
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--color-text-soft);
+  border-radius: 50%;
+}
+
+.triad__alleles i[data-allele='S'] {
+  border-color: var(--color-starlight);
+  background: var(--color-starlight);
+}
+
+@media (max-width: 75em) {
+  .hbs {
+    grid-template-columns: minmax(9rem, 11rem) minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-template-areas:
+      'tool tool'
+      'stage stage'
+      'controls controls'
+      'readout readout'
+      'legend legend'
+      'foot foot'
+      'table table';
+  }
+
+  .hbs > .hbs__controls {
+    grid-template-columns: auto minmax(10rem, 1fr) auto;
+    align-items: center;
+    column-gap: 1.25rem;
+    margin-top: 1.25rem;
+  }
+
+  .hbs__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+  }
+}
+
+@media (max-width: 47.99em) {
+  .hbs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hbs > .kit-figure__stage {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 1.25rem;
+  }
+
+  .triad,
+  .hbs__map {
+    grid-column: 1;
+  }
+
+  .triad {
+    grid-template-columns: 6rem minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .hbs > .hbs__controls {
+    grid-template-columns: minmax(0, 1fr);
+    margin-top: 1rem;
+  }
+
+  .hbs__slider {
+    min-height: 44px;
+  }
+}
+
+/* ---------- the scale ladder (P3) ---------- */
+
+.ladder {
+  margin: 0;
+}
+
+.ladder__tabs {
+  container: ladder-tabs / inline-size;
+  margin-bottom: clamp(1.25rem, 2.5vw, 2rem);
+}
+
+.ladder__tablist {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.ladder__tablist [role='tab'] {
+  display: grid;
+  flex: 1 1 0;
+  align-content: start;
+  gap: 0.3rem;
+  min-width: 0;
+  min-height: 2.75rem;
+  margin: 0;
+  padding: 0.75rem 1.1rem calc(0.8rem + 1px);
+  border: 0;
+  border-bottom: 1px solid var(--color-deep-line);
+  background: transparent;
+  color: var(--color-text-soft);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    color var(--dur-micro) var(--ease-ui),
+    background-color var(--dur-micro) var(--ease-ui);
+}
+
+.ladder__tablist [role='tab']:hover {
+  color: var(--color-starlight);
+}
+
+.ladder__tablist [role='tab'][aria-selected='true'] {
+  border-bottom-color: var(--color-ion);
+  background: rgb(10 33 64 / 55%);
+  box-shadow: inset 0 -1px 0 var(--color-ion);
+  color: var(--color-starlight);
+}
+
+.ladder__tab-title {
+  font-size: 1rem;
+  font-weight: 640;
+  line-height: 1.3;
+}
+
+.ladder__tab-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--color-muted);
+  font-size: 0.8rem;
+  font-weight: 580;
+}
+
+.ladder__tab-status::before {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-ion);
+  content: '';
+}
+
+.ladder__tab-status[data-status='future']::before {
+  border: 1.5px dashed var(--color-genome);
+  background: transparent;
+}
+
+@container ladder-tabs (max-width: 40rem) {
+  .ladder__tablist {
+    flex-direction: column;
+  }
+
+  .ladder__tablist [role='tab'] {
+    flex: none;
+  }
+}
+
+.ladder__stage {
+  container: ladder / inline-size;
+}
+
+.ladder__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-inline: auto;
+  overflow: visible;
+  font-family: var(--font-body);
+}
+
+.ladder__svg--row {
+  display: none;
+  max-width: 1100px;
+}
+
+.ladder__svg--grid {
+  max-width: 26rem;
+}
+
+@container ladder (min-width: 860px) {
+  .ladder__svg--row {
+    display: block;
+  }
+
+  .ladder__svg--grid {
+    display: none;
+  }
+}
+
+.ladder__art * {
+  vector-effect: non-scaling-stroke;
+}
+
+.ladder__border {
+  fill: var(--color-plate);
+  stroke: var(--color-line);
+}
+
+.ladder__frame--future .ladder__border {
+  fill: rgb(173 139 255 / 4%);
+  stroke: var(--color-genome);
+  stroke-dasharray: 5 4;
+}
+
+.ladder__globe {
+  fill: rgb(7 24 49 / 85%);
+  stroke: var(--color-line-strong);
+}
+
+.ladder__grat {
+  fill: none;
+  stroke: rgb(165 185 211 / 14%);
+}
+
+.ladder__land {
+  fill: var(--enc-land);
+  stroke: rgb(165 185 211 / 32%);
+  stroke-width: 0.6;
+}
+
+.ladder__zoom {
+  fill: none;
+  stroke: var(--color-ion);
+  stroke-width: 1.3;
+}
+
+.ladder__frame--future .ladder__zoom {
+  stroke: var(--color-genome);
+  stroke-dasharray: 3 2;
+}
+
+.ladder__ring {
+  fill: none;
+  stroke: var(--enc-obs-radius);
+  stroke-dasharray: 2 2;
+}
+
+.ladder__band {
+  fill: rgb(173 139 255 / 30%);
+}
+
+.ladder__future {
+  fill: none;
+  stroke: var(--color-genome);
+  stroke-dasharray: 4 3;
+  stroke-width: 1.4;
+}
+
+.ladder__future--faint {
+  opacity: 0.6;
+}
+
+.ladder__tick {
+  stroke: var(--color-genome);
+  stroke-width: 2;
+}
+
+.ladder__chromatin {
+  fill: none;
+  stroke: rgb(173 139 255 / 50%);
+  stroke-dasharray: 3 2.5;
+  stroke-width: 1.2;
+}
+
+.ladder__locus {
+  fill: none;
+  stroke: var(--color-genome);
+  stroke-dasharray: 4 2.5;
+  stroke-width: 1.8;
+}
+
+.ladder__wedge line {
+  stroke: rgb(112 230 255 / 50%);
+  stroke-width: 1;
+  transform-box: view-box;
+}
+
+.ladder__wedge--future line {
+  stroke: rgb(173 139 255 / 65%);
+  stroke-dasharray: 4 3;
+}
+
+.ladder__bridge {
+  fill: none;
+  stroke: var(--color-genome);
+  stroke-dasharray: 5 4;
+  stroke-width: 1.6;
+}
+
+.ladder__label {
+  fill: var(--color-text-soft);
+  font-weight: 620;
+}
+
+.ladder__label-sub {
+  fill: var(--color-muted);
+  font-weight: 560;
+}
+
+/* The selected level lights its frames; the rest of the art dims. Labels never dim. */
+.ladder__frame,
+.ladder__wedge,
+.ladder__bridge {
+  transition: opacity 320ms var(--ease-ui);
+}
+
+.ladder[data-level='earth']
+  :is(
+    [data-frame='chromosome'],
+    [data-frame='nucleus'],
+    [data-wedge='2'],
+    [data-wedge='3'],
+    .ladder__bridge
+  ),
+.ladder[data-level='cell']
+  :is(
+    [data-frame='earth'],
+    [data-frame='population'],
+    [data-wedge='1'],
+    [data-wedge='2'],
+    .ladder__bridge
+  ),
+.ladder[data-level='bridge']
+  :is([data-frame='earth'], [data-frame='nucleus'], .ladder__wedge) {
+  opacity: 0.38;
+}
+
+.ladder__caption {
+  min-height: calc(1.5em + 1.6rem);
+  margin-top: 1.1rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--color-deep-line);
+  color: var(--color-text-soft);
+  font-size: var(--type-lede);
+  line-height: 1.5;
+}
+
+.ladder__caption p {
+  margin: 0;
+}
+
+@media screen {
+  .ladder.is-armed :is(.ladder__art, .ladder__label) {
+    opacity: 0;
+  }
+
+  .ladder.is-armed .ladder__wedge line {
+    transform: scale(0);
+  }
+
+  .ladder.is-armed .ladder__bridge {
+    stroke-opacity: 0;
+  }
+}
+
+.ladder.is-playing :is(.ladder__art, .ladder__label) {
+  animation: proj-fade 340ms var(--ease-figure) both;
+  animation-delay: calc(var(--d) * 1ms + var(--figure-freeze, 0ms));
+}
+
+.ladder.is-playing .ladder__wedge line {
+  animation: proj-draw 360ms var(--ease-camera) both;
+  animation-delay: calc(var(--d) * 1ms + var(--figure-freeze, 0ms));
+}
+
+@keyframes ladder-bridge {
+  from {
+    stroke-opacity: 0;
+  }
+}
+
+.ladder.is-playing .ladder__bridge {
+  animation: ladder-bridge 260ms var(--ease-figure) both;
+  animation-delay: calc(var(--d) * 1ms + var(--figure-freeze, 0ms));
+}
+
+/* ---------- safeguards (P4) ---------- */
+
+.sg {
+  margin: 0;
+}
+
+.sg > figcaption {
+  margin-bottom: var(--head-gap);
+}
+
+.sg-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.sg-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--color-line);
+  border-left: 1px solid var(--color-deep-line);
+  list-style: none;
+}
+
+@media (min-width: 40em) {
+  .sg-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 62em) {
+  .sg-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.sg-tile {
+  --t0: 0;
+
+  min-width: 0;
+  padding: clamp(0.75rem, 1.6vw, 1.5rem) clamp(0.75rem, 1.6vw, 1.5rem)
+    clamp(1.1rem, 2vw, 1.75rem);
+  border-right: 1px solid var(--color-deep-line);
+  border-bottom: 1px solid var(--color-deep-line);
+}
+
+.sg-svg {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+  height: auto;
+  margin-bottom: 1rem;
+  overflow: visible;
+  font-family: var(--font-body);
+}
+
+.sg-tile h3 {
+  margin: 0;
+  color: var(--color-starlight);
+  font-family: var(--font-display);
+  font-size: var(--type-h3);
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+
+.sg-tile p {
+  margin: 0.45rem 0 0;
+  color: var(--color-text-soft);
+  font-size: var(--type-legend);
+  line-height: 1.5;
+}
+
+.sg-hatch-ground {
+  fill: var(--enc-land);
+}
+
+.sg-hatch-stroke {
+  stroke: var(--enc-hatch);
+  stroke-opacity: 0.72;
+  stroke-width: 1.4;
+}
+
+.sg-cell {
+  stroke: var(--color-void);
+  stroke-width: 1.2;
+}
+
+.sg-m2 {
+  fill: var(--enc-mean-2);
+}
+
+.sg-m3 {
+  fill: var(--enc-mean-3);
+}
+
+.sg-m4 {
+  fill: var(--enc-mean-4);
+}
+
+.sg-m5 {
+  fill: var(--enc-mean-5);
+}
+
+.sg-p2 {
+  fill: var(--enc-mean-partial-2);
+}
+
+.sg-weak {
+  fill: var(--enc-mean-weak);
+}
+
+.sg-hatch {
+  fill: url('#sg-hatch');
+}
+
+.sg-label {
+  fill: var(--color-muted);
+  font-size: 15px;
+  font-weight: 620;
+}
+
+.sg-label--strong {
+  fill: var(--color-starlight);
+}
+
+.sg-gap {
+  stroke: var(--color-deep-line);
+  stroke-dasharray: 3 4;
+}
+
+.sg-ring {
+  fill: none;
+  stroke: var(--enc-obs-radius);
+  stroke-dasharray: 2 2;
+}
+
+.sg-bracket {
+  fill: none;
+  stroke: var(--color-muted);
+}
+
+.sg-lens-glass {
+  fill: var(--color-void);
+}
+
+.sg-lens-rim {
+  fill: none;
+  stroke: var(--color-ion);
+  stroke-width: 2;
+}
+
+.sg-lens-handle {
+  stroke: var(--color-ion);
+  stroke-width: 4;
+}
+
+.sg-magnify {
+  transform: scale(2.6);
+  transform-box: view-box;
+}
+
+.sg-raw {
+  fill: none;
+  stroke: var(--color-muted);
+  stroke-dasharray: 4 3;
+}
+
+.sg-corrected {
+  fill: var(--enc-mean-4);
+  transform-box: view-box;
+}
+
+.sg-switch-track {
+  fill: rgb(112 230 255 / 16%);
+  stroke: var(--color-ion);
+}
+
+.sg-switch-knob {
+  fill: var(--color-ion);
+}
+
+.sg-chip rect {
+  fill: rgb(112 230 255 / 10%);
+  stroke: var(--color-line-strong);
+}
+
+.sg-chip text {
+  fill: var(--color-starlight);
+}
+
+.sg-chip--stopped rect {
+  fill: rgb(165 185 211 / 6%);
+  stroke: var(--color-deep-line);
+}
+
+.sg-chip--stopped text {
+  fill: var(--color-muted);
+}
+
+.sg-gate {
+  stroke: var(--color-signal);
+  stroke-width: 2;
+}
+
+.sg-gate-mark {
+  fill: var(--color-void);
+  stroke: var(--color-signal);
+  stroke-width: 1.5;
+}
+
+.sg-pass {
+  fill: none;
+  stroke: var(--color-aurora);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
+}
+
+.sg-stop {
+  stroke: var(--color-muted);
+  stroke-linecap: round;
+  stroke-width: 2.2;
+}
+
+.sg-leader {
+  stroke: rgb(112 230 255 / 55%);
+  stroke-dasharray: 2 3;
+}
+
+.sg-cursor {
+  fill: var(--color-starlight);
+  stroke: var(--color-void);
+  stroke-width: 1;
+}
+
+.sg-readout {
+  fill: var(--color-plate);
+  stroke: var(--color-line-strong);
+}
+
+.sg-dash {
+  fill: var(--color-starlight);
+  font-size: 28px;
+  font-weight: 600;
+}
+
+.sg-pop .sg-cell {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Each tile plays once, 120 ms after the one before; a replayed tile starts at once. */
+.sg.is-playing .sg-tile {
+  --t0: calc(var(--i) * 120);
+}
+
+@media screen {
+  .sg.is-armed :is(.sg-anim, .sg-pop .sg-cell) {
+    opacity: 0;
+  }
+}
+
+@keyframes sg-lift {
+  from {
+    transform: translateY(46px);
+  }
+}
+
+@keyframes sg-lens {
+  from {
+    transform: translateX(-96px);
+  }
+}
+
+@keyframes sg-magnify {
+  from {
+    transform: scale(1);
+  }
+}
+
+@keyframes sg-correct {
+  from {
+    transform: scaleX(1.5);
+  }
+}
+
+@keyframes sg-knob {
+  from {
+    transform: translateX(-20px);
+  }
+}
+
+@keyframes sg-pointer {
+  from {
+    opacity: 0;
+    transform: translate(-40px, 30px);
+  }
+}
+
+:is(.sg.is-playing, .sg-tile.is-replaying) .sg-anim,
+:is(.sg.is-playing, .sg-tile.is-replaying) .sg-pop .sg-cell {
+  animation: proj-fade 420ms var(--ease-figure) both;
+  animation-delay: calc(
+    (var(--t0) + var(--d, 0)) * 1ms + var(--figure-freeze, 0ms)
+  );
+}
+
+:is(.sg.is-playing, .sg-tile.is-replaying) .sg-pop .sg-cell,
+:is(.sg.is-playing, .sg-tile.is-replaying) .sg-chip {
+  animation-name: proj-pop;
+  animation-duration: 340ms;
+}
+
+:is(.sg.is-playing, .sg-tile.is-replaying) .sg-chip {
+  animation-name: proj-rise;
+  animation-duration: 480ms;
+}
+
+:is(.sg.is-playing, .sg-tile.is-replaying) .sg-lift {
+  animation-name: sg-lift;
+  animation-duration: 1100ms;
+  animation-timing-function: var(--ease-camera);
+}
+
+:is(.sg.is-playing, .sg-tile.is-replaying) .sg-lens {
+  animation-name: sg-lens;
+  animation-duration: 1000ms;
+  animation-timing-function: var(--ease-camera);
+}
+
+:is(.sg.is-playing, .sg-tile.is-replaying) .sg-magnify {
+  animation-name: sg-magnify;
+  animation-duration: 700ms;
+  animation-delay: calc((var(--t0) + 800) * 1ms + var(--figure-freeze, 0ms));
+}
+
+:is(.sg.is-playing, .sg-tile.is-replaying) .sg-corrected {
+  animation-name: sg-correct;
+  animation-duration: 900ms;
+  animation-delay: calc((var(--t0) + 350) * 1ms + var(--figure-freeze, 0ms));
+  animation-timing-function: var(--ease-camera);
+}
+
+:is(.sg.is-playing, .sg-tile.is-replaying) .sg-switch-knob {
+  animation-name: sg-knob;
+  animation-duration: 380ms;
+  animation-timing-function: var(--ease-ui);
+}
+
+:is(.sg.is-playing, .sg-tile.is-replaying) .sg-pointer {
+  animation-name: sg-pointer;
+  animation-duration: 700ms;
+  animation-timing-function: var(--ease-camera);
+}
+
+.proj-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.75rem;
+  margin-top: 1.5rem;
+  font-weight: 650;
+}
+
+/* ---------- the pipeline (P5) uses the kit as it is ---------- */
+
+/* ---------- status rail (P6) ---------- */
+
+.rail {
+  margin: 0;
+}
+
+.rail__caption {
+  margin-bottom: var(--head-gap);
+}
+
+.rail__caption h2 {
+  max-width: 24ch;
+  text-wrap: balance;
+  margin: 0;
+  color: var(--color-starlight);
+  font-family: var(--font-display);
+  font-size: var(--type-h2);
+  font-weight: 400;
+  letter-spacing: -0.035em;
+  line-height: 1.04;
+}
+
+.rail__stage {
+  --gap: var(--grid-gap);
+
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: var(--gap);
+}
+
+.rail__seg {
+  position: relative;
+  grid-row: 1;
+  height: 2.5rem;
+}
+
+.rail__seg--now {
+  grid-column: 1;
+}
+
+.rail__seg--active {
+  grid-column: 2;
+}
+
+.rail__seg--future {
+  grid-column: 3;
+}
+
+.rail__line {
+  position: absolute;
+  top: calc(50% - 1px);
+  right: calc(-1 * var(--gap));
+  left: 0;
+  height: 2px;
+  background: var(--color-aurora);
+  transform-origin: left;
+}
+
+.rail__seg--active .rail__line {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--color-ion) 0 22px,
+    transparent 22px 29px
+  );
+}
+
+.rail__seg--future .rail__line {
+  right: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--color-genome) 0 6px,
+    transparent 6px 11px
+  );
+}
+
+.rail__node {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--x) * 100%);
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 50%;
+  background: var(--color-aurora);
+  transition:
+    transform var(--dur-micro) var(--ease-ui),
+    box-shadow var(--dur-micro) var(--ease-ui);
+}
+
+.rail__seg--active .rail__node {
+  border: 2px solid var(--color-ion);
+  background: var(--color-orbit);
+}
+
+.rail__seg--future .rail__node {
+  border: 1.5px dashed var(--color-genome);
+  background: var(--color-orbit);
+}
+
+.rail__node.is-lit {
+  box-shadow: 0 0 0 5px rgb(112 230 255 / 22%);
+  transform: scale(1.35);
+}
+
+.rail__gate {
+  position: relative;
+  z-index: 1;
+  grid-row: 1;
+  grid-column: 2;
+  align-self: center;
+  justify-self: start;
+  width: 16px;
+  height: 16px;
+  margin-left: calc(-0.5 * var(--gap) - 8px);
+  border: 1.5px solid var(--color-signal);
+  background: var(--color-orbit);
+  transform: rotate(45deg);
+}
+
+.rail__zone {
+  grid-row: 2;
+  padding-top: 1rem;
+}
+
+.rail__zone--now {
+  grid-column: 1;
+}
+
+.rail__zone--active {
+  grid-column: 2;
+}
+
+.rail__zone--future {
+  grid-column: 3;
+}
+
+.rail__zone h3 {
+  margin: 0 0 0.85rem;
+  color: var(--color-aurora);
+  font-family: var(--font-display);
+  font-size: var(--type-h3);
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+
+.rail__zone--active h3 {
+  color: var(--color-ion);
+}
+
+.rail__zone--future h3 {
+  color: var(--color-genome);
+}
+
+.rail__zone ul {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rail__zone li {
+  position: relative;
+  color: var(--color-text-soft);
+  font-size: 1rem;
+  line-height: 1.45;
+  transition: color var(--dur-micro) var(--ease-ui);
+}
+
+.rail__zone li:has(.kit-status-tag) {
+  display: grid;
+  justify-items: start;
+  gap: 0.45rem;
+}
+
+.rail__zone li.is-lit {
+  color: var(--color-starlight);
+}
+
+@media (max-width: 52em) {
+  .rail__stage {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rail__seg {
+    display: none;
+  }
+
+  .rail__zone,
+  .rail__gate {
+    grid-row: auto;
+    grid-column: 1;
+  }
+
+  /* The rail runs down the left of the lists; each item has its node on it. */
+  .rail__zone {
+    position: relative;
+    padding: 0 0 1.75rem 1.75rem;
+  }
+
+  .rail__zone::before {
+    position: absolute;
+    top: 0.45rem;
+    bottom: 0;
+    left: 5px;
+    width: 2px;
+    background: var(--color-aurora);
+    content: '';
+    transform-origin: top;
+  }
+
+  .rail__zone--active::before {
+    background: repeating-linear-gradient(
+      180deg,
+      var(--color-ion) 0 22px,
+      transparent 22px 29px
+    );
+  }
+
+  .rail__zone--future::before {
+    background: repeating-linear-gradient(
+      180deg,
+      var(--color-genome) 0 6px,
+      transparent 6px 11px
+    );
+  }
+
+  .rail__zone li::before {
+    position: absolute;
+    top: 0.42em;
+    left: -1.75rem;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--color-aurora);
+    content: '';
+  }
+
+  .rail__zone--active li::before {
+    border: 2px solid var(--color-ion);
+    background: var(--color-orbit);
+  }
+
+  .rail__zone--future li::before {
+    border: 1.5px dashed var(--color-genome);
+    background: var(--color-orbit);
+  }
+
+  .rail__gate {
+    margin: -0.6rem 0 1.4rem 0;
+  }
+}
+
+@media screen {
+  .rail.is-armed :is(.rail__line, .rail__node, .rail__gate),
+  .rail.is-armed .rail__zone::before,
+  .rail.is-armed .rail__zone li::before {
+    opacity: 0;
+  }
+}
+
+.rail.is-playing .rail__line {
+  animation: proj-draw-x 300ms linear both;
+  animation-delay: calc(var(--d) * 1ms + var(--figure-freeze, 0ms));
+}
+
+.rail.is-playing .rail__zone::before {
+  animation: proj-draw-y 300ms linear both;
+  animation-delay: calc(var(--d) * 1ms + var(--figure-freeze, 0ms));
+}
+
+.rail.is-playing .rail__node {
+  animation: proj-pop 320ms var(--ease-figure) both;
+  animation-delay: calc(var(--d) * 1ms + var(--figure-freeze, 0ms));
+}
+
+.rail.is-playing .rail__zone li::before {
+  animation: proj-pop 320ms var(--ease-figure) both;
+  animation-delay: calc(var(--d) * 1ms + var(--figure-freeze, 0ms));
+}
+
+@keyframes rail-gate {
+  from {
+    opacity: 0;
+    transform: rotate(45deg) scale(0.4);
+  }
+}
+
+.rail.is-playing .rail__gate {
+  animation: rail-gate 320ms var(--ease-figure) both;
+  animation-delay: calc(var(--d) * 1ms + var(--figure-freeze, 0ms));
+}
+
+/* ---------- follow the work (link row) ---------- */
+
+.proj-links {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12.5rem), 1fr));
+  gap: var(--grid-gap);
+  margin: var(--head-gap) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.proj-links a {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 4rem;
+  padding: 0.9rem 1.1rem;
+  border: 1px solid var(--color-line);
+  color: var(--color-starlight);
+  font-weight: 620;
+  text-decoration: none;
+  transition:
+    border-color var(--dur-micro) var(--ease-ui),
+    background-color var(--dur-micro) var(--ease-ui);
+}
+
+.proj-links a > .kit-icon:first-child {
+  color: var(--color-ion);
+}
+
+.proj-links a:hover,
+.proj-links a:focus-visible {
+  border-color: var(--color-ion);
+  background: var(--color-plate);
+}
+
+.proj-links__out {
+  margin-left: auto;
+  color: var(--color-muted);
+}
+
+/* ---------- reduced motion and print: final states, at once ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .joinup *,
+  .joinup *::before,
+  .joinup *::after,
+  .ladder *,
+  .sg *,
+  .rail *,
+  .rail *::before,
+  .triad *,
+  .hbs * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
