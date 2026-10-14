@@ -322,22 +322,27 @@ const LINKS: {
     }
   });
 
-  // The status rail (spec §4.2, status): it draws once; an item and its node light each other.
+  // The status rail (spec §4.2, status): it draws once; an item and its node light each other. A
+  // tap has no hover to end it, so a tapped pair stays lit until the next tap.
   once('[data-rail]', (figure) => {
-    for (const item of figure.querySelectorAll<HTMLElement>('[data-item]')) {
-      const node = figure.querySelector<HTMLElement>(
-        `[data-node="${item.dataset.item}"]`,
+    const marks = figure.querySelectorAll<HTMLElement>(
+      '[data-item],[data-node]',
+    );
+    const key = (element: HTMLElement) =>
+      element.dataset.item ?? element.dataset.node;
+    const light = (lit?: string) => {
+      for (const mark of marks)
+        mark.classList.toggle('is-lit', !!lit && key(mark) === lit);
+    };
+    figure.addEventListener('pointerover', (event) => {
+      const mark = (event.target as Element).closest<HTMLElement>(
+        '[data-item],[data-node]',
       );
-      const light = (on: boolean) => {
-        item.classList.toggle('is-lit', on);
-        node?.classList.toggle('is-lit', on);
-      };
-      for (const target of [item, node])
-        if (target) {
-          target.addEventListener('pointerenter', () => light(true));
-          target.addEventListener('pointerleave', () => light(false));
-        }
-    }
+      if (mark) light(key(mark));
+    });
+    figure.addEventListener('pointerout', (event) => {
+      if (event.pointerType !== 'touch') light();
+    });
     cssEntrance(figure, 1100);
   });
 </script>

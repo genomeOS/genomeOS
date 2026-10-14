@@ -53,7 +53,9 @@
 }
 
 @media (max-width: 52rem) {
-  .proj-head--split > * {
+  /* As specific as the wide rule for the h2, so it does not keep its 7 columns here. */
+  .proj-head--split > *,
+  .proj-head--split h2 {
     grid-column: 1 / -1;
   }
 
@@ -422,8 +424,10 @@
     padding: 0.7rem 0 0.75rem;
   }
 
+  /* Sideways, not mixed: "±" is upright by default in vertical text and would turn on its own. */
   .joinup__head-label {
     writing-mode: vertical-rl;
+    text-orientation: sideways;
     white-space: nowrap;
     transform: rotate(180deg);
   }
@@ -785,11 +789,14 @@
   outline-offset: 4px;
 }
 
+/* Two lines reserved: the count wraps at some stops and not others, and the legend must not jump. */
 .hbs__count {
+  min-height: calc(2 * 1.45em);
   margin: 0;
   color: var(--color-text-soft);
   font-size: 0.9rem;
   font-variant-numeric: lining-nums tabular-nums;
+  line-height: 1.45;
 }
 
 .hbs__legend {
@@ -902,6 +909,7 @@
 
 .triad__choices {
   display: grid;
+  grid-auto-rows: 1fr;
   gap: 0.4rem;
 }
 
@@ -909,10 +917,10 @@
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr);
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.45rem;
   min-height: 2.75rem;
   margin: 0;
-  padding: 0.4rem 0.65rem;
+  padding: 0.4rem 0.6rem;
   border: 1px solid var(--color-line-strong);
   background: transparent;
   color: var(--color-muted);
@@ -961,7 +969,7 @@
 
 @media (max-width: 75em) {
   .hbs {
-    grid-template-columns: minmax(9rem, 11rem) minmax(0, 1fr);
+    grid-template-columns: minmax(9rem, 12rem) minmax(0, 1fr);
     grid-template-rows: none;
     grid-template-areas:
       'tool tool'
@@ -1990,13 +1998,30 @@
 
 /* ---------- follow the work (link row) ---------- */
 
+/* Two, then three columns (spec §2.4: link rows set in 2–4). The board leads across two of them,
+ * so five links fill whole rows. */
 .proj-links {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12.5rem), 1fr));
   gap: var(--grid-gap);
   margin: var(--head-gap) 0 0;
   padding: 0;
   list-style: none;
+}
+
+@media (min-width: 30em) {
+  .proj-links {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .proj-links > :first-child {
+    grid-column: span 2;
+  }
+}
+
+@media (min-width: 56em) {
+  .proj-links {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 .proj-links a {

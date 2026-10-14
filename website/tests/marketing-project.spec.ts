@@ -228,6 +228,108 @@ test('the Pipeline switches from 6 parts to 3 stages and back', async ({
   await expect(toggle.locator('[aria-pressed="true"]')).toHaveText('6 parts');
 });
 
+test('the HbS heading takes the full width on narrow screens', async ({
+  page,
+}) => {
+  await page.goto('/project/');
+  const hbs = page.locator('#hbs-title');
+  const vision = page.locator('#vision-title');
+  // Below the split layout's breakpoint every H2 sets in the same measure (spec §2.4).
+  for (const width of [390, 640]) {
+    await page.setViewportSize({ width, height: 844 });
+    const [a, b] = await Promise.all([hbs.boundingBox(), vision.boundingBox()]);
+    expect(Math.round(a!.width), `${width} px`).toBe(Math.round(b!.width));
+  }
+});
+
+test(
+  'the HbS readouts and legend hold still while the threshold moves',
+  { tag: '@desktop-chromium' },
+  async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/project/');
+    const figure = await hbsReady(page);
+    const slider = figure.getByRole('slider');
+    const legend = figure.locator('.hbs__legend');
+    const tops = new Set<number>();
+    // Every stop's count, one line or two, sits in the same reserved box (spec §2.4).
+    for (const stop of ['10', '5', '1', '15']) {
+      await slider.fill(stop);
+      await expect(figure.locator('[data-hbs-threshold]')).toHaveText(
+        `${stop}%`,
+      );
+      tops.add(Math.round((await legend.boundingBox())!.y));
+    }
+    expect([...tops]).toHaveLength(1);
+    // The three genotypes set on one line each, so the triad reads as one column of equals.
+    const heights = await figure
+      .locator('.triad__choice')
+      .evaluateAll((buttons) =>
+        buttons.flatMap((button) => [
+          Math.round(button.getBoundingClientRect().height),
+          Math.round(button.lastElementChild!.getBoundingClientRect().height),
+        ]),
+      );
+    expect(
+      new Set(heights.filter((_, i) => i % 2 === 0)).size,
+      `${heights}`,
+    ).toBe(1);
+    expect(
+      new Set(heights.filter((_, i) => i % 2 === 1)).size,
+      `${heights}`,
+    ).toBe(1);
+  },
+);
+
+test(
+  'the link row sets in two to four columns',
+  { tag: '@desktop-chromium' },
+  async ({ page }) => {
+    await page.goto('/project/');
+    const links = page.locator('.proj-links > li');
+    for (const width of [1440, 1024]) {
+      await page.setViewportSize({ width, height: 900 });
+      const lefts = await links.evaluateAll((items) =>
+        items.map((item) => Math.round(item.getBoundingClientRect().left)),
+      );
+      const columns = new Set(lefts).size;
+      expect(columns, `${width} px`).toBeGreaterThanOrEqual(2);
+      expect(columns, `${width} px`).toBeLessThanOrEqual(4);
+    }
+  },
+);
+
+test(
+  'a tap replays a safeguard tile and lights a roadmap item’s node',
+  { tag: '@mobile-chromium' },
+  async ({ page }) => {
+    await page.goto('/project/');
+    const safeguards = page.locator('figure[data-graphic="safeguards"]');
+    await safeguards.scrollIntoViewIfNeeded();
+    await expect(safeguards).toHaveAttribute('data-figure-state', 'rest', {
+      timeout: 5_000,
+    });
+    const tile = safeguards.locator('.sg-tile').nth(1);
+    await tile.tap();
+    await expect(tile).toHaveClass(/\bis-replaying\b/);
+
+    const rail = page.locator('figure[data-graphic="status-rail"]');
+    await rail.scrollIntoViewIfNeeded();
+    const item = rail.locator('[data-item="active-1"]');
+    await item.tap();
+    // A tap has no hover to end it: the item and its node stay lit until another is tapped.
+    await expect(item).toHaveClass(/\bis-lit\b/);
+    await expect(rail.locator('[data-node="active-1"]')).toHaveClass(
+      /\bis-lit\b/,
+    );
+    await rail.locator('[data-item="future-0"]').tap();
+    await expect(item).not.toHaveClass(/\bis-lit\b/);
+    await expect(rail.locator('[data-node="future-0"]')).toHaveClass(
+      /\bis-lit\b/,
+    );
+  },
+);
+
 test('the join-up gives each contract field its reason, and replays a record', async ({
   page,
 }) => {
