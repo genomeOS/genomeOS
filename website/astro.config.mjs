@@ -130,6 +130,20 @@ export default defineConfig({
                 // Cesium (atlas-scene is its only importer).
                 test: /[\\/]node_modules[\\/](?:cesium|@cesium[\\/][^\\/]+)[\\/].*\.js$|[\\/]src[\\/]atlas[\\/]scene[\\/]render-loop\.ts$/,
               },
+              // The marketing figure kit (site redesign spec §7, #454). Left to automatic
+              // chunking, its modules split by which page imports them, and Project fetched six
+              // kit files of 0.4-4.5 KB, each with its own response headers. Two groups instead:
+              // the motion kit every figure page uses, and the hex-map kit the globe and the HbS
+              // map share. src/graphics/encoding.ts imports nothing from the Atlas at run time
+              // (tests/encoding-tokens.test.ts), so neither group pulls Atlas code in.
+              {
+                name: 'figure-kit',
+                test: /[\\/]src[\\/]graphics[\\/](?:figure|tween|tabs)\.ts$/,
+              },
+              {
+                name: 'hex-kit',
+                test: /[\\/]src[\\/]graphics[\\/](?:hexfield|projection|figure-data|encoding|rng)\.ts$|[\\/]src[\\/]data[\\/]figures[\\/]hbs-surveys\.\w+\.bin\?url$/,
+              },
             ],
           },
         },

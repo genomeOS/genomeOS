@@ -158,6 +158,7 @@ const hexPath =
     const a = (Math.PI / 3) * k;
     return `${k ? 'L' : 'M'}${(9 + 8 * Math.cos(a)).toFixed(2)} ${(9 + 8 * Math.sin(a)).toFixed(2)}`;
   }).join('') + 'Z';
+// Home's one island, in src/pages/index.astro, starts this figure with initHeroGlobe (hero-globe.ts).
 ---
 
 <Figure
@@ -450,12 +451,3 @@ const hexPath =
     </p>
   </div>
 </Figure>
-
-<script>
-  import { initHeroGlobe } from './hero-globe';
-
-  for (const figure of document.querySelectorAll<HTMLElement>(
-    'figure[data-graphic="hero-globe"]',
-  ))
-    initHeroGlobe(figure);
-</script>

@@ -61,6 +61,7 @@ const grids = {
 };
 // Bar A grows out from its mean.
 const aOrigin = ((table.a.mean - table.a.lo) / (table.a.hi - table.a.lo)) * 100;
+// Home's one island, in src/pages/index.astro, starts this figure with initCounts (counts.ts).
 ---
 
 <Figure
@@ -253,12 +254,3 @@ const aOrigin = ((table.a.mean - table.a.lo) / (table.a.hi - table.a.lo)) * 100;
     </tbody>
   </table>
 </Figure>
-
-<script>
-  import { initCounts } from './counts';
-
-  for (const figure of document.querySelectorAll<HTMLElement>(
-    'figure[data-graphic="counts"]',
-  ))
-    initCounts(figure);
-</script>

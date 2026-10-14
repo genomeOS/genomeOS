@@ -301,12 +301,32 @@ const routes = [
 </SiteLayout>
 
 <script>
+  /*
+   * The page's one island (site redesign spec §7; #454): every Home figure starts here, so the
+   * page fetches one module instead of one per figure, as Project and Contribute do.
+   */
+  import { initCountUp } from '../components/home/count-up';
+  import { initCounts } from '../components/home/counts';
+  import { initHeroGlobe } from '../components/home/hero-globe';
   import { FigureController } from '../graphics/figure';
 
+  const each = (selector: string, init: (figure: HTMLElement) => void) => {
+    for (const figure of document.querySelectorAll<HTMLElement>(selector))
+      init(figure);
+  };
+
+  each('figure[data-graphic="hero-globe"]', initHeroGlobe);
+  each('figure[data-graphic="counts"]', initCounts);
+  each('figure[data-graphic="evidence-base"]', initCountUp);
   // The application glyphs draw in once, 90 ms apart (CSS, home.css); each replays its mechanism
   // on hover.
-  for (const figure of document.querySelectorAll<HTMLElement>(
+  each(
     'figure[data-graphic="applications"]',
-  ))
-    new FigureController(figure, { duration: 1100, rest() {} });
+    (figure) => new FigureController(figure, { duration: 1100, rest() {} }),
+  );
+  // The vision strip's entrance is CSS only: the frames fade in left to right, once (home.css).
+  each(
+    'figure[data-graphic="vision"]',
+    (figure) => new FigureController(figure, { duration: 700, rest() {} }),
+  );
 </script>

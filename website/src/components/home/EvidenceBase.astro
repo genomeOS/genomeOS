@@ -96,6 +96,7 @@ const tiles: {
   },
 ];
 const diseases = metricTotal(corpusMetrics.diseases);
+// Home's one island, in src/pages/index.astro, starts this figure with initCountUp (count-up.ts).
 ---
 
 <Figure
@@ -232,12 +233,3 @@ const diseases = metricTotal(corpusMetrics.diseases);
     </div>
   </details>
 </Figure>
-
-<script>
-  import { initCountUp } from './count-up';
-
-  for (const figure of document.querySelectorAll<HTMLElement>(
-    'figure[data-graphic="evidence-base"]',
-  ))
-    initCountUp(figure);
-</script>

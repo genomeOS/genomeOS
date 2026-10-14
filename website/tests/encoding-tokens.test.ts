@@ -20,13 +20,24 @@ import { DEFAULT_OBSERVATION_SOLID_COLOR } from '../src/atlas/observation-encodi
 import { materialForSupport } from '../src/atlas/scene/support-material';
 import {
   colorAtPosition,
+  colorAtStops,
   paletteStops,
+  quantizeMetric,
   type PaletteId,
 } from '../src/atlas/visual-encoding';
 import {
   ENC,
+  MEAN_BINS,
+  MEAN_T,
+  PARTIAL_FOG_MIX,
+  PARTIAL_STEPS,
+  PRIOR_LIGHT,
+  WEAK_FOG_MIX,
+  WEAK_STEP,
   encodingCss,
+  evidenceColor,
   meanBin,
+  priorColors,
   tier,
   vsupColor,
 } from '../src/graphics/encoding';
@@ -213,5 +224,77 @@ describe('the site encoding derived from it (spec §2.2)', () => {
     expect(vsupColor(0.0, 'weak', domain)).toBe('#3c6a7e');
     expect(vsupColor(0.18, 'weak', domain)).toBe('#3c6a7e');
     expect(vsupColor(0.1, 'none', domain)).toBeNull();
+  });
+});
+
+// The site's values are written out in src/graphics/encoding.ts, so the islands ship no Atlas
+// colour code (spec §7). This is the build-time derivation that keeps them the Atlas's own.
+describe('the written-out site values are derived from the Atlas tokens', () => {
+  it('samples the genome palette on MEAN_T in six even steps', () => {
+    expect(ENC.mean).toHaveLength(MEAN_BINS);
+    ENC.mean.forEach((colour, index) =>
+      expect(colour).toBe(
+        colorAtPosition(
+          'genome',
+          MEAN_T[0] + ((MEAN_T[1] - MEAN_T[0]) * index) / (MEAN_BINS - 1),
+        ),
+      ),
+    );
+  });
+
+  it('mixes the partial and weak tiers toward fog in linear light', () => {
+    expect(ENC.meanPartial).toEqual(
+      PARTIAL_STEPS.map((step) =>
+        colorAtStops([ENC.mean[step], ENC.fog], PARTIAL_FOG_MIX),
+      ),
+    );
+    expect(ENC.meanWeak).toBe(
+      colorAtStops([ENC.mean[WEAK_STEP], ENC.fog], WEAK_FOG_MIX),
+    );
+  });
+
+  it('takes the stud, hatch and prior-dot values from encoding-tokens.ts', () => {
+    expect(ENC.obs).toBe(OBSERVATION_SOLID);
+    expect(ENC.hatch).toBe(UNKNOWN_HATCH.color);
+    expect(ENC.hatchAlpha).toBe(UNKNOWN_HATCH.alpha);
+    expect(ENC.priorMix).toBe(PRIOR_DOTS.highlightMix);
+    expect(ENC.priorBaseAlpha).toBe(PRIOR_DOTS.darkAlpha);
+  });
+
+  it('has a light prior dot, mixed toward white as the Atlas Dot material does, for every fill', () => {
+    const domain = [0, 0.18] as const;
+    const fills = new Set<string>();
+    for (const evidence of ['strong', 'partial', 'weak'] as const) {
+      for (let value = 0; value <= 0.18; value += 0.0025)
+        fills.add(vsupColor(value, evidence, domain)!);
+      fills.add(evidenceColor(evidence)!);
+    }
+    expect(Object.keys(PRIOR_LIGHT).sort()).toEqual([...fills].sort());
+    for (const base of fills)
+      expect(priorColors(base)).toEqual({
+        light: colorAtStops([base, '#ffffff'], PRIOR_DOTS.highlightMix),
+        dark: base,
+      });
+  });
+
+  it('bins a mean as visual-encoding quantises it', () => {
+    for (const domain of [
+      [0, 0.18],
+      [0.0008, 0.173],
+      [0.05, 0.05],
+    ] as const)
+      for (let value = -0.01; value <= 0.2; value += 0.0005)
+        expect(meanBin(value, domain)).toBe(
+          quantizeMetric(value, domain, MEAN_BINS),
+        );
+  });
+
+  it('imports nothing from the Atlas at run time, so the islands stay small', () => {
+    const text = readFileSync(
+      path.resolve(import.meta.dirname, '../src/graphics/encoding.ts'),
+      'utf8',
+    );
+    for (const line of text.split('\n').filter((l) => /^import\b/.test(l)))
+      expect(line, line).toMatch(/^import type /);
   });
 });

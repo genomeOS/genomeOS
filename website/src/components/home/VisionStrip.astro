@@ -20,6 +20,7 @@ const frames: {
   { label: 'Chromosome 11', glyph: 'scale-chromosome', status: 'future' },
   { label: 'Cell', glyph: 'scale-cell', status: 'future' },
 ];
+// Home's one island, in src/pages/index.astro, starts this figure with a FigureController.
 ---
 
 <figure class="vs" data-graphic="vision" data-kind="mechanism">
@@ -69,13 +70,3 @@ const frames: {
     <span class="vs-status" data-status="future">Future exploration</span>
   </figcaption>
 </figure>
-
-<script>
-  import { FigureController } from '../../graphics/figure';
-
-  // A CSS-only entrance: the frames fade in left to right, once (home.css).
-  for (const figure of document.querySelectorAll<HTMLElement>(
-    'figure[data-graphic="vision"]',
-  ))
-    new FigureController(figure, { duration: 700, rest() {} });
-</script>
