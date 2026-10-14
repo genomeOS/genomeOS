@@ -178,3 +178,10 @@
     transform: translate3d(0, 0.28rem, 0);
   }
 }
+
+/* The floating hero chips hold still for reduced motion (#454; they leave with the new hero). */
+@media (prefers-reduced-motion: reduce) {
+  .hero__signals span {
+    animation: none;
+  }
+}

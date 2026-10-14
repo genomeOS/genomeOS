@@ -1,4 +1,6 @@
 ---
+// Project's own stylesheet, ahead of the shared CSS as when global.css imported it (#454).
+import '../styles/vision.css';
 import Callout from '../components/Callout.astro';
 import BrandName from '../components/BrandName.astro';
 import MultiScaleVision from '../components/MultiScaleVision.astro';
@@ -6,6 +8,7 @@ import PageIntro from '../components/PageIntro.astro';
 import StatusBand from '../components/StatusBand.astro';
 import SiteLayout from '../layouts/SiteLayout.astro';
 import { sitePath } from '../lib/paths';
+import '../styles/pages/project.css';
 
 const safeguards = [
   [

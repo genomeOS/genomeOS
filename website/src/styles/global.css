@@ -1,14 +1,11 @@
 @import '@fontsource-variable/figtree';
 @import '@fontsource-variable/raleway';
 @import './tokens.css';
-@import './home.css';
-@import './metrics.css';
-@import './applications.css';
+/* Page stylesheets are imported by their pages (#454): Home imports home, metrics, applications,
+ * mission and process; Project imports vision; each page imports styles/pages/<page>.css. */
 @import './github-cta.css';
-@import './mission.css';
-@import './process.css';
-@import './vision.css';
 @import './motion.css';
+@import './layout.css';
 
 * {
   box-sizing: border-box;

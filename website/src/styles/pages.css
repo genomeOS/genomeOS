@@ -36,8 +36,54 @@
 .page-intro__inner > p:last-child {
   max-width: 47rem;
   margin: 1.7rem 0 0;
-  color: #d3e0f2;
+  color: var(--color-text-soft);
   font-size: clamp(1.08rem, 2vw, 1.28rem);
+}
+
+.page-intro--split .page-intro__inner {
+  /* Head + lead figure (site redesign spec §2.4, #454): H1 1–7, lede 9–12, figure below. */
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: var(--grid-gap);
+  align-items: end;
+  min-height: 0;
+  padding-block: clamp(3rem, 6.5vw, 5rem) clamp(2.25rem, 4.5vw, 3.5rem);
+}
+
+.page-intro__head {
+  grid-column: 1 / span 7;
+}
+
+.page-intro--split h1 {
+  font-size: var(--type-h1);
+  font-weight: 370;
+  letter-spacing: -0.045em;
+}
+
+.page-intro--split .page-intro__lede {
+  grid-column: 9 / span 4;
+  max-width: 38ch;
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: var(--type-lede);
+  line-height: 1.5;
+}
+
+.page-intro__figure {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin-top: var(--head-gap);
+}
+
+@media (max-width: 52rem) {
+  .page-intro__head,
+  .page-intro--split .page-intro__lede {
+    grid-column: 1 / -1;
+  }
+
+  .page-intro--split .page-intro__lede {
+    margin-top: 1.25rem;
+  }
 }
 
 .page-visual {
@@ -98,7 +144,7 @@
 .page-visual__frame figcaption > p:last-child {
   max-width: 43rem;
   margin: 1rem 0 0;
-  color: #d6e3f4;
+  color: var(--color-text-soft);
 }
 
 .home-project-path {
@@ -188,7 +234,7 @@
 
 .story-copy p {
   margin: 0 0 1.35rem;
-  color: #cedbec;
+  color: var(--color-text-soft);
 }
 
 .text-link {
@@ -363,7 +409,7 @@
 .working-group__fit,
 .working-group__scope {
   margin: 0;
-  color: #ccd9eb;
+  color: var(--color-text-soft);
 }
 
 .working-group__scope {
@@ -649,5 +695,18 @@
   }
   .resource-links__grid a:nth-child(2n) {
     border-right: 0;
+  }
+}
+
+/* The hover zooms hold still for reduced motion (#454; their elements leave with the redesign). */
+@media (prefers-reduced-motion: reduce) {
+  .page-visual__frame img,
+  .home-project-path__media img {
+    transition: none;
+  }
+
+  .page-visual__frame:hover img,
+  .home-project-path__inner:hover .home-project-path__media img {
+    transform: none;
   }
 }

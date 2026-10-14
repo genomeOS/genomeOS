@@ -1,4 +1,10 @@
 ---
+// Home's own stylesheets, ahead of the shared CSS as when global.css imported them (#454).
+import '../styles/home.css';
+import '../styles/metrics.css';
+import '../styles/applications.css';
+import '../styles/mission.css';
+import '../styles/process.css';
 import Applications from '../components/Applications.astro';
 import BrandName from '../components/BrandName.astro';
 import CorpusMetrics from '../components/CorpusMetrics.astro';
@@ -7,6 +13,7 @@ import HowItWorks from '../components/HowItWorks.astro';
 import MissionIntro from '../components/MissionIntro.astro';
 import SiteLayout from '../layouts/SiteLayout.astro';
 import { sitePath } from '../lib/paths';
+import '../styles/pages/home.css';
 ---
 
 <SiteLayout
