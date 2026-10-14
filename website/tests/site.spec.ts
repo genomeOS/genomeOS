@@ -4266,9 +4266,11 @@ test('hexagons the wave has not reached cannot be hovered (#453)', async ({
     .locator('.atlas-scene canvas')
     .first()
     .boundingBox())!;
-  // The globe fills this view; "far" is half way from the centre to a corner.
+  // The globe fills this view; "far" is half way from the centre to a corner. The wave starts
+  // where the view ray meets the globe, which desktop draws in the open area beside the controls
+  // (#452).
   const view = {
-    centre: { x: box.x + box.width / 2, y: box.y + box.height / 2 },
+    centre: await globeViewCentre(page),
     farFrom: Math.hypot(box.width, box.height) / 4,
     near: 3,
   };

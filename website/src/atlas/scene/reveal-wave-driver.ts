@@ -34,6 +34,7 @@ import {
   type Scene,
 } from 'cesium';
 
+import { viewCentre } from './globe-offset';
 import {
   angleBetween,
   cellReveal,
@@ -289,7 +290,10 @@ export type WaveViewScene = Pick<Scene, 'mode'> & {
   camera: Pick<
     Scene['camera'],
     'directionWC' | 'pickEllipsoid' | 'positionCartographic' | 'positionWC'
-  >;
+  > & {
+    /** A shifted frustum (#452) moves the view centre; absent counts as centred. */
+    readonly frustum?: unknown;
+  };
   canvas: Pick<HTMLCanvasElement, 'clientHeight' | 'clientWidth'>;
 };
 
@@ -301,7 +305,8 @@ function vec(point: Cartesian3): Vec3 {
  * The view a wave spreads over. On the globe its origin is where the camera's view ray meets the
  * ellipsoid (with a frustum offset, the centre of the open area), else the point below the
  * camera; 2D and Columbus view draw in the map frame, so they ask the camera's ellipsoid pick at
- * the canvas centre. The wave reaches the horizon (cells lifted `liftMetres` show past it), or
+ * the view centre, where the view axis is drawn (the canvas centre, moved right by the desktop
+ * globe offset of #452 in Columbus view; 2D keeps a centred frustum). The wave reaches the horizon (cells lifted `liftMetres` show past it), or
  * only the farthest point of the view's edge when the globe fills the view; in 2D and Columbus
  * view an edge that shows no globe sends it round the whole globe. On the globe, `eye` is the
  * camera's distance from the origin, plus one globe radius, in globe radii: exact for a camera
@@ -321,10 +326,7 @@ export function waveViewOf(scene: WaveViewScene, liftMetres: number): WaveView {
     hit = interval ? Ray.getPoint(ray, interval.start) : undefined;
   } else {
     position = ellipsoid.cartographicToCartesian(camera.positionCartographic);
-    hit = camera.pickEllipsoid(
-      new Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2),
-      ellipsoid,
-    );
+    hit = camera.pickEllipsoid(viewCentre(scene), ellipsoid);
   }
   const origin = waveOrigin(hit ? vec(hit) : null, vec(position));
   let eye: number | null = null;

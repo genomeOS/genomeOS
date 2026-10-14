@@ -797,7 +797,9 @@ scene (when import resolves) ── observations → chunk scheduler (B.6.7) →
      image about the horizon, and what it has not reached finishes with the wave.
    - **Origin.** Where the camera's view ray meets the ellipsoid (with a frustum offset, the centre
      of the open area), else the point below the camera. In 2D and Columbus view it is the
-     camera's ellipsoid pick at the canvas centre.
+     camera's ellipsoid pick at the view centre, where the view axis is drawn: the canvas centre,
+     moved right in Columbus view by the desktop globe offset of §A.1.13 (#452); 2D keeps a centred
+     frustum.
    - **GPU only.** The surface and mask shaders read three uniforms (origin, leading-edge radius,
      ring width) from one shared state on every draw. The driver moves them each frame, requests
      a render while the ring moves, and stops requesting renders and unsubscribes when the wave is

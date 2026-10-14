@@ -9,6 +9,7 @@
 import { expect, type Page } from '@playwright/test';
 
 import type { CameraMotion } from '../src/atlas/e2e-hooks';
+import { globeViewCentre } from './atlas-globe-helpers';
 
 declare global {
   interface Window {
@@ -131,10 +132,11 @@ export interface WaveView {
 }
 
 /**
- * The home view: the canvas centre, where the camera's view ray meets the globe; a region around
- * it wide enough for the fixture cell 3.9° away (about a tenth of the globe's radius); and a
- * limb bound at 55% of the globe's on-screen radius seen from `height` m (Cesium's 60° field of
- * view spans the canvas's longer side).
+ * The home view: where the camera's view ray meets the globe, drawn at the canvas centre on a
+ * phone and in the open area beside the controls panel on desktop (#452); a region around it
+ * wide enough for the fixture cell 3.9° away (about a tenth of the globe's radius); and a limb
+ * bound at 55% of the globe's on-screen radius seen from `height` m (Cesium's 60° field of view
+ * spans the canvas's longer side, and the desktop offset shifts the projection, not its scale).
  */
 export async function globeView(
   page: Page,
@@ -148,7 +150,7 @@ export async function globeView(
     (half * Math.tan(Math.asin(earth / (earth + height)))) /
     Math.tan(Math.PI / 6);
   return {
-    centre: { x: box.x + box.width / 2, y: box.y + box.height / 2 },
+    centre: await globeViewCentre(page),
     farFrom: 0.55 * radius,
     near: 0.1 * radius,
   };

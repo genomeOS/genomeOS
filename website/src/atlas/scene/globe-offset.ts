@@ -116,7 +116,12 @@ Object.defineProperty(ShiftedPerspectiveFrustum.prototype, 'xOffset', {
   },
 });
 
-function shiftPxOf(camera: Camera, canvasWidth: number): number {
+/** What the shift is read from: a camera's frustum, which only a shifted one moves. */
+interface FrustumHolder {
+  readonly frustum?: unknown;
+}
+
+function shiftPxOf(camera: FrustumHolder, canvasWidth: number): number {
   const { frustum } = camera;
   return frustum instanceof ShiftedPerspectiveFrustum
     ? (frustum.projectionShift * canvasWidth) / 2
@@ -128,7 +133,10 @@ function shiftPxOf(camera: Camera, canvasWidth: number): number {
  * the current shift, which is the centre of the open area beside the panel.
  */
 export function viewCentre(
-  scene: Pick<Scene, 'camera' | 'canvas'>,
+  scene: {
+    camera: FrustumHolder;
+    canvas: Pick<HTMLCanvasElement, 'clientHeight' | 'clientWidth'>;
+  },
   result = new Cartesian2(),
 ): Cartesian2 {
   const { clientHeight, clientWidth } = scene.canvas;
