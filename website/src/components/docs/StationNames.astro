@@ -1,0 +1,41 @@
+---
+/**
+ * Names the station links of the `links` Pipeline in its slot (site redesign spec §4.4 and §8;
+ * WCAG 2.5.3, Label in Name). The kit writes a station's label lines as SVG `<tspan>`s with
+ * nothing between them, so browsers name "Frequency modeling" "Frequencymodeling", and a
+ * voice-control user saying the words on screen cannot reach the link. This gives each station
+ * link the name the interactive variant gives its node, the label and its short line
+ * ("Observations (AC of AN)"), and leaves alone any link that already has a name.
+ *
+ * A stopgap inside the Docs map. The fix belongs in the kit (an `aria-label` on the links
+ * variant's `<a>`, as the interactive variant has), requested from Task 7 (#454); this wrapper
+ * goes when the kit names its links.
+ */
+import { PIPELINE } from '../../data/pipeline';
+
+/** The links variant draws mode 6. */
+const names = new Map(
+  PIPELINE[6].nodes.map((node) => [
+    node.key,
+    `${node.label.join(' ')}${node.sub ? ` (${node.sub})` : ''}`,
+  ]),
+);
+const attribute = (value: string) =>
+  value.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+
+const html = await Astro.slots.render('default');
+const named = html.replace(
+  /<a\b([^>]*\bclass="pl-node(?:\s[^"]*)?"[^>]*)>/g,
+  (tag, attributes: string) => {
+    if (/\saria-label=/.test(attributes)) return tag;
+    const key = attributes.match(/\sdata-key="([^"]*)"/)?.[1] ?? '';
+    const name = names.get(key);
+    // A station this cannot name would ship with its words run together: fail the build.
+    if (!name)
+      throw new Error(`StationNames: no mode-6 node for station "${key}"`);
+    return `<a aria-label="${attribute(name)}"${attributes}>`;
+  },
+);
+---
+
+<Fragment set:html={named} />

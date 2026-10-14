@@ -13,13 +13,15 @@
  *
  * Starlight pages do not load the site's stylesheet, so this component brings the UI tokens the
  * kit draws with (tokens.css: custom properties only) and hides the kit's visually hidden text
- * itself, inside the map only.
+ * itself, inside the map only. StationNames gives the station links the names their words read
+ * (WCAG 2.5.3) until the kit does.
  */
 import '../../styles/tokens.css';
 
 import Pipeline from '../kit/Pipeline.astro';
 import { ICON_PATHS, type IconName } from '../kit/icons';
 import { sitePath } from '../../lib/paths';
+import StationNames from './StationNames.astro';
 
 const guide = (slug: string) => sitePath(`/docs/${slug}/`);
 
@@ -44,12 +46,19 @@ const WORK: { slug: string; label: string; icon: IconName }[] = [
       <span class="docs-map__bracket-text">Scientific safeguards</span>
     </span>
   </a>
-  <Pipeline variant="links" mode={6} stageBrackets={false} idPrefix="docs-map">
-    <span slot="caption">
-      <strong>The pipeline, with a guide for each part.</strong> Safeguards apply
-      to every part.
-    </span>
-  </Pipeline>
+  <StationNames>
+    <Pipeline
+      variant="links"
+      mode={6}
+      stageBrackets={false}
+      idPrefix="docs-map"
+    >
+      <span slot="caption">
+        <strong>The pipeline, with a guide for each part.</strong> Safeguards apply
+        to every part.
+      </span>
+    </Pipeline>
+  </StationNames>
   <nav class="docs-map__work" aria-labelledby="docs-map-work">
     <p class="docs-map__work-title" id="docs-map-work">Work on it</p>
     <ul class="docs-map__work-list">

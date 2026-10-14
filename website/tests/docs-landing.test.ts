@@ -34,14 +34,31 @@ const between = (html: string, open: string, close: string) => {
 };
 const main = between(landing, '<main', '</main>');
 
-/** Visible-ish text: tags become spaces, entities the few the build emits, whitespace collapsed. */
-const text = (html: string) =>
+const decode = (html: string) =>
   html
-    .replace(/<(script|style)\b[\s\S]*?<\/\1>/g, ' ')
-    .replace(/<[^>]+>/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&#39;|&#x27;/g, "'")
-    .replace(/&quot;/g, '"')
+    .replace(/&quot;/g, '"');
+
+/** Visible-ish text: tags become spaces, entities the few the build emits, whitespace collapsed. */
+const text = (html: string) =>
+  decode(
+    html
+      .replace(/<(script|style)\b[\s\S]*?<\/\1>/g, ' ')
+      .replace(/<[^>]+>/g, ' '),
+  )
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/** The name a browser gives a link: its aria-label, or else its text as the markup runs it
+ * together. A tag adds no space, so two SVG label lines with nothing between them
+ * (`<tspan>Frequency</tspan><tspan>modeling</tspan>`) are named "Frequencymodeling", which a
+ * voice-control user saying the words they see cannot match (WCAG 2.5.3, Label in Name). */
+const accessibleName = (attributes: string, inner: string) =>
+  decode(
+    attributes.match(/\baria-label="([^"]*)"/)?.[1] ??
+      inner.replace(/<[^>]+>/g, ''),
+  )
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -51,21 +68,23 @@ const sections = [
 ].map((match) => match[0]);
 const map = sections[0] ?? '';
 
-/** Every link in the map, with the words it shows (an SVG station's label lines joined). */
+/** Every link in the map: where it goes, its accessible name, and the words it shows (an SVG
+ * station's label lines and the short line under them, "AC of AN"). */
 const links = [...map.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)].map(
   ([, attributes, inner]) => ({
     href: attributes.match(/\bhref="([^"]*)"/)?.[1] ?? '',
-    // A station's short line under its name ("AC of AN") is not part of its name.
-    label: text(
-      inner.replace(/<text\b[^>]*class="pl-node__sub"[\s\S]*?<\/text>/g, ' '),
-    ),
+    name: accessibleName(attributes, inner),
+    shows: text(inner),
   }),
 );
-/** Where a label's links go. The map draws each station once per layout (horizontal, stage
- * columns, vertical) and CSS shows one, so a station's links are counted once per target. */
+/** Where the links named by a label go: the name is the label, or starts with it ("Observations
+ * (AC of AN)"). The map draws each station once per layout (horizontal, stage columns, vertical)
+ * and CSS shows one, so a station's links are counted once per target. */
 const hrefOf = (label: string) => [
   ...new Set(
-    links.filter((link) => link.label === label).map((link) => link.href),
+    links
+      .filter(({ name }) => name === label || name.startsWith(`${label} `))
+      .map((link) => link.href),
   ),
 ];
 
@@ -121,6 +140,15 @@ describe('the Docs landing', () => {
     expect(hrefOf('Validation gate')).toEqual(guide('scientific-safeguards'));
     expect(hrefOf('Data service')).toEqual(guide('system-overview'));
     expect(hrefOf('Interactive public map')).toEqual(guide('system-overview'));
+  });
+
+  it('names every link in the map with the words it shows (WCAG 2.5.3)', () => {
+    expect(links.length).toBeGreaterThan(10);
+    for (const { name, shows } of links)
+      expect(
+        name.replace(/[()]/g, ''),
+        `the link showing "${shows}"`,
+      ).toContain(shows);
   });
 
   it('brackets every station with the safeguards, and offers the work-on-it guides beneath', () => {
