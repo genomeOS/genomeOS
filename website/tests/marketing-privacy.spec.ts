@@ -302,6 +302,33 @@ test.describe('outside the opt-in regions', () => {
     await expect(gate(page, 'On')).toBeVisible();
   });
 
+  test('the figure describes the state it draws, and only that one', async ({
+    page,
+  }) => {
+    await page.goto('/privacy/');
+    await waitForCookieControl(page);
+    const stage = figure(page).locator('[data-figure-stage]');
+    // Whole sentences, each followed by a space: none runs into the next.
+    await expect(stage).toHaveAccessibleDescription(
+      /below control\. It is on, so the gate is open: .+ three Atlas actions\. The maintainers see/,
+    );
+    await expect(stage).not.toHaveAccessibleDescription(
+      /It is off|not chosen yet/,
+    );
+
+    await page
+      .locator('main')
+      .getByRole('button', { name: 'Cookie settings' })
+      .click();
+    await analyticsSwitch(page).click();
+    await expect(stage).toHaveAccessibleDescription(
+      /below control\. It is off, so the gate is closed and nothing is sent\. The maintainers see/,
+    );
+    await expect(stage).not.toHaveAccessibleDescription(
+      /It is on|not chosen yet/,
+    );
+  });
+
   test('Global Privacy Control closes the gate', async ({ page }) => {
     await page.addInitScript(() => {
       Object.defineProperty(Navigator.prototype, 'globalPrivacyControl', {

@@ -12,6 +12,9 @@
  *   its providers whatever the choice.
  * - Every state's words are in the markup; CSS shows the one that `data-gate` names, so the
  *   accessible name and the description always state the drawn state.
+ * - The description restating the flow follows the figure, outside the stage it describes, so a
+ *   screen reader's reading of the stage ends with the flow's last part (the kit's Plate has no
+ *   slot outside its stage other than the caption, which names the figure).
  *
  * Styles live in `styles/pages/privacy.css` (they key on the Plate's figure, which this
  * component does not render itself).
@@ -55,6 +58,20 @@ const never = [
 >
   <div class="pf-frame">
     <div class="pf">
+      <div class="pf-node pf-node--browser">
+        <span class="pf-socket">
+          <svg viewBox="0 0 40 40" aria-hidden="true" focusable="false">
+            <rect x="4" y="7" width="32" height="26"></rect>
+            <path d="M4 13h32"></path>
+            <path class="pf-soft" d="M9 19h14M9 23.5h20M9 28h10"></path>
+            <circle class="pf-dot" cx="8" cy="10" r="1.1"></circle>
+            <circle class="pf-dot" cx="11.5" cy="10" r="1.1"></circle>
+            <circle class="pf-dot" cx="15" cy="10" r="1.1"></circle>
+          </svg>
+        </span>
+        <span class="pf-label">Your browser</span>
+      </div>
+
       <div class="pf-lane">
         <svg
           class="pf-tile"
@@ -70,20 +87,6 @@ const never = [
             class="pf-tile__road"
             d="M4.5 19.5c3-3.5 6-1 8.5-4.5s5.5-3 9-2.5"></path>
         </svg>
-      </div>
-
-      <div class="pf-node pf-node--browser">
-        <span class="pf-socket">
-          <svg viewBox="0 0 40 40" aria-hidden="true" focusable="false">
-            <rect x="4" y="7" width="32" height="26"></rect>
-            <path d="M4 13h32"></path>
-            <path class="pf-soft" d="M9 19h14M9 23.5h20M9 28h10"></path>
-            <circle class="pf-dot" cx="8" cy="10" r="1.1"></circle>
-            <circle class="pf-dot" cx="11.5" cy="10" r="1.1"></circle>
-            <circle class="pf-dot" cx="15" cy="10" r="1.1"></circle>
-          </svg>
-        </span>
-        <span class="pf-label">Your browser</span>
       </div>
 
       <span class="pf-wire pf-wire--in" aria-hidden="true"></span>
@@ -174,44 +177,43 @@ const never = [
     </div>
   </div>
 
-  <p class="visually-hidden" id="privacy-flow-desc">
-    {
-      analytics ? (
-        <>
-          Your browser reaches Google Analytics 4 only through your choice,
-          which the cookie settings below control.
-          <span data-when="open">
-            It is on, so the gate is open: Google Analytics 4 receives the page
-            path, the linking page, an approximate location, the device,
-            browser, operating system, language and screen size, and three Atlas
-            actions.
-          </span>
-          <span data-when="closed">
-            It is off, so the gate is closed and nothing is sent.
-          </span>
-          <span data-when="pending">
-            You have not chosen yet, so the gate stays closed and nothing is
-            sent until you choose Accept.
-          </span>
-          The maintainers see only aggregate reports. IP addresses are never
-          stored, and no ads, Google signals, names or places you view are ever
-          sent. Map imagery loads from its providers on a separate path,
-          whatever your choice.
-        </>
-      ) : (
-        <>
-          This copy of the site loads no analytics, so nothing reaches Google
-          Analytics 4. On genome-os.org, the gate opens only when analytics is
-          on. Map imagery loads from its providers on a separate path.
-        </>
-      )
-    }
-  </p>
-
   <span slot="caption" id="privacy-flow-title"
     ><strong>What leaves your browser</strong></span
   >
 </Plate>
+
+<p class="visually-hidden pf-desc" id="privacy-flow-desc">
+  {
+    analytics ? (
+      <>
+        Your browser reaches Google Analytics 4 only through your choice, which
+        the cookie settings below control.{' '}
+        <span data-when="open">
+          It is on, so the gate is open: Google Analytics 4 receives the page
+          path, the linking page, an approximate location, the device, browser,
+          operating system, language and screen size, and three Atlas actions.
+        </span>
+        <span data-when="closed">
+          It is off, so the gate is closed and nothing is sent.
+        </span>
+        <span data-when="pending">
+          You have not chosen yet, so the gate stays closed and nothing is sent
+          until you choose Accept.
+        </span>{' '}
+        The maintainers see only aggregate reports. IP addresses are never
+        stored, and no ads, Google signals, names or places you view are ever
+        sent. Map imagery loads from its providers on a separate path, whatever
+        your choice.
+      </>
+    ) : (
+      <>
+        This copy of the site loads no analytics, so nothing reaches Google
+        Analytics 4. On genome-os.org, the gate opens only when analytics is on.
+        Map imagery loads from its providers on a separate path.
+      </>
+    )
+  }
+</p>
 
 {analytics && <script is:inline set:html={gatePaintScript(id)} />}
 

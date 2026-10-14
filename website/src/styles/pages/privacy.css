@@ -58,10 +58,14 @@
   grid-row: 8;
 }
 
-/* Words for the states that are not drawn (CSS keeps exactly one). */
+/* Words for the states that are not drawn (CSS keeps exactly one), in the figure and in the
+   description that follows it. */
 .privacy-flow:not([data-gate='open']) [data-when='open'],
+.privacy-flow:not([data-gate='open']) ~ .pf-desc [data-when='open'],
 .privacy-flow:not([data-gate='closed']) [data-when='closed'],
-.privacy-flow:not([data-gate='pending']) [data-when='pending'] {
+.privacy-flow:not([data-gate='closed']) ~ .pf-desc [data-when='closed'],
+.privacy-flow:not([data-gate='pending']) [data-when='pending'],
+.privacy-flow:not([data-gate='pending']) ~ .pf-desc [data-when='pending'] {
   display: none;
 }
 

@@ -269,6 +269,28 @@ describe('the built privacy page (a build without analytics)', () => {
     );
   });
 
+  it('reads in the order of the flow: the browser first, then the side path to the map', () => {
+    const browser = figure.indexOf('Your browser');
+    const tile = figure.indexOf('Map imagery loads from its providers');
+    expect(browser).toBeGreaterThan(-1);
+    expect(tile).toBeGreaterThan(browser);
+    expect(tile).toBeLessThan(figure.indexOf('href="#your-choice"'));
+  });
+
+  it('restates the flow once, outside the stage that it describes', () => {
+    const stageAt = html.indexOf('data-figure-stage', figureStart);
+    const stage = html.slice(
+      html.lastIndexOf('<div', stageAt),
+      html.indexOf('<figcaption', stageAt),
+    );
+    expect(stage).toMatch(/aria-describedby="privacy-flow-desc"/);
+    expect(stage).not.toContain('id="privacy-flow-desc"');
+    expect(html.match(/\sid="privacy-flow-desc"/g) ?? []).toHaveLength(1);
+    const description = html.indexOf('id="privacy-flow-desc"');
+    expect(description).toBeGreaterThan(html.indexOf('</figure>', figureStart));
+    expect(description).toBeLessThan(html.indexOf('<dl'));
+  });
+
   it('loads nothing: no image, frame or remote source in the figure', () => {
     expect(figure).not.toMatch(/<(img|iframe|object|embed|video|audio)\b/);
     expect(figure).not.toMatch(/\s(src|href)="(https?:)?\/\//);
