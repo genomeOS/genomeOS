@@ -16,6 +16,7 @@ import {
   urlMatchesKey,
 } from './atlas-browser-fixture';
 import {
+  besideGlobeCentre,
   canvasCentre,
   GLOBE_DISC_QUERY,
   globeViewCentre,
@@ -3306,9 +3307,9 @@ test('explorer previews and opens separate surface and observation inspectors', 
   });
   const canvas = page.locator('.atlas-scene canvas').first();
   const hoverPreview = page.locator('.atlas-hover-preview');
-  // Near the camera target, which desktop draws in the open area beside the controls (#452).
-  const hoverNearCenter = async () => {
-    const centre = await globeViewCentre(page);
+  // Near a point on the globe: the camera target, which desktop draws in the open area beside the
+  // controls, or a cell just west of it that the inspector will not cover (#452).
+  const hoverNearCenter = async (centre: Point) => {
     for (const [offsetX, offsetY] of [
       [0, 0],
       [-18, 0],
@@ -3324,9 +3325,7 @@ test('explorer previews and opens separate surface and observation inspectors', 
       if (await hoverPreview.isVisible()) return;
     }
   };
-  // Near the camera target, which desktop draws in the open area beside the controls (#452).
-  const clickNearCenter = async (inspector: Locator) => {
-    const centre = await globeViewCentre(page);
+  const clickNearCenter = async (inspector: Locator, centre: Point) => {
     for (const [offsetX, offsetY] of [
       [0, 0],
       [-18, 0],
@@ -3355,12 +3354,14 @@ test('explorer previews and opens separate surface and observation inspectors', 
   const surfaceInspector = page.getByRole('complementary', {
     name: 'Selected map cell',
   });
-  await hoverNearCenter();
+  // The surface inspector opens in the right rail; the pointer stays on the globe beside it.
+  const besideTarget = await besideGlobeCentre(page);
+  await hoverNearCenter(besideTarget);
   await expect(hoverPreview).toContainText('Modeled estimate');
   await expect(hoverPreview).toContainText('Posterior');
   await expect(hoverPreview).toContainText('95% credible range');
   await expect(hoverPreview).toContainText('Uncertainty');
-  await clickNearCenter(surfaceInspector);
+  await clickNearCenter(surfaceInspector, besideTarget);
   await expect(surfaceInspector).toBeVisible();
   await expect(hoverPreview).toBeVisible();
   const inspectorMetrics = await surfaceInspector.evaluate((element) => ({
@@ -3437,13 +3438,15 @@ test('explorer previews and opens separate surface and observation inspectors', 
   const observationInspector = page.getByRole('complementary', {
     name: 'Selected observation',
   });
-  await hoverNearCenter();
+  // The measured point sits at the camera target.
+  const target = await globeViewCentre(page);
+  await hoverNearCenter(target);
   await expect(hoverPreview).toBeVisible();
   await expect(hoverPreview).toContainText('Allele count (AC)');
   await expect(
     hoverPreview.locator('[data-observation-color]'),
   ).toHaveAttribute('data-observation-color', /^#[0-9a-f]{6}$/);
-  await clickNearCenter(observationInspector);
+  await clickNearCenter(observationInspector, target);
   await expect(observationInspector).toBeVisible();
   await expect(observationInspector).toContainText('Allele count (AC)');
   await expect(
@@ -3943,13 +3946,17 @@ const STALL_ABORT_SETTLE_MS = 2_000;
 const HELD_PAST_PRODUCTION_STALL =
   'the provider aborted the held detail tier at the production stall window (build with npm run build:e2e)';
 
-/** Points near the camera target, which desktop draws in the open area beside the controls (#452). */
+/**
+ * Points near a surface cell just west of the camera target, which desktop draws in the open area
+ * beside the controls, so the inspector that opens in the right rail never covers the pointer
+ * (#452).
+ */
 async function pointNearGlobeCentre(
   page: Page,
   action: 'move' | 'click',
   until: Locator,
 ): Promise<void> {
-  const centre = await globeViewCentre(page);
+  const centre = await besideGlobeCentre(page);
   for (const [offsetX, offsetY] of GLOBE_CENTRE_OFFSETS) {
     const x = centre.x + offsetX;
     const y = centre.y + offsetY;

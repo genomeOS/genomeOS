@@ -8,6 +8,8 @@ import {
   type TestInfo,
 } from '@playwright/test';
 
+import { globeViewCentre } from './atlas-globe-helpers';
+
 export const PHONE_PROFILES = [
   { name: 'Pixel 7', use: {} },
   {
@@ -245,14 +247,15 @@ async function canvasAt(page: Page, point: Point): Promise<boolean> {
 }
 
 /**
- * Taps near the globe centre (as the desktop picking test clicks) until an
+ * Taps near the camera target (where the desktop picking tests point) until an
  * inspector opens. A slow pick can open the panel sheet at half after its wait
  * timed out, so each retry first checks that no inspector is open and that its
  * point is still bare canvas; otherwise it would tap the new sheet's handle.
  */
 export async function tapSelectNearCenter(page: Page): Promise<void> {
   const inspector = page.locator('.atlas-inspector');
-  const centre = await centreOf(page.locator('.atlas-scene canvas').first());
+  // The camera target: the canvas centre on a phone, beside the controls on desktop (#452).
+  const centre = await globeViewCentre(page);
   for (const [dx, dy] of CENTRE_OFFSETS) {
     if (await inspector.isVisible()) return;
     const point = { x: centre.x + dx, y: centre.y + dy };

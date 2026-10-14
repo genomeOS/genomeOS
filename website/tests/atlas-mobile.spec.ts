@@ -246,14 +246,46 @@ for (const phone of PHONE_PROFILES) {
     test('draws the globe at the canvas centre: the controls sheet does not offset it (#452)', async ({
       page,
     }) => {
+      await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.goto(`/app/?${GLOBE_DISC_QUERY}`);
       await waitForAtlasReady(page);
-      const offCentre = async () =>
-        Math.abs(
-          (await measureGlobeDisc(page)).centreX - (await canvasCentre(page)).x,
+      // A chord 20 px above the sheet and the strips docked on it, which can reach the canvas
+      // centre: every chord of the disc is bisected by its vertical diameter.
+      const offCentre = async () => {
+        const above = await page.evaluate(() => {
+          const canvas = document
+            .querySelector('.atlas-scene canvas')!
+            .getBoundingClientRect();
+          const tops = [
+            'aside.atlas-controls',
+            '.atlas-legend',
+            '.atlas-data-credit',
+            '.atlas-scene .cesium-viewer-bottom',
+          ].flatMap((selector) => {
+            const box = document
+              .querySelector(selector)
+              ?.getBoundingClientRect();
+            return box && box.height > 0 ? [box.top] : [];
+          });
+          return Math.max(
+            0,
+            canvas.top + canvas.height / 2 - (Math.min(...tops) - 20),
+          );
+        });
+        return Math.abs(
+          (await measureGlobeDisc(page, above)).centreX -
+            (await canvasCentre(page)).x,
         );
+      };
       await expect.poll(offCentre).toBeLessThanOrEqual(4);
       await setSheetState(controlsSheet(page), 'half');
+      // The docked strips follow the sheet a frame later; measure once they have.
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
       await expect.poll(offCentre).toBeLessThanOrEqual(4);
     });
 
