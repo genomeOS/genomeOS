@@ -19,6 +19,7 @@ import {
   canvasCentre,
   GLOBE_DISC_QUERY,
   globeViewCentre,
+  heldReadoutsOf,
   measureGlobeDisc,
   type Point,
 } from './atlas-globe-helpers';
@@ -3475,6 +3476,21 @@ test('explorer previews and opens separate surface and observation inspectors', 
   await expect(observationInspector).toHaveCount(0);
 });
 
+/**
+ * The HbS hover preview, its detail tier held, shows `cell`'s render-tier readouts. It names no
+ * cell (#449), and `heldReadoutsOf` refuses readouts another fixture cell shares, so these name it.
+ */
+async function expectHoverOnCell(
+  hoverPreview: Locator,
+  cell: string,
+): Promise<void> {
+  const held = heldReadoutsOf('hbs-rs334', cell);
+  await expect(valueRow(hoverPreview, 'Posterior')).toHaveText(held.posterior);
+  await expect(valueRow(hoverPreview, 'Uncertainty')).toHaveText(
+    held.uncertainty,
+  );
+}
+
 test.describe(
   'the desktop globe beside the controls panel (#452)',
   { tag: '@desktop-chromium' },
@@ -3547,7 +3563,7 @@ test.describe(
       page,
     }) => {
       test.setTimeout(120_000);
-      // Held cell values keep the cell ID in the hover preview (it shows values once they load).
+      // Held cell values keep the hover preview on the render tier's readouts, which name the cell.
       const detail = await delayArtifactTier(
         page,
         'hbs-rs334',
@@ -3577,7 +3593,7 @@ test.describe(
 
       const hoverPreview = page.locator('.atlas-hover-preview');
       await page.mouse.move(target.x, target.y);
-      await expect(hoverPreview).toContainText(`Cell ${cell}`);
+      await expectHoverOnCell(hoverPreview, cell);
       const inspector = page.getByRole('complementary', {
         name: 'Selected map cell',
       });
@@ -3629,9 +3645,7 @@ test.describe(
         });
         const target = await globeViewCentre(page);
         await page.mouse.move(target.x, target.y);
-        await expect(page.locator('.atlas-hover-preview')).toContainText(
-          `Cell ${cell}`,
-        );
+        await expectHoverOnCell(page.locator('.atlas-hover-preview'), cell);
         await page.mouse.click(target.x, target.y);
         await expect(
           page
@@ -3673,9 +3687,7 @@ test.describe(
       });
       const target = await globeViewCentre(page);
       await page.mouse.move(target.x, target.y);
-      await expect(page.locator('.atlas-hover-preview')).toContainText(
-        `Cell ${cell}`,
-      );
+      await expectHoverOnCell(page.locator('.atlas-hover-preview'), cell);
       for (let notch = 0; notch < 3; notch += 1)
         await page.mouse.wheel(0, -120);
       // The URL takes the camera once it settles.

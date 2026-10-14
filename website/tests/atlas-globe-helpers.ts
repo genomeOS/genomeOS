@@ -2,9 +2,16 @@
  * Playwright helpers for where the Atlas draws its globe (fast-load design §A.1.13, amended
  * 2026-10-13; #452). On desktop the camera's view axis is drawn half the width the controls panel
  * covers to the right of the canvas centre; on a phone, or with the panel hidden, at the centre.
+ * Also the fixture readouts by which the picking tests tell which cell a hover found.
  */
 
 import type { Page } from '@playwright/test';
+import { splitLongToH3Index } from 'h3-js';
+
+import { atlasCatalogSchema } from '../src/atlas/contracts';
+import { decodeGrid, decodeRender } from '../src/atlas/gosa/decode';
+import { percent } from '../src/components/atlas/surface-cell-view';
+import { readE2eCatalog, readE2eObject } from './atlas-browser-fixture';
 
 export interface Point {
   x: number;
@@ -153,4 +160,58 @@ export async function measureGlobeDisc(
     left: band.x + chord.left / scale,
     right: band.x + (chord.right + 1) / scale,
   };
+}
+
+export interface HeldReadouts {
+  posterior: string;
+  uncertainty: string;
+}
+
+function arrayBufferOf(bytes: Buffer): ArrayBuffer {
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+}
+
+/**
+ * What the hover preview reads for an e2e fixture cell while its artifact's detail tier is held: the
+ * render tier's mean and SD behind "≈" (fast-load design §B.2, amended 2026-10-13; #449). The
+ * preview no longer names its cell, so the #452 picking tests tell the hovered cell by these
+ * readouts. They identify it only when no other fixture cell reads the same, so this refuses any
+ * cell that shares them.
+ */
+export function heldReadoutsOf(id: string, cell: string): HeldReadouts {
+  const catalog = atlasCatalogSchema.parse(readE2eCatalog());
+  const ref = catalog.artifacts.find((artifact) => artifact.id === id);
+  if (!ref) throw new Error(`The e2e catalog has no artifact "${id}".`);
+  const gridSha256 = ref.web.grid_sha256;
+  const entry = catalog.grids[gridSha256]!;
+  const grid = decodeGrid(arrayBufferOf(readE2eObject(entry.url)), {
+    entry,
+    gridSha256,
+  });
+  const render = decodeRender(
+    arrayBufferOf(readE2eObject(ref.web.render.url)),
+    { grid, ref },
+  );
+  const cells = Array.from({ length: grid.n }, (_, row) => ({
+    h3: splitLongToH3Index(grid.h3Lo[row]!, grid.h3Hi[row]!),
+    posterior: `≈${percent(render.post_mean[row]!)}`,
+    uncertainty: `≈${percent(render.post_sd[row]!)}`,
+  }));
+  const target = cells.find(({ h3 }) => h3 === cell);
+  if (!target) throw new Error(`The e2e fixture grid has no cell ${cell}.`);
+  const twins = cells.filter(
+    ({ h3, posterior, uncertainty }) =>
+      h3 !== cell &&
+      posterior === target.posterior &&
+      uncertainty === target.uncertainty,
+  );
+  if (twins.length > 0)
+    throw new Error(
+      `${id} cell ${cell} reads ${target.posterior} / ${target.uncertainty}, as do ` +
+        `${twins.map(({ h3 }) => h3).join(', ')}; a hover cannot tell them apart.`,
+    );
+  return { posterior: target.posterior, uncertainty: target.uncertainty };
 }
