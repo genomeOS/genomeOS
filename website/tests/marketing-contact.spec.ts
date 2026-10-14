@@ -7,7 +7,8 @@
  *   builder writes it; the draft buttons navigate to the right `mailto:` (read as the request
  *   Chromium makes for it; no mail app answers); Copy draft copies the plain-text draft; the query
  *   preselects, before the island runs too, and keeps in step for sharing.
- * - Keyboard only, phones at 390 and 320 px, no JavaScript, print, and reduced motion.
+ * - Keyboard only, phones at 390 and 320 px, no JavaScript, an island that never loads, a blocked
+ *   clipboard, print, forced colours, and reduced motion.
  * - The nav: Contact in the site header, the Menu, the docs header and the 404, after Docs and
  *   before GitHub; in both footers; current on /contact/; and the header row still never wraps.
  *
@@ -22,6 +23,7 @@ import {
   type Browser,
   type Locator,
   type Page,
+  type Route,
 } from '@playwright/test';
 
 import {
@@ -332,6 +334,11 @@ test.describe('the composer', () => {
     expect(
       await mailtoFrom(page, () => action(page, 'Blank email').click()),
     ).toBe(`mailto:${ADDRESS}`);
+    // A blank email has no draft to copy: the hint is the address the click just showed.
+    await expect(composer(page).locator('[data-address]')).toHaveText(ADDRESS);
+    await expect(composer(page).getByRole('status')).toHaveText(
+      'If no email app opens, write to the address above.',
+    );
   });
 
   test('Copy draft copies To, Subject and the body as plain text', async ({
@@ -344,6 +351,34 @@ test.describe('the composer', () => {
     expect(await clipboard(page)).toBe(
       draftText(ADDRESS, buildDraft({ topic: 'partner', offers: [] })),
     );
+  });
+
+  test('where the clipboard is blocked, the draft or the address is selected instead', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      Clipboard.prototype.writeText = () =>
+        Promise.reject(new DOMException('Blocked', 'NotAllowedError'));
+    });
+    await page.goto('/contact/?topic=question');
+    const status = composer(page).getByRole('status');
+    const selected = () =>
+      page.evaluate(() => window.getSelection()?.toString() ?? '');
+    const draft = buildDraft({ topic: 'question', offers: [] });
+
+    await action(page, 'Copy draft').click();
+    await expect(status).toHaveText(
+      'Copying is blocked here. The draft is selected, ready to copy.',
+    );
+    const letterText = await selected();
+    for (const part of [ADDRESS, draft.subject, 'I have a question about'])
+      expect(letterText).toContain(part);
+
+    await action(page, 'Copy').click();
+    await expect(status).toHaveText(
+      'Copying is blocked here. The address is selected, ready to copy.',
+    );
+    expect(await selected()).toBe(ADDRESS);
   });
 
   test('the query preselects a purpose and offers; unknown values are ignored', async ({
@@ -378,20 +413,50 @@ test.describe('the composer', () => {
   });
 
   test('the preselect is drawn before the island runs', async ({ page }) => {
-    // With every module script held back, only the inline pre-paint script runs.
-    await page.route(/\/_astro\/.*\.js(\?|$)/, (route) => route.abort());
-    await page.goto('/contact/?topic=contribute&offer=expertise,code');
+    // Every module script is held back until the letter has been read, so only the inline
+    // pre-paint script has run (module scripts also hold back `load`).
+    const held: Route[] = [];
+    let release = false;
+    await page.route(/\/_astro\/.*\.js(\?|$)/, (route) =>
+      release ? route.continue() : void held.push(route),
+    );
+    await page.goto('/contact/?topic=contribute&offer=expertise,code', {
+      waitUntil: 'commit',
+    });
     await expect(composer(page)).toBeVisible();
     await expect(composer(page)).toHaveAttribute(
       'data-offers',
       'code expertise',
     );
+    expect(await composer(page).getAttribute('data-ready')).toBeNull();
     await expect(offer(page, 'code')).toHaveAttribute('aria-pressed', 'true');
     await expectLetter(
       page,
       { topic: 'contribute', offers: ['code', 'expertise'] },
       'pre-paint',
     );
+    // Then the island takes over from the same state.
+    release = true;
+    await Promise.all(held.map((route) => route.continue()));
+    await expect(composer(page)).toHaveAttribute('data-ready', '');
+    await expect(offer(page, 'code')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-contact-fallback]')).toBeHidden();
+  });
+
+  test('if the island never loads, the page spells the address out instead', async ({
+    page,
+  }) => {
+    // A failed chunk: the pre-paint script showed the composer, but nothing in it would work.
+    await page.route(/\/_astro\/.*\.js(\?|$)/, (route) => route.abort());
+    await page.goto('/contact/?topic=contribute&offer=data');
+    await expect(composer(page)).toBeHidden();
+    const line = page.locator('[data-contact-fallback]');
+    await expect(line).toBeVisible();
+    await expect(line).toHaveText('Email us at info [at] genome-os [dot] org.');
+    expect(addressForms(await page.content())).toEqual([]);
+    await expect(
+      page.locator('main').getByRole('link', { name: /Open a GitHub issue/ }),
+    ).toBeVisible();
   });
 
   test('a shared link reopens the same draft', async ({ page }) => {
@@ -467,7 +532,8 @@ test.describe('the composer', () => {
     await action(page, 'Show email address').click();
     await action(page, 'Copy').click();
     await action(page, 'Copy draft').click();
-    await page.waitForTimeout(300);
+    // The last action has finished once it says so.
+    await expect(composer(page).getByRole('status')).toHaveText('Draft copied');
     expect(requests).toEqual([]);
     expect(await stored()).toEqual(before);
   });
@@ -501,12 +567,19 @@ test('sections grow in and collapse within 240 ms, and at once under reduced mot
       (root) => root.getAnimations({ subtree: true }).length,
     ),
   ).toBe(0);
-  await offer(page, 'data').click();
-  const timings = await data.evaluate((section) =>
-    section
-      .getAnimations()
-      .map((animation) => Number(animation.effect?.getTiming().duration ?? 0)),
-  );
+  // Press and read in one turn of the page, so a slow round trip cannot miss the transitions.
+  const pressAndTime = () =>
+    data.evaluate((section) => {
+      document
+        .querySelector<HTMLButtonElement>('button[data-offer="data"]')!
+        .click();
+      return section
+        .getAnimations()
+        .map((animation) =>
+          Number(animation.effect?.getTiming().duration ?? 0),
+        );
+    });
+  const timings = await pressAndTime();
   expect(timings.length).toBeGreaterThan(0);
   expect(Math.max(...timings)).toBeLessThanOrEqual(240);
   await expect(data).toBeVisible();
@@ -515,10 +588,7 @@ test('sections grow in and collapse within 240 ms, and at once under reduced mot
     .toBe(0);
 
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await offer(page, 'data').click();
-  expect(await data.evaluate((section) => section.getAnimations().length)).toBe(
-    0,
-  );
+  expect(await pressAndTime()).toEqual([]);
   await expect(data).toBeHidden();
 });
 
@@ -612,9 +682,10 @@ test.describe('on a phone @mobile-chromium', () => {
     const actions = await top(page.locator('.contact__actions'));
     expect(controls).toBeLessThan(draft);
     expect(draft).toBeLessThan(actions);
-    const targets = composer(page).locator(
-      'label.contact-choice, button:visible',
+    const targets = page.locator(
+      '#contact-composer :is(label.contact-choice, button:visible), .contact-problem a',
     );
+    expect(await targets.count()).toBeGreaterThan(8);
     for (const target of await targets.all()) {
       const box = (await target.boundingBox())!;
       expect(box.height, await target.innerText()).toBeGreaterThanOrEqual(44);
@@ -657,8 +728,10 @@ test('without JavaScript the address is spelled out and the composer stays hidde
   const page = await context.newPage();
   await page.goto('/contact/');
   // Playwright's text matchers skip <noscript>, so the line's own text is read directly.
-  const line = page.locator('.contact-noscript');
+  const line = page.locator('noscript > .contact-noscript');
   await expect(line).toBeVisible();
+  // The island-failure copy of the line stays hidden: only one line shows.
+  await expect(page.locator('[data-contact-fallback]')).toBeHidden();
   expect(
     (await line.evaluate((element) => element.textContent))!
       .replace(/\s+/g, ' ')
@@ -674,7 +747,7 @@ test('without JavaScript the address is spelled out and the composer stays hidde
   await context.close();
 });
 
-test('print shows the letter, in dark type, without the controls', async ({
+test('print shows the letter, in dark type on white, without the controls', async ({
   page,
 }) => {
   await page.goto('/contact/?topic=contribute&offer=data');
@@ -682,22 +755,82 @@ test('print shows the letter, in dark type, without the controls', async ({
   await expect(page.locator('.contact-letter')).toBeVisible();
   await expect(page.locator('.contact__controls')).toBeHidden();
   await expect(page.locator('.contact__actions')).toBeHidden();
-  const colour = await page
-    .locator('.letter__heading')
-    .first()
-    .evaluate((element) => getComputedStyle(element).color);
-  expect(colour).toBe('rgb(17, 17, 17)');
+  const printed = await page.evaluate(() => {
+    const style = (selector: string) =>
+      getComputedStyle(document.querySelector(selector)!);
+    return {
+      heading: style('.letter__heading').color,
+      // With background graphics on, these would print under the dark type.
+      grounds: ['html', 'body', '.page-intro', '.contact-letter'].map(
+        (selector) => style(selector).backgroundColor,
+      ),
+      // Without background graphics, the plate's corner-tick overlay prints as a white sheet over
+      // its frame and caption.
+      overlay: getComputedStyle(
+        document.querySelector('.contact-letter')!,
+        '::before',
+      ).display,
+      // Paged print keeps a collapsed section's height, so only the draft's own sections lay out.
+      sections: [...document.querySelectorAll('.letter__section')].map(
+        (section) =>
+          `${(section as HTMLElement).dataset.section} ${getComputedStyle(section).display}`,
+      ),
+    };
+  });
+  expect(printed.heading).toBe('rgb(17, 17, 17)');
+  expect(printed.grounds).toEqual(Array(4).fill('rgb(255, 255, 255)'));
+  expect(printed.overlay).toBe('none');
+  expect(printed.sections).toEqual([
+    'code none',
+    'data grid',
+    'expertise none',
+    'funding none',
+    'question none',
+    'partner none',
+    'press none',
+  ]);
 });
 
-test('in forced colours a pressed offer and the chosen purpose keep a system outline', async ({
+test('in forced colours selection is a system fill, and focus still shows on a selected control', async ({
   page,
 }) => {
-  await page.goto('/contact/?offer=code');
-  await page.emulateMedia({ forcedColors: 'active' });
-  await expect(offer(page, 'code')).toHaveCSS('outline-style', 'solid');
-  await expect(
-    page.locator('label.contact-choice').filter({ hasText: 'Contribute' }),
-  ).toHaveCSS('outline-style', 'solid');
+  await page.goto('/contact/?topic=contribute&offer=code');
+  await page.emulateMedia({ forcedColors: 'active', reducedMotion: 'reduce' });
+  const choice = (name: string) =>
+    page.locator('label.contact-choice').filter({ hasText: name });
+  const look = (locator: Locator) =>
+    locator.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        fill: style.backgroundColor,
+        ring: `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor} ${style.outlineOffset}`,
+      };
+    });
+
+  // Selected and unselected read apart, by fill rather than by outline.
+  const chosen = await look(choice('Contribute'));
+  const pressed = await look(offer(page, 'code'));
+  expect(chosen.fill).not.toBe((await look(choice('Ask a question'))).fill);
+  expect(pressed.fill).not.toBe((await look(offer(page, 'data'))).fill);
+  expect(chosen.ring).toMatch(/^none /);
+  expect(pressed.ring).toMatch(/^none /);
+
+  // Tab in: the chosen purpose, then the pressed offer, each with a ring it lacks at rest.
+  await page.locator('.page-intro__lede').evaluate((lede) => {
+    lede.setAttribute('tabindex', '-1');
+    (lede as HTMLElement).focus();
+  });
+  await page.keyboard.press('Tab');
+  await expect(purpose(page, 'contribute')).toBeFocused();
+  const chosenFocused = await look(choice('Contribute'));
+  expect(chosenFocused.ring).toMatch(/^solid 2px /);
+  expect(chosenFocused.ring).not.toBe(chosen.ring);
+  await page.keyboard.press('Tab');
+  await expect(offer(page, 'code')).toBeFocused();
+  const pressedFocused = await look(offer(page, 'code'));
+  expect(pressedFocused.ring).toMatch(/^solid 2px /);
+  expect(pressedFocused.ring).not.toBe(pressed.ring);
+  expect(pressedFocused.fill).toBe(pressed.fill);
 });
 
 for (const viewport of [

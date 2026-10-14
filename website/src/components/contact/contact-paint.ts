@@ -9,7 +9,12 @@
  * and carries the offer wording for every set of offers as a table built here from `offerList`
  * and `subjectSuffix`, so it writes no grammar of its own. `tests/contact-paint.test.ts` runs it
  * against `parseQuery` for every case, so the two cannot drift. The island (contact.ts) then
- * takes over from the same state.
+ * takes over from the same state, and marks the composer `data-ready`.
+ *
+ * If the island never runs (a chunk that failed to load, a browser without modules), the
+ * composer's buttons would be inert. Module scripts run before `load`, so a composer still not
+ * ready then goes back to the no-JavaScript page: hidden, with the address spelled out in its
+ * place (`[data-contact-fallback]`).
  */
 import {
   OFFERS,
@@ -71,5 +76,11 @@ export function contactPaintScript(rootId: string): string {
     var suffix = root.querySelector('[data-offer-subject]');
     if (suffix) suffix.textContent = wording[key][1];
   } catch (error) {}
+  window.addEventListener('load', function () {
+    if (root.hasAttribute('data-ready')) return;
+    root.hidden = true;
+    var line = document.querySelector('[data-contact-fallback]');
+    if (line) line.hidden = false;
+  });
 })();`;
 }

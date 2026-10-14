@@ -60,8 +60,9 @@
     grid-row: 1 / -1;
   }
 
-  /* Without JavaScript the <noscript> element is the grid item: it takes the composer's place. */
-  .contact-layout > noscript {
+  /* Without JavaScript the <noscript> element is the grid item: it takes the composer's place, as
+     does the same line when the island never runs (contact-paint.ts). */
+  .contact-layout > :is(noscript, [data-contact-fallback]) {
     grid-column: 1 / span 7;
     grid-row: 1;
   }
@@ -81,6 +82,13 @@
   /* The status line above it already keeps a line of room. */
   .contact-layout .contact-problem {
     margin-top: calc(-1 * clamp(1.25rem, 3.5vw, 1.6rem));
+  }
+
+  /* A 44 px target on touch screens, as the composer's own controls: the padding makes the link's
+     line (1.5em, as the paragraph's) 2.75rem tall, and the text keeps one underline. */
+  .contact-problem a {
+    display: inline-block;
+    padding-block: calc((2.75rem - 1.5em) / 2);
   }
 }
 
@@ -531,6 +539,8 @@
   opacity: 0;
   visibility: hidden;
   --contact-reveal-delay: var(--dur-ui);
+  /* Paged print keeps a collapsed row's height, so print drops the section (below). */
+  --letter-print-display: none;
 }
 
 /* Each purpose's opening and subject; a contribution's carry its offers. */
@@ -564,11 +574,32 @@
   }
 }
 
+/* Forced colours: the chosen purpose and pressed offers fill with the system's selected-item
+   colours, so the outline stays the focus ring alone and still shows on a selected control. The
+   purposes' hairlines are the grid's own gaps, drawn in the system's text colour. */
 @media (forced-colors: active) {
+  .contact-choices {
+    background-color: CanvasText;
+  }
+
+  /* Kept as set, so no Canvas text backplate sits between SelectedItem and SelectedItemText (in a
+     dark theme that hides the label); every colour in them is a system colour. */
   .contact-choice:has(input:checked),
   .contact-toggle[aria-pressed='true'] {
-    outline: 2px solid Highlight;
-    outline-offset: -2px;
+    forced-color-adjust: none;
+    background-color: SelectedItem;
+    color: SelectedItemText;
+    box-shadow: none;
+  }
+
+  .contact-toggle[aria-pressed='true'] {
+    border-color: SelectedItem;
+  }
+
+  /* Their focus ring, in Highlight as forced colours draw every other one. */
+  .contact-choice:has(input:checked:focus-visible),
+  .contact-toggle[aria-pressed='true']:focus-visible {
+    outline-color: Highlight;
   }
 
   .contact-toggle[aria-pressed='true'] .contact-toggle__hex,
@@ -582,8 +613,19 @@
   }
 }
 
-/* Print: the intro and the letter, in dark type; the controls and actions stay on screen. */
+/* Print: the intro and the letter, in dark type on white, also with background graphics on (the
+   header and footer keep their own grounds); the controls and actions stay on screen. */
 @media print {
+  :root:has(.contact-page),
+  body:has(.contact-page),
+  .contact-page :is(.page-intro, .contact-letter) {
+    background: #fff;
+  }
+
+  .contact-page {
+    color-scheme: light;
+  }
+
   .contact-page :is(h1, p, dt, dd, span, strong) {
     color: #111 !important;
   }
@@ -601,7 +643,17 @@
 
   .contact-letter {
     break-inside: avoid;
-    background: none;
+  }
+
+  /* The plate's corner ticks are a positioned overlay: printed without background graphics, it
+     comes out as a white sheet over the plate's frame and its caption. */
+  .contact-page .contact-letter::before {
+    display: none;
+  }
+
+  /* Only the sections the draft holds: on paper a collapsed one would keep its height. */
+  .letter__section {
+    display: var(--letter-print-display, grid);
   }
 
   .letter__field::after {

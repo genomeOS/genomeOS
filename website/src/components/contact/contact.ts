@@ -12,7 +12,10 @@
  *   or any of the three draft actions, which also show it, so a visitor whose email app does not
  *   open still has it. No `<a href="mailto:…">` sits in the page: the draft buttons build the
  *   link when pressed and navigate to it.
- * - Feedback (shown, copied, how to carry on) goes through the one polite status line.
+ * - Feedback (shown, copied, how to carry on) goes through the one polite status line. Where the
+ *   clipboard is blocked, the text to copy is selected instead: the address, or the letter.
+ * - The composer is marked `data-ready` once this has run; the pre-paint script falls back to the
+ *   spelled-out address if it never does.
  * - Nothing is sent or stored: no request, no storage, no analytics event. (A browser test reads
  *   the `mailto:` navigation as the request Chromium makes for it, which no mail app answers.)
  */
@@ -51,6 +54,7 @@ export function initContact(root: HTMLElement): void {
   const status = find<HTMLElement>('[data-status]');
   const revealButton = find<HTMLButtonElement>('[data-action="reveal"]');
   const shown = find<HTMLElement>('[data-address-shown]');
+  const letter = find('[data-letter]');
   const addressText = find('[data-address]');
   const copyAddress = find<HTMLButtonElement>('[data-action="copy-address"]');
 
@@ -127,33 +131,51 @@ export function initContact(root: HTMLElement): void {
     return address;
   };
 
-  const open = (url: string) => {
+  // Each draft action has already shown the address, so a visitor whose email app does not open
+  // is told what still works: the draft to copy, or the address just above this line.
+  const open = (url: string, otherwise: string) => {
     window.location.href = url;
-    say('If no email app opens, use Copy draft.');
+    say(`If no email app opens, ${otherwise}`);
   };
 
-  const copy = async (text: string, done: string, select?: Element | null) => {
+  // `what` names the text `selection` holds: where the clipboard is blocked, it is selected,
+  // ready to copy by hand.
+  const copy = async (
+    text: string,
+    done: string,
+    selection: Element | null,
+    what: string,
+  ) => {
     try {
       await navigator.clipboard.writeText(text);
       say(done);
     } catch {
-      // A browser that blocks the clipboard: select the address, ready to copy by hand.
-      if (select) window.getSelection()?.selectAllChildren(select);
-      say('Copying is blocked here. Select the text and copy it.');
+      if (selection) window.getSelection()?.selectAllChildren(selection);
+      say(
+        selection
+          ? `Copying is blocked here. The ${what} is selected, ready to copy.`
+          : 'Copying is blocked here.',
+      );
     }
   };
 
   const actions: Record<string, () => void> = {
-    open: () => open(mailtoUrl(reveal(), buildDraft(state()))),
-    blank: () => open(mailtoUrl(reveal())),
+    open: () =>
+      open(mailtoUrl(reveal(), buildDraft(state())), 'use Copy draft.'),
+    blank: () => open(mailtoUrl(reveal()), 'write to the address above.'),
     'copy-draft': () =>
-      void copy(draftText(reveal(), buildDraft(state())), 'Draft copied'),
+      void copy(
+        draftText(reveal(), buildDraft(state())),
+        'Draft copied',
+        letter,
+        'draft',
+      ),
     reveal: () => {
       reveal();
       copyAddress?.focus();
       say('Email address shown');
     },
-    'copy-address': () => void copy(reveal(), 'Copied', addressText),
+    'copy-address': () => void copy(reveal(), 'Copied', addressText, 'address'),
   };
   root.addEventListener('click', (event) => {
     const button = (event.target as Element | null)?.closest<HTMLElement>(
@@ -164,4 +186,5 @@ export function initContact(root: HTMLElement): void {
   });
 
   render();
+  root.dataset.ready = '';
 }

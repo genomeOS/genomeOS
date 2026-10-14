@@ -12,7 +12,8 @@
  * The address is in no served file (src/lib/contact-address.ts): it is joined only on a visitor's
  * action, and every draft is built then (src/lib/contact-draft.ts) and handed to the visitor's own
  * email app through `mailto:`. Nothing is sent, stored or tracked. Without JavaScript the composer
- * stays hidden and a `<noscript>` line spells the address out for a person to type.
+ * stays hidden and a `<noscript>` line spells the address out for a person to type; if JavaScript
+ * runs but the island never does, the pre-paint script puts the page back that way at `load`.
  *
  * `?topic=contribute&offer=data,funding` (or `?topic=question|partner|press`) preselects, before the
  * first paint (contact-paint.ts); choosing in the page keeps the query in step for sharing.
@@ -35,6 +36,8 @@ import '../styles/pages/contact.css';
 
 const ROOT = 'contact-composer';
 const ISSUES = `${GITHUB_REPOSITORY}/issues/new/choose`;
+/** The address as a person reads it, for a page whose composer cannot run. */
+const SPELLED_OUT = 'info [at] genome-os [dot] org';
 ---
 
 <SiteLayout
@@ -51,9 +54,12 @@ const ISSUES = `${GITHUB_REPOSITORY}/issues/new/choose`;
       <div slot="figure" class="contact-layout">
         <noscript>
           <p class="contact-noscript">
-            Email us at <strong>info [at] genome-os [dot] org</strong>.
+            Email us at <strong>{SPELLED_OUT}</strong>.
           </p>
         </noscript>
+        <p class="contact-noscript" data-contact-fallback hidden>
+          Email us at <strong>{SPELLED_OUT}</strong>.
+        </p>
 
         <div
           class="contact"
