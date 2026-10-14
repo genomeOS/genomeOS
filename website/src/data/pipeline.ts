@@ -434,6 +434,17 @@ const HORIZONTAL: Record<
   },
 };
 
+/** After a mode change, the part that keeps the keyboard tab stop: the same part when the new
+ * mode has it, otherwise the new mode's first part (a hidden tab stop would drop the figure out
+ * of the tab order). */
+export function tabStopAfterModeChange(
+  key: string | null,
+  mode: PipelineMode,
+): string {
+  const { nodes } = PIPELINE[mode];
+  return nodes.some((node) => node.key === key) ? key! : nodes[0].key;
+}
+
 /** Every node key across both modes, in pipeline order (the morph's union). */
 export const ALL_KEYS = [
   'source',

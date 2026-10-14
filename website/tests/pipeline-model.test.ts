@@ -18,6 +18,7 @@ import {
   SOCKET,
   edgePath,
   pipelineLayout,
+  tabStopAfterModeChange,
   type Orientation,
   type PipelineMode,
 } from '../src/data/pipeline';
@@ -277,6 +278,22 @@ describe('Pipeline labels stay 13 px or more (spec §2.3)', () => {
         expect(PIPELINE[mode].stages.map((stage) => stage.label)).toContain(
           head.lines.join(' '),
         );
+  });
+});
+
+describe('the Pipeline keyboard tab stop across a mode change', () => {
+  it('stays on a part both modes share', () => {
+    expect(tabStopAfterModeChange('observations', 3)).toBe('observations');
+    expect(tabStopAfterModeChange('map', 6)).toBe('map');
+  });
+
+  it('moves to the first part when the new mode lacks it', () => {
+    // A keyboard user arrowed to the gate, then chose "3 stages": the gate is hidden, so Tab
+    // would skip the whole figure (design review, fix round 1).
+    for (const key of ['gate', 'service', 'burden'])
+      expect(tabStopAfterModeChange(key, 3)).toBe(PIPELINE[3].nodes[0].key);
+    expect(tabStopAfterModeChange('surface', 6)).toBe(PIPELINE[6].nodes[0].key);
+    expect(tabStopAfterModeChange(null, 6)).toBe(PIPELINE[6].nodes[0].key);
   });
 });
 

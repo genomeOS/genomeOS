@@ -8,7 +8,11 @@
  * the data says which (`data-packet`). Everything rests after the entrance: no frame is scheduled.
  */
 
-import { PIPELINE, type PipelineMode } from '../../data/pipeline';
+import {
+  PIPELINE,
+  tabStopAfterModeChange,
+  type PipelineMode,
+} from '../../data/pipeline';
 import { ENC } from '../../graphics/encoding';
 import { FigureController, prefersReducedMotion } from '../../graphics/figure';
 import { easeCamera } from '../../graphics/tween';
@@ -186,13 +190,15 @@ function setup(root: HTMLElement): void {
     setCaption(key);
   }
 
-  function rove(target: SVGGElement): void {
+  /** One tab stop per figure: the part with `key`, in both layouts. */
+  function setTabStop(key: string): void {
     for (const svg of svgs)
       for (const node of svg.querySelectorAll<SVGGElement>('.pl-node'))
-        node.setAttribute(
-          'tabindex',
-          node.dataset.key === target.dataset.key ? '0' : '-1',
-        );
+        node.setAttribute('tabindex', node.dataset.key === key ? '0' : '-1');
+  }
+
+  function rove(target: SVGGElement): void {
+    setTabStop(target.dataset.key!);
     target.focus();
   }
 
@@ -268,6 +274,9 @@ function setup(root: HTMLElement): void {
     if (description && stage)
       stage.setAttribute('aria-describedby', description.id);
     focusNode(null);
+    // A part the new mode hides cannot keep the tab stop, or Tab would skip the whole figure.
+    const stop = root.querySelector<SVGGElement>('.pl-node[tabindex="0"]');
+    setTabStop(tabStopAfterModeChange(stop?.dataset.key ?? null, mode));
     // Edges redraw; reduced motion swaps at once.
     if (prefersReducedMotion()) return;
     root.classList.remove('is-drawn');
