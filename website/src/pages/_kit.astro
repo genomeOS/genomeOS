@@ -17,14 +17,17 @@ import StatusTag from '../components/kit/StatusTag.astro';
 import Tablist from '../components/kit/Tablist.astro';
 import { GLYPHS, type GlyphName } from '../components/kit/glyphs';
 import { ICON_PATHS, type IconName } from '../components/kit/icons';
+import provenance from '../data/figures/hbs.provenance.json';
 import { jeffreys } from '../graphics/jeffreys';
 import SiteLayout from '../layouts/SiteLayout.astro';
+import { sitePath } from '../lib/paths';
 
 const glyphs = Object.keys(GLYPHS) as GlyphName[];
 const icons = Object.keys(ICON_PATHS) as IconName[];
 const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
 const zero = jeffreys(0, 20);
 const sixtyOne = jeffreys(61, 412);
+const revision = provenance.hf_revision.slice(0, 7);
 ---
 
 <SiteLayout
@@ -85,7 +88,7 @@ const sixtyOne = jeffreys(61, 412);
       <Figure
         graphic="devkit-hexfield"
         interactive
-        label="300 coarsened HbS areas nearest Central Africa, with the measured surveys among them"
+        label="300 coarsened HbS areas around 35°N 45°E, from survey-dense to no estimate, with the measured surveys among them"
         aspect="4 / 3"
         class="devkit-hexfield"
       >
@@ -120,7 +123,12 @@ const sixtyOne = jeffreys(61, 412);
           />
         </Fragment>
         <Fragment slot="footnote">
-          HbS (rs334) · model v3 · data map-2026-08 · coarsened for display
+          {provenance.label} · model {provenance.model_version} · data {
+            provenance.data_version
+          } · revision {revision} · coarsened for display ·{' '}
+          <a href={sitePath('/app/?entity=hbs-rs334&palette=genome')}
+            >Open in the Atlas</a
+          >
         </Fragment>
         <table slot="table">
           <thead>
@@ -177,18 +185,29 @@ const sixtyOne = jeffreys(61, 412);
   <section class="band band--orbit" aria-labelledby="kit-pipeline">
     <div class="section-shell devkit">
       <h2 id="kit-pipeline">Pipeline</h2>
+      <p class="devkit-note">
+        The layout follows the plate's width: horizontal from a 1,000 px stage,
+        vertical below.
+      </p>
       <h3>Mode 3, no toggle (Home)</h3>
       <Pipeline mode={3} modeToggle={false} idPrefix="kit-home" />
       <h3>Mode 6 with the toggle, no brackets (Project)</h3>
       <Pipeline mode={6} stageBrackets={false} idPrefix="kit-project" />
-      <h3>Links, mode 6 (Docs)</h3>
-      <Pipeline variant="links" idPrefix="kit-docs" />
-      <h3>Vertical form at any width</h3>
-      <div class="devkit-force-v">
+      <h3>Links, mode 6, in a Docs-width column</h3>
+      <div class="devkit-docs-column">
+        <Pipeline variant="links" idPrefix="kit-docs">
+          <span slot="caption">
+            <strong>The pipeline, with a guide for each part.</strong> Safeguards
+            apply to every part.
+          </span>
+        </Pipeline>
+      </div>
+      <h3>Vertical form in a narrow column</h3>
+      <div class="devkit-narrow">
         <Pipeline mode={6} idPrefix="kit-vertical" />
       </div>
-      <h3>Horizontal form at any width</h3>
-      <div class="devkit-force-h">
+      <h3>Horizontal form, scrolled at narrow widths</h3>
+      <div class="devkit-wide">
         <Pipeline mode={3} modeToggle={false} idPrefix="kit-horizontal" />
       </div>
     </div>
@@ -220,7 +239,8 @@ const sixtyOne = jeffreys(61, 412);
       fetch(url('hbs-globe')).then((response) => response.arrayBuffer()),
       fetch(url('hbs-surveys')).then((response) => response.arrayBuffer()),
     ]);
-    const centre: [number, number] = [18, 8];
+    // A window that holds every evidence tier and some areas with no estimate.
+    const centre: [number, number] = [45, 35];
     const areas = decodeAreas(globe)
       .map((area) => ({ area, km: haversineKm(centre, area.center) }))
       .sort((a, b) => a.km - b.km)
@@ -237,7 +257,10 @@ const sixtyOne = jeffreys(61, 412);
       projection: orthographic({ center: centre, scale: 1, translate: [0, 0] }),
       domain: provenance.metric_domain.post_mean as [number, number],
       fit(width, height, projection) {
-        projection.scale = Math.min(width, height) * 1.25;
+        // The whole window on the disc: its farthest area centre plus about one res-2 cell.
+        const angle = (reach + 200) / 6371;
+        projection.scale =
+          (Math.min(width, height) / 2 / Math.sin(angle)) * 0.96;
         projection.translate = [width / 2, height / 2];
       },
     });
@@ -361,19 +384,28 @@ const sixtyOne = jeffreys(61, 412);
     min-height: 8rem;
   }
 
-  .devkit-force-v :global(.kit-pipeline__svg--h) {
-    display: none;
+  .devkit-note {
+    margin: 0;
+    color: var(--color-text-soft);
   }
 
-  .devkit-force-v :global(.kit-pipeline__svg--v) {
-    display: block;
+  /* Starlight's content column at a 1440 px viewport. */
+  .devkit-docs-column {
+    width: 100%;
+    max-width: 711px;
   }
 
-  .devkit-force-h :global(.kit-pipeline__svg--h) {
-    display: block;
+  .devkit-narrow {
+    width: 100%;
+    max-width: 34rem;
   }
 
-  .devkit-force-h :global(.kit-pipeline__svg--v) {
-    display: none;
+  /* A stage of at least 1,000 px, scrolled sideways on narrow screens. */
+  .devkit-wide {
+    overflow-x: auto;
+  }
+
+  .devkit-wide > :global(.kit-pipeline) {
+    min-width: 1080px;
   }
 </style>
