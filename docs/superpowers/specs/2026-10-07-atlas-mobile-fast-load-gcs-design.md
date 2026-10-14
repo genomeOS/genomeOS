@@ -716,6 +716,61 @@ scene (when import resolves) ── observations → chunk scheduler (B.6.7) →
    chunk per frame; add the next batch only after the previous batch's primitives report `ready` (or
    its postRender fired). Order: nearest to the camera's look-at point first. Seam chunks are budgeted
    as costly.
+
+   (Amended 2026-10-13 for #453, the reveal wave, as the owner approved it. On desktop the chunked
+   reveal finished in about 0.35 s and read as one pop, so the surface now appears as a wave. It is
+   cosmetic: the scheduler, its budgets and every load mark keep their meaning, and nothing waits
+   for the wave.
+   - **Shape.** A ring spreads from the wave's origin to the horizon. Each cell grows from its own
+     centre, scaled from nothing to full size at its own height, and fades in while the ring
+     passes over it. Smooth modes (`triangles`, `honmoon`, `honmoon-fill`) fade per vertex
+     instead, a radial fade. The ring's leading edge eases out (cubic) over `REVEAL_WAVE_MS`
+     (800 ms, the one tunable constant) to the horizon plus one ring width (20% of the angle
+     covered), so every visible cell is grown when the time is up; the far side then finishes at
+     once. When the globe fills the view, the wave runs only to the farthest point of the view's
+     edge. Cells lifted by elevation that show past the horizon are included.
+   - **Origin.** Where the camera's view ray meets the ellipsoid (with a frustum offset, the centre
+     of the open area), else the point below the camera. In 2D and Columbus view it is the
+     camera's ellipsoid pick at the canvas centre.
+   - **GPU only.** The surface and mask shaders read three uniforms (origin, leading-edge radius,
+     ring width) from one shared state on every draw. The driver moves them each frame, requests
+     a render while the ring moves, and stops requesting renders and unsubscribes when the wave is
+     done. Nothing is rebuilt or downloaded for it, and no per-cell buffer is written (#451). At
+     rest the wave is complete, and the shaders skip the per-vertex angle.
+   - **Cell centres.** No existing attribute holds a vertex's cell centre (`elevationNormal` and
+     the shading normals of flat cells are per-vertex directions). Flat surface chunks (`hexagons`,
+     `extruded`) and the support masks therefore carry one float32 ECEF cell centre per vertex
+     (`cellCentre`); smooth chunks carry none. On the full HbS grid this adds 1.39 MB to the
+     masks (5.68 to 7.06 MB), so the default `triangles` load pays only that; it adds 5.15 MB to
+     `hexagons` surfaces (+16%) and 22.8 MB to `extruded` ones (+17%), and a few milliseconds of
+     worker time per mode over all chunks. Growth uses the vertex's ECEF offset from its cell
+     centre on the globe. In 2D and Columbus view it uses that offset linearised for the geographic
+     projection at the cell centre; a cell within about 3° of a pole only fades there.
+   - **Clock.** The wave's clock starts at the end of its first drawn frame, which may compile
+     shaders and upload the first chunk. It sums frame times, but one frame moves it by at most a
+     quarter of the wave. Two stalls that predate the wave (a 0.6–0.8 s Cesium frame at
+     `atlas:ready`, and a gap of about 0.6 s in frames right after a dataset switch commits) would
+     otherwise swallow most of it, so the ring would freeze and then pop to the end. The wave ends
+     at the frame where the ring has passed the horizon. The User Timing measure `atlas:reveal-wave`
+     spans the two in wall-clock time, and the cold-load harness reports it. `data-atlas-wave` on
+     `.atlas-explorer` reads `pending` until the scene's first wave, then `running` or `done`.
+   - **Overlays.** The support masks grow and fade with the surface, cell by cell. Cell outlines
+     cannot follow on the GPU: the buffer polyline shader is fixed, and following ring by ring would
+     mean per-cell buffer writes. They are therefore held hidden while a wave runs, and they are
+     built only once it has passed. A hidden collection is not updated, so rings added under the
+     wave would all be packed in the one frame that shows them. `edges-ready` keeps its meaning
+     (outlines built) and comes after the wave.
+   - **Picking.** An unreached flat cell collapses to its axis, so it draws no fragment in any pass.
+     Cesium's pick shader reuses the vertex shader and discards alpha 0, so the cell cannot be picked.
+     The scene's cell resolver also returns no cell the wave has not reached. A 3 × 3 pick window
+     can catch a grown neighbour's chunk, and the extruded ray test can choose an unreached
+     neighbour's prism.
+   - **Reduced motion and hidden tabs.** `prefers-reduced-motion: reduce` runs no wave: everything
+     shows at once, as before. A tab hidden mid-wave finishes the wave at once, and a wave started
+     in a hidden tab never runs, so the page comes back to the whole surface.
+   - **Tests.** E2E builds alone may hold the wave at a progress (`window.__atlasRevealWaveHold`,
+     enabled by `PUBLIC_ATLAS_E2E_HOOKS=1`, which only `npm run build:e2e` may set), so browser
+     tests can sample a frame mid-wave.)
 8. **Reveal vs swap.** Progressive reveal (observations as soon as the scene and observations exist;
    then chunks with their masked cells) applies **only when no scientific layer is displayed**: the
    cold initial load, or a scene recreated by "Retry globe". Whenever a scientific layer is displayed,
@@ -729,6 +784,17 @@ scene (when import resolves) ── observations → chunk scheduler (B.6.7) →
    the legend renders from the artifact ref being revealed (with its loading status) as soon as the
    first chunk is added. At elevation > 0, no chunk is raised until the anchor heights are applied in
    the same frame.
+
+   (Amended 2026-10-13 for #453, the reveal wave of item 7. The cold reveal, and so a scene
+   recreated by "Retry globe", starts the wave as its first chunk is added, so a cell shows once
+   its chunk is added and the wave has reached it. A dataset switch, meaning a different
+   `artifactKey`, no longer cross-fades. At its commit the outgoing surface, support and
+   observations are retired, the incoming ones show at opacity 1, and a new wave grows the surface
+   from the centre of the view. Two datasets therefore never share one legend, and
+   `data-atlas-displayed` goes straight from the old id to the new one. A restyle of the displayed
+   artifact (metric, palette, geometry, marker style, elevation) keeps the single `animateSwap`
+   above and runs no wave, because it recolours the same data. Under reduced motion a switch is
+   instant.)
 9. **Off the critical path.** Cell outlines are built after `atlas:surface-visible` from worker ring
    buffers: the worker sends exact `primitiveCountMax`/`vertexCountMax` first; polylines are added to
    the `BufferPolylineCollection` (width 2, `allowPicking: false`) in slices sized to the frame budget
