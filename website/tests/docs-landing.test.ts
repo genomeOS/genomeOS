@@ -210,15 +210,29 @@ describe('the Docs landing', () => {
     expect(words).not.toContain('Read the system overview');
   });
 
-  it('ships no script of its own: the same scripts as a plain guide page', () => {
+  it('has no "On this page" column, so the map gets the full docs column', () => {
+    // From 1,152 px Starlight sets that column beside the content, and the content column then
+    // narrows the map's plate below the stage-column layout's width on laptops (1,152 to 1,310 px):
+    // the map would fall back to its tall phone drawing. The landing has two headings to list.
+    expect(landing).not.toContain('<starlight-toc');
+    expect(landing).not.toContain('<mobile-starlight-toc');
+    expect(landing).not.toContain('starlight__on-this-page');
+  });
+
+  it('ships no script of its own: a plain guide page’s scripts, less the "On this page" ones', () => {
     const scripts = (html: string) =>
       [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)].map(
         ([, attributes, body]) =>
           attributes.match(/\bsrc="([^"]*)"/)?.[1] ?? `inline:${body.length}`,
       );
     // A guide with no code block, so Expressive Code's copy button script is not in it either.
+    const guide = scripts(builtHtml('docs/scientific-safeguards'));
+    const tableOfContents = guide.filter((src) =>
+      /\/(Mobile)?TableOfContents\.astro_/.test(src),
+    );
+    expect(tableOfContents).toHaveLength(2);
     expect(scripts(landing)).toEqual(
-      scripts(builtHtml('docs/scientific-safeguards')),
+      guide.filter((src) => !tableOfContents.includes(src)),
     );
   });
 
