@@ -356,31 +356,27 @@ test('the hero shows its calls to action in the first view on laptops @desktop-c
     .boundingBox())!;
   expect(stage.y + stage.height).toBeLessThanOrEqual(900);
 
-  // Narrower screens stack as on a tablet: kicker, H1, the figure (in its first view), the lede.
+  // From 1024 px to the split, the text is one row over the figure: the H1 left, the lede and
+  // calls to action right. The calls to action and the stage top are both in the first view.
   for (const [width, height] of [
     [1024, 768],
     [1100, 900],
   ] as const) {
     await page.setViewportSize({ width, height });
-    const order = await page.evaluate(() =>
-      [
-        '.home-hero__kicker',
-        'h1',
-        '[data-graphic="hero-globe"]',
-        '.home-hero__lede',
-      ].map(
-        (selector) =>
-          document.querySelector(selector)!.getBoundingClientRect().top,
-      ),
+    const where = `${width}×${height}`;
+    const title = (await page.locator('h1').boundingBox())!;
+    const lede = (await page.locator('.home-hero__lede').boundingBox())!;
+    const actions = (await page.locator('.home-hero__actions').boundingBox())!;
+    const figure = (await hero(page).boundingBox())!;
+    expect(title.x + title.width, where).toBeLessThanOrEqual(lede.x);
+    expect(actions.y + actions.height, where).toBeLessThanOrEqual(height);
+    expect(figure.y, where).toBeGreaterThanOrEqual(
+      Math.max(title.y + title.height, actions.y + actions.height),
     );
-    expect(
-      [...order].sort((a, b) => a - b),
-      `${width}×${height}`,
-    ).toEqual(order);
     const top = await hero(page)
       .locator('[data-figure-stage]')
       .evaluate((element) => element.getBoundingClientRect().top);
-    expect(top, `${width}×${height}`).toBeLessThan(height);
+    expect(top, where).toBeLessThan(height);
   }
 });
 

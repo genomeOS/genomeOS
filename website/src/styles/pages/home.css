@@ -155,6 +155,17 @@
   }
 }
 
+/* From 1024 px, the text is one row over the figure: the H1 left, the lede and calls to action
+   right, so a tablet in landscape shows its calls to action in the first view with the stage. */
+@media (min-width: 64rem) {
+  .home-hero__grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: 'head body' 'figure figure';
+    align-items: end;
+    column-gap: var(--grid-gap);
+  }
+}
+
 /* The split starts where its 7/12 column holds the figure's wide form (a 33rem container), so the
    hero never sets its text beside the tall phone form. The text starts level with the figure, so
    on a laptop's first view its calls to action are on screen (1366×768, 1280×720). */
