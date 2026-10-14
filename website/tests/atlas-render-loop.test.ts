@@ -88,6 +88,32 @@ vi.mock('../src/atlas/scene/camera', async (importOriginal) => ({
   bindKeyboardCamera: () => () => {},
   setCameraState: () => {},
 }));
+// The reveal wave (#453) as the scene drives it: the scene it was given and its teardown.
+const waves = vi.hoisted(
+  () =>
+    [] as {
+      scene: unknown;
+      destroy: ReturnType<typeof vi.fn>;
+    }[],
+);
+vi.mock('../src/atlas/scene/reveal-wave-driver', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('../src/atlas/scene/reveal-wave-driver')
+  >()),
+  createRevealWave: (options: { scene: unknown }) => {
+    const wave = { destroy: vi.fn(), scene: options.scene };
+    waves.push(wave);
+    return {
+      destroy: wave.destroy,
+      finish: () => {},
+      onChange: () => () => {},
+      reveal: () => 1,
+      running: () => false,
+      start: () => {},
+      uniforms: {},
+    };
+  },
+}));
 vi.mock('../src/atlas/scene/picking', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/atlas/scene/picking')>()),
   bindAtlasPicking: () => () => {},
@@ -121,6 +147,7 @@ function scene() {
 
 beforeEach(() => {
   globes.length = 0;
+  waves.length = 0;
   frames = new Map();
   nextFrame = 1;
   vi.stubGlobal('requestAnimationFrame', (callback: () => void) => {
@@ -195,6 +222,20 @@ describe('Atlas render loop (Cesium globe design §12)', () => {
     const late = vi.fn();
     controller.onRenderError(late);
     expect(late).toHaveBeenCalledExactlyOnceWith(failure);
+  });
+
+  it('drives the reveal wave from the widget scene and tears it down before the widget (#447, #453)', () => {
+    const { controller, globe, widget } = scene();
+    expect(waves).toHaveLength(1);
+    const [wave] = waves;
+    expect(wave.scene).toBe(widget.scene);
+    controller.destroy();
+    expect(wave.destroy).toHaveBeenCalledOnce();
+    expect(globe.destroy).toHaveBeenCalledOnce();
+    // The wave unsubscribes from the scene's preUpdate and postRender while the scene still exists.
+    expect(wave.destroy.mock.invocationCallOrder[0]).toBeLessThan(
+      globe.destroy.mock.invocationCallOrder[0],
+    );
   });
 
   it('cancels its frame and reports nothing after destroy', () => {
