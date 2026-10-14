@@ -2,8 +2,10 @@
 /**
  * The docs header (site redesign spec §1.5, #454): the site's own lockup, nav and Atlas link around
  * Starlight's search, so the docs read as part of the site. The nav (Project · Contribute · Docs ·
- * GitHub, Docs current) shows from 72rem; below that the sidebar's "Explore the project" group
- * carries the same links. The Atlas link is a quiet outline: the aurora pill stays the site's.
+ * GitHub, Docs current) shows from 72em; below that the sidebar's "Explore the project" group
+ * carries the page links. GitHub shows from 50em, where the sidebar stops being the mobile menu
+ * (whose footer carries the social icons), so the repository is one click away at every width.
+ * The Atlas link is a quiet outline: the aurora pill stays the site's.
  */
 import Search from '@astrojs/starlight/components/Search.astro';
 
@@ -151,11 +153,19 @@ import { sitePath } from '../../lib/paths';
       .docs-header__atlas {
         display: inline-flex;
       }
+
+      .docs-header__nav {
+        display: block;
+      }
+
+      .docs-header__nav li:not(.docs-header__github) {
+        display: none;
+      }
     }
 
     @media (min-width: 72em) {
-      .docs-header__nav {
-        display: block;
+      .docs-header__nav li:not(.docs-header__github) {
+        display: list-item;
       }
     }
   }

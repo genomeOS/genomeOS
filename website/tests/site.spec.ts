@@ -132,6 +132,34 @@ test('primary navigation reaches Contribute and exposes GitHub access', async ({
   );
 });
 
+test(
+  'the docs header shows the GitHub link wherever the sidebar is not the mobile menu',
+  { tag: '@desktop-chromium' },
+  async ({ page }) => {
+    // From 50em Starlight's sidebar sits beside the page, so the mobile menu's social icons are
+    // gone; the header's own GitHub link must take over there, not only from 72em (#454 review).
+    for (const width of [800, 900, 1100, 1300, 1440]) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto('/docs/');
+      const github = page
+        .locator('header')
+        .getByRole('link', { name: 'View genomeOS on GitHub' });
+      await expect(github, `${width} px`).toBeVisible();
+      await expect(github).toHaveAttribute(
+        'href',
+        'https://github.com/genomeOS/genomeOS',
+      );
+      // The page links join it once there is room for the whole nav (72em of an 18 px root).
+      await expect(
+        page
+          .getByRole('navigation', { name: 'Primary navigation' })
+          .getByRole('link', { name: 'Contribute' }),
+        `${width} px`,
+      ).toBeVisible({ visible: width >= 1296 });
+    }
+  },
+);
+
 test('Atlas status replaces the launch action only on the Atlas page', async ({
   page,
 }) => {
