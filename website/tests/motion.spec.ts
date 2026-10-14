@@ -124,6 +124,21 @@ for (const manifest of conceptEnforced) {
     await page.waitForTimeout(6500);
     expect(await running(page)).toEqual([]);
     await expectFramesStop(page, 'after rest');
+    // A figure that schedules nothing can still be stuck mid-entrance (the FigureController race
+    // the page tasks worked around): every figure scrolled to above must have reached rest.
+    const states = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>('main figure[data-graphic]')]
+        .flatMap((figure) => [
+          figure,
+          ...figure.querySelectorAll<HTMLElement>('[data-figure-state]'),
+        ])
+        .filter((element) => element.dataset.figureState)
+        .map(
+          (element) =>
+            `${element.dataset.graphic ?? element.className}: ${element.dataset.figureState}`,
+        ),
+    );
+    for (const state of states) expect(state).toMatch(/: rest$/);
   });
 
   test(`${manifest.route} stops a figure that leaves the viewport mid-entrance`, async ({
