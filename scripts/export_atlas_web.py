@@ -43,6 +43,7 @@ from genomeos.registry.sources import afnd as afnd_registry  # noqa: E402
 from genomeos.registry.variants import load as load_variant_registry  # noqa: E402
 from genomeos.registry.variants import normalized_identity  # noqa: E402
 from genomeos.surfaces.artifacts import read as read_surface_artifact  # noqa: E402
+from scripts import encode_natural_earth_borders as natural_earth_borders  # noqa: E402
 
 SCHEMA_VERSION = 1
 
@@ -86,11 +87,10 @@ OBSERVATION_FIELDS = {
     "cohort_id",
     "ingest_version",
 }
-NATURAL_EARTH_REVISION = "ca96624a56bd078437bca8184e78163e5039ad19"
-NATURAL_EARTH_SOURCE = (
-    "https://github.com/nvkelso/natural-earth-vector/blob/"
-    f"{NATURAL_EARTH_REVISION}/geojson/ne_50m_admin_0_countries.geojson"
-)
+NATURAL_EARTH_REVISION = natural_earth_borders.SOURCE_REVISION
+#: The served borders are derived (scripts/encode_natural_earth_borders.py, issue #445); the
+#: catalog's provenance stays the pinned upstream GeoJSON they are derived from.
+NATURAL_EARTH_SOURCE = natural_earth_borders.SOURCE_URL
 NATURAL_EARTH_PLACES_SOURCE = (
     "https://github.com/nvkelso/natural-earth-vector/blob/"
     f"{NATURAL_EARTH_REVISION}/geojson/ne_50m_populated_places.geojson"
@@ -772,7 +772,7 @@ def export_catalog(
                 "license": "public_domain",
                 "revision": NATURAL_EARTH_REVISION,
                 "source_url": NATURAL_EARTH_SOURCE,
-                "url": "ne-50m-admin-0.geojson",
+                "url": natural_earth_borders.OUTPUT_KEY,
             },
             {
                 "id": "natural-earth-populated-places",

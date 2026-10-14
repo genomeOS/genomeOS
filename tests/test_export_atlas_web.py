@@ -12,7 +12,7 @@ from genomeos.publication.surface_codec import GosaError
 from genomeos.registry.variants import load as load_variant_registry
 from genomeos.registry.variants import normalized_identity
 from genomeos.surfaces.prior import PRIOR_DRAWS, PRIOR_NORMALIZATION
-from scripts import encode_atlas_web, export_atlas_web
+from scripts import encode_atlas_web, encode_natural_earth_borders, export_atlas_web
 
 HF_REVISION = "fc17bc1c1d96a0d0766746dcf26277ccdc669717"
 VARIANT_ID = "chr11-5227002-T-A"
@@ -297,6 +297,23 @@ def test_export_preserves_support_versions_and_observation_evidence(
             "source": "gnomad",
         }
     ]
+
+
+def test_export_declares_the_compact_borders_the_site_ships(export_inputs: dict[str, Path]) -> None:
+    _export(export_inputs)
+    catalog = json.loads((export_inputs["out"] / "catalog.json").read_text())
+    borders = encode_natural_earth_borders
+    # The served file is derived; its provenance stays the pinned upstream GeoJSON (issue #445).
+    assert catalog["context_sources"][0] == {
+        "id": "natural-earth-admin-0",
+        "label": "Natural Earth country boundaries",
+        "license": "public_domain",
+        "revision": borders.SOURCE_REVISION,
+        "source_url": borders.SOURCE_URL,
+        "url": "ne-50m-admin-0.borders.bin",
+    }
+    published = json.loads((export_atlas_web.ROOT / "website/public/data/atlas/catalog.json").read_text())
+    assert published["context_sources"] == catalog["context_sources"]
 
 
 def test_export_is_byte_deterministic(export_inputs: dict[str, Path]) -> None:

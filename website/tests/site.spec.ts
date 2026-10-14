@@ -2,6 +2,11 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { cellToLatLng } from 'h3-js';
 
+import {
+  contextSourceKey,
+  NATURAL_EARTH_BORDERS,
+} from '../src/atlas/context-sources';
+import type { AtlasCatalog } from '../src/atlas/contracts';
 import { StaticAtlasDataProvider } from '../src/atlas/static-provider';
 import { dataHref } from '../src/lib/data-url';
 import {
@@ -9,7 +14,6 @@ import {
   corruptArtifactTier,
   delayArtifactTier,
   displayedArtifactIds,
-  E2E_ARTIFACT_DATA_BASE,
   failArtifactTier,
   installAtlasBrowserFixture,
   readInlineCatalog,
@@ -3176,6 +3180,11 @@ test('explorer provides versioned downloads and gated external lookups', async (
   });
   await expandExplorerSheet(page);
 
+  const { artifact: artifactBase } = (await page
+    .locator('#atlas-data-bases')
+    .evaluate((element) => JSON.parse(element.textContent ?? 'null'))) as {
+    artifact: string;
+  };
   await page.locator('.atlas-downloads > summary').click();
   const hbs = (await readInlineCatalog(page)).artifacts.find(
     ({ id }) => id === 'hbs-rs334',
@@ -3189,7 +3198,7 @@ test('explorer provides versioned downloads and gated external lookups', async (
   ] as const) {
     await expect(page.getByRole('link', { name })).toHaveAttribute(
       'href',
-      dataHref(key, E2E_ARTIFACT_DATA_BASE),
+      dataHref(key, artifactBase),
     );
   }
 
@@ -3506,8 +3515,8 @@ test('explorer recovers from a render-loop error through Retry globe', async ({
   // panel, and rendering stopped for good. The fast-load scene builds no Cesium PolygonGeometry,
   // so it never requests that module, and a failed terrain worker fetch fails only its tile. The
   // sky box is the same failure class: its cube-map faces are fetched from inside Scene.render once
-  // the map is ready (fast-load design §B.6.9), and Cesium rethrows a failed face load on the next
-  // frame. Aborting only the first request for one face reproduces the raw panel without the
+  // the map is ready and the borders and detail-tier steps of the post-reveal load order have
+  // settled (fast-load design §B.6.9), and Cesium rethrows a failed face load on the next frame. Aborting only the first request for one face reproduces the raw panel without the
   // Atlas render loop, and the sky box draws only in the 3-D globe view.
   let skyFaceRequests = 0;
   await context.route(
@@ -3663,6 +3672,11 @@ test('cold load shows observations, then the surface, then outlines and borders'
   page,
 }) => {
   test.setTimeout(90_000);
+  // Every response in arrival order, so a file fetched twice is listed twice.
+  const responses: { status: number; url: URL }[] = [];
+  page.on('response', (response) =>
+    responses.push({ status: response.status(), url: new URL(response.url()) }),
+  );
   await page.goto('/app/');
   const explorer = page.locator('.atlas-explorer');
   for (const attribute of [
@@ -3711,6 +3725,120 @@ test('cold load shows observations, then the surface, then outlines and borders'
   );
   expect(reveal.frames).toBeGreaterThan(0);
   expect(reveal.longestFrameMs).toBeGreaterThanOrEqual(0);
+
+  // The borders drawn are the compact file the catalog names (fast-load §B.10, #445); the
+  // GeoJSON is no longer served or fetched.
+  const borders = (await readInlineCatalog(page)).context_sources.find(
+    ({ id }) => id === 'natural-earth-admin-0',
+  )!.url;
+  expect(borders).toBe('ne-50m-admin-0.borders.bin');
+  const fetched = responses.filter(({ url }) => urlMatchesKey(url, borders));
+  expect(fetched.map(({ status }) => status)).toEqual([200]);
+  expect(
+    responses.filter(({ url }) => url.pathname.endsWith('.geojson')),
+  ).toEqual([]);
+});
+
+test('after the reveal, the borders load first, then the detail tier, then the starfield', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  // Fast-load design §B.6.9 (#443): each post-reveal load starts once the one before it has
+  // settled, so none shares the connection. The borders settle at their last byte, the detail tier
+  // once it is decoded.
+  const catalog = await readInlineCatalog(page);
+  const borders = contextSourceKey(
+    catalog as unknown as AtlasCatalog,
+    NATURAL_EARTH_BORDERS,
+  );
+  const detail = artifactTierKey(catalog, 'hbs-rs334', 'detail');
+  const SKY_BOX = '/cesium/Assets/Textures/SkyBox/';
+  const starts: string[] = [];
+  const failures: string[] = [];
+  const loadOf = (raw: string): string | null => {
+    const url = new URL(raw);
+    if (urlMatchesKey(url, borders)) return 'borders';
+    if (urlMatchesKey(url, detail)) return 'detail';
+    if (url.pathname.includes(SKY_BOX)) return 'starfield';
+    return null;
+  };
+  page.on('request', (request) => {
+    const load = loadOf(request.url());
+    if (load) starts.push(load);
+  });
+  page.on('requestfailed', (request) => {
+    const load = loadOf(request.url());
+    if (load) failures.push(load);
+  });
+
+  await page.goto('/app/');
+  const explorer = page.locator('.atlas-explorer');
+  await expect(explorer).toHaveAttribute('data-atlas-displayed', 'hbs-rs334', {
+    timeout: 45_000,
+  });
+  await expect
+    .poll(() => starts.includes('starfield'), { timeout: 45_000 })
+    .toBe(true);
+
+  // Request start order.
+  expect(failures).toEqual([]);
+  expect(starts.slice(0, 2)).toEqual(['borders', 'detail']);
+  expect(starts.filter((load) => load === 'borders')).toHaveLength(1);
+  expect(starts.filter((load) => load === 'detail')).toHaveLength(1);
+  expect(starts.slice(2).every((load) => load === 'starfield')).toBe(true);
+
+  // Each settles before the next starts, on the page's own clock. A resource entry appears once
+  // its response has ended.
+  const readTiming = () =>
+    page.evaluate(
+      ({ borders, detail, skyBox }) => {
+        const entries = performance.getEntriesByType(
+          'resource',
+        ) as PerformanceResourceTiming[];
+        const of = (match: (path: string) => boolean) =>
+          entries
+            .filter((entry) => match(new URL(entry.name).pathname))
+            .map((entry) => ({
+              end: entry.responseEnd,
+              start: entry.startTime,
+            }));
+        return {
+          borders: of((path) => path.endsWith(`/${borders}`)),
+          detail: of((path) => path.endsWith(`/${detail}`)),
+          skyStarts: of((path) => path.includes(skyBox)).map(
+            (entry) => entry.start,
+          ),
+          surfaceVisible:
+            performance.getEntriesByName('atlas:surface-visible')[0]
+              ?.startTime ?? null,
+        };
+      },
+      { borders, detail, skyBox: SKY_BOX },
+    );
+  // Cesium's sky box has six faces.
+  await expect
+    .poll(async () => (await readTiming()).skyStarts.length, {
+      timeout: 45_000,
+    })
+    .toBe(6);
+  const timing = await readTiming();
+  expect(timing.borders).toHaveLength(1);
+  expect(timing.detail).toHaveLength(1);
+  expect(timing.surfaceVisible).not.toBeNull();
+  expect(timing.surfaceVisible!).toBeLessThanOrEqual(timing.borders[0].start);
+  expect(timing.borders[0].end).toBeLessThanOrEqual(timing.detail[0].start);
+  expect(timing.detail[0].end).toBeLessThanOrEqual(
+    Math.min(...timing.skyStarts),
+  );
+  // The order releases the next load at the borders' last byte, while their time-sliced drawing
+  // carries on (§B.6.9), so context-ready has no fixed bound relative to the sky box. At 6× CPU it
+  // lands ~6 s after the first face starts, so wait for it like every other milestone.
+  await expect(explorer).toHaveAttribute('data-atlas-context-ready', 'true', {
+    timeout: 45_000,
+  });
+  await expect(explorer).toHaveAttribute('data-atlas-values-ready', 'true', {
+    timeout: 45_000,
+  });
 });
 
 test('the surface reveals as a wave from the view centre to the horizon (#453)', async ({
@@ -4002,8 +4130,19 @@ const CANVAS_CENTRE_OFFSETS = [
 ] as const;
 const SUPPORT_LABEL = /observed|interpolated|Mostly model assumptions|unknown/;
 const DISPLAYED_VALUE = /\d+\.\d{2}%/;
-// Hex lookarounds, not \b: the hover preview's text is "Cell <id>" directly followed by the
-// support label ("…ffffobserved"), so there is no word boundary after the id.
+/** A readout with no "≈" in front of it; only the f64 detail tier may print one (spec §B.2). */
+const UNMARKED_VALUE = /(?<![≈\d.])\d+\.\d{2}%/;
+const EXACT_VALUE = /^\d+\.\d{2}%$/;
+const EXACT_INTERVAL = /^\d+\.\d{2}%–\d+\.\d{2}%$/;
+/** A render-tier readout in the hover: the "≈" marker, then the exact format (§B.2, amended 2026-10-13). */
+const PROVISIONAL_VALUE = /^≈\d+\.\d{2}%$/;
+/** The same in the inspector, followed by its visually hidden note for assistive technology. */
+function provisionalWithNote(state: 'loading' | 'unavailable'): RegExp {
+  return new RegExp(
+    `^≈\\d+\\.\\d{2}% \\(approximate; exact value ${state}\\)$`,
+  );
+}
+// Hex lookarounds, not \b: an id can abut neighbouring text with no word boundary between them.
 const CELL_ID = /(?<![0-9a-f])[0-9a-f]{15}(?![0-9a-f])/;
 /**
  * Every production build aborts a fetch that sends no data for this long (fast-load design §B.2).
@@ -4033,6 +4172,25 @@ async function pointNearCanvasCentre(
   }
 }
 
+/** The `<dd>` of the value row labelled exactly `label`. */
+function valueRow(container: Locator, label: string): Locator {
+  return container
+    .locator('dl > div')
+    .filter({
+      has: container.page().locator('dt', {
+        hasText: new RegExp(`^${label}$`),
+      }),
+    })
+    .locator('dd');
+}
+
+/** A readout's value in hundredths of a percent, e.g. "≈12.35% (…)" → 1235. */
+async function readoutHundredths(value: Locator): Promise<number> {
+  const match = (await value.textContent())?.match(/(\d+)\.(\d{2})%/);
+  expect(match, 'a percent readout').not.toBeNull();
+  return Number(match![1]) * 100 + Number(match![2]);
+}
+
 async function openSurfaceOnlyView(page: Page): Promise<void> {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto(`/app/?${INSPECTOR_CAMERA}`);
@@ -4050,7 +4208,7 @@ async function openSurfaceOnlyView(page: Page): Promise<void> {
     .not.toContain('observations');
 }
 
-test('surface hover and inspector wait for the detail tier without showing numbers', async ({
+test('surface hover and inspector show marked render values until the detail tier loads', async ({
   page,
   isMobile,
 }) => {
@@ -4075,20 +4233,46 @@ test('surface hover and inspector wait for the detail tier without showing numbe
 
   const hoverPreview = page.locator('.atlas-hover-preview');
   await pointNearCanvasCentre(page, 'move', hoverPreview);
-  await expect(hoverPreview).toContainText('Loading cell values…');
-  // innerText: `.atlas-hover-preview` is a grid, so its <small> rows are separated by line breaks.
-  await expect(hoverPreview).toContainText(CELL_ID, { useInnerText: true });
+  await expect(valueRow(hoverPreview, 'Posterior')).toHaveText(
+    PROVISIONAL_VALUE,
+  );
+  await expect(valueRow(hoverPreview, '95% credible range')).toHaveText(
+    'Loading…',
+  );
+  await expect(valueRow(hoverPreview, 'Uncertainty')).toHaveText(
+    PROVISIONAL_VALUE,
+  );
   await expect(hoverPreview).toContainText(SUPPORT_LABEL);
-  await expect(hoverPreview).not.toContainText(DISPLAYED_VALUE);
+  await expect(hoverPreview).not.toContainText(UNMARKED_VALUE);
 
   const inspector = page.getByRole('complementary', {
     name: 'Selected map cell',
   });
   await pointNearCanvasCentre(page, 'click', inspector);
   await expect(inspector).toBeVisible();
+  await expect(valueRow(inspector, 'Posterior estimate')).toHaveText(
+    provisionalWithNote('loading'),
+  );
+  await expect(valueRow(inspector, '95% credible interval')).toHaveText(
+    'Loading…',
+  );
+  await expect(valueRow(inspector, 'Uncertainty')).toHaveText(
+    provisionalWithNote('loading'),
+  );
+  await expect(valueRow(inspector, 'Nearest measurement')).toHaveText(
+    'Loading…',
+  );
+  // The marker is what sighted readers get; the note is for assistive technology only.
+  await expect(valueRow(inspector, 'Posterior estimate')).toMatchAriaSnapshot(
+    '- definition: /^≈\\d+\\.\\d{2}% \\(approximate; exact value loading\\)$/',
+  );
+  const note = await valueRow(inspector, 'Posterior estimate')
+    .locator('.visually-hidden')
+    .boundingBox();
+  expect(note!.width * note!.height).toBeLessThanOrEqual(1);
   await expect(inspector).toContainText('Loading cell values…');
   await expect(inspector).toContainText(SUPPORT_LABEL);
-  await expect(inspector).not.toContainText(DISPLAYED_VALUE);
+  await expect(inspector).not.toContainText(UNMARKED_VALUE);
   const cellId = (await inspector.innerText()).match(CELL_ID)?.[0];
   expect(cellId).toBeDefined();
   const inspectorNode = await inspector.elementHandle();
@@ -4115,16 +4299,46 @@ test('surface hover and inspector wait for the detail tier without showing numbe
     'Loading cell values…',
   );
   expect(detail.hits(), HELD_PAST_PRODUCTION_STALL).toBe(1);
+  // The pointer has not moved since the click, so the hover and the inspector keep their cells.
+  const provisional = {
+    hoverMean: await readoutHundredths(valueRow(hoverPreview, 'Posterior')),
+    hoverSd: await readoutHundredths(valueRow(hoverPreview, 'Uncertainty')),
+    mean: await readoutHundredths(valueRow(inspector, 'Posterior estimate')),
+    sd: await readoutHundredths(valueRow(inspector, 'Uncertainty')),
+  };
   detail.release();
   await expect(explorer).toHaveAttribute('data-atlas-values-ready', 'true', {
     timeout: 30_000,
   });
-  await expect(inspector).toContainText(DISPLAYED_VALUE);
-  await expect(inspector).not.toContainText('Loading cell values…');
+  await expect(valueRow(inspector, 'Posterior estimate')).toHaveText(
+    EXACT_VALUE,
+  );
+  await expect(valueRow(inspector, '95% credible interval')).toHaveText(
+    EXACT_INTERVAL,
+  );
+  await expect(valueRow(inspector, 'Uncertainty')).toHaveText(EXACT_VALUE);
+  await expect(valueRow(inspector, 'Nearest measurement')).toHaveText(
+    /^\d+ km$/,
+  );
+  await expect(inspector).not.toContainText('≈');
+  await expect(inspector).not.toContainText('Loading');
   await expect(inspector).toContainText(cellId!);
   expect(await inspectorNode!.evaluate((node) => node.isConnected)).toBe(true);
-  await expect(hoverPreview).toContainText('95% credible range');
-  await expect(hoverPreview).toContainText(DISPLAYED_VALUE);
+  await expect(valueRow(hoverPreview, 'Posterior')).toHaveText(EXACT_VALUE);
+  await expect(valueRow(hoverPreview, '95% credible range')).toHaveText(
+    EXACT_INTERVAL,
+  );
+  await expect(valueRow(hoverPreview, 'Uncertainty')).toHaveText(EXACT_VALUE);
+  await expect(hoverPreview).not.toContainText('≈');
+  // Each provisional readout was its cell's float32 value: at most one unit off in the last digit.
+  const exact = {
+    hoverMean: await readoutHundredths(valueRow(hoverPreview, 'Posterior')),
+    hoverSd: await readoutHundredths(valueRow(hoverPreview, 'Uncertainty')),
+    mean: await readoutHundredths(valueRow(inspector, 'Posterior estimate')),
+    sd: await readoutHundredths(valueRow(inspector, 'Uncertainty')),
+  };
+  for (const key of Object.keys(exact) as (keyof typeof exact)[])
+    expect(Math.abs(exact[key] - provisional[key]), key).toBeLessThanOrEqual(1);
   expect(detail.hits()).toBe(1);
   expect(pageErrors).toEqual([]);
 });
@@ -4153,7 +4367,19 @@ test('surface values report an unavailable detail tier and recover on retry', as
   await expect(inspector).toContainText('Cell values unavailable', {
     timeout: 20_000,
   });
-  await expect(inspector).not.toContainText(DISPLAYED_VALUE);
+  await expect(valueRow(inspector, 'Posterior estimate')).toHaveText(
+    provisionalWithNote('unavailable'),
+  );
+  await expect(valueRow(inspector, '95% credible interval')).toHaveText(
+    'Unavailable',
+  );
+  await expect(valueRow(inspector, 'Uncertainty')).toHaveText(
+    provisionalWithNote('unavailable'),
+  );
+  await expect(valueRow(inspector, 'Nearest measurement')).toHaveText(
+    'Unavailable',
+  );
+  await expect(inspector).not.toContainText(UNMARKED_VALUE);
   await expect(page.locator('.atlas-explorer')).toHaveAttribute(
     'data-atlas-ready',
     'true',
@@ -4170,7 +4396,14 @@ test('surface values report an unavailable detail tier and recover on retry', as
     'true',
     { timeout: 30_000 },
   );
+  await expect(valueRow(inspector, 'Posterior estimate')).toHaveText(
+    EXACT_VALUE,
+  );
+  await expect(valueRow(inspector, '95% credible interval')).toHaveText(
+    EXACT_INTERVAL,
+  );
   await expect(inspector).toContainText(DISPLAYED_VALUE);
+  await expect(inspector).not.toContainText('≈');
   expect(pageErrors).toEqual([]);
 });
 

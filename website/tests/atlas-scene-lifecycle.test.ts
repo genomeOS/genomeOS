@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   effects: [] as (() => void | (() => void))[],
   load: vi.fn(),
+  stallMs: undefined as number | undefined,
   webgl: { supported: true },
 }));
 
@@ -17,6 +18,7 @@ vi.mock('react', () => ({
   useState: <T>(value: T) => [value, () => undefined],
 }));
 vi.mock('../src/atlas/boot', () => ({
+  atlasRequestStallMs: () => mocks.stallMs,
   loadAtlasSceneModule: () => mocks.load(),
 }));
 vi.mock('../src/atlas/explorer-runtime', () => ({
@@ -38,7 +40,7 @@ function runLifecycle(sceneModule: Promise<unknown>) {
     cesiumToken: '',
     element: { current: {} as HTMLDivElement },
     markTarget: null,
-    naturalEarthUrl: '/data/atlas/ne-50m-admin-0.geojson',
+    naturalEarthUrl: '/data/atlas/ne-50m-admin-0.borders.bin',
     onReset: () => undefined,
     onUnavailable,
     reducedMotion: false,
@@ -53,6 +55,7 @@ function runLifecycle(sceneModule: Promise<unknown>) {
 afterEach(() => {
   mocks.effects.length = 0;
   mocks.load.mockReset();
+  mocks.stallMs = undefined;
   mocks.webgl.supported = true;
   vi.restoreAllMocks();
 });
@@ -112,5 +115,21 @@ describe('scene lifecycle failures', () => {
     await Promise.resolve();
     expect(onUnavailable).not.toHaveBeenCalled();
     expect(consoleError).not.toHaveBeenCalled();
+  });
+});
+
+describe('scene options', () => {
+  it('gives the scene’s post-reveal load order the provider’s stall window (§B.6.9)', async () => {
+    mocks.stallMs = 120_000;
+    const destroy = vi.fn();
+    const createAtlasScene = vi.fn(() => ({ destroy }));
+    const { cleanup } = runLifecycle(Promise.resolve({ createAtlasScene }));
+    await vi.waitFor(() => expect(createAtlasScene).toHaveBeenCalled());
+    expect(createAtlasScene.mock.calls[0]).toMatchObject([
+      {},
+      { loadStallMs: 120_000 },
+    ]);
+    cleanup();
+    expect(destroy).toHaveBeenCalledTimes(1);
   });
 });

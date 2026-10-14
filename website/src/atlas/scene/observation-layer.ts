@@ -1,4 +1,11 @@
-/** Measured-observation symbols and source-supported footprints for Atlas design §11. */
+/** Measured-observation symbols and source-supported footprints for Atlas design §11.
+ *
+ * Heights are immutable, so `setSurfaceHeights` with the heights already shown changes nothing.
+ * The commit re-applies the heights that arrived with the first chunk (spec 2026-10-07 §B.6.8);
+ * re-placing every symbol and sampling ring then would rewrite the ring buffer one ring at a time,
+ * a GPU write per ring, and on ANGLE Metal that held the GPU, and with it every frame, for ~0.6 s
+ * right after the reveal (#443).
+ */
 
 import * as Cesium from 'cesium';
 import {
@@ -68,6 +75,7 @@ export interface ObservationPrimitiveGroup {
   readyCount(): number;
   totalCount(): number;
   setElevationFactor(factor: number, force?: boolean): void;
+  /** Re-places the symbols and rings on new heights; the heights already shown are a no-op. */
   setSurfaceHeights(heights: ObservationSurfaceHeights | null): void;
   setEarthOpacity(opacity: number): void;
   setOpacity(opacity: number): void;
@@ -299,6 +307,8 @@ export function buildObservationLayer(
   let lastElevationUpdate = Number.NEGATIVE_INFINITY;
   let fadeOpacity = 1;
   let earthOpacity = 1;
+  // The heights every symbol and ring is placed on now.
+  let shownHeights = options.heights;
   let styleOpacity = options.opacity;
   const uploadColor = new Color();
   const ringSamples: RingSample[][] = [];
@@ -476,6 +486,8 @@ export function buildObservationLayer(
       placeAll();
     },
     setSurfaceHeights(heights: ObservationSurfaceHeights | null) {
+      if (heights === shownHeights) return;
+      shownHeights = heights;
       for (let index = 0; index < symbols.length; index += 1)
         symbols[index].anchor = heights?.anchors[index] ?? FLAT_ANCHOR;
       for (let index = 0; index < ringSamples.length; index += 1) {

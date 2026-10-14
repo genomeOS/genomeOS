@@ -3,6 +3,7 @@
 import type { Primitive, PrimitiveCollection } from 'cesium';
 
 import type { ObservationArtifact } from '../contracts';
+import type { LoadTask } from '../load-order';
 import type { SurfaceArtifact as SurfaceColumns } from '../surface-columns';
 import type {
   ObservationColorVariable,
@@ -100,6 +101,13 @@ export interface ArtifactSceneApi {
   displayedLayer(): DisplayedLayer | null;
   markValuesReady(artifactKey: string): void;
   removeSurface(artifactKey: string): void;
+  /**
+   * Runs a detail-tier load as step 2 of the post-reveal load order (spec 2026-10-07 §B.6.9): once
+   * the Natural Earth borders have settled, and at once when they already have. The task settles
+   * when its request does and reports body progress, so a slow transfer is not a stall. Returns a
+   * cancel that drops the load if it has not started.
+   */
+  queueDetail(task: LoadTask): () => void;
 }
 
 export interface SceneCapabilities {
@@ -129,6 +137,8 @@ export interface AtlasSceneOptions {
   /** `.atlas-explorer`, which receives the readiness attributes. */
   markTarget?: { setAttribute(name: string, value: string): void } | null;
   frameBudgetMs?: number;
+  /** The post-reveal load order's stall window; defaults to the provider's (§B.6.2, §B.6.9). */
+  loadStallMs?: number;
 }
 
 export interface AtlasSceneController extends ArtifactSceneApi {

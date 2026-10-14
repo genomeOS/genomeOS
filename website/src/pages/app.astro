@@ -1,22 +1,32 @@
 ---
 import AtlasExplorer from '../components/atlas/AtlasExplorer';
 import SiteLayout from '../layouts/SiteLayout.astro';
-import { INLINE_CATALOG_ID } from '../atlas/inline-catalog';
+import { escapeInlineJson, INLINE_CATALOG_ID } from '../atlas/inline-catalog';
 import { preloadScriptSource } from '../atlas/preload-script';
 import {
   assertE2eHooks,
   assertRequestStallOverride,
   loadPageCatalog,
 } from '../lib/catalog-build';
-import { assertDataBase, dataOrigin } from '../lib/data-url';
+import {
+  artifactDataBaseFrom,
+  assertDataBase,
+  dataOrigin,
+} from '../lib/data-url';
 import { sitePath } from '../lib/paths';
 
-// fast-load design §B.4: site data always same-origin; Part C substitutes the artifact base
-// (PUBLIC_ATLAS_DATA_BASE_URL). Part B serves both from /data/atlas/.
+// fast-load design §B.4: site data always same-origin; the artifact base is
+// PUBLIC_ATLAS_DATA_BASE_URL (design 2026-10-07 §C.1.4), or the site base when it is unset.
 const siteDataBase = sitePath('/data/atlas/');
-const artifactDataBase = siteDataBase;
+const artifactDataBase = artifactDataBaseFrom(
+  import.meta.env.PUBLIC_ATLAS_DATA_BASE_URL,
+  siteDataBase,
+);
+// Baked-in bases, read by scripts/check_atlas_web_data.py --production and the test harnesses.
+const dataBasesJson = escapeInlineJson(
+  JSON.stringify({ artifact: artifactDataBase, site: siteDataBase }),
+);
 assertDataBase(siteDataBase);
-assertDataBase(artifactDataBase);
 // fast-load design §B.6.1: the same strict schema the client uses; a violation fails the build.
 const { json: catalogJson } = loadPageCatalog(process.env.ATLAS_CATALOG_PATH);
 assertRequestStallOverride(
@@ -48,6 +58,12 @@ const preconnect = dataOrigin(artifactDataBase);
       data-artifact-data-base={artifactDataBase}
       is:inline
       set:html={catalogJson}
+    />
+    <script
+      type="application/json"
+      id="atlas-data-bases"
+      is:inline
+      set:html={dataBasesJson}
     />
     <script is:inline set:html={preloadScriptSource()} />
   </Fragment>

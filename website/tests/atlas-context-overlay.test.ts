@@ -11,8 +11,12 @@ import {
   PrimitiveCollection,
   VerticalOrigin,
 } from 'cesium';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { NATURAL_EARTH_BORDERS } from '../src/atlas/context-sources';
+import { decodeNaturalEarth } from '../src/atlas/geometry/natural-earth-codec';
 import {
   BORDER_CLEARANCE_METRES,
   ContextOverlay,
@@ -37,8 +41,10 @@ interface SetupOptions {
   slice?: { sliceMs?: number; yieldFn: () => Promise<void> };
 }
 
+/** `fetchBytes: null` leaves the overlay its own fetch, for tests that stub `fetch`. */
 function setup(
-  fetchBytes = async () => new ArrayBuffer(8),
+  fetchBytes: ((url: string) => Promise<ArrayBuffer>) | null = async () =>
+    new ArrayBuffer(8),
   config: SetupOptions = {},
 ) {
   const context = config.context ?? parsed;
@@ -82,7 +88,7 @@ function setup(
   const scene = {
     postRender: new FakeEvent(),
     primitives,
-    // A destroyed Cesium Scene throws here too; Viewer.destroy() destroys the primitives with it.
+    // A destroyed Cesium Scene throws here too; CesiumWidget.destroy() destroys the primitives with it.
     requestRender: vi.fn(() => {
       if (primitives.isDestroyed())
         throw new DeveloperError('This object was destroyed');
@@ -93,7 +99,7 @@ function setup(
   const overlay = new ContextOverlay({
     addCredit,
     createLabels: () => labels as never,
-    fetchBytes,
+    fetchBytes: fetchBytes ?? undefined,
     now: config.now,
     removeCredit,
     scene,
@@ -132,7 +138,7 @@ describe('Natural Earth context overlay', () => {
     const { added, addCredit, overlay, removeCredit, scene, worker } = setup();
 
     await expect(
-      overlay.load('/data/atlas/ne-50m-admin-0.geojson'),
+      overlay.load('/data/atlas/ne-50m-admin-0.borders.bin'),
     ).resolves.toBe('ready');
 
     expect(scene.primitives.contains(overlay.collection)).toBe(true);
@@ -171,7 +177,7 @@ describe('Natural Earth context overlay', () => {
     // Cesium's Label defaults to LEFT/BASELINE, which drew each name to the right of and above its
     // country; LabelVisualizer gave the GeoJsonDataSource labels CENTER/CENTER.
     const { added, overlay } = setup();
-    await overlay.load('/a.geojson');
+    await overlay.load('/borders.bin');
 
     expect(added).toHaveLength(1);
     expect(added[0].horizontalOrigin).toBe(HorizontalOrigin.CENTER);
@@ -180,13 +186,80 @@ describe('Natural Earth context overlay', () => {
 
   it('loads once however often it is asked', async () => {
     const { overlay, worker } = setup();
-    await Promise.all([overlay.load('/a.geojson'), overlay.load('/a.geojson')]);
+    await Promise.all([
+      overlay.load('/borders.bin'),
+      overlay.load('/borders.bin'),
+    ]);
     expect(worker.parseContext).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports when the bytes have arrived, before it parses and draws them (§B.6.9)', async () => {
+    const { overlay, worker } = setup();
+    let finishParse!: () => void;
+    worker.parseContext.mockImplementationOnce(
+      () =>
+        new Promise<typeof parsed>((resolve) => {
+          finishParse = () => resolve(parsed);
+        }),
+    );
+    const fetched = vi.fn();
+    const loading = overlay.load('/a.geojson', fetched);
+    await flushTasks();
+    expect(fetched).toHaveBeenCalledTimes(1);
+    expect(fetched.mock.invocationCallOrder[0]).toBeLessThan(
+      worker.parseContext.mock.invocationCallOrder[0],
+    );
+    expect(overlay.isReady()).toBe(false);
+    finishParse();
+    await expect(loading).resolves.toBe('ready');
+    expect(fetched).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports each body chunk of the borders as progress, then their arrival (§B.6.9)', async () => {
+    const chunks = [Uint8Array.of(1, 2), Uint8Array.of(3), Uint8Array.of(4, 5)];
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              for (const chunk of chunks) controller.enqueue(chunk);
+              controller.close();
+            },
+          }),
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { overlay, worker } = setup(null);
+    const fetched = vi.fn();
+    const progress = vi.fn();
+    await expect(overlay.load('/a.geojson', fetched, progress)).resolves.toBe(
+      'ready',
+    );
+    expect(fetchMock).toHaveBeenCalledWith('/a.geojson');
+    expect(progress).toHaveBeenCalledTimes(chunks.length);
+    expect(fetched).toHaveBeenCalledTimes(1);
+    expect(progress.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      fetched.mock.invocationCallOrder[0],
+    );
+    const [bytes] = worker.parseContext.mock.calls[0] as unknown as [
+      ArrayBuffer,
+    ];
+    expect([...new Uint8Array(bytes)]).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('does not report arrival when the borders cannot be fetched', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { overlay } = setup(async () => {
+      throw new Error('offline');
+    });
+    const fetched = vi.fn();
+    await expect(overlay.load('/a.geojson', fetched)).resolves.toBe('fallback');
+    expect(fetched).not.toHaveBeenCalled();
   });
 
   it('asks the worker for surface heights only on the first non-zero factor', async () => {
     const { added, overlay, worker } = setup();
-    await overlay.load('/a.geojson');
+    await overlay.load('/borders.bin');
     overlay.setSurface('hbs-rs334:v3:map-2026-08', 'post_mean');
     overlay.setElevationFactor(0, true);
     expect(worker.contextHeights).not.toHaveBeenCalled();
@@ -215,7 +288,7 @@ describe('Natural Earth context overlay', () => {
     const { addCredit, overlay, removeCredit } = setup(async () => {
       throw new Error('offline');
     });
-    await expect(overlay.load('/a.geojson')).resolves.toBe('fallback');
+    await expect(overlay.load('/borders.bin')).resolves.toBe('fallback');
     // No borders are drawn, so their credit goes.
     expect(removeCredit).toHaveBeenCalledTimes(1);
     expect(removeCredit).toHaveBeenCalledWith(addCredit.mock.calls[0][0]);
@@ -228,14 +301,14 @@ describe('Natural Earth context overlay', () => {
     labels.add = () => {
       throw new Error('label failed');
     };
-    await expect(overlay.load('/a.geojson')).resolves.toBe('fallback');
+    await expect(overlay.load('/borders.bin')).resolves.toBe('fallback');
     expect(bufferOf(overlay).primitiveCount).toBe(2);
     expect(removeCredit).not.toHaveBeenCalled();
   });
 
   it('applies visibility and border style to the drawn rings', async () => {
     const { overlay } = setup();
-    await overlay.load('/a.geojson');
+    await overlay.load('/borders.bin');
     overlay.setVisible(false);
     expect(overlay.collection.show).toBe(false);
 
@@ -255,7 +328,7 @@ describe('Natural Earth context overlay', () => {
     // does not.
     stubCesiumBrowserImageTypes();
     const { overlay } = setup();
-    await overlay.load('/a.geojson');
+    await overlay.load('/borders.bin');
     const line = new BufferPolyline();
     const material = new BufferPolylineMaterial();
     bufferOf(overlay).get(0, line);
@@ -281,7 +354,7 @@ describe('Natural Earth context overlay', () => {
         },
       },
     }));
-    await overlay.load('/a.geojson');
+    await overlay.load('/borders.bin');
     await overlay.setSceneMode('map');
 
     expect(projectedRingCount(overlay)).toBe(2);
@@ -293,7 +366,7 @@ describe('Natural Earth context overlay', () => {
   it('switches to projected borders in the 2D map', async () => {
     stubCesiumBrowserImageTypes();
     const { overlay } = setup();
-    await overlay.load('/a.geojson');
+    await overlay.load('/borders.bin');
     await overlay.setSceneMode('map');
 
     const projected = [...Array(overlay.collection.length).keys()]
@@ -314,7 +387,7 @@ describe('Natural Earth country label glyphs', () => {
   // requestRenderMode the labels stayed undrawn until something else asked for a render.
   it('requests frames after the labels are added until their glyphs are drawn', async () => {
     const { labels, overlay, scene } = setup();
-    await overlay.load('/a.geojson');
+    await overlay.load('/borders.bin');
     expect(scene.postRender.numberOfListeners).toBe(1);
 
     scene.requestRender.mockClear();
@@ -331,7 +404,7 @@ describe('Natural Earth country label glyphs', () => {
   it('waits without rendering while the countries layer is hidden', async () => {
     // A hidden PrimitiveCollection does not update its labels, so they cannot become ready.
     const { overlay, scene } = setup();
-    await overlay.load('/a.geojson');
+    await overlay.load('/borders.bin');
     overlay.setVisible(false);
     scene.requestRender.mockClear();
 
@@ -347,7 +420,7 @@ describe('Natural Earth country label glyphs', () => {
 
   it('stops after a bounded number of frames when a glyph never loads', async () => {
     const { overlay, scene } = setup();
-    await overlay.load('/a.geojson');
+    await overlay.load('/borders.bin');
     scene.requestRender.mockClear();
 
     for (let frame = 0; frame < LABEL_READY_MAX_FRAMES + 5; frame += 1)
@@ -359,7 +432,7 @@ describe('Natural Earth country label glyphs', () => {
 
   it('stops quietly when the scene is torn down before the glyphs are drawn', async () => {
     const { overlay, scene } = setup();
-    await overlay.load('/a.geojson');
+    await overlay.load('/borders.bin');
     scene.primitives.destroy();
     scene.requestRender.mockClear();
 
@@ -497,7 +570,7 @@ describe('Natural Earth context built across several slices', () => {
   it('releases projected borders that share a material when the scene is torn down', async () => {
     stubCesiumBrowserImageTypes();
     const { overlay, scene, worker } = setup(undefined, { context: COUNTRIES });
-    await overlay.load('/a.geojson');
+    await overlay.load('/borders.bin');
     await overlay.setSceneMode('map');
     const projected = projectedOf(overlay)!;
     expect(projected.length).toBe(3);
@@ -531,7 +604,7 @@ describe('Natural Earth context built across several slices', () => {
         () => void overlay.setSceneMode('map'),
       );
 
-      await expect(overlay.load('/a.geojson')).resolves.toBe('ready');
+      await expect(overlay.load('/borders.bin')).resolves.toBe('ready');
 
       expect(projectedOf(overlay)?.length).toBe(3);
       expect(projectedOf(overlay)?.show).toBe(true);
@@ -544,7 +617,7 @@ describe('Natural Earth context built across several slices', () => {
     stubCesiumBrowserImageTypes();
     const { atYield, slice } = slicedLoad();
     const { overlay } = setup(undefined, { context: COUNTRIES, slice });
-    await overlay.load('/a.geojson');
+    await overlay.load('/borders.bin');
     let back: Promise<void> | undefined;
     atYield(
       () => projectedRingCount(overlay) > 0,
@@ -569,7 +642,7 @@ describe('Natural Earth context built across several slices', () => {
     overlay.setElevationFactor(2, true);
     expect(worker.contextHeights).not.toHaveBeenCalled();
 
-    await expect(overlay.load('/a.geojson')).resolves.toBe('ready');
+    await expect(overlay.load('/borders.bin')).resolves.toBe('ready');
     await flushTasks();
 
     expect(worker.contextHeights).toHaveBeenCalledTimes(1);
@@ -610,7 +683,7 @@ describe('Natural Earth context built across several slices', () => {
         release,
       );
 
-      await expect(overlay.load('/a.geojson')).resolves.toBe('ready');
+      await expect(overlay.load('/borders.bin')).resolves.toBe('ready');
 
       expectRingsAt(
         mode === 'globe' ? bufferRings(overlay) : projectedRings(overlay),
@@ -624,7 +697,7 @@ describe('Natural Earth context built across several slices', () => {
     stubCesiumBrowserImageTypes();
     const { atYield, slice } = slicedLoad();
     const { overlay } = setup(undefined, { context: COUNTRIES, slice });
-    await overlay.load('/a.geojson');
+    await overlay.load('/borders.bin');
     overlay.setSurface(SURFACE, 'post_mean');
     overlay.setElevationFactor(2, true);
     await flushTasks();
@@ -648,7 +721,7 @@ describe('Natural Earth context built across several slices', () => {
       now: () => 0,
       slice,
     });
-    await overlay.load('/a.geojson');
+    await overlay.load('/borders.bin');
     overlay.setSurface(SURFACE, 'post_mean');
     overlay.setElevationFactor(1, true);
     await flushTasks();
@@ -697,7 +770,7 @@ describe('Natural Earth context built across several slices', () => {
         },
       );
 
-      await expect(overlay.load('/a.geojson')).resolves.toBe('ready');
+      await expect(overlay.load('/borders.bin')).resolves.toBe('ready');
 
       expect(midLoad).toHaveLength(2);
       midLoad.forEach((position, index) => {
@@ -721,7 +794,7 @@ describe('Natural Earth context built across several slices', () => {
       () => overlay.setBorderStyle('#ff0000', 0.25),
     );
 
-    await overlay.load('/a.geojson');
+    await overlay.load('/borders.bin');
 
     const buffer = bufferOf(overlay);
     const line = new BufferPolyline();
@@ -740,7 +813,7 @@ describe('Natural Earth context built across several slices', () => {
   it('draws projected borders in the chosen style and restyles them', async () => {
     stubCesiumBrowserImageTypes();
     const { overlay } = setup(undefined, { context: COUNTRIES });
-    await overlay.load('/a.geojson');
+    await overlay.load('/borders.bin');
     overlay.setBorderStyle('#00ff00', 0.4);
     await overlay.setSceneMode('map');
     const projected = projectedOf(overlay)!;
@@ -782,7 +855,7 @@ describe('Natural Earth context built across several slices', () => {
         },
       );
 
-      await expect(overlay.load('/a.geojson')).resolves.toBe('fallback');
+      await expect(overlay.load('/borders.bin')).resolves.toBe('fallback');
 
       // No slice ran on the destroyed scene: a slice ends by requesting a render.
       expect(scene.requestRender).toHaveBeenCalledTimes(rendersAtTeardown);
@@ -801,9 +874,9 @@ describe('Natural Earth context built across several slices', () => {
       throw new Error('Atlas data worker terminated');
     });
 
-    await expect(overlay.load('/a.geojson')).resolves.toBe('fallback');
+    await expect(overlay.load('/borders.bin')).resolves.toBe('fallback');
 
-    // The credit display went with the viewer.
+    // The credit display went with the CesiumWidget.
     expect(removeCredit).not.toHaveBeenCalled();
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -815,7 +888,7 @@ describe('Natural Earth context built across several slices', () => {
       const { overlay, scene, worker } = setup(undefined, {
         context: COUNTRIES,
       });
-      await overlay.load('/a.geojson');
+      await overlay.load('/borders.bin');
       let settle: () => void = () => {};
       worker.contextHeights.mockImplementationOnce(
         () =>
@@ -842,4 +915,76 @@ describe('Natural Earth context built across several slices', () => {
       expect(console.warn).not.toHaveBeenCalled();
     },
   );
+});
+
+describe('compact borders in the post-reveal load order (§B.6.9, §B.10)', () => {
+  const ATLAS = new URL('../public/data/atlas/', import.meta.url);
+
+  it('reports each chunk of the GOBD file, then its last byte, before the worker decodes it', async () => {
+    // The file the catalog names for the borders, as the explorer resolves it (#445).
+    const { context_sources } = JSON.parse(
+      readFileSync(fileURLToPath(new URL('catalog.json', ATLAS)), 'utf8'),
+    ) as { context_sources: { id: string; url: string }[] };
+    const name = context_sources.find(
+      (source) => source.id === NATURAL_EARTH_BORDERS,
+    )?.url;
+    expect(name).toMatch(/\.bin$/);
+    const file = new Uint8Array(
+      readFileSync(fileURLToPath(new URL(name!, ATLAS))),
+    );
+    const CHUNK = 64 * 1024;
+    const chunks: Uint8Array[] = [];
+    for (let start = 0; start < file.length; start += CHUNK)
+      chunks.push(file.slice(start, start + CHUNK));
+    expect(chunks.length).toBeGreaterThan(1);
+    const url = `/data/atlas/${name}`;
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              for (const chunk of chunks) controller.enqueue(chunk);
+              controller.close();
+            },
+          }),
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    // The overlay's own fetch (no fetchBytes), and the decoder the data worker runs on the bytes.
+    const { overlay, worker } = setup(null);
+    let decoded: ReturnType<typeof decodeNaturalEarth> | undefined;
+    let readyAtArrival: boolean | undefined;
+    worker.parseContext.mockImplementationOnce(async (...args: unknown[]) => {
+      decoded = decodeNaturalEarth(args[0] as ArrayBuffer);
+      return parsed;
+    });
+    const progress = vi.fn();
+    const fetched = vi.fn(() => {
+      readyAtArrival = overlay.isReady();
+    });
+
+    await expect(overlay.load(url, fetched, progress)).resolves.toBe('ready');
+
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(url);
+    expect(progress).toHaveBeenCalledTimes(chunks.length);
+    expect(fetched).toHaveBeenCalledTimes(1);
+    // Arrival is the last byte: after every chunk, before the decode, with nothing drawn yet.
+    expect(progress.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      fetched.mock.invocationCallOrder[0],
+    );
+    expect(fetched.mock.invocationCallOrder[0]).toBeLessThan(
+      worker.parseContext.mock.invocationCallOrder[0],
+    );
+    expect(readyAtArrival).toBe(false);
+    // The streamed bytes are the file, and they decode as the file does.
+    const [bytes] = worker.parseContext.mock.calls[0] as unknown as [
+      ArrayBuffer,
+    ];
+    expect(new Uint8Array(bytes)).toEqual(file);
+    const direct = decodeNaturalEarth(file);
+    expect(decoded!.ringOffsets).toEqual(direct.ringOffsets);
+    expect(decoded!.lonLat).toEqual(direct.lonLat);
+    expect(decoded!.labels).toEqual(direct.labels);
+    expect(decoded!.labels.length).toBeGreaterThan(200);
+  });
 });

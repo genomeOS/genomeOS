@@ -105,6 +105,13 @@ def _tree(root: Path) -> dict[str, bytes]:
     }
 
 
+def test_cli_requires_an_export_directory() -> None:
+    """The repository holds only catalog.json since Part C, so there is no default export to encode."""
+    with pytest.raises(SystemExit) as raised:
+        encode_atlas_web.main([])
+    assert raised.value.code == 2
+
+
 def test_cli_writes_content_addressed_objects_and_catalog_fields(tmp_path: Path) -> None:
     export = _write_export(tmp_path / "web", {"alpha": _cells(), "beta": _cells()})
     assert encode_atlas_web.main(["--in", str(export)]) == 0

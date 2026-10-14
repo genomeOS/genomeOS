@@ -215,7 +215,7 @@ const WORKER_MESSAGE_INVOKER = /Worker|MessagePort/;
  *   rest of that render. Charging the whole callback can over-report Atlas
  *   on chunk frames, never under-report it. The Atlas-owned render loop
  *   (`src/atlas/scene/render-loop.ts`, whose tick only resizes and renders
- *   the viewer) is bundled into the Cesium chunk (astro.config.mjs), so its
+ *   the CesiumWidget) is bundled into the Cesium chunk (astro.config.mjs), so its
  *   frames attribute as Cesium's default loop did.
  * - Worker and `MessagePort` handlers, every other same-origin `/_astro/`
  *   chunk and the document's own scripts count as Atlas; the rest is `other`.

@@ -642,7 +642,7 @@ describe('bytes ledger', () => {
   const A = `${ORIGIN}/_astro/a.js`;
   const RENDER = `${ORIGIN}/data/atlas/surfaces/hbs-rs334/v3/map-2026-08/render.1111.gosa`;
   const OBSERVATIONS = `${ORIGIN}/data/atlas/hbs-rs334.observations.json`;
-  const LATE = `${ORIGIN}/data/atlas/ne-50m-admin-0.geojson`;
+  const LATE = `${ORIGIN}/data/atlas/ne-50m-admin-0.borders.bin`;
   const records = [
     record(DOCUMENT, 1_000, null),
     record(A, 2_000, DOCUMENT),

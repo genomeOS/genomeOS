@@ -160,6 +160,26 @@ describe('observation surface heights', () => {
     );
   });
 
+  it('leaves every ring in place when the heights it already shows arrive again', () => {
+    // The commit re-applies the heights the first chunk brought (#443). Rewriting the rings then
+    // costs one GPU buffer write per ring, which held the GPU for ~0.6 s after the reveal.
+    const group = layer();
+    const rings = group.collection.get(0) as PolylineCollection;
+    const flat = rings.get(0).positions;
+    group.setSurfaceHeights(null);
+    expect(rings.get(0).positions).toBe(flat);
+
+    const heights = {
+      anchors: [{ height: 1_000, triangle: null }],
+      ringBaseHeights: [500],
+    };
+    group.setSurfaceHeights(heights);
+    const placed = rings.get(0).positions;
+    expect(placed).not.toBe(flat);
+    group.setSurfaceHeights(heights);
+    expect(rings.get(0).positions).toBe(placed);
+  });
+
   it('keys observation picks and the group by artifact', () => {
     const group = layer();
     const points = group.collection.get(2) as PointPrimitiveCollection;
