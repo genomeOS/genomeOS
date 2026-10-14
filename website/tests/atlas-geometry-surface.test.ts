@@ -284,6 +284,16 @@ describe('smooth surface chunks (fast-load §B.6.5)', () => {
     expectBoundsEveryVertex(buildSurfaceChunk(input, wholeGridChunk(input)));
   });
 
+  it('carries no cell centres: the reveal wave fades a smooth surface per vertex (#453)', () => {
+    for (const geometry of ['triangles', 'honmoon', 'honmoon-fill'] as const) {
+      const input = meshInputFor(disk(), { geometry });
+      expect(
+        buildSurfaceChunk(input, wholeGridChunk(input)).cellCentres,
+        geometry,
+      ).toBeNull();
+    }
+  });
+
   it('returns empty buffers for a chunk with no supported cells', () => {
     const input = meshInputFor(
       DISK.map((h3) => ({ h3, support: 'unknown' as const, value: 0.5 })),
@@ -360,6 +370,40 @@ describe('hexagon and extruded surface chunks (fast-load §B.6.5)', () => {
     const prior = paletteBins(input, 'prior_dominated');
     expect(Array.from(prior.binOfRow)).toEqual([-1, -1, bin, -1, bin, -1, -1]);
     expect([...prior.colors]).toEqual([[bin, colourOf(2)]]);
+  });
+
+  it('gives every vertex of a flat or extruded cell its cell centre, so the reveal wave grows it from there (#453)', () => {
+    for (const geometry of ['hexagons', 'extruded'] as const) {
+      const input = meshInputFor(disk(), { geometry });
+      const buffers = buildSurfaceChunk(input, wholeGridChunk(input));
+      const centres = buffers.cellCentres;
+      expect(centres, geometry).toBeInstanceOf(Float32Array);
+      expect(centres!.length, geometry).toBe(buffers.positions.length);
+      let vertex = 0;
+      for (const cell of DISK) {
+        const [lat, lon] = cellToLatLng(cell);
+        const expected = new Float64Array(3);
+        geodeticToEcef(lon, lat, SURFACE_CLEARANCE_METRES, expected);
+        const corners = cellToVertexes(cell).length;
+        const count = 1 + corners + (geometry === 'extruded' ? corners * 4 : 0);
+        for (let index = 0; index < count; index += 1, vertex += 1)
+          expect(
+            Array.from(centres!.subarray(vertex * 3, vertex * 3 + 3)),
+            `${geometry} ${cell} vertex ${index}`,
+          ).toEqual(Array.from(expected, Math.fround));
+      }
+      expect(vertex * 3, geometry).toBe(centres!.length);
+    }
+  });
+
+  it('gives an empty flat chunk empty cell centres', () => {
+    const input = meshInputFor(
+      DISK.map((h3) => ({ h3, support: 'unknown' as const, value: 0.5 })),
+      { geometry: 'hexagons' },
+    );
+    expect(
+      buildSurfaceChunk(input, wholeGridChunk(input)).cellCentres,
+    ).toHaveLength(0);
   });
 
   it('bounds every flat and extruded vertex at rest and fully raised', () => {

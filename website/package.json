@@ -11,7 +11,7 @@
     "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev",
     "build": "ASTRO_TELEMETRY_DISABLED=1 astro build",
     "build:fallback": "node scripts/build-fallback.mjs",
-    "build:e2e": "ATLAS_CATALOG_PATH=tests/fixtures/atlas/e2e/catalog.json PUBLIC_ATLAS_REQUEST_STALL_MS=120000 npm run build",
+    "build:e2e": "ATLAS_CATALOG_PATH=tests/fixtures/atlas/e2e/catalog.json PUBLIC_ATLAS_REQUEST_STALL_MS=120000 PUBLIC_ATLAS_E2E_HOOKS=1 npm run build",
     "build:favicons": "node scripts/build-favicons.mjs",
     "preview": "ASTRO_TELEMETRY_DISABLED=1 astro preview",
     "check": "ASTRO_TELEMETRY_DISABLED=1 astro check",

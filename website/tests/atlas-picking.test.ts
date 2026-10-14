@@ -126,6 +126,40 @@ describe('surface-chunk cell resolution', () => {
     expect(scene.pickTranslucentDepth).toBe(false);
   });
 
+  it('resolves no cell the reveal wave has not reached (#453)', () => {
+    // A 3 × 3 pick window can catch a grown neighbour's chunk while the
+    // pointer lies over an unreached cell, and an extruded ray test can pick
+    // an unreached neighbour's prism; the wave itself has the last word.
+    const scene = {
+      camera: { pickEllipsoid: vi.fn(() => Cartesian3.fromDegrees(LON, LAT)) },
+      pick: vi.fn(),
+      pickPosition: vi.fn(),
+      pickTranslucentDepth: false,
+    };
+    const reveals: number[] = [];
+    let reveal = 0;
+    const resolve = createSurfacePickResolver(scene as never, {
+      ...context(0),
+      reveal: (direction) => {
+        const centre = Cartesian3.fromDegrees(LON, LAT);
+        reveals.push(
+          Cartesian3.angleBetween(new Cartesian3(...direction), centre),
+        );
+        return reveal;
+      },
+    });
+    const pick = () => resolve([{ id: surfaceChunkPickId(KEY, 0) }], WINDOW);
+
+    expect(pick()).toBeNull();
+    // Asked about the resolved cell's own centre.
+    expect(reveals).toHaveLength(1);
+    expect(reveals[0]).toBeLessThan(1e-9);
+    reveal = 0.4;
+    expect(pick()).toMatchObject({ h3Index: CELL, kind: 'surface' });
+    reveal = 1;
+    expect(pick()).toMatchObject({ h3Index: CELL, kind: 'surface' });
+  });
+
   it('turns translucent depth on only around the depth pick and hides the incoming group', () => {
     const incoming = { show: true };
     const seen: { depth: boolean; incoming: boolean }[] = [];

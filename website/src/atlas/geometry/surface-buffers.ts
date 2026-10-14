@@ -6,6 +6,9 @@
  * supported cells in grid order and stored as float32, like the legacy
  * attributes. Positions sit at SURFACE_CLEARANCE_METRES; the shader raises
  * them along `elevationNormals`. Presentation only: no value is invented.
+ * Flat geometry also gives each vertex its cell's centre (`cellCentres`), so
+ * the reveal wave can grow every cell from its own centre (#453; §B.6.7 as
+ * amended 2026-10-13); a smooth surface fades per vertex and carries none.
  */
 
 import type { SurfaceGeometry } from '../url-state';
@@ -60,6 +63,8 @@ export interface SurfaceChunkBuffers {
   colors: Float32Array;
   heights: Float32Array;
   values: Float32Array;
+  /** ECEF centre of each vertex's cell at the clearance; null for smooth geometry. */
+  cellCentres: Float32Array | null;
   indices: Uint16Array | Uint32Array;
   boundingSphere: BoundingSphere;
 }
@@ -222,18 +227,21 @@ class VertexWriter {
   readonly colors: Float32Array;
   readonly heights: Float32Array;
   readonly values: Float32Array;
+  readonly cellCentres: Float32Array | null;
   count = 0;
   readonly #scratch = new Float64Array(3);
 
-  constructor(vertexCount: number, separateElevationNormals: boolean) {
+  /** Flat geometry has its own shading normals and a cell centre per vertex. */
+  constructor(vertexCount: number, flat: boolean) {
     this.positions = new Float64Array(vertexCount * 3);
     this.normals = new Float32Array(vertexCount * 3);
-    this.elevationNormals = separateElevationNormals
+    this.elevationNormals = flat
       ? new Float32Array(vertexCount * 3)
       : this.normals;
     this.colors = new Float32Array(vertexCount * 3);
     this.heights = new Float32Array(vertexCount);
     this.values = new Float32Array(vertexCount);
+    this.cellCentres = flat ? new Float32Array(vertexCount * 3) : null;
   }
 
   /** Appends a vertex; `shading` defaults to the geocentric position normal. */
@@ -243,6 +251,7 @@ class VertexWriter {
     value: number,
     color: readonly [number, number, number],
     shading?: ArrayLike<number>,
+    cellCentre?: ArrayLike<number>,
   ): number {
     const vertex = this.count;
     const offset = vertex * 3;
@@ -255,6 +264,9 @@ class VertexWriter {
       if (shading) this.normals[offset + axis] = shading[axis];
       this.colors[offset + axis] = color[axis] / 255;
     }
+    if (this.cellCentres && cellCentre)
+      for (let axis = 0; axis < 3; axis += 1)
+        this.cellCentres[offset + axis] = cellCentre[axis];
     this.heights[vertex] = height;
     this.values[vertex] = value;
     this.count += 1;
@@ -454,14 +466,16 @@ function buildFlatChunk(
       t,
       color,
       shading,
+      center,
     );
     const topCorners = grounds.map((ground) => {
       const shadingNormal = new Float64Array(3);
       normalizeInto(ground, 0, shadingNormal);
-      if (!extruded) return writer.add(ground, height, t, color, shadingNormal);
+      if (!extruded)
+        return writer.add(ground, height, t, color, shadingNormal, center);
       const raised = new Float64Array(3);
       cpuTop(ground, raised);
-      return writer.add(raised, height, t, color, shadingNormal);
+      return writer.add(raised, height, t, color, shadingNormal, center);
     });
     for (let corner = 0; corner < count; corner += 1) {
       indices[next++] = topCenter;
@@ -476,10 +490,17 @@ function buildFlatChunk(
       const secondTop = new Float64Array(3);
       cpuTop(firstGround, firstTop);
       cpuTop(secondGround, secondTop);
-      const bottomFirst = writer.add(firstGround, 0, t, color, normal);
-      const bottomSecond = writer.add(secondGround, 0, t, color, normal);
-      const topFirst = writer.add(firstTop, height, t, color, normal);
-      const topSecond = writer.add(secondTop, height, t, color, normal);
+      const bottomFirst = writer.add(firstGround, 0, t, color, normal, center);
+      const bottomSecond = writer.add(
+        secondGround,
+        0,
+        t,
+        color,
+        normal,
+        center,
+      );
+      const topFirst = writer.add(firstTop, height, t, color, normal, center);
+      const topSecond = writer.add(secondTop, height, t, color, normal, center);
       indices[next++] = bottomFirst;
       indices[next++] = bottomSecond;
       indices[next++] = topSecond;
@@ -502,6 +523,7 @@ function finish(
       writer.elevationNormals,
       writer.heights,
     ),
+    cellCentres: writer.cellCentres,
     chunk: chunk.id,
     colors: writer.colors,
     elevationNormals: writer.elevationNormals,

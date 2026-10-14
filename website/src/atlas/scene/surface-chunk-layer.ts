@@ -1,10 +1,17 @@
-/** Worker-built surface chunks as Cesium primitives for Atlas design §11 (spec 2026-10-07 §B.6.5–§B.6.6).
+/** Worker-built surface chunks as Cesium primitives for Atlas design §11 (spec 2026-10-07 §B.6.5–§B.6.6,
+ * and §B.6.7 as amended 2026-10-13 for the reveal wave, #453).
  *
  * One primitive per chunk carries its supported cells; its masked cells
  * (`unknown` hatch, `prior_dominated` dots per palette bin) are added in the
  * same call, so a chunk is never visible without its mask. Every primitive is
  * built synchronously from the worker's typed arrays and picks as the chunk.
  * Child order of `collection` is surface (0), support (1), edges (2).
+ *
+ * Surface and mask appearances all read one shared reveal-wave state, so a
+ * hexagon shows only once its chunk is added and the wave has reached it.
+ * Cell outlines cannot follow the wave on the GPU (Cesium's buffer polyline
+ * shader is fixed, and following it ring by ring would mean per-cell buffer
+ * writes, #451), so they are held hidden while a wave runs.
  */
 
 import {
@@ -17,7 +24,6 @@ import {
   GeometryAttributes,
   GeometryInstance,
   Material,
-  MaterialAppearance,
   Primitive,
   PrimitiveCollection,
   PrimitiveType,
@@ -32,10 +38,12 @@ import { needsLongitudeSplit } from '../geometry/wgs84';
 import type { ExplorerSceneMode, SurfaceGeometry } from '../url-state';
 import { hexFromBytes } from '../visual-encoding';
 import { createEdgeLayer, type EdgeLayer } from './edge-layer';
+import { restingWave, type RevealWaveUniforms } from './reveal-wave';
 import { materialForSupport } from './support-material';
 import {
   elevatedSurfaceAppearance,
   honmoonModeForGeometry,
+  supportAppearance,
   usesVertexColorGamma,
   type ElevatedSurfaceAppearance,
 } from './surface-appearance';
@@ -51,6 +59,8 @@ export interface SurfaceChunkGroupOptions {
   elevationFactor: number;
   cellEdges: boolean;
   requestRender: () => void;
+  /** The scene's shared reveal-wave state; without one the group is always whole. */
+  wave?: RevealWaveUniforms;
 }
 
 export interface SurfaceChunkGroup extends ScientificPrimitiveGroup {
@@ -60,6 +70,8 @@ export interface SurfaceChunkGroup extends ScientificPrimitiveGroup {
   chunkCount(): number;
   readyChunkCount(): number;
   opacity(): number;
+  /** Hides the cell outlines while a reveal wave runs, whatever else would show them. */
+  setEdgesHeld(held: boolean): void;
 }
 
 interface OpacityMaterial {
@@ -125,6 +137,7 @@ function positionAttribute(values: Float64Array): GeometryAttribute {
 
 function surfaceGeometry(buffers: SurfaceChunkBuffers): Geometry {
   const attributes = new GeometryAttributes() as GeometryAttributes & {
+    cellCentre?: GeometryAttribute;
     elevationNormal: GeometryAttribute;
     surfaceColor: GeometryAttribute;
     surfaceHeight: GeometryAttribute;
@@ -136,6 +149,8 @@ function surfaceGeometry(buffers: SurfaceChunkBuffers): Geometry {
   attributes.surfaceColor = floatAttribute(buffers.colors, 3);
   attributes.surfaceHeight = floatAttribute(buffers.heights, 1);
   attributes.surfaceValue = floatAttribute(buffers.values, 1);
+  if (buffers.cellCentres)
+    attributes.cellCentre = floatAttribute(buffers.cellCentres, 3);
   return new Geometry({
     attributes,
     boundingSphere: boundingSphere(buffers.boundingSphere),
@@ -145,10 +160,13 @@ function surfaceGeometry(buffers: SurfaceChunkBuffers): Geometry {
 }
 
 function flatCellGeometry(buffers: FlatCellBuffers): Geometry {
-  const attributes = new GeometryAttributes();
+  const attributes = new GeometryAttributes() as GeometryAttributes & {
+    cellCentre: GeometryAttribute;
+  };
   attributes.position = positionAttribute(buffers.positions);
   attributes.normal = floatAttribute(buffers.normals, 3);
   attributes.st = floatAttribute(buffers.st, 2);
+  attributes.cellCentre = floatAttribute(buffers.cellCentres, 3);
   return new Geometry({
     attributes,
     boundingSphere: boundingSphere(buffers.boundingSphere),
@@ -164,6 +182,7 @@ export function createSurfaceChunkGroup(
   const surfaceCollection = new PrimitiveCollection();
   const supportCollection = new PrimitiveCollection();
   const edges = createEdgeLayer({ requestRender: options.requestRender });
+  const wave = options.wave ?? restingWave();
   collection.add(surfaceCollection);
   collection.add(supportCollection);
   collection.add(edges.collection);
@@ -177,6 +196,7 @@ export function createSurfaceChunkGroup(
   let fadeOpacity = 1;
   let surfaceOpacity = options.surfaceOpacity;
   let edgesVisible = options.cellEdges;
+  let edgesHeld = false;
   let surfaceVisible = true;
   let supportVisible = true;
   let elevationFactor = Math.max(0, options.elevationFactor);
@@ -200,7 +220,10 @@ export function createSurfaceChunkGroup(
 
   const applyEdgeVisibility = () => {
     edges.collection.show =
-      surfaceVisible && edgesVisible && fadeOpacity > EDGE_FADE_THRESHOLD;
+      surfaceVisible &&
+      edgesVisible &&
+      !edgesHeld &&
+      fadeOpacity > EDGE_FADE_THRESHOLD;
   };
   const applyOpacity = (entries: readonly OpacityMaterial[]) => {
     for (const { cellAlpha, colors, material } of entries) {
@@ -234,6 +257,7 @@ export function createSurfaceChunkGroup(
       options.geometry === 'extruded',
       honmoonModeForGeometry(options.geometry),
       usesVertexColorGamma(options.geometry),
+      { cellGrowth: buffers.cellCentres !== null, wave },
     );
     appearances.push(appearance);
     // The scene is not scene3DOnly, so Primitive runs splitLongitude on every
@@ -268,12 +292,7 @@ export function createSurfaceChunkGroup(
     if (buffers.indices.length === 0) return null;
     track(material);
     const primitive = new Primitive({
-      appearance: new MaterialAppearance({
-        closed: false,
-        flat: true,
-        material,
-        translucent: true,
-      }),
+      appearance: supportAppearance(material, wave),
       asynchronous: false,
       geometryInstances: new GeometryInstance({
         geometry: flatCellGeometry(buffers),
@@ -343,6 +362,10 @@ export function createSurfaceChunkGroup(
     },
     async setCellEdges(visible: boolean) {
       edgesVisible = visible;
+      applyEdgeVisibility();
+    },
+    setEdgesHeld(held: boolean) {
+      edgesHeld = held;
       applyEdgeVisibility();
     },
     setElevationFactor(factor: number, force = false) {

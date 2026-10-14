@@ -4,6 +4,7 @@ import SiteLayout from '../layouts/SiteLayout.astro';
 import { escapeInlineJson, INLINE_CATALOG_ID } from '../atlas/inline-catalog';
 import { preloadScriptSource } from '../atlas/preload-script';
 import {
+  assertE2eHooks,
   assertRequestStallOverride,
   loadPageCatalog,
 } from '../lib/catalog-build';
@@ -31,6 +32,10 @@ const { json: catalogJson } = loadPageCatalog(process.env.ATLAS_CATALOG_PATH);
 assertRequestStallOverride(
   process.env.ATLAS_CATALOG_PATH,
   import.meta.env.PUBLIC_ATLAS_REQUEST_STALL_MS,
+);
+assertE2eHooks(
+  process.env.ATLAS_CATALOG_PATH,
+  import.meta.env.PUBLIC_ATLAS_E2E_HOOKS,
 );
 const preconnect = dataOrigin(artifactDataBase);
 ---

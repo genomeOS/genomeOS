@@ -58,3 +58,24 @@ export function assertRequestStallOverride(
       `PUBLIC_ATLAS_REQUEST_STALL_MS must be a positive whole number of milliseconds, not ${JSON.stringify(override)}.`,
     );
 }
+
+/**
+ * #453: e2e builds may enable test-only hooks (`src/atlas/e2e-hooks.ts`), such as holding the
+ * reveal wave at a progress so a browser test samples a frame mid-wave. Like the stall override,
+ * only the e2e build, which inlines the e2e fixture catalog, may set the flag; any other build
+ * that sets it fails here.
+ */
+export function assertE2eHooks(
+  catalogPath: string | undefined,
+  flag: string | undefined,
+): void {
+  if (flag === undefined || flag === '') return;
+  if (catalogPath !== E2E_ATLAS_CATALOG_PATH)
+    throw new Error(
+      `PUBLIC_ATLAS_E2E_HOOKS is only allowed in the e2e build (npm run build:e2e, ATLAS_CATALOG_PATH=${E2E_ATLAS_CATALOG_PATH}); production builds carry no test hooks (#453).`,
+    );
+  if (flag !== '1')
+    throw new Error(
+      `PUBLIC_ATLAS_E2E_HOOKS must be 1 when set, not ${JSON.stringify(flag)}.`,
+    );
+}

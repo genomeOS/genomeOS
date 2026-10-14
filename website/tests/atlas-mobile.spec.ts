@@ -3,6 +3,12 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { installAtlasBrowserFixture } from './atlas-browser-fixture';
 import {
+  canvasCentre,
+  GLOBE_DISC_QUERY,
+  measureGlobeDisc,
+  waitForSettledGlobe,
+} from './atlas-globe-helpers';
+import {
   canvasCoverage,
   centreOf,
   controlsSheet,
@@ -27,6 +33,7 @@ import {
   touchDrag,
   uncoveredCredits,
   waitForAtlasReady,
+  waitForAtlasSettled,
 } from './atlas-mobile-helpers';
 import { topLevelRoutes } from './site-routes';
 
@@ -237,6 +244,53 @@ for (const phone of PHONE_PROFILES) {
         expect(fit.scale).toBe(1);
       });
     }
+
+    test('draws the globe at the canvas centre: the controls sheet does not offset it (#452)', async ({
+      page,
+    }) => {
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.goto(`/app/?${GLOBE_DISC_QUERY}`);
+      await waitForAtlasReady(page);
+      await waitForSettledGlobe(page);
+      // A chord 20 px above the sheet and the strips docked on it, which can reach the canvas
+      // centre: every chord of the disc is bisected by its vertical diameter.
+      const offCentre = async () => {
+        const above = await page.evaluate(() => {
+          const canvas = document
+            .querySelector('.atlas-scene canvas')!
+            .getBoundingClientRect();
+          const tops = [
+            'aside.atlas-controls',
+            '.atlas-legend',
+            '.atlas-data-credit',
+            '.atlas-scene .cesium-viewer-bottom',
+          ].flatMap((selector) => {
+            const box = document
+              .querySelector(selector)
+              ?.getBoundingClientRect();
+            return box && box.height > 0 ? [box.top] : [];
+          });
+          return Math.max(
+            0,
+            canvas.top + canvas.height / 2 - (Math.min(...tops) - 20),
+          );
+        });
+        return Math.abs(
+          (await measureGlobeDisc(page, above)).centreX -
+            (await canvasCentre(page)).x,
+        );
+      };
+      await expect.poll(offCentre).toBeLessThanOrEqual(4);
+      await setSheetState(controlsSheet(page), 'half');
+      // The docked strips follow the sheet a frame later; measure once they have.
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+      await expect.poll(offCentre).toBeLessThanOrEqual(4);
+    });
 
     test('the site header fits the FOUNDATION lockup beside genomeOS Atlas and Menu', async ({
       page,
@@ -1947,6 +2001,7 @@ for (const phone of PHONE_PROFILES) {
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.goto('/app/?basemap=stadia-smooth');
       await waitForAtlasReady(page);
+      await waitForAtlasSettled(page);
       const expand = page.locator('.atlas-scene .cesium-credit-expand-link');
       await expect(expand).toBeVisible();
       // The link wraps, so its bounding-box centre can fall on the canvas: tap
@@ -1983,6 +2038,41 @@ for (const phone of PHONE_PROFILES) {
         page.locator('.atlas-top-slot .atlas-map-catalog__trigger'),
       ).not.toHaveAttribute('aria-expanded', 'true');
       await expect(page.locator('.atlas-scene')).toHaveCSS('z-index', '0');
+    });
+
+    test('the Stadia credit lightbox lifts the scene as it opens, under reduced motion', async ({
+      page,
+    }) => {
+      await page.route('https://tiles.stadiamaps.com/**', (route) =>
+        route.abort(),
+      );
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.goto('/app/?basemap=stadia-smooth');
+      await waitForAtlasReady(page);
+      const expand = page.locator('.atlas-scene .cesium-credit-expand-link');
+      await expect(expand).toBeVisible();
+      // #455: the lift above the chrome must hold in the task that opens or
+      // closes the lightbox. Were it a transition, even a 0.01 ms one, it
+      // would end only on a later frame, and on a busy main thread the top
+      // slot would cover the close button for seconds.
+      const stacking = await expand.evaluate((link) => {
+        const scene = link.closest('.atlas-scene')!;
+        const close = scene.querySelector<HTMLElement>(
+          '.cesium-credit-lightbox-close',
+        )!;
+        const read = () => ({
+          transitions: scene.getAnimations().length,
+          zIndex: getComputedStyle(scene).zIndex,
+        });
+        (link as HTMLElement).click();
+        const open = read();
+        close.click();
+        return { closed: read(), open };
+      });
+      expect(stacking).toEqual({
+        closed: { transitions: 0, zIndex: '0' },
+        open: { transitions: 0, zIndex: '5' },
+      });
     });
 
     for (const panel of ['inspector', 'More info'] as const) {
