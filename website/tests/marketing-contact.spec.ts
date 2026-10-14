@@ -424,6 +424,30 @@ test.describe('the composer', () => {
       expect(TOPIC_LABELS[topic]).not.toMatch(/problem|bug|report/i);
   });
 
+  test('Contribute sends data, expertise and funding offers here, offer pressed', async ({
+    page,
+  }) => {
+    await page.goto('/contribute/');
+    const start = page.locator('#start');
+    for (const which of ['data', 'expertise', 'funding'] as const)
+      await expect(
+        start.getByRole('link', { name: `Offer ${which}` }),
+      ).toHaveAttribute('href', `/contact/?topic=contribute&offer=${which}`);
+    await start.getByRole('link', { name: 'Offer funding' }).click();
+    await expect(page).toHaveURL(
+      /\/contact\/\?topic=contribute&offer=funding$/,
+    );
+    await expect(offer(page, 'funding')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expectLetter(
+      page,
+      { topic: 'contribute', offers: ['funding'] },
+      'from Contribute',
+    );
+  });
+
   test('nothing is sent or stored while composing', async ({ page }) => {
     await page.goto('/contact/');
     await page.waitForLoadState('networkidle');

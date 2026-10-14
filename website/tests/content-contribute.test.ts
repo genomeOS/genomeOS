@@ -136,6 +136,19 @@ describe('contribute page content', () => {
       expect(start).toContain(`href="${href}"`);
   });
 
+  it('sends data, expertise and funding offers to the Contact page’s draft, offer pressed', () => {
+    const start = main.match(/<section[^>]*id="start"[\s\S]*?<\/section>/)?.[0];
+    const offers = start!.match(/<p class="start-offers"[\s\S]*?<\/p>/)?.[0];
+    expect(offers).toBeDefined();
+    for (const offer of ['data', 'expertise', 'funding'])
+      expect(offers).toContain(
+        `href="/contact/?topic=contribute&amp;offer=${offer}"`,
+      );
+    expect(textOf(offers!)).toBe(
+      'By email Offer data Offer expertise Offer funding',
+    );
+  });
+
   it('arms the transit line before its first paint, and only when motion is allowed', () => {
     // Spec §2.7 rule 5: the server renders the line drawn; a head script marks it armed before any
     // of it paints, and stands down at 1,200 ms if the island has not begun (design review, round 1).

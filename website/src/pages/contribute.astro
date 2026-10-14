@@ -73,6 +73,10 @@ const groups = [
   },
 ] as const;
 
+// Data, expertise and funding are offered by email: each link opens the Contact page's draft
+// with that offer pressed (Contact page spec §4, "Links in").
+const offers = ['data', 'expertise', 'funding'] as const;
+
 const starts = [
   {
     href: 'https://github.com/genomeOS/genomeOS/discussions/76',
@@ -208,6 +212,16 @@ const starts = [
           ))
         }
       </div>
+      <p class="start-offers">
+        <span class="start-offers__lead">By email</span>
+        {
+          offers.map((offer) => (
+            <a href={sitePath(`/contact/?topic=contribute&offer=${offer}`)}>
+              Offer {offer} <Mark icon="arrow" size={18} />
+            </a>
+          ))
+        }
+      </p>
     </div>
   </section>
 </SiteLayout>
