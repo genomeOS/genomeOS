@@ -100,3 +100,29 @@ export function dataHref(key: string, base: string): string {
 export function dataOrigin(base: string): string | null {
   return dataBaseKind(base) === 'absolute' ? new URL(base).origin : null;
 }
+
+/**
+ * The artifact base for a build (design 2026-10-07 §C.1.4). `configured` is
+ * `PUBLIC_ATLAS_DATA_BASE_URL`; empty or undefined means unset and falls back
+ * to the same-origin site base (local development and tests only). A set value
+ * must be an absolute URL ending in `/`: only the bucket base (or the local
+ * fixture origin) may replace the site base, so root-relative values are refused.
+ */
+export function artifactDataBaseFrom(
+  configured: string | undefined,
+  siteDataBase: string,
+): string {
+  if (configured === undefined || configured === '') return siteDataBase;
+  try {
+    assertDataBase(configured);
+  } catch (error) {
+    throw new Error(
+      `PUBLIC_ATLAS_DATA_BASE_URL ${JSON.stringify(configured)} is invalid: ${(error as Error).message}`,
+    );
+  }
+  if (configured.startsWith('/'))
+    throw new Error(
+      `PUBLIC_ATLAS_DATA_BASE_URL must be an absolute URL ending in "/" (got ${JSON.stringify(configured)})`,
+    );
+  return configured;
+}

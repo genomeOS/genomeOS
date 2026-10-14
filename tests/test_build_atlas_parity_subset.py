@@ -1,9 +1,15 @@
-"""The committed 2,000-cell mesh-parity subset of cyt-il-6-174-c (fast-load spec §B.1, §B.5)."""
+"""The committed 2,000-cell mesh-parity subset of cyt-il-6-174-c (fast-load spec §B.1, §B.5).
+
+The full canonical export left git (spec §C.1.3). Set ATLAS_DATA_DIR to a staging tree
+(``encode_atlas_web.py --with-downloads``) or a bucket download plus the repository catalog to
+rebuild the subset from it and compare the result byte for byte (§C.3).
+"""
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import h3
@@ -14,7 +20,6 @@ from scripts import build_atlas_parity_subset as parity
 
 ROOT = Path(__file__).resolve().parents[1]
 COMMITTED = ROOT / "website" / "tests" / "fixtures" / "atlas" / "parity"
-FULL_SURFACE = ROOT / "website" / "public" / "data" / "atlas" / "cyt-il-6-174-c.surface.json"
 
 
 def _tree(root: Path) -> dict[str, bytes]:
@@ -87,9 +92,11 @@ def test_committed_subset_is_the_named_parents_and_holds_every_case_parity_needs
     codec.verify_artifact_tiers(grid=grid, ref=ref, grid_sha256=grid_sha, **tiers)
 
 
-@pytest.mark.skipif(not FULL_SURFACE.is_file(), reason="needs the full canonical export")
+@pytest.mark.skipif(
+    not os.environ.get("ATLAS_DATA_DIR"), reason="set ATLAS_DATA_DIR to a staging tree or bucket download"
+)
 def test_script_reproduces_the_committed_subset(tmp_path: Path) -> None:
-    parity.build_subset(FULL_SURFACE.parent, tmp_path / "parity")
+    parity.build_subset(Path(os.environ["ATLAS_DATA_DIR"]), tmp_path / "parity")
     assert _tree(tmp_path / "parity") == _tree(COMMITTED)
 
 
@@ -130,3 +137,33 @@ def test_refuses_a_source_file_that_does_not_match_the_source_catalog(tmp_path: 
     with pytest.raises(ValueError, match=f"{key}: sha256 does not match the catalog"):
         parity.build_subset(source, out)
     assert not out.exists()
+
+
+def test_writes_the_manifest_at_its_flat_key_whatever_the_source_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A staging tree or bucket download names the manifest by its ``downloads/`` key (spec §C.1.3)."""
+    source = _synthetic_source(tmp_path / "src")
+    nested = f"downloads/{parity.ARTIFACT_ID}/v3/data/{parity.ARTIFACT_ID}.manifest.44136fa355b3678a.json"
+    (source / nested).parent.mkdir(parents=True)
+    (source / "manifest.json").rename(source / nested)
+    catalog = json.loads((source / "catalog.json").read_text())
+    (ref,) = catalog["artifacts"]
+    ref["downloads"]["manifest"]["url"] = nested
+    ref["downloads"]["surface"] = {"sha256": ref["surface_sha256"], "url": ref["surface_url"]}
+    (source / "catalog.json").write_text(json.dumps(catalog))
+    # The synthetic catalog has no grid to encode; the written catalog is the subject here.
+    monkeypatch.setattr(
+        parity.encode_atlas_web,
+        "encode_export",
+        lambda _in, out: json.loads((out / "catalog.json").read_bytes()),
+    )
+    out = tmp_path / "out"
+    written = parity.build_subset(source, out)
+    flat = f"{parity.ARTIFACT_ID}.manifest.json"
+    assert sorted(_tree(out)) == ["catalog.json", flat, f"{parity.ARTIFACT_ID}.surface.json"]
+    assert (out / flat).read_bytes() == b"{}"
+    assert written["artifacts"][0]["downloads"]["manifest"] == {
+        "sha256": hashlib.sha256(b"{}").hexdigest(),
+        "url": flat,
+    }

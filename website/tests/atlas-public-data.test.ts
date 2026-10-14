@@ -1,7 +1,17 @@
+/**
+ * Published Atlas data (design 2026-10-07 §C.1.3, §C.3). The repository keeps
+ * catalog.json, the Natural Earth context and the external caches; per-artifact
+ * objects live in the public bucket. The catalog contract always runs. Set
+ * ATLAS_DATA_DIR to a staging tree (encode_atlas_web.py --with-downloads --out
+ * DIR, or a bucket download) to verify every published object.
+ */
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { splitLongToH3Index } from 'h3-js';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -16,9 +26,11 @@ import {
 } from '../src/atlas/gosa/decode';
 import { populatedPlaceCatalogSchema } from '../src/atlas/place-context';
 
-const dataDirectory = fileURLToPath(
+const siteData = fileURLToPath(
   new URL('../public/data/atlas/', import.meta.url),
 );
+const websiteRoot = fileURLToPath(new URL('..', import.meta.url));
+const dataDirectory = process.env.ATLAS_DATA_DIR;
 
 const POPULATED_ISLAND_CELLS = {
   Azores: '84351b5ffffffff',
@@ -29,48 +41,27 @@ const POPULATED_ISLAND_CELLS = {
   Tenerife: '84344cdffffffff',
 } as const;
 
-function readObject(key: string): { bytes: number; digest: string } {
-  const bytes = readFileSync(`${dataDirectory}/${key}`);
-  return {
-    bytes: bytes.length,
-    digest: createHash('sha256').update(bytes).digest('hex'),
-  };
-}
-
-function readPayload(filename: string): {
-  bytes: number;
-  digest: string;
-  value: unknown;
-} {
-  const bytes = readFileSync(`${dataDirectory}/${filename}`);
-  return {
-    bytes: bytes.length,
-    digest: createHash('sha256').update(bytes).digest('hex'),
-    value: JSON.parse(bytes.toString()),
-  };
-}
-
-function readBuffer(key: string): ArrayBuffer {
-  const bytes = readFileSync(`${dataDirectory}/${key}`);
-  return bytes.buffer.slice(
+const sha256 = (bytes: Uint8Array): string =>
+  createHash('sha256').update(bytes).digest('hex');
+const short = (digest: string): string => digest.slice(0, 16);
+const arrayBuffer = (bytes: Buffer): ArrayBuffer =>
+  bytes.buffer.slice(
     bytes.byteOffset,
     bytes.byteOffset + bytes.byteLength,
   ) as ArrayBuffer;
-}
+const catalog = atlasCatalogSchema.parse(
+  JSON.parse(readFileSync(path.join(siteData, 'catalog.json'), 'utf8')),
+);
 
-/** SHA-256 of the little-endian u64 H3 column, as `encode_atlas_web.py` declares grids. */
-function gridSha256(h3Indices: readonly string[]): string {
-  const view = new DataView(new ArrayBuffer(h3Indices.length * 8));
-  h3Indices.forEach((h3Index, row) =>
-    view.setBigUint64(row * 8, BigInt(`0x${h3Index}`), true),
-  );
-  return createHash('sha256').update(new Uint8Array(view.buffer)).digest('hex');
-}
-
-describe('published Atlas data', () => {
+describe('published Atlas catalog (repository copy)', () => {
   it('publishes validated public-domain city and region context', () => {
     const places = populatedPlaceCatalogSchema.parse(
-      readPayload('ne-50m-populated-places.json').value,
+      JSON.parse(
+        readFileSync(
+          path.join(siteData, 'ne-50m-populated-places.json'),
+          'utf8',
+        ),
+      ),
     );
     expect(places.places.length).toBeGreaterThan(1_000);
     expect(places.places).toContainEqual(
@@ -82,87 +73,158 @@ describe('published Atlas data', () => {
     );
   });
 
-  it('validates every allowlisted surface and measured-observation file', () => {
-    const catalog = atlasCatalogSchema.parse(readPayload('catalog.json').value);
-
+  it('lists the thirty allowlisted maps on the shared resolution-4 WorldPop grid', () => {
     expect(catalog.artifacts).toHaveLength(30);
-    const [[sharedGridSha256, grid]] = Object.entries(catalog.grids);
-    expect(readObject(grid.url)).toEqual({
-      bytes: grid.bytes,
-      digest: grid.sha256,
-    });
+    const grids = Object.entries(catalog.grids);
+    expect(grids).toHaveLength(1);
+    const [gridSha256, grid] = grids[0]!;
     expect(grid.resolution).toBe(4);
     for (const reference of catalog.artifacts) {
-      const surfacePayload = readPayload(reference.surface_url);
-      const surface = surfaceArtifactSchema.parse(surfacePayload.value);
-      expect(surfacePayload.digest, reference.id).toBe(
-        reference.surface_sha256,
-      );
-      expect(surface.artifact.id, reference.id).toBe(reference.id);
-      expect(surface.artifact.variant_id, reference.id).toBe(
-        reference.variant_id,
-      );
-      expect(surface.artifact.resolution, reference.id).toBe(4);
-      expect(surface.artifact.target_grid_source, reference.id).toBe(
+      expect(reference.resolution, reference.id).toBe(4);
+      expect(reference.target_grid_source, reference.id).toBe(
         'worldpop-1km-unconstrained',
       );
-      expect(surface.artifact.target_grid_version, reference.id).toContain(
+      expect(reference.target_grid_version, reference.id).toContain(
         'Global_2000_2020/2020/0_Mosaicked',
       );
-      expect(surface.cells, reference.id).toHaveLength(reference.n_cells);
-      expect(reference.web.grid_sha256, reference.id).toBe(sharedGridSha256);
-      expect(grid.n_cells, reference.id).toBe(reference.n_cells);
-      expect(
-        gridSha256(surface.cells.map((cell) => cell.h3_index)),
-        `${reference.id}: surface h3 order equals the shared grid`,
-      ).toBe(sharedGridSha256);
-      for (const object of [reference.web.render, reference.web.detail])
-        expect(readObject(object.url), object.url).toEqual({
-          bytes: object.bytes,
-          digest: object.sha256,
-        });
-      const surfaceCells = new Set(surface.cells.map((cell) => cell.h3_index));
-      for (const [island, h3Index] of Object.entries(POPULATED_ISLAND_CELLS))
-        expect(surfaceCells.has(h3Index), `${reference.id}: ${island}`).toBe(
-          true,
-        );
-
+      expect(reference.web.grid_sha256, reference.id).toBe(gridSha256);
+      expect(reference.n_cells, reference.id).toBe(grid.n_cells);
       expect(reference.observations_available, reference.id).toBe(true);
-      expect(reference.observations_url, reference.id).not.toBeNull();
-      expect(reference.observations_sha256, reference.id).not.toBeNull();
-      const observationPayload = readPayload(reference.observations_url!);
-      const observations = observationArtifactSchema.parse(
-        observationPayload.value,
+      expect(reference.observations_bytes, reference.id).toBeGreaterThan(0);
+    }
+  });
+
+  it('names every artifact object by the bucket layout and its content digest', () => {
+    const [, grid] = Object.entries(catalog.grids)[0]!;
+    expect(grid.url).toBe(
+      `grids/h3-r${grid.resolution}.${short(grid.sha256)}.gosa`,
+    );
+    for (const reference of catalog.artifacts) {
+      const prefix = `${reference.id}/${reference.model_version}/${reference.data_version}`;
+      expect(reference.web.render.url).toBe(
+        `surfaces/${prefix}/render.${short(reference.web.render.sha256)}.gosa`,
       );
-      expect(observationPayload.digest, reference.id).toBe(
+      expect(reference.web.detail.url).toBe(
+        `surfaces/${prefix}/detail.${short(reference.web.detail.sha256)}.gosa`,
+      );
+      for (const kind of ['manifest', 'observations', 'surface'] as const) {
+        const download = reference.downloads[kind];
+        expect(download, `${reference.id} ${kind}`).not.toBeNull();
+        expect(download!.url).toBe(
+          `downloads/${prefix}/${reference.id}.${kind}.${short(download!.sha256)}.json`,
+        );
+      }
+      expect(reference.surface_url).toBe(reference.downloads.surface.url);
+      expect(reference.downloads.surface.sha256).toBe(reference.surface_sha256);
+      expect(reference.observations_url).toBe(
+        reference.downloads.observations!.url,
+      );
+      expect(reference.downloads.observations!.sha256).toBe(
         reference.observations_sha256,
       );
-      expect(observations.artifact.id, reference.id).toBe(reference.id);
-      expect(observations.observations, reference.id).toHaveLength(
-        reference.n_observations,
-      );
-      expect(observationPayload.bytes, reference.id).toBe(
-        reference.observations_bytes,
-      );
     }
-  }, 60_000);
+  });
 
-  it('decodes every staged grid, render and detail object with the TS GOSA decoder', () => {
-    const catalog = atlasCatalogSchema.parse(readPayload('catalog.json').value);
-    const [[gridSha256, entry]] = Object.entries(catalog.grids);
-    const grid = decodeGrid(readBuffer(entry.url), { entry, gridSha256 });
-    expect(grid.n).toBe(77_844);
-    for (const ref of catalog.artifacts) {
-      const render = decodeRender(readBuffer(ref.web.render.url), {
-        grid,
-        ref,
-      });
-      const detail = decodeDetail(readBuffer(ref.web.detail.url), {
-        grid,
-        ref,
-        render,
-      });
-      expect(detail.post_mean, ref.id).toHaveLength(ref.n_cells);
-    }
-  }, 120_000);
+  it('keeps site-base files in the Pages bundle and per-artifact files out of git', () => {
+    for (const source of catalog.context_sources)
+      expect(existsSync(path.join(siteData, source.url)), source.id).toBe(true);
+    for (const reference of catalog.artifacts)
+      for (const resource of reference.external_resources)
+        expect(
+          sha256(readFileSync(path.join(siteData, resource.cache_url))),
+          resource.cache_url,
+        ).toBe(resource.cache_sha256);
+    const tracked = execFileSync('git', ['ls-files', 'public/data/atlas'], {
+      cwd: websiteRoot,
+      encoding: 'utf8',
+    })
+      .split('\n')
+      .filter(Boolean);
+    expect(
+      tracked.filter((file) =>
+        /\.(surface|observations|manifest)\.json$|\.gosa$/.test(file),
+      ),
+    ).toEqual([]);
+  });
 });
+
+describe.skipIf(!dataDirectory)(
+  'published Atlas objects in ATLAS_DATA_DIR',
+  () => {
+    const read = (key: string): Buffer =>
+      readFileSync(path.join(dataDirectory!, key));
+    const checked = (object: {
+      bytes: number;
+      sha256: string;
+      url: string;
+    }): ArrayBuffer => {
+      const bytes = read(object.url);
+      expect(sha256(bytes), object.url).toBe(object.sha256);
+      expect(bytes.byteLength, object.url).toBe(object.bytes);
+      return arrayBuffer(bytes);
+    };
+
+    it('every object matches its digest, decodes, and aligns with the shared grid', () => {
+      const [gridSha256, entry] = Object.entries(catalog.grids)[0]!;
+      const grid = decodeGrid(checked(entry), { gridSha256, entry });
+      const gridH3 = Array.from({ length: grid.n }, (_, row) =>
+        splitLongToH3Index(grid.h3Lo[row]!, grid.h3Hi[row]!),
+      );
+      const gridCells = new Set(gridH3);
+      for (const [island, h3Index] of Object.entries(POPULATED_ISLAND_CELLS))
+        expect(gridCells.has(h3Index), island).toBe(true);
+
+      for (const reference of catalog.artifacts) {
+        const render = decodeRender(checked(reference.web.render), {
+          ref: reference,
+          grid,
+        });
+        decodeDetail(checked(reference.web.detail), {
+          ref: reference,
+          grid,
+          render,
+        });
+
+        const surfaceBytes = read(reference.surface_url);
+        expect(sha256(surfaceBytes), reference.id).toBe(
+          reference.surface_sha256,
+        );
+        const surface = surfaceArtifactSchema.parse(
+          JSON.parse(surfaceBytes.toString('utf8')),
+        );
+        expect(surface.artifact.id, reference.id).toBe(reference.id);
+        expect(surface.cells, reference.id).toHaveLength(reference.n_cells);
+        expect(
+          surface.cells.findIndex((cell, row) => cell.h3_index !== gridH3[row]),
+          `${reference.id}: first row whose h3 differs from the grid`,
+        ).toBe(-1);
+
+        const observationBytes = read(reference.observations_url!);
+        expect(sha256(observationBytes), reference.id).toBe(
+          reference.observations_sha256,
+        );
+        expect(observationBytes.byteLength, reference.id).toBe(
+          reference.observations_bytes,
+        );
+        const observations = observationArtifactSchema.parse(
+          JSON.parse(observationBytes.toString('utf8')),
+        );
+        expect(observations.artifact.id, reference.id).toBe(reference.id);
+        expect(observations.observations, reference.id).toHaveLength(
+          reference.n_observations,
+        );
+
+        expect(
+          sha256(read(reference.downloads.manifest.url)),
+          reference.id,
+        ).toBe(reference.downloads.manifest.sha256);
+      }
+
+      // Moved from site.spec.ts: the complete default map (77,844 cells, 1,071 observations),
+      // whose files the loop above has just parsed to these lengths.
+      const hbs = catalog.artifacts.find(({ id }) => id === 'hbs-rs334')!;
+      expect(hbs.n_cells).toBe(77_844);
+      expect(hbs.n_observations).toBe(1_071);
+    }, 900_000);
+  },
+);

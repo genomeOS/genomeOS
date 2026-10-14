@@ -9,7 +9,6 @@ import {
   corruptArtifactTier,
   delayArtifactTier,
   displayedArtifactIds,
-  E2E_ARTIFACT_DATA_BASE,
   failArtifactTier,
   installAtlasBrowserFixture,
   readInlineCatalog,
@@ -3171,6 +3170,11 @@ test('explorer provides versioned downloads and gated external lookups', async (
   });
   await expandExplorerSheet(page);
 
+  const { artifact: artifactBase } = (await page
+    .locator('#atlas-data-bases')
+    .evaluate((element) => JSON.parse(element.textContent ?? 'null'))) as {
+    artifact: string;
+  };
   await page.locator('.atlas-downloads > summary').click();
   const hbs = (await readInlineCatalog(page)).artifacts.find(
     ({ id }) => id === 'hbs-rs334',
@@ -3184,7 +3188,7 @@ test('explorer provides versioned downloads and gated external lookups', async (
   ] as const) {
     await expect(page.getByRole('link', { name })).toHaveAttribute(
       'href',
-      dataHref(key, E2E_ARTIFACT_DATA_BASE),
+      dataHref(key, artifactBase),
     );
   }
 
@@ -3867,6 +3871,11 @@ test('cold load shows observations, then the surface, then outlines and borders'
   page,
 }) => {
   test.setTimeout(90_000);
+  // Every response in arrival order, so a file fetched twice is listed twice.
+  const responses: { status: number; url: URL }[] = [];
+  page.on('response', (response) =>
+    responses.push({ status: response.status(), url: new URL(response.url()) }),
+  );
   await page.goto('/app/');
   const explorer = page.locator('.atlas-explorer');
   for (const attribute of [
@@ -3915,6 +3924,18 @@ test('cold load shows observations, then the surface, then outlines and borders'
   );
   expect(reveal.frames).toBeGreaterThan(0);
   expect(reveal.longestFrameMs).toBeGreaterThanOrEqual(0);
+
+  // The borders drawn are the compact file the catalog names (fast-load §B.10, #445); the
+  // GeoJSON is no longer served or fetched.
+  const borders = (await readInlineCatalog(page)).context_sources.find(
+    ({ id }) => id === 'natural-earth-admin-0',
+  )!.url;
+  expect(borders).toBe('ne-50m-admin-0.borders.bin');
+  const fetched = responses.filter(({ url }) => urlMatchesKey(url, borders));
+  expect(fetched.map(({ status }) => status)).toEqual([200]);
+  expect(
+    responses.filter(({ url }) => url.pathname.endsWith('.geojson')),
+  ).toEqual([]);
 });
 
 test('style choices in the URL reach the scene that renders them', async ({

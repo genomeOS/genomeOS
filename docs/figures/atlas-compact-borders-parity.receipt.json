@@ -1,0 +1,87 @@
+{
+  "generated_by": "website/scripts/capture-atlas-borders.mjs",
+  "issue": "https://github.com/genomeOS/genomeOS/issues/445",
+  "before": {
+    "baseUrl": "http://127.0.0.1:4376",
+    "commit": "0c9f328a10b2bcbee4a545be6c808e05a7ccffbb",
+    "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver)"
+  },
+  "after": {
+    "baseUrl": "http://127.0.0.1:4376",
+    "commit": "5ce8f733d8a5c93ccd51a4acc4dc201cd1e11697",
+    "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver)"
+  },
+  "viewport": {
+    "height": 900,
+    "width": 1440
+  },
+  "fixed_time": "2026-10-07T12:00:00.000Z",
+  "compared": "globe captures with page overlays hidden and neutral basemap tiles: the Natural Earth borders and labels alone, and over the elevated HbS surface",
+  "channel_tolerance": 2,
+  "max_different_fraction": 0.005,
+  "pairs": [
+    {
+      "view": "globe",
+      "query": "entity=hbs-rs334&layers=countries",
+      "pixels": 1296000,
+      "fractionAny": 0.00018672839506172839,
+      "fractionOverTolerance": 0.00011574074074074075,
+      "fractionOver16": 0.00003472222222222222,
+      "pass": true
+    },
+    {
+      "view": "map",
+      "query": "entity=hbs-rs334&layers=countries&view=map",
+      "pixels": 1296000,
+      "fractionAny": 0.00015972222222222223,
+      "fractionOverTolerance": 0.00011342592592592593,
+      "fractionOver16": 0.00004089506172839506,
+      "pass": true
+    },
+    {
+      "view": "europe-1500km",
+      "query": "entity=hbs-rs334&layers=countries&height=1500000&lat=47&lon=12",
+      "pixels": 1296000,
+      "fractionAny": 0.0004189814814814815,
+      "fractionOverTolerance": 0.0003425925925925926,
+      "fractionOver16": 0.00010493827160493828,
+      "pass": true
+    },
+    {
+      "view": "alps-60km",
+      "query": "entity=hbs-rs334&layers=countries&height=60000&lat=46.45&lon=8.5",
+      "pixels": 1296000,
+      "fractionAny": 0.0007438271604938272,
+      "fractionOverTolerance": 0.0006666666666666666,
+      "fractionOver16": 0.00013348765432098764,
+      "pass": true
+    },
+    {
+      "view": "alps-20km",
+      "query": "entity=hbs-rs334&layers=countries&height=20000&lat=46.45&lon=8.5",
+      "pixels": 1296000,
+      "fractionAny": 0.0012222222222222222,
+      "fractionOverTolerance": 0.0011358024691358025,
+      "fractionOver16": 0.0005756172839506173,
+      "pass": true
+    },
+    {
+      "view": "elevated-surface",
+      "query": "elevation=true&entity=hbs-rs334&exaggeration=5&height=9000000&lat=5&lon=20&layers=surface%2Ccountries",
+      "pixels": 1296000,
+      "fractionAny": 0.00015432098765432098,
+      "fractionOverTolerance": 0.00008564814814814814,
+      "fractionOver16": 0.000017746913580246913,
+      "pass": true
+    },
+    {
+      "view": "elevated-tilted-gabes",
+      "query": "elevation=true&entity=hbs-rs334&exaggeration=5&height=600000&lat=26&lon=11.2&layers=surface%2Ccountries&pitch=-35",
+      "pixels": 1296000,
+      "fractionAny": 0.0045231481481481485,
+      "fractionOverTolerance": 0.0002037037037037037,
+      "fractionOver16": 0.000028549382716049384,
+      "pass": true
+    }
+  ]
+}
