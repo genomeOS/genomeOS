@@ -8,6 +8,10 @@
  * page's manifest. Every marketing route is also held to no Cesium, no React and no third-party
  * request.
  *
+ * A deferred hero film (Home, round 2 ruling R2-1) is measured on its own: it must start after the
+ * load event, it is left out of the total transfer (the poster, which is the LCP, stays in it), and
+ * the rendition each profile loads is held to the manifest's `videoKb` (the 1080p AV1 ≤ 4 MB).
+ *
  * The rulings of 2026-10-14 (spec §7):
  *   10  The budgets measure what visitors download: a build with an analytics id. Google
  *       Analytics itself never loads (consent is declined), so it is still left out; the cookie
@@ -34,6 +38,11 @@ interface Measured {
   cookieUrls: string[];
   dataKb: number;
   imageKb: number;
+  /** The deferred hero film: KB as transferred, and when each file started after the load event. */
+  videoKb: number;
+  videos: { name: string; afterLoadMs: number }[];
+  /** Why a hero film kept its poster (reduced motion, Save-Data, 3g…), or null. */
+  filmReason: string | null;
   totalKb: number;
   lcpMs: number;
   cls: number;
@@ -108,7 +117,29 @@ async function measure(
     window.scrollTo({ top: 0, behavior: 'instant' });
   });
   await page.waitForLoadState('networkidle');
-  return page.evaluate(async () => {
+  // A hero film that started is measured whole: its timing entry lands when its download ends
+  // (about 9 s for the 720p film on Slow 4G). One kept on its poster (its reason says why) loads
+  // nothing.
+  const film = await page.evaluate(() => {
+    const root = document.querySelector<HTMLElement>('[data-hero-media]');
+    return root
+      ? { state: root.dataset.video ?? '', reason: root.dataset.videoReason }
+      : null;
+  });
+  if (film && film.state !== 'poster')
+    await page.waitForFunction(
+      () =>
+        performance
+          .getEntriesByType('resource')
+          .some(
+            (entry) =>
+              (entry as PerformanceResourceTiming).initiatorType === 'video',
+          ),
+      null,
+      { timeout: 45_000 },
+    );
+  const filmReason = film?.reason ?? null;
+  const measured = await page.evaluate(async () => {
     const kb = (bytes: number) => Math.round((bytes / 1024) * 10) / 10;
     // Read the timing first: fetching the control's sources below adds entries of its own.
     const entries = performance.getEntriesByType(
@@ -156,6 +187,11 @@ async function measure(
       /\/_astro\/hbs-[^/]+\.bin(\?|$)/.test(entry.name),
     );
     const images = firstParty.filter((entry) => entry.initiatorType === 'img');
+    // The hero film: deferred past the load event, budgeted on its own, out of the total.
+    const videos = firstParty.filter(
+      (entry) => entry.initiatorType === 'video',
+    );
+    const initial = firstParty.filter((entry) => !videos.includes(entry));
     const state = (
       window as unknown as { __perf: { lcp: number; cls: number } }
     ).__perf;
@@ -165,12 +201,20 @@ async function measure(
       cookieUrls: [...cookieUrls],
       dataKb: kb(sum(data)),
       imageKb: kb(sum(images)),
-      totalKb: kb(sum(firstParty) + (navigation?.transferSize ?? 0)),
+      videoKb: kb(sum(videos)),
+      videos: videos.map((entry) => ({
+        name: new URL(entry.name).pathname,
+        afterLoadMs: Math.round(
+          entry.startTime - (navigation?.loadEventEnd ?? 0),
+        ),
+      })),
+      totalKb: kb(sum(initial) + (navigation?.transferSize ?? 0)),
       lcpMs: Math.round(state.lcp),
       cls: Math.round(state.cls * 1000) / 1000,
       urls: entries.map((entry) => entry.name),
     };
   });
+  return { ...measured, filmReason };
 }
 
 function expectBudgets(
@@ -189,6 +233,24 @@ function expectBudgets(
     expect(measured.totalKb, `${label} transfer`).toBeLessThanOrEqual(
       manifest.transferKbGz,
     );
+  if (manifest.videoKb !== undefined) {
+    // The desktop profile always plays the film (no reduced motion, Save-Data or slow
+    // connection), so the budget is always exercised; a profile on which the page keeps its poster
+    // must then load none. A film that loads waits for the load event.
+    if (profile === 'desktop')
+      expect(measured.filmReason, `${label} film plays`).toBeNull();
+    if (measured.filmReason)
+      expect(measured.videos, `${label} film kept on its poster`).toEqual([]);
+    else expect(measured.videos.length, `${label} film`).toBeGreaterThan(0);
+    for (const video of measured.videos)
+      expect(
+        video.afterLoadMs,
+        `${label} ${video.name} starts after load`,
+      ).toBeGreaterThanOrEqual(0);
+    expect(measured.videoKb, `${label} film`).toBeLessThanOrEqual(
+      manifest.videoKb,
+    );
+  } else expect(measured.videos, `${label} loads no film`).toEqual([]);
   if (profile === 'desktop') {
     expect(
       measured.cookieKb,
@@ -208,6 +270,8 @@ function expectBudgets(
 for (const manifest of fullyEnforced.filter((page) => !page.redirect))
   for (const profile of ['desktop', 'phone'] as const)
     test(`${manifest.route} meets its ${profile} budgets`, async ({ page }) => {
+      // A hero film on Slow 4G takes about 9 s to arrive whole.
+      test.setTimeout(90_000);
       const measured = await measure(page, manifest.route, profile);
       console.log(
         `budgets ${manifest.route} ${profile}: ${JSON.stringify({ ...measured, urls: undefined, cookieUrls: undefined })}`,

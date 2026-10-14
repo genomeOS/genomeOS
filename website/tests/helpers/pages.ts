@@ -30,6 +30,12 @@ export interface PageManifest {
   jsKbGz: number | null;
   dataKbGz: number | null;
   transferKbGz: number | null;
+  /**
+   * A deferred hero film's own budget, KB as transferred (video is not gzipped): the rendition a
+   * profile loads, which must start after the load event and is left out of `transferKbGz`
+   * (Home's film, round 2 ruling R2-1: the 1080p AV1 ≤ 4 MB).
+   */
+  videoKb?: number;
   lcpMs: { desktop: number; phone: number } | null;
   cls: number;
 }
@@ -47,6 +53,7 @@ const KEYS = new Set([
   'jsKbGz',
   'dataKbGz',
   'transferKbGz',
+  'videoKb',
   'lcpMs',
   'cls',
 ]);
