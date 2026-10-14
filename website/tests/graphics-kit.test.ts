@@ -14,7 +14,14 @@ import {
 } from '../src/graphics/figure-data';
 import { FrameProbe, HexField, contains } from '../src/graphics/hexfield';
 import { GLYPH_SYMBOLS } from '../src/components/kit/glyphs';
-import { ENC, STUD_RADIUS, STUD_RING } from '../src/graphics/encoding';
+import {
+  ENC,
+  PRIOR_LIGHT,
+  STUD_RADIUS,
+  STUD_RING,
+  evidenceColor,
+  vsupColor,
+} from '../src/graphics/encoding';
 import { jeffreys } from '../src/graphics/jeffreys';
 import {
   fitEqualArea,
@@ -347,7 +354,7 @@ function recordingCanvas(width: number, height: number) {
     }
     return colour;
   };
-  return { canvas, top };
+  return { canvas, top, paints };
 }
 
 describe('measured studs: a white disc on a 1.5 px void ring, like the poster and the glyph (spec §2.2, §2.6)', () => {
@@ -457,4 +464,78 @@ describe('measured studs: a white disc on a 1.5 px void ring, like the poster an
       ]);
     },
   );
+});
+
+describe('mostly-prior dots follow the layer, and the Measured layer draws none (spec §2.2, §4.1)', () => {
+  const DOMAIN = [0, 0.2] as const;
+  const area = {
+    boundary: [
+      [-4, 0],
+      [-2, 3.5],
+      [2, 3.5],
+      [4, 0],
+      [2, -3.5],
+      [-2, -3.5],
+    ] as [number, number][],
+    center: [0, 0] as [number, number],
+    mean: 0.1,
+    lo: 0.05,
+    hi: 0.16,
+    distanceKm: 300,
+    support: 'prior_dominated' as const,
+    tier: 'partial' as const,
+  };
+  const paintsOn = (layer: 'measured' | 'modeled' | 'evidence') => {
+    const { canvas, paints } = recordingCanvas(200, 200);
+    new HexField(canvas, {
+      areas: [area],
+      surveys: [],
+      layer,
+      projection: orthographic({
+        center: [0, 0],
+        scale: 100,
+        translate: [100, 100],
+      }),
+      fit: (_width, _height, projection) => {
+        projection.scale = 100;
+        projection.translate = [100, 100];
+      },
+      domain: DOMAIN,
+    });
+    return new Set(
+      paints.filter((paint) => paint.alpha > 0).map((paint) => paint.style),
+    );
+  };
+  const modeled = vsupColor(area.mean, 'partial', DOMAIN)!;
+  const evidence = evidenceColor('partial')!;
+
+  beforeEach(() => {
+    vi.stubGlobal('document', {
+      createElement: () => ({ getContext: () => null }),
+    });
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('dots a Modeled cell in its VSUP colour', () => {
+    const styles = paintsOn('modeled');
+    expect(styles).toContain(modeled);
+    expect(styles).toContain(PRIOR_LIGHT[modeled]);
+  });
+
+  it('dots an Evidence cell in its evidence colour, never its modeled value', () => {
+    const styles = paintsOn('evidence');
+    expect(styles).toContain(evidence);
+    expect(styles).toContain(PRIOR_LIGHT[evidence]);
+    expect(styles).not.toContain(modeled);
+    expect(styles).not.toContain(PRIOR_LIGHT[modeled]);
+  });
+
+  it('draws only the footprint on Measured: no modeled value and no dots', () => {
+    const styles = paintsOn('measured');
+    expect(styles).toContain(ENC.land);
+    for (const colour of [modeled, evidence, ...Object.values(PRIOR_LIGHT)])
+      expect(styles).not.toContain(colour);
+  });
 });

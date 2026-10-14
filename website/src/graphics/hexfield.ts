@@ -360,15 +360,15 @@ export class HexField {
       }
     }
 
-    // Pass 4: mostly prior. Dots in the area's own colour on a 46% base.
-    for (const { area, xy } of this.visibleAreas) {
-      if (area.support !== 'prior_dominated' || area.mean === null) continue;
-      const base =
-        vsupColor(
-          area.mean,
-          area.tier === 'none' ? 'weak' : area.tier,
-          this.options.domain,
-        ) ?? ENC.meanWeak;
+    // Pass 4: mostly prior. Dots in the area's own colour on this layer (its VSUP colour on
+    // Modeled, its evidence colour on Evidence), on a 46% base. The Measured layer draws no
+    // modeled value, so it draws no dots either (spec §2.2, §4.1 layers).
+    for (const { area, xy } of this.layer === 'measured'
+      ? []
+      : this.visibleAreas) {
+      if (area.support !== 'prior_dominated') continue;
+      const base = this.surfaceFill(area, this.layer);
+      if (base === null) continue;
       const { light } = priorColors(base);
       g.save();
       this.path(xy);
