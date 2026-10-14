@@ -822,6 +822,16 @@
   font-weight: 620;
 }
 
+/* The VSUP wedge's two keys: value along its top row, evidence down its tiers (spec §0, item 2). */
+.hbs__wedge-key {
+  display: grid;
+  line-height: 1.3;
+}
+
+.hbs__wedge-key > :last-child {
+  color: var(--color-muted);
+}
+
 .hbs__swatch {
   width: 30px;
   height: 22px;
@@ -1110,6 +1120,10 @@
   .ladder__tablist [role='tab'] {
     flex: none;
   }
+}
+
+.ladder__toolbar {
+  margin-bottom: 0.75rem;
 }
 
 .ladder__stage {

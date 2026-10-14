@@ -15,9 +15,10 @@ import { describe, expect, it } from 'vitest';
 import {
   THRESHOLD_STOPS,
   classifyArea,
+  describeHit,
   thresholdCounts,
 } from '../src/components/project/hbs-map';
-import { decodeAreas } from '../src/graphics/figure-data';
+import { decodeAreas, type Area } from '../src/graphics/figure-data';
 import { builtHtml } from './helpers/dist';
 
 const project = builtHtml('project');
@@ -27,6 +28,7 @@ const provenance = JSON.parse(
   readFileSync(path.join(figures, 'hbs.provenance.json'), 'utf8'),
 ) as {
   hf_revision: string;
+  tier_limits_km: { weak: number };
   files: Record<string, { name: string }>;
   table: {
     region_thresholds: {
@@ -138,6 +140,17 @@ describe('project page content', () => {
     expect(hbs).toContain('aria-valuetext="10 percent:');
   });
 
+  it('keys the HbS fill by value and by distance from surveys, in the deck’s words', () => {
+    const hbs = text(figure('hbs-threshold'));
+    // The VSUP wedge: low frequency and little evidence are told apart (spec §0, correction 2).
+    expect(hbs).toContain('Modeled frequency, 0–17% Fades away from surveys');
+    expect(hbs).toContain('Tap to inspect.');
+  });
+
+  it('tags the scale ladder as a schematic: its studs and footprint hold no data', () => {
+    expect(figure('scale-ladder')).toContain('data-status="schematic"');
+  });
+
   it('counts the Atlas markers from the catalog', () => {
     expect(text(project)).toContain(
       `The Atlas: observations and surfaces for ${catalog.artifacts.length} markers`,
@@ -195,5 +208,40 @@ describe('HbS threshold outlines', () => {
         confident: row.confidently_above,
         possible: row.possibly_above,
       });
+  });
+});
+
+describe('HbS readouts', () => {
+  const areas = decodeAreas(
+    readFileSync(path.join(figures, provenance.files.region.name)),
+  );
+  const noEstimateKm = provenance.tier_limits_km.weak;
+  const read = (area: Area) =>
+    describeHit({ type: 'area', area, x: 0, y: 0 }, { noEstimateKm });
+  const unknown = (distanceKm: number): Area => ({
+    boundary: [],
+    center: [0, 0],
+    mean: null,
+    lo: null,
+    hi: null,
+    distanceKm,
+    support: 'unknown',
+    tier: 'none',
+  });
+
+  it('never claims a wider survey-free radius than an area’s own distance', () => {
+    // Majority coarsening can leave an unknown area nearer a survey than the no-estimate limit.
+    expect(read(unknown(1352))).toBe(
+      'No estimate · — · No survey within 1,350 km',
+    );
+    expect(read(unknown(2400))).toBe(
+      'No estimate · — · No survey within 1,360 km',
+    );
+    for (const area of areas.filter((entry) => entry.support === 'unknown')) {
+      const [, within] = /within ([\d,]+) km/.exec(read(area)!)!;
+      expect(Number(within.replace(/,/g, ''))).toBeLessThanOrEqual(
+        Math.min(area.distanceKm, noEstimateKm),
+      );
+    }
   });
 });

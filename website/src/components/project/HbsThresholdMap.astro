@@ -135,7 +135,7 @@ const rows = provenance.table.region_thresholds;
       />
       <p class="hbs__count" data-hbs-count>{countText(atDefault)}</p>
     </div>
-    <Readout class="hbs__readout" idle="Point at an area or a survey." />
+    <Readout class="hbs__readout" idle="Tap to inspect." />
   </Fragment>
 
   <Fragment slot="legend">
@@ -157,8 +157,11 @@ const rows = provenance.table.region_thresholds;
         <span><strong>Possibly above</strong>: estimate only</span>
       </li>
       <li>
-        <Glyph name="vsup-wedge" size={16} />
-        <span>Modeled frequency, {domainLabel}</span>
+        <Glyph name="vsup-wedge" size={22} />
+        <span class="hbs__wedge-key">
+          <span>Modeled frequency, {domainLabel}</span>
+          <span>Fades away from surveys</span>
+        </span>
       </li>
       <li>
         <Glyph name="hatch" />

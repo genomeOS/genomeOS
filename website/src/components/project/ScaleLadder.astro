@@ -10,11 +10,13 @@
  *   Cell nucleus     an outline with chromatin and the folded locus           (future, violet dashed)
  *   the bridge       from the HBB tick back to the population it was measured in (future)
  *
- * The selected tab lights its frames (1–2, 3–4, or the bridge); the art of the rest dims, the
+ * Its studs and footprint look like data but hold none, so the figure is tagged "Schematic" (spec
+ * §2.6). The selected tab lights its frames (1–2, 3–4, or the bridge); the art of the rest dims, the
  * labels never do. Its one-line panel is the figure's caption. Server-rendered at rest in both
  * layouts (ladder.ts); a container query picks the row or the 2 × 2 grid. The page's island
  * (project.astro) calls `initLadder`.
  */
+import StatusTag from '../kit/StatusTag.astro';
 import { cssVarStyles, studSvg } from '../kit/svg';
 import {
   FRAME,
@@ -210,6 +212,10 @@ const svgFor = (layout: Layout) => {
         ))
       }
     </div>
+  </div>
+
+  <div class="ladder__toolbar" data-figure-chrome>
+    <StatusTag kind="schematic" />
   </div>
 
   <div

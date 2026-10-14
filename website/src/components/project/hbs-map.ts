@@ -117,8 +117,10 @@ export function describeHit(
     ].join(' · ');
   }
   const { area } = hit;
+  // Majority coarsening can leave an unknown area a little nearer a survey than the no-estimate
+  // limit, so the claim uses whichever is smaller, rounded down: it never overstates the gap.
   if (area.support === 'unknown' || area.mean === null)
-    return `No estimate · — · No survey within ${km(noEstimateKm)} km`;
+    return `No estimate · — · No survey within ${whole(Math.floor(Math.min(noEstimateKm, area.distanceKm) / 10) * 10)} km`;
   const line = `Modeled estimate about ${percent(area.mean)} · 95% credible range across this area ${percent(area.lo!)}–${percent(area.hi!)} · Nearest survey about ${km(area.distanceKm)} km`;
   return area.tier === 'weak' || area.tier === 'none'
     ? `${line}\nFar from surveys: this range leans on the model’s assumptions.`
