@@ -138,7 +138,7 @@ test(
   async ({ page }) => {
     // From 50em Starlight's sidebar sits beside the page, so the mobile menu's social icons are
     // gone; the header's own GitHub link must take over there, not only from 72em (#454 review).
-    for (const width of [800, 900, 1100, 1300, 1440]) {
+    for (const width of [800, 900, 1100, 1151, 1152, 1200, 1300, 1440]) {
       await page.setViewportSize({ width, height: 800 });
       await page.goto('/docs/');
       const github = page
@@ -149,13 +149,14 @@ test(
         'href',
         'https://github.com/genomeOS/genomeOS',
       );
-      // The page links join it once there is room for the whole nav (72em of an 18 px root).
+      // The page links join it once there is room for the whole nav: from 72em, and an em in a
+      // media query is the 16 px initial size, not the 18 px root, so from 1,152 px.
       await expect(
         page
           .getByRole('navigation', { name: 'Primary navigation' })
           .getByRole('link', { name: 'Contribute' }),
         `${width} px`,
-      ).toBeVisible({ visible: width >= 1296 });
+      ).toBeVisible({ visible: width >= 1152 });
     }
   },
 );
