@@ -227,9 +227,18 @@ export default function AtlasExplorer({
     return () => media.removeEventListener('change', updatePreference);
   }, []);
 
+  // #452: the desktop globe is drawn centred in the open area beside the controls panel.
+  const coveredLeft = useGlobeOffset(
+    controlsPanel,
+    sceneElement,
+    sceneController,
+  );
+
   const sceneGeneration = useAtlasSceneLifecycle({
     attempt: sceneAttempt,
     bind: (controller) => {
+      // Before its first frame, so the globe starts beside the controls panel (#452).
+      controller.setLeftObstruction(coveredLeft());
       setSceneController(controller);
       setCapabilities(controller.capabilities());
       const removePick = controller.onPick((pick) => {
@@ -317,9 +326,6 @@ export default function AtlasExplorer({
     scene,
     worker: atlasWorker(),
   });
-
-  // #452: the desktop globe is drawn centred in the open area beside the controls panel.
-  useGlobeOffset(controlsPanel, sceneElement, sceneController);
 
   useEffect(() => {
     // A new scene (first load or "Retry globe") receives the whole current style at once; the

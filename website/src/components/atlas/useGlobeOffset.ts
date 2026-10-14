@@ -7,7 +7,7 @@
  * Cesium-free.
  */
 
-import { useEffect, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, type RefObject } from 'react';
 
 import type { AtlasSceneController } from '../../atlas/scene/types';
 import { coveredCanvasWidth } from '../../atlas/view-offset';
@@ -28,28 +28,39 @@ function browserObservers(): ObstructionObservers {
   return { MutationObserver, ResizeObserver };
 }
 
+/** The covered width now; 0 in the phone layout or without both elements. */
+function measureControlsObstruction({
+  canvas,
+  panel,
+  phone,
+}: ObstructionTarget): number {
+  if (phone || !canvas || !panel) return 0;
+  return coveredCanvasWidth({
+    canvas: canvas.getBoundingClientRect(),
+    // `hidden` may also be 'until-found', which hides the panel too.
+    hidden: Boolean(panel.hidden),
+    panel: panel.getBoundingClientRect(),
+    phone,
+  });
+}
+
 /**
  * Reports the covered width now and whenever the panel or the canvas resizes or the panel's
  * `hidden` flag changes; returns the cleanup. A phone layout or a missing element reports 0.
  */
 export function observeControlsObstruction(
-  { canvas, panel, phone }: ObstructionTarget,
+  target: ObstructionTarget,
   report: (width: number) => void,
   observers: ObstructionObservers = browserObservers(),
 ): () => void {
+  const { canvas, panel, phone } = target;
   if (phone || !canvas || !panel) {
     report(0);
     return () => undefined;
   }
   let reported: number | null = null;
   const measure = () => {
-    const width = coveredCanvasWidth({
-      canvas: canvas.getBoundingClientRect(),
-      // `hidden` may also be 'until-found', which hides the panel too.
-      hidden: Boolean(panel.hidden),
-      panel: panel.getBoundingClientRect(),
-      phone: false,
-    });
+    const width = measureControlsObstruction(target);
     if (width === reported) return;
     reported = width;
     report(width);
@@ -66,12 +77,19 @@ export function observeControlsObstruction(
   };
 }
 
+/**
+ * Keeps the scene's left obstruction current, and returns a measurement of it on demand: a new
+ * scene is given it when bound, before its first frame, so the globe never starts at the canvas
+ * centre and jumps.
+ */
 export function useGlobeOffset(
   panel: HTMLElement | null,
   canvas: RefObject<HTMLElement | null>,
   controller: Pick<AtlasSceneController, 'setLeftObstruction'> | null,
-): void {
+): () => number {
   const phone = useMediaQuery(MOBILE_QUERY);
+  const latest = useRef({ panel, phone });
+  latest.current = { panel, phone };
   useEffect(() => {
     if (!controller) return;
     return observeControlsObstruction(
@@ -79,4 +97,9 @@ export function useGlobeOffset(
       (width) => controller.setLeftObstruction(width),
     );
   }, [canvas, controller, panel, phone]);
+  return useCallback(
+    () =>
+      measureControlsObstruction({ canvas: canvas.current, ...latest.current }),
+    [canvas],
+  );
 }

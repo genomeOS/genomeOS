@@ -9,9 +9,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('react', () => ({
+  useCallback: <T>(callback: T) => callback,
   useEffect: (effect: () => void | (() => void)) => {
     mocks.effects.push(effect);
   },
+  useRef: <T>(value: T) => ({ current: value }),
 }));
 vi.mock('../src/components/atlas/useMediaQuery', () => ({
   MOBILE_QUERY: '(max-width: 52rem)',
@@ -230,6 +232,36 @@ describe('useGlobeOffset', () => {
     const { controller } = run(true);
     expect(controller.setLeftObstruction).toHaveBeenCalledWith(0);
     expect(controller.setLeftObstruction).not.toHaveBeenCalledWith(468);
+  });
+
+  it("measures the covered width on demand, for a new scene's first frame", () => {
+    const { canvas, panel } = layout();
+    const measure = useGlobeOffset(
+      panel as unknown as HTMLElement,
+      { current: canvas as unknown as HTMLElement },
+      null,
+    );
+    expect(measure()).toBe(468);
+    panel.box = { left: 18, right: 396, width: 378 };
+    expect(measure()).toBe(396);
+    panel.hidden = true;
+    expect(measure()).toBe(0);
+    mocks.phone = true;
+    panel.hidden = false;
+    expect(
+      useGlobeOffset(
+        panel as unknown as HTMLElement,
+        { current: canvas as unknown as HTMLElement },
+        null,
+      )(),
+    ).toBe(0);
+    expect(
+      useGlobeOffset(
+        null,
+        { current: canvas as unknown as HTMLElement },
+        null,
+      )(),
+    ).toBe(0);
   });
 
   it('waits for a scene', () => {
