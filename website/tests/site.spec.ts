@@ -161,6 +161,85 @@ test(
   },
 );
 
+// Design review, round 2: the docs header set its nav right-aligned after Search, at weight 560 in
+// a lighter grey, with GitHub 2 px above the others, so from Home to Docs the primary nav jumped
+// about 440 px and changed weight. It reads as the site's: lockup, nav, then Search and the Atlas
+// link on the right; the site's weight and colours; one baseline.
+test(
+  'the docs header orders and sets its nav as the site header does',
+  { tag: '@desktop-chromium' },
+  async ({ page }) => {
+    const style = () =>
+      page
+        .getByRole('navigation', { name: 'Primary navigation' })
+        .getByRole('link')
+        .evaluateAll((links) =>
+          links.map((link) => {
+            const label = link.querySelector('span') ?? link;
+            const { fontWeight, color, fontSize } = getComputedStyle(label);
+            return [
+              link.getAttribute('aria-current') ? 'current' : 'link',
+              fontWeight,
+              color,
+              fontSize,
+            ].join(' ');
+          }),
+        );
+    for (const width of [1440, 1153, 1920]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/contribute/');
+      const site = await style();
+      for (const route of ['/docs/', '/docs/system-overview/']) {
+        await page.goto(route);
+        const docs = await style();
+        // Docs is current here as Contribute is there; current and plain links match the site's.
+        expect(docs[2], `${route} at ${width}`).toBe(site[1]);
+        expect(
+          docs.filter((_, index) => index !== 2),
+          `${route} at ${width}`,
+        ).toEqual(site.filter((_, index) => index !== 1));
+        const geometry = await page.evaluate(() => {
+          const header = document.querySelector('header')!;
+          const nav = header.querySelector(
+            'nav[aria-label="Primary navigation"]',
+          )!;
+          const search = header.querySelector('button[data-open-modal]')!;
+          const box = (element: Element) =>
+            element.getBoundingClientRect().toJSON();
+          const baselines = [...nav.querySelectorAll('a')].map((link) => {
+            const range = document.createRange();
+            range.selectNodeContents(link.querySelector('span') ?? link);
+            return range.getBoundingClientRect().bottom;
+          });
+          return {
+            lockup: box(header.querySelector('.docs-header__lockup')!),
+            nav: box(nav),
+            search: box(search),
+            atlas: box(header.querySelector('.docs-header__atlas')!),
+            navFirst: Boolean(
+              nav.compareDocumentPosition(search) &
+              Node.DOCUMENT_POSITION_FOLLOWING,
+            ),
+            baselines,
+          };
+        });
+        const at = `${route} at ${width}`;
+        expect(geometry.nav.left, at).toBeGreaterThan(geometry.lockup.right);
+        expect(geometry.nav.left - geometry.lockup.right, at).toBeLessThan(80);
+        expect(geometry.search.left, at).toBeGreaterThan(geometry.nav.right);
+        expect(geometry.atlas.left, at).toBeGreaterThanOrEqual(
+          geometry.search.right,
+        );
+        expect(geometry.navFirst, `${at}: tab order`).toBe(true);
+        expect(
+          Math.max(...geometry.baselines) - Math.min(...geometry.baselines),
+          `${at}: one baseline`,
+        ).toBeLessThan(0.75);
+      }
+    }
+  },
+);
+
 // The docs shell speaks the site's visual language, not stock Starlight (design review, round 1):
 // Raleway at the site's weights and tracking, square controls, a square ion-ruled current item, and
 // the current page shown as the site shows it (starlight colour, no underline).
