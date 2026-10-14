@@ -215,15 +215,10 @@ export class HexField {
     // 45° strokes 1.4 px wide on a 5 px pitch (spec §2.2), drawn at the device pixel ratio.
     const tile = 5 * Math.SQRT2;
     const size = Math.max(1, Math.round(tile * this.dpr));
-    const pattern =
-      typeof OffscreenCanvas === 'function'
-        ? new OffscreenCanvas(size, size)
-        : Object.assign(document.createElement('canvas'), {
-            width: size,
-            height: size,
-          });
-    const g = pattern.getContext('2d') as
-      CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+    const pattern = document.createElement('canvas');
+    pattern.width = size;
+    pattern.height = size;
+    const g = pattern.getContext('2d');
     if (!g) return null;
     g.strokeStyle = ENC.hatch;
     g.globalAlpha = ENC.hatchAlpha;
@@ -235,10 +230,7 @@ export class HexField {
       g.lineTo(offset + size, 0);
     }
     g.stroke();
-    const result = this.ctx.createPattern(
-      pattern as CanvasImageSource,
-      'repeat',
-    );
+    const result = this.ctx.createPattern(pattern, 'repeat');
     result?.setTransform(new DOMMatrix().scale(1 / this.dpr));
     return result;
   }

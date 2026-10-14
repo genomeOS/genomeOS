@@ -9,6 +9,12 @@
  *                   uint8 support, uint8 evidence tier
  *   surveys  14 B   int16 lat × 100, int16 lon × 100, uint32 AC, uint32 AN, uint16 radius (km)
  *
+ * Areas carry exactly those fields, but are stored column by column and predictively, which
+ * gzip compresses to about half (spec §7 budgets): the first vertex as a step from the previous
+ * area's, the next three as edge steps, the last two as their difference from the opposite edge
+ * (a hexagon's opposite edges nearly cancel), and lo and hi as distances below and above the
+ * mean. Every step is an integer, so decoding is exact. Surveys are interleaved records.
+ *
  * Surveys are counts only: there is no frequency field to misread (AGENTS.md, counts not
  * frequencies). An `unknown` area stores no value at all.
  */
@@ -113,6 +119,14 @@ function share(value: number | null, round: (x: number) => number): number {
   return Math.min(NO_VALUE - 1, round(value * 1e4));
 }
 
+/** Longitude steps wrap across the antimeridian: centi-degrees into [−18000, 18000). */
+const wrapCenti = (value: number) =>
+  ((((value + 18000) % 36000) + 36000) % 36000) - 18000;
+
+/** Area columns, in file order: 12 int16 geometry columns, then 4 uint16 value columns. */
+const GEOMETRY_COLUMNS = 12;
+const VALUE_COLUMNS = 4;
+
 /**
  * Encode display areas. Rounding keeps every interval honest after quantisation: the low end
  * rounds down, the high end up, the mean to nearest, so lo ≤ mean ≤ hi still holds.
@@ -120,45 +134,76 @@ function share(value: number | null, round: (x: number) => number): number {
 export function encodeAreas(
   areas: readonly Omit<Area, 'center'>[],
 ): Uint8Array {
-  const bytes = new Uint8Array(HEADER_BYTES + areas.length * AREA_BYTES);
+  const count = areas.length;
+  const bytes = new Uint8Array(HEADER_BYTES + count * AREA_BYTES);
   const view = asView(bytes);
-  header(view, KIND.areas, AREA_BYTES, areas.length);
+  header(view, KIND.areas, AREA_BYTES, count);
+  const geometry = Array.from(
+    { length: GEOMETRY_COLUMNS },
+    () => new Int16Array(count),
+  );
+  const values = Array.from(
+    { length: VALUE_COLUMNS },
+    () => new Uint16Array(count),
+  );
+  let previous: [number, number] = [0, 0];
   areas.forEach((area, index) => {
-    const offset = HEADER_BYTES + index * AREA_BYTES;
     if (area.boundary.length < 5 || area.boundary.length > VERTICES)
       throw new Error(
         `an area needs 5 or 6 vertices, got ${area.boundary.length}`,
       );
-    const ring = [...area.boundary];
+    const ring = area.boundary.map(([lon, lat]) => [centi(lon), centi(lat)]);
     while (ring.length < VERTICES) ring.push(ring[ring.length - 1]);
-    ring.forEach(([lon, lat], vertex) => {
-      view.setInt16(offset + vertex * 4, centi(lon), true);
-      view.setInt16(offset + vertex * 4 + 2, centi(lat), true);
+    const edge = (k: number) => [
+      wrapCenti(ring[k][0] - ring[k - 1][0]),
+      ring[k][1] - ring[k - 1][1],
+    ];
+    const [e1, e2, e3, e4, e5] = [1, 2, 3, 4, 5].map(edge);
+    const steps = [
+      wrapCenti(ring[0][0] - previous[0]),
+      ring[0][1] - previous[1],
+      ...e1,
+      ...e2,
+      ...e3,
+      e4[0] + e1[0],
+      e4[1] + e1[1],
+      e5[0] + e2[0],
+      e5[1] + e2[1],
+    ];
+    steps.forEach((step, column) => {
+      if (step < -32768 || step > 32767)
+        throw new Error(`area ${index}: step overflows`);
+      geometry[column][index] = step;
     });
+    previous = [ring[0][0], ring[0][1]];
     const unknown = area.support === 'unknown';
-    view.setUint16(
-      offset + 24,
-      share(unknown ? null : area.mean, Math.round),
-      true,
-    );
-    view.setUint16(
-      offset + 26,
-      share(unknown ? null : area.lo, Math.floor),
-      true,
-    );
-    view.setUint16(
-      offset + 28,
-      share(unknown ? null : area.hi, Math.ceil),
-      true,
-    );
-    view.setUint16(
-      offset + 30,
-      Math.min(0xffff, Math.round(area.distanceKm)),
-      true,
-    );
-    view.setUint8(offset + 32, SUPPORT_CODES.indexOf(area.support));
-    view.setUint8(offset + 33, TIER_CODES.indexOf(area.tier));
+    const mean = share(unknown ? null : area.mean, Math.round);
+    const lo = share(unknown ? null : area.lo, Math.floor);
+    const hi = share(unknown ? null : area.hi, Math.ceil);
+    values[0][index] = mean;
+    values[1][index] = mean === NO_VALUE ? NO_VALUE : mean - lo;
+    values[2][index] = mean === NO_VALUE ? NO_VALUE : hi - mean;
+    values[3][index] = Math.min(0xffff, Math.round(area.distanceKm));
+    if (mean !== NO_VALUE && (lo > mean || hi < mean))
+      throw new Error(`area ${index}: lo ≤ mean ≤ hi fails`);
   });
+  let offset = HEADER_BYTES;
+  for (const column of geometry)
+    for (const value of column) {
+      view.setInt16(offset, value, true);
+      offset += 2;
+    }
+  for (const column of values)
+    for (const value of column) {
+      view.setUint16(offset, value, true);
+      offset += 2;
+    }
+  areas.forEach((area) =>
+    view.setUint8(offset++, SUPPORT_CODES.indexOf(area.support)),
+  );
+  areas.forEach((area) =>
+    view.setUint8(offset++, TIER_CODES.indexOf(area.tier)),
+  );
   return bytes;
 }
 
@@ -186,29 +231,47 @@ function centroid(boundary: [number, number][]): [number, number] {
 export function decodeAreas(bytes: ArrayBuffer | Uint8Array): Area[] {
   const view = asView(bytes);
   const count = readHeader(view, KIND.areas, AREA_BYTES);
-  const value = (offset: number) => {
-    const raw = view.getUint16(offset, true);
-    return raw === NO_VALUE ? null : raw / 1e4;
-  };
-  return Array.from({ length: count }, (_, index) => {
-    const offset = HEADER_BYTES + index * AREA_BYTES;
-    const boundary = Array.from(
-      { length: VERTICES },
-      (_, vertex): [number, number] => [
-        view.getInt16(offset + vertex * 4, true) / 100,
-        view.getInt16(offset + vertex * 4 + 2, true) / 100,
-      ],
+  const int16 = (column: number, index: number) =>
+    view.getInt16(HEADER_BYTES + (column * count + index) * 2, true);
+  const uint16 = (column: number, index: number) =>
+    view.getUint16(
+      HEADER_BYTES + ((GEOMETRY_COLUMNS + column) * count + index) * 2,
+      true,
     );
-    const support = SUPPORT_CODES[view.getUint8(offset + 32)];
-    const tier = TIER_CODES[view.getUint8(offset + 33)];
+  const codes = HEADER_BYTES + (GEOMETRY_COLUMNS + VALUE_COLUMNS) * count * 2;
+  let previous: [number, number] = [0, 0];
+  return Array.from({ length: count }, (_, index) => {
+    const step = (column: number) => int16(column, index);
+    const v0: [number, number] = [
+      wrapCenti(previous[0] + step(0)),
+      previous[1] + step(1),
+    ];
+    previous = v0;
+    const e1 = [step(2), step(3)];
+    const e2 = [step(4), step(5)];
+    const e3 = [step(6), step(7)];
+    const e4 = [step(8) - e1[0], step(9) - e1[1]];
+    const e5 = [step(10) - e2[0], step(11) - e2[1]];
+    const ring: [number, number][] = [v0];
+    for (const [dx, dy] of [e1, e2, e3, e4, e5]) {
+      const [x, y] = ring[ring.length - 1];
+      ring.push([wrapCenti(x + dx), y + dy]);
+    }
+    const boundary = ring.map(([x, y]): [number, number] => [x / 100, y / 100]);
+    const meanRaw = uint16(0, index);
+    const below = uint16(1, index);
+    const above = uint16(2, index);
+    const support = SUPPORT_CODES[view.getUint8(codes + index)];
+    const tier = TIER_CODES[view.getUint8(codes + count + index)];
     if (!support || !tier) throw new Error(`bad codes in area ${index}`);
+    const known = meanRaw !== NO_VALUE;
     return {
       boundary,
       center: centroid(boundary),
-      mean: value(offset + 24),
-      lo: value(offset + 26),
-      hi: value(offset + 28),
-      distanceKm: view.getUint16(offset + 30, true),
+      mean: known ? meanRaw / 1e4 : null,
+      lo: known ? (meanRaw - below) / 1e4 : null,
+      hi: known ? (meanRaw + above) / 1e4 : null,
+      distanceKm: uint16(3, index),
       support,
       tier,
     };

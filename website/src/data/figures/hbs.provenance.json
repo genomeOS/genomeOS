@@ -1,0 +1,255 @@
+{
+  "generated_by": "website/scripts/build-site-figures.mjs",
+  "artifact_id": "hbs-rs334",
+  "variant_id": "chr11-5227002-T-A",
+  "label": "HbS (rs334)",
+  "model_version": "v3",
+  "data_version": "map-2026-08",
+  "hf_dataset": "bschilder/genomeos-data",
+  "hf_revision": "6e77ef278e71fbb86dafd252f4cecc824388f5fc",
+  "observations_sha256": "af0ed3d5b321599bb3901f3bd7c05def4f0f5c2a91a6d4942827d11d39576651",
+  "surface_sha256": "eab47522cb35092dd3f9f7e7f93e6e489d8e4ea4b790bb6676f3d82205f61115",
+  "source_resolution": 4,
+  "resolutions": {
+    "globe": 2,
+    "region": 3
+  },
+  "region_window": {
+    "west": -26,
+    "east": 98,
+    "south": -37,
+    "north": 46
+  },
+  "correlation_range_km": 680.3,
+  "tier_limits_km": {
+    "strong": 170.1,
+    "partial": 680.3,
+    "weak": 1360.6
+  },
+  "metric_domain": {
+    "post_mean": [
+      0.0008255589855304143,
+      0.1730262715860165
+    ]
+  },
+  "coarsening": {
+    "mean": "mean of child post_mean",
+    "range": "lowest child q025 to highest child q975",
+    "support": "majority of children; ties toward the less certain class",
+    "distance": "median child dist_nearest_obs_km"
+  },
+  "stud_an_steps": [
+    200,
+    2000
+  ],
+  "rest": {
+    "lon": 18,
+    "lat": 8,
+    "visible_cosc": 0.35
+  },
+  "poster": {
+    "size": 640,
+    "radius": 300,
+    "colour_bins": 10
+  },
+  "files": {
+    "globe": {
+      "name": "hbs-globe.d0fa29ae7679d668.bin",
+      "bytes": 79300,
+      "gzip_bytes": 42692,
+      "sha256": "d0fa29ae7679d668b7bca635fe9214d8b150c27577701a58a5b206086dc481bc",
+      "records": 2332
+    },
+    "region": {
+      "name": "hbs-region.a11d23c9cee52101.bin",
+      "bytes": 145770,
+      "gzip_bytes": 54633,
+      "sha256": "a11d23c9cee521012c90f4ad85a126aff255b232dd5af166b96028d8c8d17fa0",
+      "records": 4287
+    },
+    "surveys": {
+      "name": "hbs-surveys.3b9f9b92fec422f9.bin",
+      "bytes": 15006,
+      "gzip_bytes": 8570,
+      "sha256": "3b9f9b92fec422f92ea5ff2c489737cdeddc78ab8b08de253614ff379b199088",
+      "records": 1071
+    },
+    "poster": {
+      "name": "hbs-globe-poster.55fabd830750b898.svg",
+      "bytes": 54928,
+      "gzip_bytes": 15862,
+      "sha256": "55fabd830750b898b239337670ca98b084c5c30688c84e5cd7e84e5cdb780d11",
+      "records": null
+    }
+  },
+  "counts": {
+    "surveys": 1071,
+    "globe_areas": 2332,
+    "region_areas": 4287,
+    "model_cells": 77844
+  },
+  "callouts": [
+    {
+      "kind": "survey",
+      "rule": "the survey with the largest AN within 600 km of 9°N 8°E",
+      "ac": 3028,
+      "an": 19012,
+      "radius_km": 6,
+      "survey_index": 903,
+      "lon": 3.9,
+      "lat": 7.38,
+      "poster": [
+        247.5,
+        322
+      ],
+      "disc": [
+        -0.2416,
+        0.0067
+      ]
+    },
+    {
+      "kind": "modeled",
+      "rule": "the highest-mean area visible at rest",
+      "mean": 0.1603,
+      "lo": 0.0716,
+      "hi": 0.2804,
+      "distance_km": 95,
+      "tier": "strong",
+      "area_index": 1764,
+      "lon": 17.51,
+      "lat": -8.38,
+      "poster": [
+        317.4,
+        404.6
+      ],
+      "disc": [
+        -0.0085,
+        0.282
+      ]
+    },
+    {
+      "kind": "unknown",
+      "rule": "the unknown area nearest 45°N 70°E visible at rest",
+      "distance_km": 1555,
+      "area_index": 500,
+      "lon": 68.63,
+      "lat": 48.47,
+      "poster": [
+        473.8,
+        115.2
+      ],
+      "disc": [
+        0.5126,
+        -0.6828
+      ]
+    }
+  ],
+  "alt": "Globe of the sickle-cell variant HbS. White points are 1,071 measured surveys, most in Africa, the Mediterranean, the Middle East and India. Modeled frequency is highest, about 17 percent, in parts of Central Africa, and fades with distance from surveys. Much of northern Eurasia has no estimate.",
+  "table": {
+    "top_areas": [
+      {
+        "lat": -8.4,
+        "lon": 17.5,
+        "mean": 0.1603,
+        "lo": 0.0716,
+        "hi": 0.2804,
+        "nearest_survey_km": 95
+      },
+      {
+        "lat": -10.2,
+        "lon": 15,
+        "mean": 0.143,
+        "lo": 0.0475,
+        "hi": 0.284,
+        "nearest_survey_km": 191
+      },
+      {
+        "lat": -7.2,
+        "lon": 14.8,
+        "mean": 0.142,
+        "lo": 0.0629,
+        "hi": 0.2759,
+        "nearest_survey_km": 206
+      },
+      {
+        "lat": -6.6,
+        "lon": 20,
+        "mean": 0.142,
+        "lo": 0.0661,
+        "hi": 0.2513,
+        "nearest_survey_km": 167
+      },
+      {
+        "lat": -5.4,
+        "lon": 17.2,
+        "mean": 0.1394,
+        "lo": 0.0748,
+        "hi": 0.245,
+        "nearest_survey_km": 123
+      },
+      {
+        "lat": -1.7,
+        "lon": 22.1,
+        "mean": 0.1337,
+        "lo": 0.0512,
+        "hi": 0.2626,
+        "nearest_survey_km": 280
+      },
+      {
+        "lat": 7,
+        "lon": 6.1,
+        "mean": 0.1331,
+        "lo": 0.0677,
+        "hi": 0.2142,
+        "nearest_survey_km": 78
+      },
+      {
+        "lat": 9.9,
+        "lon": -12.2,
+        "mean": 0.1329,
+        "lo": 0.0418,
+        "hi": 0.2502,
+        "nearest_survey_km": 164
+      },
+      {
+        "lat": 5.3,
+        "lon": 4.3,
+        "mean": 0.1328,
+        "lo": 0.0681,
+        "hi": 0.2155,
+        "nearest_survey_km": 79
+      },
+      {
+        "lat": -3.6,
+        "lon": 19.7,
+        "mean": 0.1324,
+        "lo": 0.0637,
+        "hi": 0.2306,
+        "nearest_survey_km": 321
+      }
+    ],
+    "model_cell_share_by_tier": {
+      "strong": 0.174,
+      "partial": 0.417,
+      "weak": 0.197,
+      "none": 0.212
+    },
+    "region_thresholds": [
+      {
+        "threshold": 0.05,
+        "confidently_above": 274,
+        "possibly_above": 648
+      },
+      {
+        "threshold": 0.1,
+        "confidently_above": 0,
+        "possibly_above": 277
+      },
+      {
+        "threshold": 0.15,
+        "confidently_above": 0,
+        "possibly_above": 11
+      }
+    ]
+  }
+}
