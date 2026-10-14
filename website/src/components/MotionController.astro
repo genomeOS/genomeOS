@@ -46,8 +46,6 @@
     );
     revealed.forEach((element) => observer.observe(element));
 
-    const hero = document.querySelector<HTMLElement>('.hero');
-    const heroImage = document.querySelector<HTMLElement>('.hero__image');
     const progress = document.querySelector<HTMLElement>('.scroll-progress');
     let frame = 0;
 
@@ -60,21 +58,6 @@
         '--scroll-progress',
         String(Math.min(1, Math.max(0, pageProgress))),
       );
-
-      if (hero && heroImage) {
-        const heroProgress = Math.min(
-          1,
-          Math.max(0, window.scrollY / hero.offsetHeight),
-        );
-        heroImage.style.setProperty(
-          '--hero-scroll-y',
-          `${heroProgress * 30}px`,
-        );
-        heroImage.style.setProperty(
-          '--hero-scale',
-          String(1.025 + heroProgress * 0.045),
-        );
-      }
     };
 
     const scheduleScroll = () => {
@@ -84,18 +67,31 @@
     window.addEventListener('resize', scheduleScroll, { passive: true });
     renderScroll();
 
-    hero?.addEventListener('pointermove', (event) => {
-      if (!heroImage || !(event instanceof PointerEvent)) return;
-      const bounds = hero.getBoundingClientRect();
-      const x = (event.clientX - bounds.left) / bounds.width - 0.5;
-      const y = (event.clientY - bounds.top) / bounds.height - 0.5;
-      heroImage.style.setProperty('--hero-pointer-x', `${x * -18}px`);
-      heroImage.style.setProperty('--hero-pointer-y', `${y * -12}px`);
-    });
-    hero?.addEventListener('pointerleave', () => {
-      heroImage?.style.setProperty('--hero-pointer-x', '0px');
-      heroImage?.style.setProperty('--hero-pointer-y', '0px');
-    });
+    /*
+     * Figures play once (site redesign spec §2.7, #454): when 35% of a [data-graphic] is in view,
+     * it is marked played and told so with a `graphic:play` event; FigureController
+     * (src/graphics/figure.ts) and CSS-only figures start from that. Each figure is told once. A
+     * figure taller than the viewport counts once it fills 35% of the viewport.
+     */
+    document.documentElement.setAttribute('data-graphic-observer', '');
+    const graphics = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const fills =
+            entry.intersectionRect.height >= 0.35 * window.innerHeight;
+          if (entry.intersectionRatio < 0.35 && !fills) continue;
+          const figure = entry.target as HTMLElement;
+          graphics.unobserve(figure);
+          figure.setAttribute('data-graphic-played', '');
+          figure.dispatchEvent(new CustomEvent('graphic:play'));
+        }
+      },
+      { threshold: [0, 0.1, 0.2, 0.35, 0.5] },
+    );
+    for (const figure of document.querySelectorAll<HTMLElement>(
+      '[data-graphic]',
+    ))
+      graphics.observe(figure);
 
     for (const surface of document.querySelectorAll<HTMLElement>(
       '[data-motion-surface]',

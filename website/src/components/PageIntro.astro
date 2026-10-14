@@ -1,26 +1,67 @@
 ---
+/**
+ * A page's opening: note, H1 and lede. Every visible "genomeOS" is set in the wordmark type.
+ *
+ * `layout="split"` (site redesign spec §2.4 "head + lead figure", #454): the H1 and note take
+ * columns 1–7 and the lede columns 9–12, bottom-aligned, and the `figure` slot spans all twelve
+ * columns directly below, so no intro opens on an empty half. The default layout is unchanged.
+ */
 import BrandName from './BrandName.astro';
 
 interface Props {
   title: string;
   lede: string;
   note?: string;
+  layout?: 'stack' | 'split';
 }
 
-const { title, lede, note } = Astro.props;
+const { title, lede, note, layout = 'stack' } = Astro.props;
 const projectName = 'genomeOS';
 const titleParts = title.split(/(genomeOS)/g);
 const ledeParts = lede.split(/(genomeOS)/g);
+const split = layout === 'split';
+const hasFigure = Astro.slots.has('figure');
 ---
 
-<section class="page-intro">
-  <div class="section-shell page-intro__inner">
-    {note && <p class="page-intro__note">{note}</p>}
-    <h1>
-      {titleParts.map((part) => (part === projectName ? <BrandName /> : part))}
-    </h1>
-    <p>
-      {ledeParts.map((part) => (part === projectName ? <BrandName /> : part))}
-    </p>
-  </div>
-</section>
+{
+  split ? (
+    <section class="page-intro page-intro--split">
+      <div class="section-shell page-intro__inner">
+        <div class="page-intro__head">
+          {note && <p class="page-intro__note">{note}</p>}
+          <h1>
+            {titleParts.map((part) =>
+              part === projectName ? <BrandName /> : part,
+            )}
+          </h1>
+        </div>
+        <p class="page-intro__lede">
+          {ledeParts.map((part) =>
+            part === projectName ? <BrandName /> : part,
+          )}
+        </p>
+        {hasFigure && (
+          <div class="page-intro__figure">
+            <slot name="figure" />
+          </div>
+        )}
+      </div>
+    </section>
+  ) : (
+    <section class="page-intro">
+      <div class="section-shell page-intro__inner">
+        {note && <p class="page-intro__note">{note}</p>}
+        <h1>
+          {titleParts.map((part) =>
+            part === projectName ? <BrandName /> : part,
+          )}
+        </h1>
+        <p>
+          {ledeParts.map((part) =>
+            part === projectName ? <BrandName /> : part,
+          )}
+        </p>
+      </div>
+    </section>
+  )
+}
