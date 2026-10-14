@@ -46,6 +46,21 @@ export async function waitForAtlasReady(page: Page): Promise<void> {
   });
 }
 
+/**
+ * Wait for the cold reveal and the loads after it to finish: ready, cell edges, the drawn borders
+ * and the exact cell values. Until then the scene requests a frame per border slice, and under the
+ * CI runners' software WebGL each frame is a long task, so a page call queued behind them can take
+ * more than a poll's 5 s (#455; analytics.spec.ts found the same for its layout claims). A claim
+ * about the steady page is checked on the settled page.
+ */
+export async function waitForAtlasSettled(page: Page): Promise<void> {
+  await expect(
+    page.locator(
+      '[data-atlas-ready="true"][data-atlas-edges-ready="true"][data-atlas-context-ready="true"][data-atlas-values-ready="true"]',
+    ),
+  ).toBeVisible({ timeout: 45_000 });
+}
+
 export type SheetStateName = 'peek' | 'half' | 'full';
 
 export function controlsSheet(page: Page): Locator {

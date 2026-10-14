@@ -27,6 +27,7 @@ import {
   touchDrag,
   uncoveredCredits,
   waitForAtlasReady,
+  waitForAtlasSettled,
 } from './atlas-mobile-helpers';
 import { topLevelRoutes } from './site-routes';
 
@@ -1947,6 +1948,7 @@ for (const phone of PHONE_PROFILES) {
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.goto('/app/?basemap=stadia-smooth');
       await waitForAtlasReady(page);
+      await waitForAtlasSettled(page);
       const expand = page.locator('.atlas-scene .cesium-credit-expand-link');
       await expect(expand).toBeVisible();
       // The link wraps, so its bounding-box centre can fall on the canvas: tap
