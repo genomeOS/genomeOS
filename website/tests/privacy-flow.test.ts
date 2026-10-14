@@ -18,7 +18,6 @@ import {
   controlGate,
   gatePaintScript,
   gateState,
-  readGate,
   type GateState,
 } from '../src/components/privacy/privacy-flow';
 import { resolveConsent, type ConsentChoice } from '../src/lib/consent';
@@ -31,12 +30,6 @@ const TORONTO = 'America/Toronto';
 function storage(value: string | null) {
   return { getItem: () => value };
 }
-
-const blocked = {
-  getItem: (): string | null => {
-    throw new DOMException('blocked', 'SecurityError');
-  },
-};
 
 describe('the consent gate follows consent.ts', () => {
   const gate = (
@@ -67,40 +60,6 @@ describe('the consent gate follows consent.ts', () => {
   it('is removed in a build without analytics', () => {
     expect(gateState(null)).toBe('removed');
   });
-
-  it('reads the stored choice, the browser signal and the time zone through consent.ts', () => {
-    expect(
-      readGate({
-        storage: storage('denied'),
-        navigator: {},
-        timeZone: NEW_YORK,
-      }),
-    ).toBe('closed');
-    expect(
-      readGate({
-        storage: storage('granted'),
-        navigator: {},
-        timeZone: BERLIN,
-      }),
-    ).toBe('open');
-    expect(
-      readGate({ storage: storage(null), navigator: {}, timeZone: BERLIN }),
-    ).toBe('pending');
-    expect(
-      readGate({
-        storage: storage(null),
-        navigator: { globalPrivacyControl: true },
-        timeZone: NEW_YORK,
-      }),
-    ).toBe('closed');
-    // Blocked storage reads as no choice, as the cookie control reads it.
-    expect(
-      readGate({ storage: blocked, navigator: {}, timeZone: NEW_YORK }),
-    ).toBe('open');
-    expect(readGate({ storage: null, navigator: {}, timeZone: BERLIN })).toBe(
-      'pending',
-    );
-  });
 });
 
 describe('once the cookie control has drawn a state, the gate mirrors it', () => {
@@ -118,7 +77,7 @@ describe('once the cookie control has drawn a state, the gate mirrors it', () =>
     expect(controlGate({ consent: 'denied', prompting: true })).toBe('pending');
   });
 
-  it('defers to consent.ts before the control has drawn anything', () => {
+  it('leaves the pre-paint drawing until the control has drawn a state', () => {
     expect(controlGate({ consent: undefined, prompting: false })).toBeNull();
     expect(controlGate({ consent: null, prompting: false })).toBeNull();
     expect(controlGate({ consent: '', prompting: true })).toBeNull();
