@@ -597,16 +597,20 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
     stroke-dashoffset: 0;
   }
 
-  .kit-pipeline[data-figure-state='armed'] .pl-edge--draw {
-    stroke-dashoffset: 1;
-  }
+  /* The entrance's "before" state is for screens only: a figure that never scrolled into view
+     still prints drawn (spec §8). */
+  @media screen {
+    .kit-pipeline[data-figure-state='armed'] .pl-edge--draw {
+      stroke-dashoffset: 1;
+    }
 
-  .kit-pipeline:is([data-figure-state='armed'], .is-drawing) .pl-edge {
-    marker-end: none;
-  }
+    .kit-pipeline:is([data-figure-state='armed'], .is-drawing) .pl-edge {
+      marker-end: none;
+    }
 
-  .kit-pipeline.is-drawing .pl-edge--draw {
-    animation: pl-draw 720ms var(--ease-figure) var(--d, 0ms) both;
+    .kit-pipeline.is-drawing .pl-edge--draw {
+      animation: pl-draw 720ms var(--ease-figure) var(--d, 0ms) both;
+    }
   }
 
   @keyframes pl-draw {

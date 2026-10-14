@@ -5,7 +5,8 @@
  * - reduced motion: 1.2 s after load nothing is running and every figure shows its final state;
  * - otherwise: once every figure has been scrolled into view and 6.5 s have passed, nothing runs
  *   but the genomeOS Atlas pill's aurora, and no animation frame is scheduled;
- * - a figure scrolled offscreen in the middle of its entrance stops scheduling frames.
+ * - a figure scrolled offscreen in the middle of its entrance stops scheduling frames;
+ * - printing shows every figure in its final state, even one never scrolled into view (spec §8).
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -150,5 +151,31 @@ for (const manifest of conceptEnforced) {
       await page.waitForTimeout(400);
       await expectFramesStop(page, `${name} offscreen`);
     }
+  });
+
+  test(`${manifest.route} prints every figure in its final state`, async ({
+    page,
+  }) => {
+    await openManifestPage(page, manifest);
+    // Figures below the fold are still armed: their "before" styles are for screens only...
+    await page.emulateMedia({ media: 'print' });
+    const undrawn = await page.evaluate(() =>
+      [...document.querySelectorAll<SVGPathElement>('.pl-edge--draw')]
+        .filter((edge) => edge.closest('svg')!.getClientRects().length > 0)
+        .filter(
+          (edge) =>
+            Number.parseFloat(getComputedStyle(edge).strokeDashoffset) !== 0,
+        )
+        .map((edge) => edge.dataset.edge),
+    );
+    expect(undrawn, 'Pipeline wires drawn in print').toEqual([]);
+    // ...and printing finishes every entrance, canvas figures included.
+    await page.evaluate(() => window.dispatchEvent(new Event('beforeprint')));
+    const states = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>('[data-figure-state]')].map(
+        (figure) => `${figure.dataset.graphic}: ${figure.dataset.figureState}`,
+      ),
+    );
+    for (const state of states) expect(state).toMatch(/: rest$/);
   });
 }

@@ -10,6 +10,8 @@
  * 4. Above the fold never flashes: a figure on screen when it becomes ready arms its "before" state
  *    only if that happens within 1,200 ms of navigation start; later, it simply shows rest.
  * 5. Replay is always explicit (`replay()`, from a control the visitor pressed).
+ * 6. Printing shows the final state: a figure still armed or playing finishes on `beforeprint`
+ *    (spec §8, "final SVG states print"). CSS keeps "before" styles to `@media screen`, too.
  *
  * Server-rendered markup is already the final state; `arm()` hides what the entrance will
  * reveal. The element's `data-figure-state` reflects the phase: armed, playing, rest.
@@ -102,6 +104,9 @@ export class FigureController {
   private readonly onVisibility = () => {
     if (document.hidden && this.state === 'playing') this.finish();
   };
+  private readonly onPrint = () => {
+    if (this.state !== 'rest') this.finish();
+  };
 
   constructor(
     element: HTMLElement,
@@ -116,6 +121,7 @@ export class FigureController {
     this.threshold = threshold;
     this.reduced = prefersReducedMotion();
 
+    window.addEventListener('beforeprint', this.onPrint);
     if (this.frozenAt !== null) {
       this.setState('armed');
       motion.arm?.();
@@ -239,6 +245,7 @@ export class FigureController {
     this.screenObserver?.disconnect();
     this.element.removeEventListener('graphic:play', this.onPlay);
     document.removeEventListener('visibilitychange', this.onVisibility);
+    window.removeEventListener('beforeprint', this.onPrint);
   }
 }
 
