@@ -40,7 +40,7 @@ function runLifecycle(sceneModule: Promise<unknown>) {
     cesiumToken: '',
     element: { current: {} as HTMLDivElement },
     markTarget: null,
-    naturalEarthUrl: '/data/atlas/ne-50m-admin-0.geojson',
+    naturalEarthUrl: '/data/atlas/ne-50m-admin-0.borders.bin',
     onReset: () => undefined,
     onUnavailable,
     reducedMotion: false,

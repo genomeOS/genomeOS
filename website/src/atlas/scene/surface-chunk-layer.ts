@@ -236,7 +236,7 @@ export function createSurfaceChunkGroup(
       usesVertexColorGamma(options.geometry),
     );
     appearances.push(appearance);
-    // The viewer is not scene3DOnly, so Primitive runs splitLongitude on every
+    // The scene is not scene3DOnly, so Primitive runs splitLongitude on every
     // chunk. Past its early exit, Cesium replaces the worker sphere (which
     // covers the fully raised cells) with one over the unraised positions, so
     // culling against it would drop raised cells near the limb or the frustum
