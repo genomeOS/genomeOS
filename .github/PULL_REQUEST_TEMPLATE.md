@@ -84,6 +84,21 @@ committed in this PR. CI fails if it is stale.
      measured observations as one layer, always show where there is no data rather than leaving it
      blank, and check the colour ramp reads low-to-high without the legend. -->
 
+## For website figure changes only
+
+<!-- Any figure on the marketing site or in the docs that draws data, a surface or a mechanism
+     (site redesign spec §6.2, #454). Check each box per figure, or delete this section. -->
+
+- [ ] Measured and modeled use different marks and separate legend entries.
+- [ ] No value is drawn where support is `unknown`.
+- [ ] A 95% range is visible or one interaction away, and in the table.
+- [ ] Observations are counts (AC of AN); zero is an interval.
+- [ ] Display resolution ≤ artifact resolution.
+- [ ] Status words match the Project status rail; future work is violet dashed.
+- [ ] Numbers come from pinned data (provenance in the footnote) or are a labelled worked example.
+- [ ] No status colour or gold inside a data ramp.
+- [ ] The reduced-motion state is the most informative state.
+
 ## Scope
 
 - [ ] I did not widen scope silently. Real problems found outside this task were filed as issues,
