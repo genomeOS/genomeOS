@@ -135,7 +135,7 @@ jobs:
       - name: Build the deployed site
         run: npm run build:deployed
       - name: Run the marketing performance budgets
-        run: npm run test:performance:marketing -- --trace retain-on-failure
+        run: npm run test:performance:marketing
       - name: Upload Playwright traces
         if: failure()
         uses: actions/upload-artifact@v4
