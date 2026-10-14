@@ -4,9 +4,10 @@
  * MetricIcon). Three totals from the pinned corpus revision (src/data/corpusMetrics.ts), each with
  * what it is made of: a hairline composition bar (segments at least 2 px, 1 px gaps, labels
  * outside the bar) for variants and people, two labelled glyphs for diseases. The people total adds
- * its sources together, so its bar ends in a hatch cap: "not deduplicated". The collapsed
- * definition and its revision hash are unchanged. Final values are in the HTML; count-up.ts only
- * animates toward them.
+ * its sources together, so its bar ends in a hatch cap: "not deduplicated". Each source keeps one
+ * tone in every tile (HbS light, AFND grey, G6PD faint). The collapsed definition and its revision
+ * hash are unchanged. Final values are in the HTML; count-up.ts only animates the visible digits,
+ * which are aria-hidden: assistive technology reads the final value beside them, never a zero.
  */
 import Figure from '../kit/Figure.astro';
 import { corpusMetrics, metricTotal } from '../../data/corpusMetrics';
@@ -15,7 +16,13 @@ const { variants, people } = corpusMetrics;
 const millions = (value: number) => `${(value / 1e6).toFixed(2)}M`;
 const int = (value: number) => value.toLocaleString('en-US');
 
+type Source = 'hbs' | 'afnd' | 'g6pd';
+
+/** One tone per source, the same in every tile. */
+const TONE: Record<Source, 1 | 2 | 3> = { hbs: 1, afnd: 2, g6pd: 3 };
+
 interface Part {
+  source: Source;
   short: string;
   name: string;
   value: number;
@@ -39,6 +46,7 @@ const tiles: {
     label: 'Genetic variants & alleles',
     parts: [
       {
+        source: 'afnd',
         short: 'AFND',
         name: 'AFND allele identifiers',
         value: variants.components.afndAlleleIdentifiersAfterCurrentFilters,
@@ -47,6 +55,7 @@ const tiles: {
         ),
       },
       {
+        source: 'hbs',
         short: 'HbS',
         name: 'HbS variant (rs334)',
         value: variants.components.hbsVariant,
@@ -62,18 +71,21 @@ const tiles: {
     label: 'People represented',
     parts: [
       {
+        source: 'hbs',
         short: 'HbS',
         name: 'HbS-typed participants',
         value: people.components.hbsTypedParticipants,
         shown: millions(people.components.hbsTypedParticipants),
       },
       {
+        source: 'afnd',
         short: 'AFND',
         name: 'AFND population records',
         value: people.components.afndPopulationRecords,
         shown: millions(people.components.afndPopulationRecords),
       },
       {
+        source: 'g6pd',
         short: 'G6PD',
         name: 'G6PD-tested hemizygous males',
         value: people.components.g6pdHemizygousMaleParticipants,
@@ -100,15 +112,18 @@ const diseases = metricTotal(corpusMetrics.diseases);
             value={tile.total}
             data-count-to={tile.total}
             data-count-format={tile.format}
+            aria-hidden="true"
           >
             {tile.shown}
           </data>
+          <span class="visually-hidden">{tile.shown}</span>
           <h3>{tile.label}</h3>
           <div class="eb-bar" aria-hidden="true">
-            {tile.parts.map((part, index) => (
+            {tile.parts.map((part) => (
               <span
                 class="eb-bar__segment"
-                data-tone={index + 1}
+                data-source={part.source}
+                data-tone={TONE[part.source]}
                 style={`flex-grow: ${part.value}`}
                 title={`${part.name}: ${int(part.value)}`}
               />
@@ -121,9 +136,13 @@ const diseases = metricTotal(corpusMetrics.diseases);
             )}
           </div>
           <ul class="eb-parts" aria-hidden="true">
-            {tile.parts.map((part, index) => (
+            {tile.parts.map((part) => (
               <li title={part.name}>
-                <i class="eb-swatch" data-tone={index + 1} />
+                <i
+                  class="eb-swatch"
+                  data-source={part.source}
+                  data-tone={TONE[part.source]}
+                />
                 {part.short} {part.shown}
               </li>
             ))}
@@ -146,9 +165,13 @@ const diseases = metricTotal(corpusMetrics.diseases);
       ))
     }
     <div class="metric" data-metric-kind="diseases">
-      <data value={diseases} data-count-to={diseases} data-count-format="int"
-        >{int(diseases)}</data
+      <data
+        value={diseases}
+        data-count-to={diseases}
+        data-count-format="int"
+        aria-hidden="true">{int(diseases)}</data
       >
+      <span class="visually-hidden">{int(diseases)}</span>
       <h3>Diseases represented</h3>
       <ul class="eb-diseases">
         <li>

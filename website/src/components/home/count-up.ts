@@ -1,7 +1,8 @@
 /** The evidence base's entrance (site redesign spec §4.1 H4, §2.7; #454): the three totals count
  * up over 900 ms while their composition bars grow (CSS, home.css), then rest on the values the
  * server already rendered. Tabular numerals keep every digit the same width, so nothing reflows.
- * Reduced motion, or a figure already on screen after 1.2 s, shows the final values at once.
+ * Reduced motion, or a figure already on screen after 1.2 s, shows the final values at once. The
+ * animated digits are for sight only (EvidenceBase.astro gives each total its final text too).
  *
  * Also home to `steadyEntrance`, which Home's frame-drawn entrances (this one and the hero globe)
  * share.
@@ -70,6 +71,8 @@ export function formatCount(value: number, format: CountFormat): string {
     : Math.round(value).toLocaleString('en-US');
 }
 
+/** Counts the visible digits up. They are aria-hidden: the final values sit beside them, visually
+ * hidden, so a screen reader that arrives before the entrance never reads a zero. */
 export function initCountUp(figure: HTMLElement): void {
   const numbers = [
     ...figure.querySelectorAll<HTMLElement>('[data-count-to]'),

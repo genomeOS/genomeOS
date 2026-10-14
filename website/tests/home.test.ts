@@ -216,6 +216,46 @@ describe('homepage figures', () => {
   it('keeps repository part codes out of the raw HTML (text, ids, classes, labels)', () => {
     expect(main).not.toMatch(/\bP[0-5]\b/);
   });
+
+  it('gives assistive technology each corpus total, whatever the count-up shows', () => {
+    const metrics = section(/<section\b[^>]*\bid="metrics"/);
+    const totals = [
+      ...metrics.matchAll(
+        /<data\b([^>]*)>([^<]*)<\/data>\s*<span class="visually-hidden">([^<]*)<\/span>/g,
+      ),
+    ];
+    expect(totals.map((match) => match[3])).toEqual(['4,392', '6.69M', '2']);
+    for (const [, attributes, shown, spoken] of totals) {
+      // The animated digits are for sight only; the final value is what is read.
+      expect(attributes).toContain('aria-hidden="true"');
+      expect(attributes).toContain('data-count-to');
+      expect(shown).toBe(spoken);
+    }
+  });
+
+  it('colours each corpus source the same way in every tile', () => {
+    const metrics = section(/<section\b[^>]*\bid="metrics"/);
+    const marks = [
+      ...metrics.matchAll(
+        /<(?:span|i)\b[^>]*class="eb-(?:bar__segment|swatch)"[^>]*>/g,
+      ),
+    ].map(([tag]) => ({
+      source: tag.match(/data-source="([^"]+)"/)?.[1],
+      tone: tag.match(/data-tone="([^"]+)"/)?.[1],
+    }));
+    // Two bars and their two keys: 2 + 3 segments, 2 + 3 swatches.
+    expect(marks).toHaveLength(10);
+    const tones = new Map<string, Set<string>>();
+    for (const { source, tone } of marks) {
+      expect(source).toBeDefined();
+      expect(tone).toBeDefined();
+      tones.set(source!, (tones.get(source!) ?? new Set()).add(tone!));
+    }
+    expect([...tones.keys()].sort()).toEqual(['afnd', 'g6pd', 'hbs']);
+    for (const set of tones.values()) expect(set.size).toBe(1);
+    // AFND and HbS appear in both tiles; G6PD only among people.
+    expect(new Set([...tones.values()].map((set) => [...set][0])).size).toBe(3);
+  });
 });
 
 describe('hero globe logic', () => {
