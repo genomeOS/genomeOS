@@ -8,7 +8,8 @@
  *   .layout-figure-split   text 4/12 (kicker, H2, lede, legend) · figure 8/12
  *   .layout-wide-figure    head row, then a 12-column figure
  *   .card-row              three equal columns split by hairlines
- *   .link-row              github-cta cards in 2–4 columns (navigation only); --four: 1, 2 × 2, 4
+ *   .link-row              github-cta cards in 2–4 columns (navigation only); --four: 1, 2 × 2, 4;
+ *                          --three: 1, then 3
  */
 
 .band {
@@ -67,6 +68,18 @@
 @media (min-width: 80rem) {
   .link-row--four {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* Three cards never break 2 + 1 (design review, round 3): one column, then one row of three from
+   56rem, where each card keeps its line to two lines. */
+.link-row--three {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 56rem) {
+  .link-row--three {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

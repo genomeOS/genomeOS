@@ -68,6 +68,30 @@ test('the routes back are three cards, to Home, Contribute and Docs', async ({
   await expect(cards.first()).toHaveAccessibleName('Home The globe.');
 });
 
+// Design review, round 3: from 700 to 900 px the three cards broke 2 + 1, with one card alone in
+// a second row. They are one column, then one row of three from 56rem.
+test('the three routes back are one column, then one row, never 2 + 1 @desktop-chromium', async ({
+  page,
+}) => {
+  for (const width of [390, 640, 700, 800, 895, 896, 900, 1000, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/404.html');
+    const rows = await page
+      .getByRole('navigation', { name: 'Ways back' })
+      .getByRole('link')
+      .evaluateAll((links) => {
+        const tops = links.map((link) =>
+          Math.round(link.getBoundingClientRect().top),
+        );
+        return [...new Set(tops)].map(
+          (top) => tops.filter((other) => other === top).length,
+        );
+      });
+    // An em in a media query is the 16 px initial size, so 56rem is 896 px.
+    expect(rows, `${width} px`).toEqual(width >= 896 ? [3] : [1, 1, 1]);
+  }
+});
+
 test('the intro is the shared PageIntro, split, with the No estimate cell as its figure', async ({
   page,
 }) => {
