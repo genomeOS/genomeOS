@@ -1,0 +1,11 @@
+---
+/**
+ * Dark docs, always (site redesign spec §1.5, #454). Starlight's provider follows the OS, which
+ * rendered the docs light on a light OS while the site is dark-only. Inlined so the theme is set
+ * before first paint.
+ */
+---
+
+<script is:inline>
+  document.documentElement.dataset.theme = 'dark';
+</script>

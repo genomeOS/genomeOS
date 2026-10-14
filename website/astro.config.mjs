@@ -34,7 +34,11 @@ export default defineConfig({
       components: {
         EditLink: './src/components/starlight/EditLink.astro',
         Footer: './src/components/starlight/Footer.astro',
+        // #454: the site's lockup, nav and Atlas link around Starlight's search, and dark only.
+        Header: './src/components/starlight/Header.astro',
         SocialIcons: './src/components/starlight/SocialIcons.astro',
+        ThemeProvider: './src/components/starlight/ThemeProvider.astro',
+        ThemeSelect: './src/components/starlight/ThemeSelect.astro',
       },
       customCss: [
         '@fontsource-variable/figtree',
@@ -81,21 +85,24 @@ export default defineConfig({
       ],
       sidebar: [
         {
+          // #454: the site nav for docs readers below 72rem, where the header hides it. No
+          // "genomeOS" in a label: every visible genomeOS is set in the wordmark type.
           label: 'Explore the project',
           items: [
-            { label: 'Project home', link: '/' },
-            { label: 'Application preview', link: '/app/' },
-            { label: 'Working groups', link: '/working-groups/' },
+            { label: 'Home', link: '/' },
+            { label: 'Atlas', link: '/app/' },
+            { label: 'Project', link: '/project/' },
             { label: 'Contribute', link: '/contribute/' },
           ],
         },
         {
-          label: 'Technical docs',
+          label: 'Docs',
           items: [{ autogenerate: { directory: 'docs' } }],
         },
       ],
     }),
-    sitemap(),
+    // /working-groups/ only redirects to /contribute/#working-groups (#454, spec §1.4).
+    sitemap({ filter: (page) => !page.includes('/working-groups/') }),
   ],
   vite: {
     envDir: '..',

@@ -1,16 +1,12 @@
 ---
 import GitHubLink from './GitHubLink.astro';
+import { PRIMARY_NAV } from '../data/nav';
 import { sitePath } from '../lib/paths';
 import { FAVICON_SVG } from '../lib/favicons';
 
 const path = Astro.url.pathname;
 const isAtlasPage = path === sitePath('/app/');
-const links = [
-  { label: 'Project', href: '/project/' },
-  { label: 'Working groups', href: '/working-groups/' },
-  { label: 'Contribute', href: '/contribute/' },
-  { label: 'Technical docs', href: '/docs/' },
-];
+const links = PRIMARY_NAV;
 
 const isCurrent = (href: string) =>
   path === sitePath(href) || path.startsWith(sitePath(href));

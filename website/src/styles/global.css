@@ -250,10 +250,10 @@ svg {
 
 /*
  * The nav never shrinks, so its labels keep to one line and GitHub's text to
- * Technical docs' line. In a tight row something else gives way: the lockup
- * on most pages (above), and on the Atlas the status chip, whose copy
- * ellipsizes. With GitHub in the nav, the Atlas row's loading messages
- * otherwise wrapped Working groups and Technical docs, up to ~1259 px.
+ * Docs' line. In a tight row something else gives way: the lockup on most
+ * pages (above), and on the Atlas the status chip, whose copy ellipsizes. With
+ * GitHub in the nav, the Atlas row's loading messages once wrapped the nav's
+ * two-word labels (before #454 shortened them), up to ~1259 px.
  */
 .site-header__inner > .desktop-nav {
   flex-shrink: 0;
@@ -747,8 +747,8 @@ svg {
  * desktop nav left the lockup 156 px wide at 1025 px (FOUNDATION 4.6 px, and
  * smaller than the compact logo); at 1153 px it is 264 px. The Atlas follows
  * the same line: beside its status chip, the SVG wordmark (31 px wider than
- * the old text one) wrapped "Working groups" and "Technical docs" onto two
- * lines up to 1058 px.
+ * the old text one) wrapped the nav's two-word labels (before #454 shortened
+ * them) onto two lines up to 1058 px.
  */
 @media (max-width: 72rem) {
   .desktop-nav {

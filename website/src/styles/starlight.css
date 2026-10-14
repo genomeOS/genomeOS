@@ -1,3 +1,4 @@
+/* The docs are dark only, like the site (#454): ThemeProvider.astro pins data-theme="dark". */
 :root,
 :root[data-theme='dark'] {
   --sl-font: 'Figtree Variable', 'Avenir Next', sans-serif;
@@ -24,24 +25,6 @@
   --sl-text-body: var(--sl-text-base);
   --sl-text-body-sm: var(--sl-text-sm);
   --sl-text-h1: clamp(2.6rem, 6vw, 4.8rem);
-}
-
-:root[data-theme='light'] {
-  --sl-color-accent-low: #d7f7ff;
-  --sl-color-accent: #176b84;
-  --sl-color-accent-high: #062f49;
-  --sl-color-white: #071831;
-  --sl-color-gray-1: #102a48;
-  --sl-color-gray-2: #304c6b;
-  --sl-color-gray-3: #526d8a;
-  --sl-color-gray-4: #91a8c4;
-  --sl-color-gray-5: #d8e5f3;
-  --sl-color-gray-6: #eaf3fb;
-  --sl-color-black: #f7fbff;
-  --sl-color-bg: #f7fbff;
-  --sl-color-bg-nav: rgb(247 251 255 / 94%);
-  --sl-color-bg-sidebar: #eef6fd;
-  --sl-color-hairline: rgb(7 24 49 / 16%);
 }
 
 html {

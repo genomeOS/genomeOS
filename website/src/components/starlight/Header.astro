@@ -1,0 +1,162 @@
+---
+/**
+ * The docs header (site redesign spec §1.5, #454): the site's own lockup, nav and Atlas link around
+ * Starlight's search, so the docs read as part of the site. The nav (Project · Contribute · Docs ·
+ * GitHub, Docs current) shows from 72rem; below that the sidebar's "Explore the project" group
+ * carries the same links. The Atlas link is a quiet outline: the aurora pill stays the site's.
+ */
+import Search from '@astrojs/starlight/components/Search.astro';
+
+import GitHubLink from '../GitHubLink.astro';
+import EncodingStyle from '../kit/EncodingStyle.astro';
+import { PRIMARY_NAV } from '../../data/nav';
+import { sitePath } from '../../lib/paths';
+---
+
+<div class="docs-header">
+  <a class="docs-header__home" href={sitePath('/')}>
+    <img
+      class="docs-header__lockup"
+      src={sitePath('/brand/genomeos-lockup-dark.svg')}
+      width="1395"
+      height="300"
+      alt="genomeOS Foundation"
+      decoding="async"
+    />
+  </a>
+  <div class="docs-header__search print:hidden">
+    <Search />
+  </div>
+  <nav class="docs-header__nav print:hidden" aria-label="Primary navigation">
+    <ul>
+      {
+        PRIMARY_NAV.map(({ label, href }) => (
+          <li>
+            <a
+              href={sitePath(href)}
+              aria-current={href === '/docs/' ? 'page' : undefined}
+            >
+              {label}
+            </a>
+          </li>
+        ))
+      }
+      <li class="docs-header__github"><GitHubLink /></li>
+    </ul>
+  </nav>
+  <a class="docs-header__atlas print:hidden" href={sitePath('/app/')}>
+    <span class="brand-name">genomeOS</span> Atlas
+  </a>
+</div>
+<EncodingStyle />
+
+<style>
+  @layer starlight.core {
+    .docs-header {
+      display: flex;
+      align-items: center;
+      gap: var(--sl-nav-gap);
+      height: 100%;
+    }
+
+    .docs-header__home {
+      flex: none;
+      display: flex;
+      align-items: center;
+      min-width: 0;
+    }
+
+    .docs-header__lockup {
+      width: auto;
+      height: 2rem;
+    }
+
+    .docs-header__search {
+      display: flex;
+      flex: 1 1 auto;
+      justify-content: flex-start;
+      min-width: 0;
+    }
+
+    .docs-header__nav {
+      display: none;
+    }
+
+    .docs-header__nav ul {
+      display: flex;
+      align-items: center;
+      gap: 1.4rem;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .docs-header__nav a {
+      color: var(--sl-color-gray-2);
+      font-size: var(--sl-text-sm);
+      font-weight: 560;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .docs-header__nav a:hover,
+    .docs-header__nav a[aria-current='page'] {
+      color: var(--sl-color-white);
+    }
+
+    .docs-header__nav a[aria-current='page'] {
+      box-shadow: inset 0 -2px 0 var(--sl-color-accent);
+    }
+
+    .docs-header__nav :global(.github-link) {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .docs-header__nav :global(.github-link svg) {
+      width: 1rem;
+      height: 1rem;
+      fill: currentColor;
+    }
+
+    .docs-header__atlas {
+      display: none;
+      flex: none;
+      align-items: center;
+      min-height: 2.5rem;
+      padding: 0.35rem 0.95rem;
+      border: 1px solid rgb(112 230 255 / 42%);
+      border-radius: 999px;
+      color: var(--sl-color-white);
+      font-size: var(--sl-text-sm);
+      font-weight: 650;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .docs-header__atlas:hover {
+      border-color: var(--sl-color-accent);
+    }
+
+    .docs-header__atlas .brand-name {
+      margin-right: 0.3em;
+    }
+
+    @media (min-width: 50em) {
+      .docs-header__lockup {
+        height: 2.4rem;
+      }
+
+      .docs-header__atlas {
+        display: inline-flex;
+      }
+    }
+
+    @media (min-width: 72em) {
+      .docs-header__nav {
+        display: block;
+      }
+    }
+  }
+</style>
