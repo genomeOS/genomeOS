@@ -2,11 +2,15 @@
  * The figure contract (site redesign spec §2.3–§2.6, §8, §9.2; #454), at 1440×900 and 390×844, for
  * every page whose manifest enforces it:
  *
- * - each [data-concept] section holds exactly one figure[data-graphic], with a figcaption and an
+ * - the page has as many [data-concept] sections as its manifest says (so leaving `data-concept`
+ *   off cannot pass), and each holds exactly one figure[data-graphic], with a figcaption and an
  *   accessible name or a "View as table" twin;
  * - figure chrome (controls, legends, readouts) overlaps neither other chrome, nor the stage it
  *   describes, nor the fixed header, nor the cookie control corner;
- * - every figure label renders at 13 px or more; nothing in <main> is set in a monospace face;
+ * - every figure label renders at 13 px or more, at the project's width and at the other widths a
+ *   layout can switch at (320–375 px phones; 1024–1920 px desktops, where a figure in a narrower
+ *   column than the page, such as the Docs content, must still pick a layout that fits it);
+ *   nothing in <main> is set in a monospace face;
  * - no wordmark inside a call to action; one selected tab and one pressed segment per group;
  * - chip and step rows keep inside the 16 px phone gutters, and control labels never overflow;
  * - the lead figure opens above the fold (Project, Contribute, Privacy), and the hero stage is in
@@ -28,6 +32,7 @@ const VIEWPORTS = [
     width: 1440,
     height: 900,
     fold: 640,
+    otherWidths: [1024, 1280, 1920],
   },
   {
     name: 'phone',
@@ -35,12 +40,14 @@ const VIEWPORTS = [
     width: 390,
     height: 844,
     fold: 700,
+    otherWidths: [320, 360, 375],
   },
 ] as const;
 
-function concepts(): string[] {
+function concepts(): { count: number; failures: string[] } {
   const failures: string[] = [];
-  document.querySelectorAll('[data-concept]').forEach((section, index) => {
+  const sections = document.querySelectorAll('[data-concept]');
+  sections.forEach((section, index) => {
     const label = section.id || `concept ${index + 1}`;
     const figures = section.querySelectorAll('figure[data-graphic]');
     if (figures.length !== 1) {
@@ -60,10 +67,11 @@ function concepts(): string[] {
       figure.querySelector(':scope > details > summary');
     if (!named) failures.push(`${label}: the stage has no name or table twin`);
   });
-  return failures;
+  return { count: sections.length, failures };
 }
 
-function typeAndControls(): string[] {
+/** Figure text under 13 px: SVG labels at their rendered scale, and HTML text in figures. */
+function smallLabels(): string[] {
   const failures: string[] = [];
   const main = document.querySelector('main')!;
   const visible = (element: Element) =>
@@ -95,6 +103,15 @@ function typeAndControls(): string[] {
         );
     }
   }
+  return failures;
+}
+
+function typeAndControls(): string[] {
+  const failures: string[] = [];
+  const main = document.querySelector('main')!;
+  const visible = (element: Element) =>
+    element.checkVisibility({ visibilityProperty: true }) &&
+    !element.closest('.visually-hidden, .sr-only, [hidden]');
   for (const element of main.querySelectorAll<HTMLElement>('*')) {
     const own = [...element.childNodes].some(
       (node) => node.nodeType === Node.TEXT_NODE && node.nodeValue?.trim(),
@@ -300,7 +317,10 @@ for (const viewport of VIEWPORTS)
       test(`${manifest.route} keeps the figure contract`, async ({ page }) => {
         await page.emulateMedia({ reducedMotion: 'reduce' });
         await openManifestPage(page, manifest);
-        expect(await page.evaluate(concepts), 'concept sections').toEqual([]);
+        const sections = await page.evaluate(concepts);
+        expect(sections.count, 'concept sections').toBe(manifest.concepts);
+        expect(sections.failures, 'concept sections').toEqual([]);
+        expect(await page.evaluate(smallLabels), 'figure labels').toEqual([]);
         expect(
           await page.evaluate(typeAndControls),
           'type and controls',
@@ -309,5 +329,18 @@ for (const viewport of VIEWPORTS)
         if (viewport.name === 'phone')
           expect(await gutters(page), '16 px gutters').toEqual([]);
         await fold(page, manifest, viewport);
+        for (const width of viewport.otherWidths) {
+          await page.setViewportSize({ width, height: viewport.height });
+          await page.evaluate(
+            () =>
+              new Promise((resolve) =>
+                requestAnimationFrame(() => requestAnimationFrame(resolve)),
+              ),
+          );
+          expect(
+            await page.evaluate(smallLabels),
+            `figure labels at ${width} px`,
+          ).toEqual([]);
+        }
       });
   });

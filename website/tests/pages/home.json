@@ -3,6 +3,7 @@
   "words": 425,
   "wordsEnforced": false,
   "conceptsEnforced": false,
+  "concepts": 7,
   "jsKbGz": 24,
   "dataKbGz": 60,
   "transferKbGz": 300,

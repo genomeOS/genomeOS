@@ -3,6 +3,7 @@
   "words": 200,
   "wordsEnforced": false,
   "conceptsEnforced": false,
+  "concepts": 1,
   "wordsExclude": "table",
   "jsKbGz": null,
   "dataKbGz": 0,

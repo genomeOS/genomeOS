@@ -16,6 +16,10 @@ export interface PageManifest {
   wordsEnforced: boolean;
   /** Every [data-concept] holds one figure, and the figure contract holds (spec §9.2). */
   conceptsEnforced: boolean;
+  /** How many [data-concept] sections the page has (spec §10: Home 7, Project 6, Contribute 2,
+   * Privacy 1, 404 1, Docs 1; the redirect page none). figures.spec checks the count, so a page
+   * cannot pass the contract by leaving `data-concept` off its sections. */
+  concepts: number;
   /** Selector whose words the budget leaves out (the Docs P-code table). */
   wordsExclude?: string;
   /** The page only redirects here: the suites read it with the redirect held. */
@@ -38,6 +42,7 @@ const KEYS = new Set([
   'words',
   'wordsEnforced',
   'conceptsEnforced',
+  'concepts',
   'wordsExclude',
   'redirect',
   'leadFigure',
@@ -61,11 +66,14 @@ function load(file: string): PageManifest {
     'words',
     'wordsEnforced',
     'conceptsEnforced',
+    'concepts',
     'cls',
   ])
     if (!(key in raw)) throw new Error(`${file}: missing "${key}"`);
   if (typeof raw.route !== 'string' || !raw.route.startsWith('/'))
     throw new Error(`${file}: route must be a site path`);
+  if (!Number.isInteger(raw.concepts) || (raw.concepts as number) < 0)
+    throw new Error(`${file}: concepts must be a whole number`);
   return { name: file.replace(/\.json$/, ''), ...raw } as PageManifest;
 }
 
