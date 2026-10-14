@@ -748,11 +748,16 @@ scene (when import resolves) ── observations → chunk scheduler (B.6.7) →
    - **Shape.** A ring spreads from the wave's origin to the horizon. Each cell grows from its own
      centre, scaled from nothing to full size at its own height, and fades in while the ring
      passes over it. Smooth modes (`triangles`, `honmoon`, `honmoon-fill`) fade per vertex
-     instead, a radial fade. The ring's leading edge eases out (cubic) over `REVEAL_WAVE_MS`
-     (800 ms, the one tunable constant) to the horizon plus one ring width (20% of the angle
-     covered), so every visible cell is grown when the time is up; the far side then finishes at
-     once. When the globe fills the view, the wave runs only to the farthest point of the view's
-     edge. Cells lifted by elevation that show past the horizon are included.
+     instead, a radial fade. The ring is timed on screen (amended 2026-10-14): its on-screen
+     radius grows at one speed from the origin to the limb plus one ring width (20% of the
+     on-screen distance covered), easing out only over the last fifth of `REVEAL_WAVE_MS` (1 s,
+     the one tunable constant), so every visible cell is grown when the time is up; the far side
+     then finishes at once. Each frame turns the ring's on-screen edge and width back into angles
+     through the globe's perspective, for a camera at its actual distance from the origin; the
+     map frame (2D and Columbus view) uses the angle itself. When the globe fills the view, the
+     wave runs only to the farthest point of the view's edge. Cells lifted by elevation that show
+     past the horizon are included: past the limb the ring carries on as the projection's mirror
+     image about the horizon, and what it has not reached finishes with the wave.
    - **Origin.** Where the camera's view ray meets the ellipsoid (with a frustum offset, the centre
      of the open area), else the point below the camera. In 2D and Columbus view it is the
      camera's ellipsoid pick at the canvas centre.
@@ -777,7 +782,10 @@ scene (when import resolves) ── observations → chunk scheduler (B.6.7) →
      otherwise swallow most of it, so the ring would freeze and then pop to the end. The wave ends
      at the frame where the ring has passed the horizon. The User Timing measure `atlas:reveal-wave`
      spans the two in wall-clock time, and the cold-load harness reports it. `data-atlas-wave` on
-     `.atlas-explorer` reads `pending` until the scene's first wave, then `running` or `done`.
+     `.atlas-explorer` reads `pending` until the scene's first wave, then `running` or `done`. A
+     cold reveal whose stream ends with no chunk added (a surface with no supported cell) starts no
+     wave, so it reads `done` when the stream ends (amended 2026-10-14); otherwise anything waiting
+     for `done` would wait for ever.
    - **Overlays.** The support masks grow and fade with the surface, cell by cell. Cell outlines
      cannot follow on the GPU: the buffer polyline shader is fixed, and following ring by ring would
      mean per-cell buffer writes. They are therefore held hidden while a wave runs, and they are
@@ -795,6 +803,16 @@ scene (when import resolves) ── observations → chunk scheduler (B.6.7) →
    - **Tests.** E2E builds alone may hold the wave at a progress (`window.__atlasRevealWaveHold`,
      enabled by `PUBLIC_ATLAS_E2E_HOOKS=1`, which only `npm run build:e2e` may set), so browser
      tests can sample a frame mid-wave.)
+
+   (Amended 2026-10-14 for #453, after review: the timing in **Shape** and the zero-chunk rule in
+   **Clock**. Before, the leading edge eased out (cubic) in angle over 800 ms. The globe's
+   projection squeezes the outer angles into a thin rim: from the home view the outer half of the
+   angle to the horizon draws in the outer quarter of the disc's radius. The ring therefore stood
+   at 0.59, 0.84 and 0.98 of the disc's radius at 0.1, 0.2 and 0.4 s, and was visible as a ring
+   for only about 0.1–0.15 s. Timed on screen over 1 s it stands at 0.09, 0.22, 0.50, 0.75 and 0.97
+   at 0.1, 0.2, 0.4, 0.6 and 0.8 s. These are held frames of the default cold load on a 1440 × 900
+   desktop; a 390 × 844 phone and the `hexagons` mode measure the same within 0.06. The cold
+   reveal also used to leave `data-atlas-wave` at `pending` for ever when it had no chunk.)
 8. **Reveal vs swap.** Progressive reveal (observations as soon as the scene and observations exist;
    then chunks with their masked cells) applies **only when no scientific layer is displayed**: the
    cold initial load, or a scene recreated by "Retry globe". Whenever a scientific layer is displayed,
