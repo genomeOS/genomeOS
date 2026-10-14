@@ -122,8 +122,16 @@ export type StudSize = 'sm' | 'md' | 'lg';
 
 /** Studs are sized by alleles tested (AN): < 200, 200–1,999, ≥ 2,000. */
 export const STUD_AN_STEPS = [200, 2000] as const;
-/** Stud radii in CSS px, before the 1.5 px void ring. */
+/** Stud radii in CSS px: the white disc, inside its void ring. */
 export const STUD_RADIUS: Record<StudSize, number> = { sm: 2, md: 3, lg: 4.25 };
+/** Every stud's separating ring: this many px of void around the white disc (spec §2.2). */
+export const STUD_RING = 1.5;
+/**
+ * The order the canvas and the poster paint studs in: one size class at a time, small to large,
+ * all of a class's void rings before its white discs. Surveys at one place then read as the
+ * largest white stud, and studs of one size merge instead of ringing each other.
+ */
+export const STUD_PAINT_ORDER: readonly StudSize[] = ['sm', 'md', 'lg'];
 
 export function studSize(an: number): StudSize {
   if (an < STUD_AN_STEPS[0]) return 'sm';

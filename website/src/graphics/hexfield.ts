@@ -8,7 +8,8 @@
  *   surface  modeled: VSUP by evidence tier; evidence: tier colour  (encoding.ts)
  *   hatch    `unknown` areas on every layer: no number             (--enc-hatch)
  *   prior    `prior_dominated` areas: dots, where an artifact has them
- *   studs    measured surveys, white with a void ring, sized by AN, drawn last
+ *   studs    measured surveys, white with a void ring, sized by AN, drawn last (small to large,
+ *            like the poster: a shared place reads as its best-sampled survey's stud)
  *
  * A stud is never coloured by the surface ramp and never morphs into a cell. The canvas draws no
  * text; labels and readouts are HTML or SVG over it. Back faces and offscreen areas are culled,
@@ -18,11 +19,14 @@
 
 import {
   ENC,
+  STUD_PAINT_ORDER,
   STUD_RADIUS,
+  STUD_RING,
   evidenceColor,
   priorColors,
   studSize,
   vsupColor,
+  type StudSize,
 } from './encoding';
 import type { Area, Survey } from './figure-data';
 import { spherePoint, type Projection, type SpherePoint } from './projection';
@@ -100,7 +104,7 @@ interface AreaGeometry {
 interface SurveyGeometry {
   survey: Survey;
   point: SpherePoint;
-  radius: number;
+  size: StudSize;
   order: number;
 }
 
@@ -157,24 +161,22 @@ export class HexField {
       order:
         area.support === 'unknown' ? 1 : Math.min(1, area.distanceKm / reach),
     }));
-    // Surveys land west to east with a seeded jitter; big studs first so small ones stay on top.
+    // Surveys land west to east with a seeded jitter.
     const random = mulberry32();
     const lons = options.surveys.map((survey) => survey.lon);
     const [west, east] = [Math.min(...lons), Math.max(...lons)];
-    this.surveys = options.surveys
-      .map((survey) => ({
-        survey,
-        point: spherePoint(survey.lon, survey.lat),
-        radius: STUD_RADIUS[studSize(survey.an)],
-        order: Math.min(
-          1,
-          Math.max(
-            0,
-            (survey.lon - west) / (east - west || 1) + (random() - 0.5) * 0.12,
-          ),
+    this.surveys = options.surveys.map((survey) => ({
+      survey,
+      point: spherePoint(survey.lon, survey.lat),
+      size: studSize(survey.an),
+      order: Math.min(
+        1,
+        Math.max(
+          0,
+          (survey.lon - west) / (east - west || 1) + (random() - 0.5) * 0.12,
         ),
-      }))
-      .sort((a, b) => b.survey.an - a.survey.an);
+      ),
+    }));
     this.resize();
   }
 
@@ -425,9 +427,15 @@ export class HexField {
       g.stroke();
     }
 
-    // Pass 5: measured surveys, always on top, always the same mark.
+    // Pass 5: measured surveys, always on top, always the same mark: a white disc on a void disc
+    // STUD_RING wider (the glyph and the poster draw it the same way). One size class at a time,
+    // small to large, rings before discs: surveys at one place read as the largest white stud,
+    // and studs of one size merge instead of ringing each other.
     this.visibleSurveys = [];
-    const ringWidth = 1.5;
+    const marks: Record<
+      StudSize,
+      { x: number; y: number; r: number; alpha: number }[]
+    > = { sm: [], md: [], lg: [] };
     for (const geometry of this.surveys) {
       const [x, y, cosc] = projection.projectPoint(geometry.point);
       if (cosc < (projection.kind === 'orthographic' ? 0.05 : -0.9)) continue;
@@ -436,15 +444,22 @@ export class HexField {
       const alpha = this.alphaFor(geometry.order, this.reveal.studs, 0.25);
       if (alpha <= 0) continue;
       this.visibleSurveys.push({ geometry, x, y });
-      g.globalAlpha = alpha;
-      g.beginPath();
-      g.arc(x, y, geometry.radius * (0.4 + 0.6 * alpha), 0, Math.PI * 2);
-      g.fillStyle = ENC.obs;
-      g.fill();
-      g.strokeStyle = OCEAN[1];
-      g.lineWidth = ringWidth;
-      g.stroke();
+      const r = STUD_RADIUS[geometry.size] * (0.4 + 0.6 * alpha);
+      marks[geometry.size].push({ x, y, r, alpha });
     }
+    for (const size of STUD_PAINT_ORDER)
+      for (const [fill, grow] of [
+        [OCEAN[1], STUD_RING],
+        [ENC.obs, 0],
+      ] as const) {
+        g.fillStyle = fill;
+        for (const { x, y, r, alpha } of marks[size]) {
+          g.globalAlpha = alpha;
+          g.beginPath();
+          g.arc(x, y, r + grow, 0, Math.PI * 2);
+          g.fill();
+        }
+      }
     g.globalAlpha = 1;
     for (const hit of [this.pinned, this.hover]) {
       if (hit?.type !== 'surveys') continue;

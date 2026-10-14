@@ -426,7 +426,9 @@ function posterSvg() {
     if (!bins.has(fill)) bins.set(fill, []);
     bins.get(fill).push(d);
   }
-  const studs = { sm: [], md: [], lg: [] };
+  const studs = Object.fromEntries(
+    encoding.STUD_PAINT_ORDER.map((size) => [size, []]),
+  );
   for (const survey of decodedSurveys) {
     const [x, y, cosc] = restProjection.project(survey.lon, survey.lat);
     if (cosc < 0.05) continue;
@@ -444,7 +446,7 @@ function posterSvg() {
     return d;
   };
   const c = POSTER.size / 2;
-  const { ENC, STUD_RADIUS } = encoding;
+  const { ENC, STUD_RADIUS, STUD_RING } = encoding;
   const fills = [...bins.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([fill, paths]) => `<path fill="${fill}" d="${paths.join('')}"/>`)
@@ -454,12 +456,14 @@ function posterSvg() {
     .filter(([, points]) => points.length > 0)
     .map(([size, points]) => `<path id="s${size}" d="${dotPath(points)}"/>`)
     .join('');
+  // The canvas's stud pass, as strokes: a round cap on a zero-length segment is a disc as wide as
+  // the stroke. Small to large, each size's void rings before its white discs (STUD_PAINT_ORDER).
   const studUses = Object.entries(studs)
     .filter(([, points]) => points.length > 0)
     .map(([size]) => {
       const radius = STUD_RADIUS[size];
       return (
-        `<use href="#s${size}" stroke="#020712" stroke-width="${radius * 2 + 3}"/>` +
+        `<use href="#s${size}" stroke="#020712" stroke-width="${2 * (radius + STUD_RING)}"/>` +
         `<use href="#s${size}" stroke="${ENC.obs}" stroke-width="${radius * 2}"/>`
       );
     })

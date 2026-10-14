@@ -15,7 +15,12 @@ import {
   decodeSurveys,
   type Area,
 } from '../src/graphics/figure-data';
-import { ENC, vsupColor } from '../src/graphics/encoding';
+import {
+  ENC,
+  STUD_RADIUS,
+  STUD_RING,
+  vsupColor,
+} from '../src/graphics/encoding';
 
 const website = path.resolve(import.meta.dirname, '..');
 const figures = path.join(website, 'src/data/figures');
@@ -178,6 +183,30 @@ describe('committed figure data', () => {
     const x = Number(stroke![1]);
     expect(x - width / 2).toBeGreaterThanOrEqual(0);
     expect(x + width / 2).toBeLessThanOrEqual(ENC.hatchPitch);
+  });
+
+  it('draws studs like the canvas: small to large, each size a void ring 1.5 px out, then white', () => {
+    const svg = file('poster').toString('utf8');
+    expect(svg).toMatch(/<g fill="none" stroke-linecap="round">/);
+    const uses = [
+      ...svg.matchAll(
+        /<use href="#s(sm|md|lg)" stroke="([^"]+)" stroke-width="([^"]+)"\/>/g,
+      ),
+    ].map(([, size, stroke, width]) => ({
+      size,
+      stroke,
+      width: Number(width),
+    }));
+    const sizes = ['sm', 'md', 'lg'] as const;
+    const present = sizes.filter((size) => svg.includes(`id="s${size}"`));
+    expect(present.length).toBeGreaterThan(1);
+    // A round cap on a zero-length segment is a disc whose diameter is the stroke width.
+    expect(uses).toEqual(
+      present.flatMap((size) => [
+        { size, stroke: '#020712', width: 2 * (STUD_RADIUS[size] + STUD_RING) },
+        { size, stroke: ENC.obs, width: 2 * STUD_RADIUS[size] },
+      ]),
+    );
   });
 
   it('stays inside the transfer budgets', () => {

@@ -2,6 +2,7 @@
  * as one sprite per page. Each entry is [width, height] in px at its natural size and an SVG body.
  */
 import { ENC, STUD_RADIUS } from '../../graphics/encoding';
+import { studSvg } from './svg';
 
 export const GLYPHS = {
   'stud-sm': [16, 16],
@@ -33,7 +34,6 @@ const hex = (cx: number, cy: number, r: number) =>
     const a = (Math.PI / 3) * k;
     return `${k ? 'L' : 'M'}${(cx + r * Math.cos(a)).toFixed(2)} ${(cy + r * Math.sin(a)).toFixed(2)}`;
   }).join('') + 'Z';
-const ring = 1.5;
 // 45° hatch strokes on the figures' pitch: lines x + y = c, c stepping pitch × √2, across the hexagon.
 const hatchStrokes = () =>
   [-2, -1, 0, 1, 2]
@@ -42,8 +42,8 @@ const hatchStrokes = () =>
       return `M${(c + 2).toFixed(2)} -2L${(c - 20).toFixed(2)} 20`;
     })
     .join('');
-const stud = (r: number) =>
-  `<circle cx="8" cy="8" r="${r}" fill="var(--enc-obs)" stroke="var(--enc-obs-ring)" stroke-width="${ring}" paint-order="stroke"/>`;
+// The canvas's and the poster's stud: a white disc on a 1.5 px void ring.
+const stud = (r: number, centre = 8) => studSvg(centre, centre, r);
 const wedge = () => {
   const rows = [ENC.mean, ENC.meanPartial, [ENC.meanWeak]];
   const width = 60;
@@ -64,7 +64,7 @@ export const GLYPH_SYMBOLS: Record<GlyphName, string> = {
   'stud-sm': stud(STUD_RADIUS.sm),
   'stud-md': stud(STUD_RADIUS.md),
   'stud-lg': stud(STUD_RADIUS.lg),
-  'stud-radius': `<circle cx="9" cy="9" r="7.5" fill="none" stroke="var(--enc-obs-radius)" stroke-dasharray="2 2"/>${stud(STUD_RADIUS.md).replace(/cx="8" cy="8"/, 'cx="9" cy="9"')}`,
+  'stud-radius': `<circle cx="9" cy="9" r="7.5" fill="none" stroke="var(--enc-obs-radius)" stroke-dasharray="2 2"/>${stud(STUD_RADIUS.md, 9)}`,
   hex: `<path d="${hex(9, 9, 8)}" fill="var(--enc-mean-4)"/>`,
   'vsup-wedge': wedge(),
   'hex-land': `<path d="${hex(9, 9, 8)}" fill="var(--enc-land)" stroke="rgb(165 185 211 / 35%)" stroke-width=".8"/>`,

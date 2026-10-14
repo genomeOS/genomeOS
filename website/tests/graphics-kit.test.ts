@@ -1,8 +1,9 @@
 /**
  * The figure kit's pure modules (site redesign spec §3, #454): Jeffreys intervals, the seeded
- * generator, projections, easing, frame probing, and the figure-data round trip.
+ * generator, projections, easing, frame probing, the figure-data round trip, and the marks the
+ * canvas and the legend glyphs share.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   decodeAreas,
@@ -11,9 +12,9 @@ import {
   encodeSurveys,
   NO_VALUE,
 } from '../src/graphics/figure-data';
-import { FrameProbe, contains } from '../src/graphics/hexfield';
+import { FrameProbe, HexField, contains } from '../src/graphics/hexfield';
 import { GLYPH_SYMBOLS } from '../src/components/kit/glyphs';
-import { ENC } from '../src/graphics/encoding';
+import { ENC, STUD_RADIUS, STUD_RING } from '../src/graphics/encoding';
 import { jeffreys } from '../src/graphics/jeffreys';
 import {
   fitEqualArea,
@@ -276,4 +277,184 @@ describe("the legend hatch glyph is the figures' hatch (spec §2.2, §2.6)", () 
     expect(offsets[0]).toBeLessThanOrEqual(7.1);
     expect(offsets.at(-1)).toBeGreaterThanOrEqual(28.9);
   });
+});
+
+/**
+ * A 2D context that records what each fill and stroke covers (circles only: the stud pass draws
+ * arcs), and a point sampler that says which paint ends up on top at a CSS-pixel point.
+ */
+function recordingCanvas(width: number, height: number) {
+  type Paint = {
+    kind: 'fill' | 'stroke';
+    style: string;
+    lineWidth: number;
+    alpha: number;
+    circles: [number, number, number][];
+  };
+  const paints: Paint[] = [];
+  let circles: Paint['circles'] = [];
+  const state: Record<string | symbol, unknown> = {
+    fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 1,
+    globalAlpha: 1,
+  };
+  const record = (kind: Paint['kind']) => () =>
+    paints.push({
+      kind,
+      style: String(kind === 'fill' ? state.fillStyle : state.strokeStyle),
+      lineWidth: Number(state.lineWidth),
+      alpha: Number(state.globalAlpha),
+      circles: [...circles],
+    });
+  const methods: Record<string, (...args: number[]) => unknown> = {
+    beginPath: () => {
+      circles = [];
+    },
+    arc: (x, y, r) => {
+      circles.push([x, y, r]);
+    },
+    fill: record('fill'),
+    stroke: record('stroke'),
+  };
+  const ctx = new Proxy(state, {
+    get: (target, key) =>
+      key in target ? target[key] : (methods[key as string] ?? (() => {})),
+    set: (target, key, value) => {
+      target[key] = value;
+      return true;
+    },
+  });
+  const canvas = {
+    clientWidth: width,
+    clientHeight: height,
+    width: 0,
+    height: 0,
+    getContext: () => ctx,
+  } as unknown as HTMLCanvasElement;
+  /** The paint on top at (x, y), or 'none'. */
+  const top = (x: number, y: number): string => {
+    let colour = 'none';
+    for (const paint of paints) {
+      if (paint.alpha <= 0) continue;
+      const hit = paint.circles.some(([cx, cy, r]) => {
+        const d = Math.hypot(x - cx, y - cy);
+        return paint.kind === 'fill'
+          ? d <= r
+          : Math.abs(d - r) <= paint.lineWidth / 2;
+      });
+      if (hit) colour = paint.style;
+    }
+    return colour;
+  };
+  return { canvas, top };
+}
+
+describe('measured studs: a white disc on a 1.5 px void ring, like the poster and the glyph (spec §2.2, §2.6)', () => {
+  const VOID = '#020712';
+  const CENTRE: [number, number] = [100, 100];
+  const survey = (lon: number, an: number) => ({
+    lat: 0,
+    lon,
+    ac: 0,
+    an,
+    radiusKm: 10,
+  });
+  /** The longitude that lands `px` CSS pixels east of the centre on a 100 px globe. */
+  const east = (px: number) => (Math.asin(px / 100) * 180) / Math.PI;
+  const draw = (surveys: ReturnType<typeof survey>[]) => {
+    const { canvas, top } = recordingCanvas(200, 200);
+    new HexField(canvas, {
+      areas: [],
+      surveys,
+      projection: orthographic({
+        center: [0, 0],
+        scale: 100,
+        translate: CENTRE,
+      }),
+      fit: (_width, _height, projection) => {
+        projection.scale = 100;
+        projection.translate = CENTRE;
+      },
+      domain: [0, 0.2],
+    });
+    return (dx: number, dy = 0) => top(CENTRE[0] + dx, CENTRE[1] + dy);
+  };
+  const angles = Array.from({ length: 8 }, (_, k) => (k * Math.PI) / 4);
+
+  beforeEach(() => {
+    // The hatch pattern needs a scratch canvas; these tests draw no hatched area.
+    vi.stubGlobal('document', {
+      createElement: () => ({ getContext: () => null }),
+    });
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('draws one stud as a white disc of its radius, then 1.5 px of void ring', () => {
+    expect(STUD_RING).toBe(1.5);
+    const at = draw([survey(0, 500)]);
+    const r = STUD_RADIUS.md;
+    for (const angle of angles) {
+      const point = (d: number) => at(d * Math.cos(angle), d * Math.sin(angle));
+      for (const d of [0, 1, r - 0.6, r - 0.05])
+        expect(point(d), `${d} px`).toBe(ENC.obs);
+      for (const d of [r + 0.05, r + 0.75, r + STUD_RING - 0.05])
+        expect(point(d), `${d} px`).toBe(VOID);
+      expect(point(r + STUD_RING + 0.05)).toBe('none');
+    }
+  });
+
+  it('shows surveys at one place as the largest white stud, never a dark disc with a dot', () => {
+    // Three surveys share a coordinate (93 places do in the committed data): the best-sampled one
+    // must read as a whole white stud (design review, fix round 2).
+    const at = draw([survey(0, 50), survey(0, 500), survey(0, 5000)]);
+    const r = STUD_RADIUS.lg;
+    for (const angle of angles)
+      for (let d = 0; d <= r - 0.05; d += 0.25)
+        expect(
+          at(d * Math.cos(angle), d * Math.sin(angle)),
+          `${d.toFixed(2)} px from the shared place`,
+        ).toBe(ENC.obs);
+    expect(at(r + 0.75)).toBe(VOID);
+  });
+
+  it('lets studs of one size merge instead of ringing each other', () => {
+    // Two 200–1,999-allele surveys 4 px apart: one white mark inside one ring, as on the poster.
+    const at = draw([survey(0, 500), survey(east(4), 600)]);
+    const r = STUD_RADIUS.md;
+    for (let x = -r + 0.05; x <= 4 + r - 0.05; x += 0.25)
+      expect(at(x), `${x.toFixed(2)} px`).toBe(ENC.obs);
+  });
+
+  it('paints a bigger stud over a smaller neighbour, both still white', () => {
+    // Small to large, as the poster draws them: the large stud's ring cuts the small one, never
+    // the other way round.
+    const at = draw([survey(0, 5000), survey(east(5), 50)]);
+    expect(at(0)).toBe(ENC.obs);
+    expect(at(5 + STUD_RADIUS.sm - 0.2)).toBe(ENC.obs);
+    expect(at(STUD_RADIUS.lg - 0.2)).toBe(ENC.obs);
+  });
+
+  it.each(['sm', 'md', 'lg'] as const)(
+    'the legend glyph stud-%s is the same mark',
+    (size) => {
+      const circles = [
+        ...GLYPH_SYMBOLS[`stud-${size}`].matchAll(/<circle([^>]*)\/>/g),
+      ].map(([, attributes]) => ({
+        r: Number(attributes.match(/\br="([^"]+)"/)?.[1]),
+        fill: attributes.match(/\bfill="([^"]+)"/)?.[1],
+        stroke: attributes.match(/\bstroke="([^"]+)"/)?.[1],
+      }));
+      expect(circles).toEqual([
+        {
+          r: STUD_RADIUS[size] + STUD_RING,
+          fill: 'var(--enc-obs-ring)',
+          stroke: undefined,
+        },
+        { r: STUD_RADIUS[size], fill: 'var(--enc-obs)', stroke: undefined },
+      ]);
+    },
+  );
 });

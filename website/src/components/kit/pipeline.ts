@@ -16,6 +16,7 @@ import {
 import { ENC } from '../../graphics/encoding';
 import { FigureController, prefersReducedMotion } from '../../graphics/figure';
 import { easeCamera } from '../../graphics/tween';
+import { studSvg } from './svg';
 
 const SPEED = 0.34; // viewBox units per ms
 const START = 250; // the first packet leaves once the first edges have drawn in
@@ -33,7 +34,7 @@ const hexPath = (r: number) =>
   }).join('') + 'Z';
 const PACKET: Record<string, string> = {
   square: `<rect x="-3" y="-3" width="6" height="6" fill="#a5b9d3"/>`,
-  stud: `<circle r="4.2" fill="${ENC.obs}" stroke="#020712" stroke-width="1.4"/>`,
+  stud: studSvg(0, 0, 3.5, { obs: ENC.obs, ring: '#020712' }),
   hex: `<path d="${hexPath(5.4)}" fill="${ENC.mean[4]}" stroke="#020712" stroke-width="1"/>`,
 };
 
