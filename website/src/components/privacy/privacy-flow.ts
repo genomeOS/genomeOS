@@ -14,9 +14,12 @@
  *   the first paint (a module script runs too late for that). It repeats `resolveConsent`'s rule,
  *   as the head bootstrap in `ga.mjs` does, and `tests/privacy-flow.test.ts` checks it against
  *   `resolveConsent` for every input, so the two cannot drift.
- * - `initPrivacyFlow` then reads the state through consent.ts, and again whenever the cookie
- *   control renders a change (it rewrites `data-consent` on its root each time), another tab
- *   changes the choice, or the page returns from the back-forward cache.
+ * - `initPrivacyFlow` then mirrors the page's cookie control, which decides through consent.ts
+ *   too: it redraws whenever the control renders (it rewrites `data-consent` on its root each
+ *   time). The control keeps the page's choice, and the consent it gave gtag, in memory, so the
+ *   gate follows the control rather than storage: a choice made in another tab, or stored while
+ *   the page sat in the back-forward cache, changes neither until the page reloads, and a choice
+ *   the browser refused to store still counts on this page.
  * - CSS draws each state from the figure's `data-gate`. A change the visitor makes takes
  *   `--dur-ui` (240 ms), or no time under reduced motion; the transitions only exist once the
  *   figure is `data-live`, which the first such change sets, so nothing can move on load.
@@ -111,19 +114,45 @@ function localStorageOf(view: Window): Storage | null {
   }
 }
 
-/** Keep the figure's gate in step with the visitor's choice. */
+/** What the cookie control has drawn: its root's `data-consent`, and whether it is asking. */
+export interface ControlView {
+  /** `granted` or `denied` once the control has rendered; absent before. */
+  consent: string | null | undefined;
+  /** Its Accept/Decline prompt is shown: an undecided visitor in an opt-in time zone. */
+  prompting: boolean;
+}
+
+/** The gate for the state the cookie control shows, or null before it has drawn one. */
+export function controlGate({
+  consent,
+  prompting,
+}: ControlView): GateState | null {
+  if (consent === 'granted') return 'open';
+  if (consent !== 'denied') return null;
+  return prompting ? 'pending' : 'closed';
+}
+
+/** Keep the figure's gate in step with the page's cookie control. */
 export function initPrivacyFlow(doc: Document = document): void {
   const view = doc.defaultView;
   const figure = doc.querySelector<HTMLElement>('[data-privacy-flow]');
   if (!view || !figure || figure.dataset.gate === 'removed') return;
+  const control = doc.querySelector<HTMLElement>('[data-cookie-control]');
+  const prompt = control?.querySelector<HTMLElement>('[data-cookie-prompt]');
 
   /** Redraw the gate; `animate` only for a change the visitor makes while the page is open. */
   const update = (animate: boolean) => {
-    const gate = readGate({
-      storage: localStorageOf(view),
-      navigator: view.navigator,
-      timeZone: browserTimeZone(),
-    });
+    const gate =
+      controlGate({
+        consent: control?.dataset.consent,
+        prompting: prompt ? !prompt.hidden : false,
+      }) ??
+      // Before the control's first render: the same decision, from the same inputs.
+      readGate({
+        storage: localStorageOf(view),
+        navigator: view.navigator,
+        timeZone: browserTimeZone(),
+      });
     if (figure.dataset.gate === gate) return;
     if (animate && !figure.hasAttribute('data-live')) {
       // The gate's transitions apply only to a live figure, so nothing can move on load. Commit
@@ -133,16 +162,13 @@ export function initPrivacyFlow(doc: Document = document): void {
     }
     figure.dataset.gate = gate;
   };
-  const change = () => update(true);
 
   update(false);
-  // The cookie control re-renders, and rewrites `data-consent`, on every change of choice.
-  const control = doc.querySelector('[data-cookie-control]');
+  // The cookie control re-renders, and rewrites `data-consent`, on every change of choice (and
+  // whenever its panel opens, which changes nothing here).
   if (control)
-    new MutationObserver(change).observe(control, {
+    new MutationObserver(() => update(true)).observe(control, {
       attributes: true,
       attributeFilter: ['data-consent'],
     });
-  view.addEventListener('storage', change);
-  view.addEventListener('pageshow', () => update(false));
 }

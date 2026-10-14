@@ -92,6 +92,24 @@ function toggleAndMeasure(page: Page): Promise<number[]> {
   });
 }
 
+/**
+ * What this page's cookie control holds (its switch, and the consent it applies to gtag) beside
+ * the gate the figure draws: the figure must never claim a state the page is not in.
+ */
+function controlAndGate(page: Page) {
+  return page.evaluate(() => ({
+    consent: document
+      .querySelector('[data-cookie-control]')
+      ?.getAttribute('data-consent'),
+    switchOn: document
+      .querySelector('[data-cookie-panel] [data-cookie-switch]')
+      ?.getAttribute('aria-checked'),
+    gate: document
+      .querySelector('[data-privacy-flow]')
+      ?.getAttribute('data-gate'),
+  }));
+}
+
 async function seriousAxeViolations(page: Page): Promise<unknown[]> {
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
@@ -205,6 +223,83 @@ test.describe('outside the opt-in regions', () => {
     await expect(figure(page)).toHaveAttribute('data-gate', 'open');
     await expect(gate(page, 'On')).toBeVisible();
     expect(await page.evaluate(() => window.__samePage)).toBe(true);
+  });
+
+  test("the gate keeps to this page's cookie control when another tab changes the choice", async ({
+    page,
+    context,
+  }) => {
+    await page.goto('/privacy/');
+    await waitForCookieControl(page);
+    const other = await context.newPage();
+    await other.goto('/privacy/');
+    await waitForCookieControl(other);
+
+    // Listen on this page before the other tab writes, to know when its storage event is in.
+    const delivered = page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          window.addEventListener('storage', () => resolve(), { once: true }),
+        ),
+    );
+    await other
+      .locator('main')
+      .getByRole('button', { name: 'Cookie settings' })
+      .click();
+    await analyticsSwitch(other).click();
+    await expect(figure(other)).toHaveAttribute('data-gate', 'closed');
+    await delivered;
+
+    // This page still holds On, and so does its gtag, until it reloads: the gate says On.
+    expect(await controlAndGate(page)).toEqual({
+      consent: 'granted',
+      switchOn: 'true',
+      gate: 'open',
+    });
+    await expect(gate(page, 'On')).toBeVisible();
+
+    // Opening this page's own panel redraws the control; the gate stays with it.
+    await page
+      .locator('main')
+      .getByRole('button', { name: 'Cookie settings' })
+      .click();
+    await expect(cookiePanel(page)).toBeVisible();
+    expect(await controlAndGate(page)).toEqual({
+      consent: 'granted',
+      switchOn: 'true',
+      gate: 'open',
+    });
+
+    // A change made here moves both together.
+    await analyticsSwitch(page).click();
+    await expect(figure(page)).toHaveAttribute('data-gate', 'closed');
+    expect(await controlAndGate(page)).toEqual({
+      consent: 'denied',
+      switchOn: 'false',
+      gate: 'closed',
+    });
+    await other.close();
+  });
+
+  test('the gate keeps to the cookie control when the page returns from the back-forward cache', async ({
+    page,
+  }) => {
+    await page.goto('/privacy/');
+    await waitForCookieControl(page);
+    // Another page stored Off while this one sat in the back-forward cache; this page's control
+    // still holds On when it is shown again.
+    await page.evaluate((key) => {
+      window.localStorage.setItem(key, 'denied');
+      window.dispatchEvent(
+        new PageTransitionEvent('pageshow', { persisted: true }),
+      );
+    }, STORAGE_KEY);
+    expect(await controlAndGate(page)).toEqual({
+      consent: 'granted',
+      switchOn: 'true',
+      gate: 'open',
+    });
+    await expect(gate(page, 'On')).toBeVisible();
   });
 
   test('Global Privacy Control closes the gate', async ({ page }) => {
@@ -347,5 +442,31 @@ test.describe('in an opt-in time zone', () => {
     await cookiePanel(page).getByRole('button', { name: 'Accept' }).click();
     await expect(figure(page)).toHaveAttribute('data-gate', 'open');
     await expect(gate(page, 'On')).toBeVisible();
+  });
+
+  test('with storage blocked, the gate follows the choice the cookie control keeps for the page', async ({
+    page,
+  }) => {
+    // The browser refuses storage, so the control keeps the choice in memory for this page.
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'localStorage', {
+        configurable: true,
+        get() {
+          throw new DOMException('The operation is insecure.', 'SecurityError');
+        },
+      });
+    });
+    await page.goto('/privacy/');
+    await waitForCookieControl(page);
+    await expect(gate(page, 'Not chosen yet')).toBeVisible();
+
+    await cookiePanel(page).getByRole('button', { name: 'Accept' }).click();
+    await expect(figure(page)).toHaveAttribute('data-gate', 'open');
+    await expect(gate(page, 'On')).toBeVisible();
+    expect(await controlAndGate(page)).toEqual({
+      consent: 'granted',
+      switchOn: 'true',
+      gate: 'open',
+    });
   });
 });

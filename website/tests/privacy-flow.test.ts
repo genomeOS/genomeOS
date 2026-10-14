@@ -15,6 +15,7 @@ import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 
 import {
+  controlGate,
   gatePaintScript,
   gateState,
   readGate,
@@ -99,6 +100,29 @@ describe('the consent gate follows consent.ts', () => {
     expect(readGate({ storage: null, navigator: {}, timeZone: BERLIN })).toBe(
       'pending',
     );
+  });
+});
+
+describe('once the cookie control has drawn a state, the gate mirrors it', () => {
+  // The control keeps the page's choice (and its gtag consent) in memory, so the gate follows
+  // what the control shows, not storage: storage can be blocked, or changed by another tab.
+  it('is open when the control shows analytics on', () => {
+    expect(controlGate({ consent: 'granted', prompting: false })).toBe('open');
+  });
+
+  it('is closed when the control shows analytics off', () => {
+    expect(controlGate({ consent: 'denied', prompting: false })).toBe('closed');
+  });
+
+  it('waits, closed, while the control asks for a first choice', () => {
+    expect(controlGate({ consent: 'denied', prompting: true })).toBe('pending');
+  });
+
+  it('defers to consent.ts before the control has drawn anything', () => {
+    expect(controlGate({ consent: undefined, prompting: false })).toBeNull();
+    expect(controlGate({ consent: null, prompting: false })).toBeNull();
+    expect(controlGate({ consent: '', prompting: true })).toBeNull();
+    expect(controlGate({ consent: 'yes', prompting: false })).toBeNull();
   });
 });
 
