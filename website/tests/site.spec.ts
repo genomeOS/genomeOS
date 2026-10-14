@@ -3587,6 +3587,59 @@ test.describe(
       detail.release();
     });
 
+    for (const [geometry, elevation] of [
+      ['triangles', 'false'],
+      ['extruded', 'true'],
+    ] as const) {
+      test(`from 8,000 km the ${geometry} surface${elevation === 'true' ? ' at elevation' : ''} picks the cell drawn under the pointer`, async ({
+        page,
+      }) => {
+        test.setTimeout(120_000);
+        const detail = await delayArtifactTier(
+          page,
+          'hbs-rs334',
+          'detail',
+          Number.POSITIVE_INFINITY,
+        );
+        // From orbit the fixture's cells are a small patch, so a pick pass culled around the
+        // unshifted ray (thousands of km east of the pointer) would miss them; elevation reads
+        // depth through the translucent pick pass.
+        const cell = latLngToCell(40.4407, -3.7201, 4);
+        const [lat, lon] = cellToLatLng(cell);
+        const query = new URLSearchParams({
+          elevation,
+          exaggeration: '3',
+          geometry,
+          heading: '0',
+          height: '8000000',
+          lat: String(lat),
+          layers: 'surface,support,context,countries',
+          lon: String(lon),
+          pitch: '-90',
+          samplingAreas: 'false',
+        });
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+        await page.goto(`/app/?${query}`);
+        await expect(page.locator('[data-atlas-ready="true"]')).toBeVisible({
+          timeout: 45_000,
+        });
+        const target = await globeViewCentre(page);
+        await page.mouse.move(target.x, target.y);
+        await expect(page.locator('.atlas-hover-preview')).toContainText(
+          `Cell ${cell}`,
+        );
+        await page.mouse.click(target.x, target.y);
+        await expect(
+          page
+            .getByRole('complementary', { name: 'Selected map cell' })
+            .locator('dt', { hasText: 'Cell ID' })
+            .locator('..')
+            .locator('dd'),
+        ).toHaveText(cell);
+        detail.release();
+      });
+    }
+
     test('wheel zoom keeps the ground under the cursor there, as on a centred globe', async ({
       page,
     }) => {
