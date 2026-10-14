@@ -104,6 +104,25 @@ def test_url_path_segments_are_not_home_directories(text):
     assert personal_paths(text) == []
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "import HeroGlobe from '../components/home/HeroGlobe.astro';",
+        "import { initCounts } from '../components/home/counts';",
+        "vi.mock('../src/components/home/hero-globe');",
+        "see src/components/Users/List.tsx",
+        "cp ./home/notes.txt out/",
+    ],
+)
+def test_a_project_folder_named_home_is_not_a_home_directory(text):
+    """A relative path through a folder called `home` or `Users` names project code, not a machine.
+
+    The site's Home-page components live in `src/components/home/` (#454), and the gate read every
+    import of them as a home directory. A home directory is absolute, so its slash starts the path.
+    """
+    assert personal_paths(text) == []
+
+
 def test_a_real_path_is_still_reported_when_a_url_appears_on_the_same_line():
     """The URL exemption must be scoped to the URL, not to the whole line.
 

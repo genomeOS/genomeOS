@@ -32,9 +32,14 @@ SECRET_PATTERNS = {
 #
 # Windows first, so a drive-qualified path is reported at full length rather than as the
 # `/Users/x` nested inside it.
+#
+# A home directory is absolute: `/home/x` starts at the filesystem root, so its slash is never
+# preceded by a path segment. `../components/home/Hero.astro` names a project folder that happens
+# to be called `home`, and reading it as a user called "Hero.astro" would block ordinary source
+# code (the site's Home-page components live in `src/components/home/`, #454).
 PERSONAL_PATH_PATTERNS = (
     re.compile(r"""[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s"'`)\]]+"""),
-    re.compile(r"""/(?:Users|home)/+[^/\s"'`)\]]+"""),
+    re.compile(r"""(?<![\w.\-])/(?:Users|home)/+[^/\s"'`)\]]+"""),
 )
 
 # Names that identify a role, a placeholder, or a CI runner rather than a person. `runner` is
