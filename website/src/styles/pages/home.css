@@ -1,8 +1,9 @@
 /*
  * Home (site redesign spec §4.1, §2.3–§2.7; #454). Imported by src/pages/index.astro only, so every
- * rule here is Home's own. Sections: page type and calls to action · hero layout · the evidence
- * globe (.hg) · counts not guesses (.cf) · the evidence base (.eb) · applications (.apps, .ag) ·
- * the vision strip (.vs) · built in the open (.of) · reduced motion, print, forced colours.
+ * rule here is Home's own. Sections: page type and calls to action · the hero film (.hero-media) ·
+ * the genomeOS Atlas preview (.home-atlas, the toy globe .hg) · counts not guesses (.cf) · the
+ * evidence base (.eb) · applications (.apps, .ag) · the vision strip (.vs) · built in the open
+ * (.of) · reduced motion, print, forced colours.
  *
  * Entrances arm only on screen (`@media screen`) and key on FigureController's
  * data-figure-state (armed → playing → rest), so print and reduced motion show the final state.
@@ -69,7 +70,7 @@
   color: var(--color-starlight);
 }
 
-/* ------------------------------------------------------------------------------ hero layout */
+/* -------------------------------------------------------------------------------- the hero */
 
 /* Home's six bands sit at the band token's own minimum (4rem) at every width. At its full desktop
    value (7rem) their padding alone costs 1.6 screens at 1440×900 against Home's ≤ 6-screen target
@@ -78,50 +79,97 @@
   --band-pad: 4rem;
 }
 
+/*
+ * The hero film (round 2, ruling R2-1; HeroMedia.astro): the frame fills the first view under the
+ * landing bar, the text over it. Wide screens set the text on the left, beside the globe the film
+ * keeps on the right, over a scrim from the left; tall screens set it at the bottom, under the
+ * globe, over a scrim from the bottom. Each scrim keeps the text at 4.5:1 or more over the film's
+ * brightest frame (measured; see the redesign's hero build report).
+ */
 .home-hero {
   position: relative;
-  padding-block: clamp(1.25rem, 3vw, 2.25rem) clamp(3rem, 6vw, 4rem);
-  overflow-x: clip;
 }
 
-/* The one soft glow on the site, behind the globe (spec §2.4). */
-.home-hero::before {
-  content: '';
+.hero-media {
+  --hero-position: var(--hero-position-wide);
+
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  min-height: calc(100svh - var(--site-header-height) - 1px);
+  overflow: clip;
+  background: var(--color-void);
+}
+
+.hero-media__backdrop {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  transform-origin: 68% 42%;
+}
+
+.hero-media__backdrop :is(picture, img, video) {
   position: absolute;
   inset: 0;
-  pointer-events: none;
-  background: radial-gradient(
-    46rem 34rem at 68% 44%,
-    rgb(39 169 208 / 9%),
-    transparent 70%
-  );
-}
-
-/* Read and tabbed in one order at every width: kicker and H1, lede and calls to action, then the
-   figure (WCAG 2.4.3; the DOM is in this order too). */
-.home-hero__grid {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: 'head' 'body' 'figure';
-  row-gap: 1.6rem;
-}
-
-.home-hero__head {
-  grid-area: head;
-}
-
-/* Stacked, the figure shares the text's left edge (its tag under the kicker) up to 46rem wide. */
-.home-hero__figure {
-  grid-area: figure;
-  justify-self: start;
+  display: block;
   width: 100%;
-  max-width: 46rem;
-  min-width: 0;
+  max-width: none;
+  height: 100%;
+  object-fit: cover;
+  object-position: var(--hero-position);
 }
 
-.home-hero__body {
-  grid-area: body;
+/* The film fades in over the poster once its first frame is up, and stays while paused. */
+.hero-media__video {
+  opacity: 0;
+  transition: opacity 900ms var(--ease-figure);
+}
+
+.hero-media[data-video-frame]:is([data-video='playing'], [data-video='paused'])
+  .hero-media__video {
+  opacity: 1;
+}
+
+/* The frame's lower edge melts into the page. */
+.hero-media__scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, var(--color-void) 0, rgb(2 7 18 / 0%) 16%);
+}
+
+.hero-media__content {
+  display: grid;
+  align-items: center;
+  padding-block: clamp(2.5rem, 8vh, 5rem) clamp(5rem, 12vh, 7rem);
+}
+
+.home-hero__text {
+  position: relative;
+  max-width: 33rem;
+}
+
+/*
+ * The scrim follows the text, not the frame, so it covers the text however the text wraps: on a
+ * wide screen a band from the left edge that stays dark under the text and clears 14rem past its
+ * end; on a tall one (below) a fade from 7rem above the kicker down to the frame's bottom. Its
+ * stops hold every line at 4.5:1 or more over the film's brightest frame (measured every 0.5 s of
+ * the loop at nine sizes; see the redesign's hero build report). It sits behind the text and over
+ * the film (z-index -1 in the hero's isolated stack, after the backdrop).
+ */
+.home-hero__text::before {
+  position: absolute;
+  z-index: -1;
+  inset: -100vh -14rem -100vh -100vw;
+  background: linear-gradient(
+    90deg,
+    rgb(2 7 18 / 80%) 0,
+    rgb(2 7 18 / 74%) calc(100% - 24rem),
+    rgb(2 7 18 / 52%) calc(100% - 14rem),
+    rgb(2 7 18 / 16%) calc(100% - 6rem),
+    rgb(2 7 18 / 0%) 100%
+  );
+  content: '';
+  pointer-events: none;
 }
 
 .home-hero h1 {
@@ -136,8 +184,8 @@
 }
 
 .home-hero__lede {
-  max-width: 38ch;
-  margin: 0;
+  max-width: 34ch;
+  margin: 1.5rem 0 0;
   color: var(--color-text-soft);
   font-size: var(--type-lede);
   line-height: 1.5;
@@ -147,23 +195,113 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
-  margin-top: 1.5rem;
+  margin-top: 1.75rem;
 }
 
-/* A phone (design review, round 2): the page is visual-first, so the text above the globe is kept
-   tight. The two calls to action share one row of equal halves wherever each label fits in 9rem
-   (from about a 375 px screen), and stack as two equal, full-width buttons below that, never as a
-   ragged pair; the gaps from the H1 to the lede, the lede to the buttons and the buttons to the
-   figure are tightened. At 390 × 844 most of the disc shows in the first view. */
+/* The film's Pause/Play control: the site's square control style, quiet over the frame. Wide
+   screens put it at the bottom of the text's column, tall ones at the top right, over the globe
+   (WCAG 2.2.2). It never sits over the text or in the cookie control's corner. */
+.hero-media__toggle {
+  position: absolute;
+  bottom: clamp(1rem, 3vh, 1.75rem);
+  left: max(var(--space-page), (100% - var(--content-width)) / 2);
+  min-width: 44px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0.45rem 0.85rem 0.45rem 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid rgb(242 248 255 / 30%);
+  background: rgb(2 7 18 / 62%);
+  color: var(--color-starlight);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 620;
+  line-height: 1;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition:
+    border-color var(--dur-micro) var(--ease-ui),
+    background-color var(--dur-micro) var(--ease-ui);
+}
+
+.hero-media__toggle[hidden] {
+  display: none;
+}
+
+.hero-media__toggle:hover {
+  border-color: var(--color-starlight);
+  background: rgb(2 7 18 / 82%);
+}
+
+.hero-media__toggle svg,
+.hg-spin svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex: none;
+  fill: currentColor;
+}
+
+:is(.hero-media__toggle, .hg-spin):not([data-state='paused'])
+  :is(.hero-media__icon-play, .hg-spin__play),
+:is(.hero-media__toggle, .hg-spin)[data-state='paused']
+  :is(.hero-media__icon-pause, .hg-spin__pause) {
+  display: none;
+}
+
+/* Tall screens (a phone, a tablet in portrait): the globe in the upper part of the frame, the text
+   under it at the bottom, over a scrim from the bottom. The text ends 4.5rem above the screen's
+   edge, so the cookie control's corner (spec §2.4) never covers a call to action (#419). */
+@media (orientation: portrait) {
+  .hero-media {
+    --hero-position: var(--hero-position-tall);
+  }
+
+  .hero-media__content {
+    align-items: end;
+    padding-block: min(5rem, 12svh) 4.5rem;
+  }
+
+  .home-hero__text::before {
+    inset: -7rem -100vw -4.5rem;
+    background: linear-gradient(
+      180deg,
+      rgb(2 7 18 / 0%) 0,
+      rgb(2 7 18 / 46%) 4rem,
+      rgb(2 7 18 / 74%) 7rem,
+      rgb(2 7 18 / 86%) 60%,
+      var(--color-void) 100%
+    );
+  }
+
+  .hero-media__toggle {
+    top: 0.9rem;
+    right: var(--space-page);
+    bottom: auto;
+    left: auto;
+  }
+}
+
+/* A phone (design review, round 2): the two calls to action share one row of equal halves wherever
+   each label fits in 8.5rem (from a 360 px screen), and stack as two equal, full-width buttons
+   below that, never as a ragged pair. The heading steps down a little on a phone, to two lines,
+   so the globe keeps the top of the frame and a 320 × 640 screen still shows the calls to action
+   clear of the cookie control's corner. */
 @media (max-width: 26rem) {
-  .home-hero__grid {
-    row-gap: 1.2rem;
+  .home-hero h1 {
+    font-size: clamp(2rem, 11.2vw, 2.6rem);
+    max-width: 14ch;
+  }
+
+  .home-hero__lede {
+    margin-top: 1.1rem;
   }
 
   .home-hero__actions {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-    margin-top: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+    margin-top: 1.25rem;
   }
 
   .home-hero__actions .button-link {
@@ -172,71 +310,78 @@
   }
 }
 
-/* A tablet in portrait (design review, round 3): the stacked figure fills the lower part of the
-   first view, so its lower-right corner (a callout, the readout) landed in the bottom-right 4.5rem
-   the cookie control owns (spec §2.4) at 768 × 1024 and 820 × 1180. Here the figure ends 4.5rem
-   from the screen's edge, so no part of it ever passes under the control. From 45em the narrower
-   figure still holds its wide form (a 33rem container) and its row of steps (about 600 px). */
-@media (min-width: 45em) and (max-width: 63.999rem) {
-  .home-hero__figure {
-    max-width: min(46rem, 100% - (4.5rem - var(--space-page)));
+/* The scroll fade: as the page scrolls into the content, the film recedes (it fades and settles a
+   little smaller), from when the hero's top reaches the top of the screen until three quarters of
+   it has passed. A scroll-driven animation, so it moves only when the visitor scrolls; where that
+   is missing, hero-media.ts sets --hero-recede instead. Neither under reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .home-hero {
+      view-timeline: --home-hero block;
+      view-timeline-inset: 0;
+    }
+
+    /* Longhands only: the minifier would fold a timeline into the `animation` shorthand, which
+       CSS Animations 2 allows but browsers do not parse yet, and the fade would be dropped. */
+    .hero-media__backdrop {
+      animation-name: hero-recede;
+      animation-duration: auto;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: --home-hero;
+      animation-range: exit-crossing 0% exit-crossing 75%;
+    }
+  }
+
+  .hero-media[data-recede='script'] .hero-media__backdrop {
+    opacity: calc(1 - var(--hero-recede, 0));
+    scale: calc(1 - 0.06 * var(--hero-recede, 0));
   }
 }
 
-/* From 1024 px, the text is one row over the figure: the H1 left, the lede and calls to action
-   right, so a tablet in landscape shows its calls to action in the first view with the stage. */
-@media (min-width: 64rem) {
-  .home-hero__grid {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-areas: 'head body' 'figure figure';
-    align-items: end;
-    column-gap: var(--grid-gap);
+@keyframes hero-recede {
+  to {
+    opacity: 0;
+    scale: 0.94;
   }
 }
 
-/* Up to the split, the figure's toolbar spans the text's row, and the globe and what follows it
-   are centred under it at their 46rem, instead of leaving an empty strip at the right (design
-   review, round 3). Centred, the stage, readout and legend also end clear of the cookie control's
-   4.5rem. */
-@media (min-width: 64rem) and (max-width: 71.999rem) {
-  .home-hero__figure {
-    max-width: none;
-  }
+/* ---------------------------------------------------------------- the genomeOS Atlas preview */
 
-  /* The steps already centre themselves on the stage's bottom band. */
-  .hg > :not(.kit-figure__toolbar, .hg-steps) {
-    width: 100%;
-    max-width: 46rem;
-    justify-self: center;
-  }
+/* The flagship project (round 2, ruling R2-2): its words, then the toy globe; from 72rem, a
+   figure-led split with the words on the left and the globe on the right, as in the film above. */
+.home-atlas__grid {
+  display: grid;
+  gap: var(--head-gap);
 }
 
-/* The split starts where its 7/12 column holds the figure's wide form (a 33rem container), so the
-   hero never sets its text beside the tall phone form. The text starts level with the figure, so
-   on a laptop's first view its calls to action are on screen (1366×768, 1280×720). */
+.home-atlas__figure {
+  width: 100%;
+  max-width: 46rem;
+  min-width: 0;
+}
+
+.home-atlas__lede {
+  max-width: 34ch;
+  margin: 1.25rem 0 0;
+  color: var(--color-text-soft);
+  font-size: var(--type-lede);
+  line-height: 1.5;
+}
+
 @media (min-width: 72rem) {
-  .home-hero__grid {
+  .home-atlas__grid {
     grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-    grid-template-rows: auto auto 1fr;
-    grid-template-areas: 'head figure' 'body figure' '. figure';
-    align-items: start;
-    column-gap: var(--grid-gap);
-    row-gap: 0;
+    align-items: center;
+    column-gap: calc(var(--grid-gap) * 2);
   }
 
-  .home-hero__figure {
+  .home-atlas__figure {
     max-width: none;
-  }
-
-  .home-hero__body {
-    margin-top: 1.7rem;
   }
 }
 
-/* --------------------------------------------------------------------- the evidence globe */
-
-/* One column of rows: toolbar, stage, readout, steps, legend. From 33rem the steps move up into
-   the stage's row (below), over its bottom band. */
+/* The figure: toolbar, stage, the note with the Atlas button, legend, footnote, table. */
 .hg {
   container: hg / inline-size;
   display: grid;
@@ -244,60 +389,55 @@
 }
 
 .hg .kit-figure__toolbar {
+  justify-content: flex-start;
   margin-bottom: 0.75rem;
 }
 
-/* Compact form: the status tag and Reset view share the first row; the layer control is a
-   full-width row of three equal segments under them (spec §4.1 phone). */
-.hg-toolbar__end {
-  display: contents;
-}
-
-.hg-reset {
-  order: 1;
-  margin-left: auto;
-}
-
 .hg .hg-layers {
-  order: 2;
-  display: flex;
-  flex: 1 0 100%;
+  flex: 1 1 auto;
 }
 
-/* Three equal segments. At 320 px the kit's padding makes them wider than the row, so here they
-   may shrink and pad less; their labels still fit. */
 .hg .hg-layers button {
   flex: 1 1 0;
   min-width: 0;
-  padding-inline: 0.5rem;
 }
 
-/* Reset view keeps its slot while hidden: showing it on the first drag never moves the globe. */
-.hg:not([data-view='moved']) .hg-reset {
-  visibility: hidden;
-}
-
-/* Without JavaScript nothing turns or inspects, so the readout keeps its box but gives no hint
-   (data-view is set as soon as the island starts). */
-.hg:not([data-view]) [data-readout-text] {
-  visibility: hidden;
-}
-
-/* The layer control only does something once the live canvas is up; the poster (Modeled, at
-   rest) neither switches nor turns. It fades in with the canvas rather than popping in. */
-.hg .hg-layers {
+.hg-spin {
+  min-width: 44px;
+  min-height: 2.25rem;
+  margin: 0 0 0 auto;
+  padding: 0.35rem 0.8rem 0.35rem 0.65rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid var(--color-line-strong);
+  background: rgb(2 7 18 / 70%);
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 620;
+  line-height: 1;
+  cursor: pointer;
   transition:
-    opacity var(--dur-ui) var(--ease-ui),
-    visibility 0s;
+    color var(--dur-micro) var(--ease-ui),
+    border-color var(--dur-micro) var(--ease-ui);
 }
 
-.hg:not([data-live]) .hg-layers,
-.hg[data-mode='poster'] :is(.hg-layers, .hg-reset) {
-  opacity: 0;
+.hg-spin[hidden] {
+  display: none;
+}
+
+.hg-spin:hover {
+  border-color: var(--color-ion);
+  color: var(--color-starlight);
+}
+
+/* The layer control and the rotation's only do something on the live canvas: the poster (Modeled,
+   at the starting view) neither switches nor turns. They appear with the canvas, without a fade, so
+   no control is ever caught half drawn below its contrast. */
+.hg:not([data-live]) :is(.hg-layers, .hg-spin),
+.hg[data-mode='poster'] :is(.hg-layers, .hg-spin) {
   visibility: hidden;
-  transition:
-    opacity var(--dur-ui) var(--ease-ui),
-    visibility 0s var(--dur-ui);
 }
 
 .hg .kit-figure__stage {
@@ -305,7 +445,7 @@
   position: relative;
 }
 
-/* Compact form (a narrow figure): a square globe, numbered markers, a three-row key. */
+/* Compact form (a narrow figure): a square globe with its pins, the callouts listed under it. */
 .hg-globe {
   position: relative;
   width: 100%;
@@ -347,54 +487,6 @@
   opacity: 0;
 }
 
-/* Armed before the first paint (the head script in index.astro, spec §2.7 rule 5): until the
-   island takes the figure over, it shows what the entrance starts from, never its rest state. The
-   poster, callouts, leaders and markers are hidden and the steps unlit; an empty ocean disc with
-   its limb (the canvas's first frame, hexfield.ts) holds the globe's place. Screens only: print
-   shows the final state. */
-@media screen {
-  :root[data-arm-hero] .hg:not([data-figure-state], [data-mode]) .hg-poster {
-    visibility: hidden;
-  }
-
-  :root[data-arm-hero]
-    .hg:not([data-figure-state], [data-mode])
-    .hg-globe::before {
-    content: '';
-    position: absolute;
-    inset: 1.923%;
-    border-radius: 50%;
-    background: radial-gradient(
-      ellipse 73% 73% at 35% 32.5%,
-      #071831 7%,
-      #020712 100%
-    );
-    box-shadow: 0 0 0 1px rgb(112 230 255 / 28%);
-  }
-
-  :root[data-arm-hero]
-    .hg:not([data-figure-state], [data-mode])
-    :is(.hg-callout, .hg-leader, .hg-marker) {
-    opacity: 0;
-    visibility: hidden;
-    transition: none;
-  }
-
-  :root[data-arm-hero]
-    .hg:not([data-figure-state], [data-mode])
-    .hg-step
-    button::before {
-    border-color: var(--color-deep-line);
-    color: var(--color-faint);
-  }
-
-  :root[data-arm-hero]
-    .hg:not([data-figure-state], [data-mode])
-    .hg-step__name {
-    color: var(--color-muted);
-  }
-}
-
 .hg[data-live] .hg-canvas {
   opacity: 1;
 }
@@ -404,40 +496,8 @@
   visibility: hidden;
 }
 
-.hg-reticle {
-  --hg-reticle-ink: var(--color-ion);
-  --hg-reticle-halo: var(--color-void);
-
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  display: none;
-  width: 28px;
-  height: 28px;
-  margin: -14px 0 0 -14px;
-  pointer-events: none;
-  background:
-    linear-gradient(var(--hg-reticle-ink), var(--hg-reticle-ink)) center top /
-      2px 9px no-repeat,
-    linear-gradient(var(--hg-reticle-ink), var(--hg-reticle-ink)) center
-      bottom / 2px 9px no-repeat,
-    linear-gradient(var(--hg-reticle-ink), var(--hg-reticle-ink)) left center /
-      9px 2px no-repeat,
-    linear-gradient(var(--hg-reticle-ink), var(--hg-reticle-ink)) right center /
-      9px 2px no-repeat;
-  filter: drop-shadow(0 0 1px var(--hg-reticle-halo));
-}
-
-.hg[data-reticle] .hg-reticle {
-  display: block;
-}
-
-/* The kit sizes a stage's direct svg children (.kit-figure__stage > svg), hence the extra class. */
-.hg .hg-leaders,
-.hg .hg-callout {
-  display: none;
-}
-
+/* A pin: a ring on its object and the number of its callout. While the globe turns it rides with
+   its object and fades toward the limb (--pin-alpha, atlas-preview.ts). */
 .hg-marker {
   position: absolute;
   top: var(--my);
@@ -461,7 +521,7 @@
 }
 
 .hg-marker__badge,
-.hg-step button::before {
+.hg-callout__n {
   display: grid;
   place-items: center;
   width: 1.4rem;
@@ -485,93 +545,57 @@
   content: attr(data-n);
 }
 
-.hg-steps {
-  margin: 0.75rem 0 0;
+/* The callouts: the key under the globe in the compact form. */
+.hg-callouts {
+  margin: 0.9rem 0 0;
   padding: 0;
   display: grid;
-  gap: 0.4rem;
+  gap: 0.5rem;
   list-style: none;
-  counter-reset: hg-step;
 }
 
-.hg-step button {
-  width: 100%;
-  min-height: 44px;
-  margin: 0;
-  padding: 0.5rem 0.65rem;
+.hg-callout {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  column-gap: 0.65rem;
-  align-items: center;
-  border: 1px solid var(--color-deep-line);
-  background: rgb(2 7 18 / 40%);
-  color: var(--color-text-soft);
-  font: inherit;
+  align-items: start;
+  column-gap: 0.6rem;
+  color: var(--color-starlight);
   font-size: 0.9rem;
   line-height: 1.4;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    border-color var(--dur-micro) var(--ease-ui),
-    color var(--dur-ui) var(--ease-ui);
-}
-
-.hg-step button::before {
-  counter-increment: hg-step;
-  content: counter(hg-step);
-  grid-row: span 2;
-  border-color: var(--color-ion);
-  color: var(--color-ion);
-  transition:
-    border-color var(--dur-ui) var(--ease-ui),
-    color var(--dur-ui) var(--ease-ui);
-}
-
-.hg-step button:hover {
-  border-color: var(--color-line-strong);
-}
-
-.hg-step__name {
-  color: var(--color-starlight);
-  font-weight: 640;
-}
-
-.hg-step__detail {
-  display: block;
-  color: var(--color-muted);
   font-variant-numeric: lining-nums tabular-nums;
 }
 
-.hg-step__detail strong {
-  font-weight: 600;
-}
-
-/* The step whose object is pinned in the readout (an inset ring: the wide row drops shared
-   borders). */
-.hg-step button[aria-current='true'] {
-  background: var(--color-plate-raised);
-  box-shadow: inset 0 0 0 1px var(--color-ion);
-}
-
-/* Unlit during the entrance: the number dims; the words stay legible. */
-.hg-step.is-off button::before {
-  border-color: var(--color-deep-line);
-  color: var(--color-faint);
-}
-
-.hg-step.is-off .hg-step__name {
+.hg-callout__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   color: var(--color-muted);
+  font-weight: 620;
 }
 
-/* Callouts, leaders and markers describe the rest view: they step aside while it moves. */
+.hg-nowrap {
+  white-space: nowrap;
+}
+
+.hg .hg-leaders {
+  display: none;
+}
+
+/* Callouts, leaders and pins light in order during the entrance; leaders show only at the
+   starting view (and while the entrance turns to it): once the globe turns, they fade and the
+   pins ride on. */
 .hg :is(.hg-callout, .hg-leader, .hg-marker) {
   transition:
     opacity var(--dur-ui) var(--ease-ui),
     visibility 0s;
 }
 
+.hg-marker {
+  opacity: var(--pin-alpha, 1);
+}
+
 .hg :is(.hg-callout, .hg-leader, .hg-marker).is-off,
-.hg[data-view='moved'] :is(.hg-callout, .hg-leader, .hg-marker) {
+.hg[data-view='moved'] .hg-leader {
   opacity: 0;
   visibility: hidden;
   transition:
@@ -579,59 +603,35 @@
     visibility 0s var(--dur-ui);
 }
 
-.hg-readout {
-  margin-top: 0.75rem;
+/* While the globe turns, the pins follow it frame by frame: no transition to lag behind. */
+.hg[data-view='moved'] .hg-marker:not(.is-off),
+.hg[data-view='entering'] .hg-marker:not(.is-off) {
+  transition: none;
 }
 
-.hg-nowrap {
-  white-space: nowrap;
-}
-
-.hg-readout [data-readout-text] strong {
-  font-weight: 640;
-}
-
-/* Wide form: a 4:3 stage, the disc centred in its upper part, callouts in its margins with
-   leader lines into the disc, the steps in a row under it. Units are cqw of the stage, as in
-   HeroGlobe.astro: disc centre (50, 32.25), radius 30. */
-@container hg (min-width: 33rem) {
-  .hg-toolbar__end {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem 0.9rem;
-    margin-left: auto;
-  }
-
-  .hg-reset {
-    margin-left: 0;
-  }
-
+/* Wide form: a 3:2 stage, the disc centred, the callouts in its corners with leader lines to their
+   pins. Units are cqw of the stage, as in AtlasPreview.astro: disc centre (50, 33.333), radius 30.
+   From a 36rem figure, where each corner leaves its callout three lines of room. */
+@container hg (min-width: 36rem) {
   .hg .hg-layers {
-    display: inline-flex;
     flex: none;
   }
 
   .hg .hg-layers button {
     flex: 1 1 auto;
     min-width: auto;
-    padding-inline: 0.85rem;
   }
 
   .hg .kit-figure__stage {
-    aspect-ratio: 4 / 3;
+    aspect-ratio: 3 / 2;
   }
 
   .hg-globe {
     position: absolute;
-    top: 1.05cqw;
+    top: 2.133cqw;
     left: 18.8cqw;
     width: 62.4cqw;
     height: 62.4cqw;
-  }
-
-  .hg-marker,
-  .hg-step__detail {
-    display: none;
   }
 
   .hg .hg-leaders {
@@ -649,33 +649,34 @@
     stroke-width: 1;
   }
 
-  .hg-leader circle {
-    fill: none;
-    stroke: var(--color-starlight);
-    stroke-width: 1.4;
+  .hg-callouts {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    display: block;
+    pointer-events: none;
   }
 
-  /* Each box hangs from its corner point (--cx, --cy, set in HeroGlobe.astro) and grows away from
-     the disc, out to the stage's edge: its text wraps to the room the corner leaves. */
+  /* Each box hangs from its corner point (--cx, --cy, set in AtlasPreview.astro) and grows away
+     from the disc, out to the stage's edge: its text wraps to the room the corner leaves. */
   .hg .hg-callout {
     position: absolute;
-    display: block;
-    margin: 0;
-    padding: 0.45rem 0.6rem 0.5rem;
+    padding: 0.45rem 0.6rem 0.5rem 0.5rem;
     border: 1px solid var(--color-line);
     background: rgb(2 7 18 / 86%);
-    color: var(--color-starlight);
     font-size: 0.8rem;
     line-height: 1.35;
-    font-variant-numeric: lining-nums tabular-nums;
+    pointer-events: auto;
+  }
+
+  .hg-callout .hg-callout__n {
+    width: 1.25rem;
+    height: 1.25rem;
+    font-size: 0.75rem;
   }
 
   .hg-callout__label {
     display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    color: var(--color-muted);
-    font-weight: 620;
   }
 
   .hg-callout__value {
@@ -691,45 +692,114 @@
   }
 
   .hg-callout--up {
-    bottom: calc((75 - var(--cy)) * 1cqw);
+    bottom: calc((66.667 - var(--cy)) * 1cqw);
   }
 
   .hg-callout--down {
     top: calc(var(--cy) * 1cqw);
   }
+}
 
-  /* The steps share the stage's grid cell, centred on its bottom band under the disc, and paint
-     over it (the stage is positioned). */
-  .hg .kit-figure__stage,
-  .hg-steps {
-    grid-row: 2;
-    grid-column: 1;
-  }
+/* The note: what this is, and the way to the real thing (ruling R2-14). Not a warning. */
+.hg-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem 1.5rem;
+  margin-top: 1.1rem;
+}
 
-  .hg-steps {
-    position: relative;
-    z-index: 1;
-    align-self: end;
-    justify-self: center;
-    margin: 0;
-    display: flex;
-    gap: 0;
-  }
+.hg-note__text {
+  max-width: 32ch;
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: var(--type-legend);
+  line-height: 1.45;
+}
 
-  .hg-step + .hg-step button {
-    border-left-width: 0;
-  }
+/* Open the genomeOS Atlas: the Atlas pill's language at call-to-action size, a black pill in an
+   aurora rim with a still glow (the header pill's curtains move; this one does not). */
+.atlas-open {
+  position: relative;
+  isolation: isolate;
+  min-height: 3rem;
+  padding: 0.75rem 1.2rem 0.75rem 1.35rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  border-radius: 999px;
+  color: var(--color-starlight);
+  font-weight: 720;
+  line-height: 1.1;
+  text-decoration: none;
+  white-space: nowrap;
+  box-shadow:
+    0 0 1.4rem rgb(114 231 193 / 16%),
+    0 0 2.4rem rgb(138 92 255 / 12%);
+  transition:
+    box-shadow var(--dur-ui) var(--ease-ui),
+    transform var(--dur-micro) var(--ease-ui);
+}
 
-  .hg-step button {
-    width: auto;
-    min-height: 2.4rem;
-    padding: 0.35rem 0.85rem 0.35rem 0.5rem;
-    grid-template-columns: auto auto;
-    white-space: nowrap;
-  }
+.atlas-open::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border: 1.5px solid transparent;
+  border-radius: inherit;
+  background:
+    linear-gradient(#000, #000) padding-box,
+    linear-gradient(
+        100deg,
+        rgb(114 231 193 / 85%),
+        rgb(18 255 255 / 60%),
+        rgb(138 92 255 / 85%)
+      )
+      border-box;
+  content: '';
+}
 
-  .hg-step button::before {
-    grid-row: auto;
+.atlas-open .brand-name {
+  font-weight: 400;
+}
+
+.atlas-open__arrow {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: none;
+  fill: none;
+  stroke: var(--color-ion);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
+  transition: transform var(--dur-micro) var(--ease-ui);
+}
+
+.atlas-open:hover,
+.atlas-open:focus-visible {
+  color: var(--color-starlight);
+  box-shadow:
+    0 0 1.8rem rgb(114 231 193 / 30%),
+    0 0 3rem rgb(138 92 255 / 24%);
+  transform: translateY(-1px);
+}
+
+.atlas-open:hover .atlas-open__arrow,
+.atlas-open:focus-visible .atlas-open__arrow {
+  transform: translateX(3px);
+}
+
+.atlas-open:focus-visible {
+  border-radius: 999px;
+  outline: 2px solid var(--color-starlight);
+  outline-offset: 4px;
+}
+
+@media (max-width: 30rem) {
+  .atlas-open {
+    width: 100%;
+    justify-content: center;
   }
 }
 
@@ -760,11 +830,6 @@
   display: inline-flex;
   align-items: center;
   gap: 1px;
-}
-
-.hg-key abbr {
-  text-decoration: none;
-  cursor: help;
 }
 
 /* The VSUP wedge: its label over the top (strong-evidence) row, the fading named beside the
@@ -1705,11 +1770,14 @@
 @media (prefers-reduced-motion: reduce) {
   .button-link,
   .application-card,
-  .hg-step button,
-  .hg-step button::before,
+  .hero-media__video,
+  .hero-media__toggle,
+  .hg-spin,
+  .atlas-open,
+  .atlas-open__arrow,
   .hg :is(.hg-callout, .hg-leader, .hg-marker),
   .hg :is(.hg-callout, .hg-leader, .hg-marker).is-off,
-  .hg[data-view='moved'] :is(.hg-callout, .hg-leader, .hg-marker),
+  .hg[data-view='moved'] .hg-leader,
   .cf-grid [data-squares],
   .cf-bar__range,
   .cf-bar__mean,
@@ -1718,18 +1786,22 @@
     transition: none;
   }
 
-  .application-card:hover {
+  .application-card:hover,
+  .atlas-open:hover,
+  .atlas-open:focus-visible {
     transform: none;
   }
 }
 
 /* The live canvas never prints or forces colours: the poster stands in (spec §2.2, §8). The poster
-   is the Modeled layer at rest, so a print carries that layer's legend and the callouts that
-   describe it, never the last layer's legend or a readout from a turned view. */
+   is the Modeled layer at the starting view, so a print carries that layer's legend, and the pins,
+   leaders and callouts that describe it, never the last layer's legend or a turned view. The film
+   and the controls never print. */
 @media print {
-  /* As specific as the screen rules that show them (.hg .hg-layers, .hg[data-reticle] …). */
-  .hg :is(.hg-canvas, .hg-layers, .hg-reset, .hg-readout),
-  .hg[data-reticle] .hg-reticle {
+  /* As specific as the screen rules that show them (.hg .hg-layers …). */
+  .hg :is(.hg-canvas, .hg-layers, .hg-spin),
+  .hero-media__backdrop .hero-media__video,
+  .hero-media__toggle {
     display: none;
   }
 
@@ -1742,25 +1814,20 @@
   }
 
   .hg-legend__variant[data-legend='modeled'],
-  .hg[data-view='moved'] :is(.hg-callout, .hg-leader, .hg-marker) {
+  .hg[data-view] :is(.hg-callout, .hg-leader, .hg-marker) {
     opacity: 1;
     visibility: visible;
     transition: none;
   }
 }
 
-/* The island also enters its poster mode here (hero-globe.ts), so nothing turns a hidden canvas.
-   Forced colours drop background images, so the reticle keeps its own, in system colours. */
+/* The island also enters its poster mode here (atlas-preview.ts), so nothing turns a hidden canvas.
+   The hero's film and poster are decorative: under forced colours the text sits on the system's
+   own background instead of over a frame it can no longer be guaranteed to read against. */
 @media (forced-colors: active) {
-  .hg-canvas {
+  .hg-canvas,
+  .hero-media__backdrop {
     visibility: hidden;
-  }
-
-  .hg-reticle {
-    --hg-reticle-ink: CanvasText;
-    --hg-reticle-halo: Canvas;
-
-    forced-color-adjust: none;
   }
 
   .hg[data-live] .hg-poster {
@@ -1771,8 +1838,12 @@
     border-color: CanvasText;
   }
 
-  .hg-leader line,
-  .hg-leader circle {
+  .hg-leader line {
     stroke: CanvasText;
+  }
+
+  .atlas-open::before {
+    border-color: LinkText;
+    background: Canvas;
   }
 }

@@ -26,8 +26,6 @@ export interface PageManifest {
   redirect?: string;
   /** The first figure's top is above the fold (Project, Contribute, Privacy). */
   leadFigure?: boolean;
-  /** The hero stage is in the first phone viewport (Home). */
-  heroStage?: boolean;
   /** Gzip budgets in KB; null is "no budget of its own" (Starlight baseline, redirect). */
   jsKbGz: number | null;
   dataKbGz: number | null;
@@ -46,7 +44,6 @@ const KEYS = new Set([
   'wordsExclude',
   'redirect',
   'leadFigure',
-  'heroStage',
   'jsKbGz',
   'dataKbGz',
   'transferKbGz',

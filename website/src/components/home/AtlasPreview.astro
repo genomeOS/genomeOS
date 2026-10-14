@@ -1,27 +1,29 @@
 ---
 /**
- * The hero evidence globe (site redesign spec §4.1 H1, §2.5, §5, §6.1; #454): the real HbS (rs334)
- * v3 surface, coarsened for display, with all 1,071 measured surveys as studs.
+ * The genomeOS Atlas preview: Home's toy globe (site redesign spec §4.1, §2.5, §5, §6.1; round 2
+ * rulings R2-2 and R2-14; #454). The real HbS (rs334) v3 surface, coarsened for display, with all
+ * 1,071 measured surveys as studs. A simplified preview with sample data, not the live Atlas: a
+ * plain note says so beside the button to the Atlas itself.
  *
  * Server-rendered at rest so the figure is complete without JavaScript: the Modeled layer as a
- * build-time poster (the LCP candidate), three callouts with leader lines and the numbered step row,
- * all placed from the provenance sidecar's disc coordinates. hero-globe.ts swaps in the live canvas.
+ * build-time poster, three numbered pins on the globe, and three numbered callouts that say what
+ * each pin marks. atlas-preview.ts swaps in the live canvas, which turns slowly by itself.
  *
- * Two forms by the figure's own width (container query): from 33rem a 4:3 stage with the callouts
- * in its corners, off the disc, and the steps in its bottom band, under the disc; below, a
- * full-width layer row, a square globe with numbered markers, the readout docked straight under it
- * and then a three-row key that pins each object in the readout. The readout is never over the
- * globe. Status ("Not yet validated") sits inside the figure.
- * Without JavaScript the readout keeps its box but offers no hint, since nothing turns or inspects.
+ *   wide form (from 36rem, a container query): a 3:2 stage, the disc centred, the callouts in the
+ *     stage's corners off the disc, with leader lines to their pins while the globe is at its
+ *     starting view. When it turns, the leaders fade, the pins ride on the globe (and hide behind
+ *     it) and the callouts stay where they are, as its key.
+ *   compact form: a square globe with its pins, the callouts listed under it as the key.
+ *
+ * Controls: one Measured · Modeled toggle, and a Pause/Play control for the rotation (WCAG 2.2.2:
+ * it moves for more than 5 s), shown only while the globe can turn.
  */
 import Figure from '../kit/Figure.astro';
 import Glyph from '../kit/Glyph.astro';
-import Readout from '../kit/Readout.astro';
 import Segmented from '../kit/Segmented.astro';
-import StatusTag from '../kit/StatusTag.astro';
 import provenance from '../../data/figures/hbs.provenance.json';
 import { sitePath } from '../../lib/paths';
-import { DISC_PAD, formatKm, formatRange, formatShare } from './hero-globe';
+import { DISC_PAD, formatKm, formatRange, formatShare } from './atlas-preview';
 
 const posters = import.meta.glob('../../data/figures/hbs-globe-poster.*.svg', {
   query: '?url',
@@ -44,13 +46,13 @@ const domainMin = Math.floor(domainLo * 100);
 const domainMax = Math.round(domainHi * 100);
 
 /*
- * Wide-form geometry, in stage units (1 unit = 1cqw; the stage is 100 × 75): the disc is centred
- * at (50, 32.25) with radius 30, leaving the bottom band for the steps and the side margins for
- * the callouts. CSS (home.css) uses the same numbers.
+ * Wide-form geometry, in stage units (1 unit = 1cqw; the stage is 100 × 66.667, 3:2): the disc is
+ * centred at (50, 33.333) with radius 30, leaving the side margins for the callouts. CSS (home.css)
+ * uses the same numbers.
  */
 const R = 30;
 const CX = 50;
-const CY = 32.25;
+const CY = 100 / 3;
 const sx = (d: number) => +(CX + d * R).toFixed(2);
 const sy = (d: number) => +(CY + d * R).toFixed(2);
 
@@ -59,19 +61,26 @@ const sy = (d: number) => +(CY + d * R).toFixed(2);
  * so no box ever covers a stud, a cell or the limb. Each box hangs from one corner point, in disc
  * radii from the centre, and grows away from the disc: up and out above it, down and out below.
  * The points lie 1.07 radii out, clear of the globe box (1.04, DISC_PAD), so the box's nearest
- * point to the disc is that corner. At the narrowest wide form (a 33rem stage) the corners leave
- * each box 23.6cqw by 13.9cqw: three lines of callout text. The leader runs from the corner to
- * the callout's object. marketing-home.spec checks the boxes against the disc at eight widths.
+ * point to the disc is that corner. At the narrowest wide form (a 36rem stage) the corners leave each
+ * box 23.6cqw by 14.9cqw: three lines of callout text. Each corner is on the side of its pin: the
+ * survey (West Africa) and the modeled area (the central Sahara) on the left, the gap (Central
+ * Asia) top right.
+ * marketing-home.spec checks the boxes against the disc at eight widths.
  */
 const CORNER = { x: 0.88, y: 0.613 };
 const PLACEMENT: Record<Kind, { side: 'left' | 'right'; grow: 'up' | 'down' }> =
   {
-    survey: { side: 'left', grow: 'up' },
+    survey: { side: 'left', grow: 'down' },
+    modeled: { side: 'left', grow: 'up' },
     unknown: { side: 'right', grow: 'up' },
-    modeled: { side: 'right', grow: 'down' },
   };
 
 const pct = (value: number) => `${(50 + (value * 50) / DISC_PAD).toFixed(3)}%`;
+/*
+ * Counts in people (owner review, round 2): HBB is autosomal, so the survey's AN alleles are
+ * AN / 2 people tested (an exact count; the build fails on an odd AN). How many of them carry the
+ * variant needs genotype counts the survey does not give, so no carrier count is claimed.
+ */
 const items = (
   [
     [
@@ -79,9 +88,8 @@ const items = (
       survey,
       'stud-md',
       'Measured:',
-      `${survey.ac!.toLocaleString('en-US')} of ${survey.an!.toLocaleString('en-US')} alleles`,
+      `${survey.people!.toLocaleString('en-US')} people tested`,
       '',
-      'Surveys counted',
     ],
     [
       'modeled',
@@ -89,21 +97,12 @@ const items = (
       'hex',
       'Modeled:',
       `about ${formatShare(modeled.mean!)}`,
-      // The range never breaks inside itself ("7.2–" | "28%)").
+      // The range never breaks inside itself ("1.3–" | "6.1%)").
       `(95%: ${formatRange(modeled.lo!, modeled.hi!)})`,
-      'Model fitted offline',
     ],
-    [
-      'unknown',
-      unknown,
-      'hatch',
-      'No estimate:',
-      'no survey in range',
-      '',
-      'Gaps stay hatched',
-    ],
+    ['unknown', unknown, 'hatch', 'No estimate:', 'no survey in range', ''],
   ] as const
-).map(([kind, entry, glyph, label, value, range, step], index) => {
+).map(([kind, entry, glyph, label, value, range], index) => {
   const [tx, ty] = entry.disc;
   const place = PLACEMENT[kind];
   const corner = [
@@ -117,7 +116,6 @@ const items = (
     label,
     value,
     range,
-    step,
     tx,
     ty,
     side: place.side,
@@ -152,39 +150,41 @@ const tierRows = [
   ],
   ['No estimate', provenance.table.model_cell_share_by_tier.none],
 ] as const;
-
-// Evidence-layer swatches: one hex per distance tier (light = close to a survey).
-const hexPath =
-  Array.from({ length: 6 }, (_, k) => {
-    const a = (Math.PI / 3) * k;
-    return `${k ? 'L' : 'M'}${(9 + 8 * Math.cos(a)).toFixed(2)} ${(9 + 8 * Math.sin(a)).toFixed(2)}`;
-  }).join('') + 'Z';
-// Home's one island, in src/pages/index.astro, starts this figure with initHeroGlobe (hero-globe.ts).
+// Home's one island, in src/pages/index.astro, starts this figure with initAtlasPreview.
 ---
 
 <Figure
-  graphic="hero-globe"
+  graphic="atlas-preview"
   interactive
-  label="The sickle-cell variant HbS on a globe: measured surveys and the modeled surface"
+  label="A preview of the genomeOS Atlas: the sickle-cell variant HbS on a globe, measured surveys and the modeled surface"
   class="hg"
-  id="hero-globe"
+  id="atlas-preview"
 >
   <Fragment slot="toolbar">
-    <StatusTag kind="not-validated" />
-    <div class="hg-toolbar__end">
-      <!-- Shown once the view moves; its slot is always kept, so it never shifts the globe. -->
-      <button class="kit-text-button hg-reset" type="button">Reset view</button>
-      <Segmented
-        label="Layer"
-        class="hg-layers"
-        items={[
-          { value: 'measured', label: 'Measured' },
-          { value: 'modeled', label: 'Modeled' },
-          { value: 'evidence', label: 'Evidence' },
-        ]}
-        selected="modeled"
-      />
-    </div>
+    <Segmented
+      label="Layer"
+      class="hg-layers"
+      items={[
+        { value: 'measured', label: 'Measured' },
+        { value: 'modeled', label: 'Modeled' },
+      ]}
+      selected="modeled"
+    />
+    {/* Shown only while the globe can turn by itself (atlas-preview.ts). */}
+    <button
+      class="hg-spin"
+      type="button"
+      aria-label="Pause the rotation"
+      data-spin-toggle
+      hidden
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path class="hg-spin__pause" d="M4.5 3h2.5v10H4.5zM9 3h2.5v10H9z"
+        ></path>
+        <path class="hg-spin__play" d="M5 2.8v10.4L13.2 8z"></path>
+      </svg>
+      <span data-spin-text>Pause</span>
+    </button>
   </Fragment>
 
   <div
@@ -192,7 +192,7 @@ const hexPath =
     tabindex="0"
     role="img"
     aria-label={provenance.alt}
-    aria-describedby="hero-globe-keys"
+    aria-describedby="atlas-preview-keys"
     aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Home"
     data-config={config}
   >
@@ -202,10 +202,10 @@ const hexPath =
       width="640"
       height="640"
       alt=""
-      fetchpriority="high"
+      loading="lazy"
+      decoding="async"
     />
     <canvas class="hg-canvas" aria-hidden="true"></canvas>
-    <span class="hg-reticle" aria-hidden="true"></span>
     {
       items.map((item) => (
         <span
@@ -221,14 +221,13 @@ const hexPath =
       ))
     }
   </div>
-  <p class="visually-hidden" id="hero-globe-keys">
-    Arrow keys turn the globe and the readout describes the area at its centre.
-    Home returns it to rest.
+  <p class="visually-hidden" id="atlas-preview-keys">
+    Arrow keys turn the globe; Home returns it to its starting view.
   </p>
 
   <svg
     class="hg-leaders"
-    viewBox="0 0 100 75"
+    viewBox="0 0 100 66.667"
     preserveAspectRatio="xMidYMid meet"
     aria-hidden="true"
     focusable="false"
@@ -245,88 +244,70 @@ const hexPath =
             y1={item.anchor[1]}
             x2={item.target[0]}
             y2={item.target[1]}
-            data-target-line={item.kind}
-            vector-effect="non-scaling-stroke"
-          />
-          <circle
-            cx={item.target[0]}
-            cy={item.target[1]}
-            r="0.95"
-            data-target-ring={item.kind}
             vector-effect="non-scaling-stroke"
           />
         </g>
       ))
     }
   </svg>
-  {
-    items.map((item) => (
-      <p
-        class:list={[
-          'hg-callout',
-          `hg-callout--${item.side}`,
-          `hg-callout--${item.grow}`,
-        ]}
-        data-callout={item.kind}
-        data-callout-order={item.order}
-        data-target={item.kind}
-        data-disc-x={item.tx}
-        data-disc-y={item.ty}
-        style={`--cx: ${item.anchor[0]}; --cy: ${item.anchor[1]}`}
-      >
-        <strong class="hg-callout__label">
-          <Glyph name={item.glyph} size={14} />
-          {item.label}
-        </strong>{' '}
-        <span class="hg-callout__value">
-          {item.value}
-          {item.range && (
-            <Fragment>
-              {' '}
-              <span class="hg-nowrap">{item.range}</span>
-            </Fragment>
-          )}
-        </span>
-      </p>
-    ))
-  }
-  <Fragment slot="readout">
-    <Readout class="hg-readout" id="hero-readout">
-      <span data-readout-text aria-hidden="true"
-        >Drag to turn. Tap to inspect.</span
-      ><span class="visually-hidden" data-readout-sr></span>
-    </Readout>
+  <ol class="hg-callouts">
     {
-      /* The steps follow the readout: on a phone they are the key under it, so the readout docks
-         straight under the disc, where a tap lands; from 33rem home.css lays them back over the
-         stage's bottom band, under the disc and above the readout. Each pins its object in the
-         readout, and the one shown there is marked current. */
+      items.map((item) => (
+        <li
+          class:list={[
+            'hg-callout',
+            `hg-callout--${item.side}`,
+            `hg-callout--${item.grow}`,
+          ]}
+          data-callout={item.kind}
+          data-callout-order={item.order}
+          data-target={item.kind}
+          data-disc-x={item.tx}
+          data-disc-y={item.ty}
+          style={`--cx: ${item.anchor[0]}; --cy: ${item.anchor[1]}`}
+        >
+          <span class="hg-callout__n" aria-hidden="true">
+            {item.order}
+          </span>
+          <span class="hg-callout__text">
+            <strong class="hg-callout__label">
+              <Glyph name={item.glyph} size={14} />
+              {item.label}
+            </strong>{' '}
+            <span class="hg-callout__value">
+              {item.value}
+              {item.range && (
+                <Fragment>
+                  {' '}
+                  <span class="hg-nowrap">{item.range}</span>
+                </Fragment>
+              )}
+            </span>
+          </span>
+        </li>
+      ))
     }
-    <ol class="hg-steps">
-      {
-        items.map((item) => (
-          <li class="hg-step">
-            <button
-              type="button"
-              data-pin={item.kind}
-              aria-controls="hero-readout"
-            >
-              <span class="hg-step__name">{item.step}</span>
-              <span class="hg-step__detail">
-                <strong>{item.label}</strong> {item.value}
-                {item.range && (
-                  <Fragment>
-                    {' '}
-                    <span class="hg-nowrap">{item.range}</span>
-                  </Fragment>
-                )}
-              </span>
-            </button>
-          </li>
-        ))
-      }
-    </ol>
-  </Fragment>
+  </ol>
+
+  {
+    /* The readout's slot, under the stage: what this is, and where the real thing is (R2-14). */
+  }
+  <div slot="readout" class="hg-note" data-figure-chrome>
+    <p class="hg-note__text">A simplified preview with sample data.</p>
+    <a class="atlas-open" href={sitePath('/app/')}>
+      <span class="atlas-open__label"
+        >Open the <span class="brand-name">genomeOS</span> Atlas</span
+      >
+      <svg
+        class="atlas-open__arrow"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <path d="M5 12h13M13 6l6 6-6 6"></path>
+      </svg>
+    </a>
+  </div>
 
   <Fragment slot="legend">
     <div class="hg-legend">
@@ -337,11 +318,7 @@ const hexPath =
             <Glyph name="stud-md" />
             <Glyph name="stud-lg" />
           </span>
-          <span
-            >Survey (<abbr title="allele count: alleles carrying HbS">AC</abbr>{
-              ' of '
-            }<abbr title="allele number: alleles tested">AN</abbr>)</span
-          >
+          <span>Survey, sized by people tested</span>
         </span>
         <span class="hg-key hg-key--wedge">
           <span class="hg-wedge__top"
@@ -361,38 +338,11 @@ const hexPath =
             <Glyph name="stud-md" />
             <Glyph name="stud-lg" />
           </span>
-          <span>Survey, sized by alleles tested (AC of AN)</span>
+          <span>Survey, sized by people tested</span>
         </span>
         <span class="hg-key"
           ><Glyph name="hex-land" /><span>Model grid, no values drawn</span
           ></span
-        >
-      </div>
-      <div class="hg-legend__variant" data-legend="evidence">
-        {
-          (['strong', 'partial', 'weak'] as const).map((tier, index) => (
-            <span class="hg-key">
-              <svg
-                class="kit-glyph"
-                width="18"
-                height="18"
-                viewBox="0 0 18 18"
-                aria-hidden="true"
-              >
-                <path
-                  d={hexPath}
-                  style={`fill: var(--enc-evidence-${index + 1})`}
-                />
-              </svg>
-              <span>
-                {index === 0 ? 'Nearest survey within' : 'within'}{' '}
-                {formatKm(tiers[tier])}
-              </span>
-            </span>
-          ))
-        }
-        <span class="hg-key"
-          ><Glyph name="hatch" /><span>No estimate</span></span
         >
       </div>
     </div>

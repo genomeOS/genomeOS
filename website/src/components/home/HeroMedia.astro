@@ -1,0 +1,111 @@
+---
+/**
+ * The Home hero's full-bleed film (site redesign round 2, ruling R2-1; #454): the owner's render
+ * of Earth at night, a seamless 16 s ping-pong loop with no audio, behind the hero's text.
+ *
+ * A drop-in slot: the poster and the film are props, so swapping the clip is a change of files and
+ * of the `sources` list (src/pages/index.astro), nothing else.
+ *
+ *   poster   the film's first frame, from src/assets, as AVIF and WebP srcsets with explicit
+ *            dimensions and high fetch priority: the page's LCP, never lazy. Decorative (alt="").
+ *   film     an empty `<video muted loop playsinline preload="none">`, hidden from assistive tech;
+ *            hero-media.ts adds its sources after the load event, or keeps the poster
+ *   scrim    a gradient that keeps the text over the frame at 4.5:1 or more (home.css; from the
+ *            left on wide screens, from the bottom on tall ones)
+ *   control  a Pause/Play button after the slotted text, so the calls to action are reached first
+ *            (WCAG 2.4.3); shown only once the film is going to play (WCAG 2.2.2)
+ *
+ * The slot holds the hero's text: its heading, lede and calls to action.
+ */
+import type { ImageMetadata } from 'astro';
+import { getImage } from 'astro:assets';
+
+import type { HeroVideoSource } from './hero-media';
+
+interface Props {
+  /** The film's first frame, imported from src/assets (2560 × 1440 or larger). */
+  poster: ImageMetadata;
+  /** The film's renditions; within a width, in the order to try them (AV1, then HEVC). */
+  sources: HeroVideoSource[];
+  /** CSS object-position of the poster and film on wide (landscape) and tall (portrait) screens. */
+  position?: { wide: string; tall: string };
+  class?: string;
+}
+
+const {
+  poster,
+  sources,
+  position = { wide: '50% 50%', tall: '50% 50%' },
+  class: className,
+} = Astro.props;
+
+/*
+ * Widths for a full-bleed image: a 390–430 px phone at 2.6–3x takes 1280, a 1440 px desktop at 1x
+ * takes 1440, a 2x laptop the 2560. On a phone the poster is cropped from the frame's middle, so
+ * it is drawn a little soft there, like the 720p film that replaces it.
+ */
+const WIDTHS = [640, 960, 1280, 1440, 1920, 2560].filter(
+  (width) => width <= poster.width,
+);
+const QUALITY = { avif: 50, webp: 72 } as const;
+const variant = async (format: 'avif' | 'webp') => {
+  const images = await Promise.all(
+    WIDTHS.map((width) =>
+      getImage({ src: poster, width, format, quality: QUALITY[format] }),
+    ),
+  );
+  return {
+    srcset: images
+      .map((image, index) => `${image.src} ${WIDTHS[index]}w`)
+      .join(', '),
+    fallback: images.at(-1)!.src,
+  };
+};
+const [avif, webp] = await Promise.all([variant('avif'), variant('webp')]);
+const height = Math.round((WIDTHS.at(-1)! * poster.height) / poster.width);
+---
+
+<div
+  class:list={['hero-media', className]}
+  data-hero-media
+  data-video="poster"
+  style={`--hero-position-wide: ${position.wide}; --hero-position-tall: ${position.tall}`}
+>
+  <div class="hero-media__backdrop" data-hero-backdrop aria-hidden="true">
+    <picture>
+      <source type="image/avif" srcset={avif.srcset} sizes="100vw" />
+      <source type="image/webp" srcset={webp.srcset} sizes="100vw" />
+      <img
+        class="hero-media__poster"
+        src={webp.fallback}
+        width={WIDTHS.at(-1)}
+        height={height}
+        alt=""
+        fetchpriority="high"
+        loading="eager"
+      />
+    </picture>
+    <video
+      class="hero-media__video"
+      muted
+      loop
+      playsinline
+      preload="none"
+      disablepictureinpicture
+      tabindex="-1"
+      data-sources={JSON.stringify(sources)}
+      {...{ disableremoteplayback: true }}></video>
+    <span class="hero-media__scrim"></span>
+  </div>
+  <div class="hero-media__content">
+    <slot />
+  </div>
+  <button class="hero-media__toggle" type="button" data-video-toggle hidden>
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path class="hero-media__icon-pause" d="M4.5 3h2.5v10H4.5zM9 3h2.5v10H9z"
+      ></path>
+      <path class="hero-media__icon-play" d="M5 2.8v10.4L13.2 8z"></path>
+    </svg>
+    <span data-video-toggle-text>Pause</span>
+  </button>
+</div>

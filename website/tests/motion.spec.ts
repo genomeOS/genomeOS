@@ -4,7 +4,12 @@
  *
  * - reduced motion: 1.2 s after load nothing is running and every figure shows its final state;
  * - otherwise: once every figure has been scrolled into view and 6.5 s have passed, nothing runs
- *   but the genomeOS Atlas pill's aurora, and no animation frame is scheduled;
+ *   but the genomeOS Atlas pill's aurora, and no animation frame is scheduled. Two motions the
+ *   owner asked for move past rest, and both stop off screen, which is where this test ends:
+ *   Home's hero film (a video, not an animation; it pauses off screen) and the Atlas preview's
+ *   slow rotation (round 2 rulings R2-1 and R2-2; marketing-home.spec drives it on a fake clock).
+ *   Scroll-driven animations (the hero's scroll fade) are not counted: they move only while the
+ *   visitor scrolls, and never under reduced motion;
  * - a figure scrolled offscreen in the middle of its entrance stops scheduling frames;
  * - printing shows every figure in its final state, even one never scrolled into view (spec §8).
  */
@@ -51,28 +56,37 @@ const frames = (page: Page) =>
     pending: window.__frames?.pending.size ?? 0,
   }));
 
-/** Running animations and transitions, leaving out the Atlas pill's aurora curtains. */
-const running = (page: Page) =>
-  page.evaluate(() =>
-    document
-      .getAnimations()
-      .filter((animation) => animation.playState === 'running')
-      .filter((animation) => {
-        const target = (animation.effect as KeyframeEffect | null)?.target;
-        return !(
-          target instanceof Element && target.closest('.launch-atlas-cta')
-        );
-      })
-      .map((animation) => {
-        const target = (animation.effect as KeyframeEffect | null)?.target;
-        const name =
-          animation instanceof CSSAnimation
-            ? animation.animationName
-            : animation instanceof CSSTransition
-              ? animation.transitionProperty
-              : 'script';
-        return `${name} on ${target instanceof Element ? target.className || target.localName : '?'}`;
-      }),
+/**
+ * Running animations and transitions, leaving out the Atlas pill's aurora curtains and, unless
+ * `scrollLinked`, animations on a scroll or view timeline (they move only while the page scrolls).
+ */
+const running = (page: Page, scrollLinked = false) =>
+  page.evaluate(
+    (countScrollLinked) =>
+      document
+        .getAnimations()
+        .filter((animation) => animation.playState === 'running')
+        .filter(
+          (animation) =>
+            countScrollLinked || animation.timeline instanceof DocumentTimeline,
+        )
+        .filter((animation) => {
+          const target = (animation.effect as KeyframeEffect | null)?.target;
+          return !(
+            target instanceof Element && target.closest('.launch-atlas-cta')
+          );
+        })
+        .map((animation) => {
+          const target = (animation.effect as KeyframeEffect | null)?.target;
+          const name =
+            animation instanceof CSSAnimation
+              ? animation.animationName
+              : animation instanceof CSSTransition
+                ? animation.transitionProperty
+                : 'script';
+          return `${name} on ${target instanceof Element ? target.className || target.localName : '?'}`;
+        }),
+    scrollLinked,
   );
 
 async function expectFramesStop(page: Page, label: string): Promise<void> {
@@ -90,7 +104,8 @@ for (const manifest of conceptEnforced) {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await openManifestPage(page, manifest);
     await page.waitForTimeout(1200);
-    expect(await running(page)).toEqual([]);
+    // Under reduced motion nothing is linked to the scroll either.
+    expect(await running(page, true)).toEqual([]);
     const states = await page.evaluate(() =>
       [...document.querySelectorAll<HTMLElement>('[data-figure-state]')].map(
         (figure) => `${figure.dataset.graphic}: ${figure.dataset.figureState}`,

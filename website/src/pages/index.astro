@@ -1,15 +1,19 @@
 ---
 /**
- * Home (site redesign spec §4.1, #454): seven concepts, each one figure plus its legend, in this
- * order: the evidence globe (hero), counts not guesses (#why), the Pipeline (#how), the evidence
- * base (#metrics-title), potential applications, the larger vision, and one closing band.
+ * Home (site redesign spec §4.1, #454; round 2 rulings R2-1, R2-2): the hero film under the page's
+ * heading and calls to action, then seven concepts, each one figure plus its legend, in this order:
+ * the genomeOS Atlas preview (#atlas, the toy globe), counts not guesses (#why), the Pipeline
+ * (#how), the evidence base (#metrics-title), potential applications, the larger vision, and one
+ * closing band.
  */
 import ralewayLatin from '@fontsource-variable/raleway/files/raleway-latin-wght-normal.woff2?url';
 import BrandName from '../components/BrandName.astro';
 import ApplicationCard from '../components/home/ApplicationCard.astro';
 import CountsFigure from '../components/home/CountsFigure.astro';
 import EvidenceBase from '../components/home/EvidenceBase.astro';
-import HeroGlobe from '../components/home/HeroGlobe.astro';
+import AtlasPreview from '../components/home/AtlasPreview.astro';
+import HeroMedia from '../components/home/HeroMedia.astro';
+import type { HeroVideoSource } from '../components/home/hero-media';
 import OpenField from '../components/home/OpenField.astro';
 import VisionStrip from '../components/home/VisionStrip.astro';
 import Glyph from '../components/kit/Glyph.astro';
@@ -17,6 +21,35 @@ import Pipeline from '../components/kit/Pipeline.astro';
 import SiteLayout from '../layouts/SiteLayout.astro';
 import { sitePath } from '../lib/paths';
 import '../styles/pages/home.css';
+import heroPoster from '../assets/hero/hero-poster.webp';
+
+/*
+ * The hero film (round 2, ruling R2-1): the owner's render, a seamless 16 s ping-pong loop without
+ * audio. To swap the clip, replace these files (and the poster, its first frame, above) and keep
+ * each codecs string true to its encode (`ffprobe`; AV1 first, then HEVC, within a width).
+ */
+const heroFilm: HeroVideoSource[] = [
+  {
+    src: sitePath('/media/hero/hero-720.av1.mp4'),
+    type: 'video/mp4; codecs="av01.0.05M.10"',
+    width: 1280,
+  },
+  {
+    src: sitePath('/media/hero/hero-720.hevc.mp4'),
+    type: 'video/mp4; codecs="hvc1.1.6.L93.90"',
+    width: 1280,
+  },
+  {
+    src: sitePath('/media/hero/hero-1080.av1.mp4'),
+    type: 'video/mp4; codecs="av01.0.08M.10"',
+    width: 1920,
+  },
+  {
+    src: sitePath('/media/hero/hero-1080.hevc.mp4'),
+    type: 'video/mp4; codecs="hvc1.1.6.L120.90"',
+    width: 1920,
+  },
+];
 
 const applications = [
   {
@@ -102,74 +135,51 @@ const routes = [
     type="font/woff2"
     crossorigin
   />
-  {
-    /*
-     * Spec §2.7 rule 5, above the fold never flashes: before any of the page paints, mark the hero
-     * armed (home.css hides its poster, callouts and step lights), so its rest state never shows
-     * and then blanks for the entrance. Only where the entrance can play: motion allowed, no
-     * forced colours or Save-Data (both keep the poster), and the page arriving within 1,200 ms.
-     * If the island has not taken the figure over by then, stand down: the poster shows, at rest.
-     */
-  }
-  <script is:inline slot="head">
-    (function (root) {
-      try {
-        var media = function (query) {
-          return matchMedia(query).matches;
-        };
-        var connection = navigator.connection;
-        if (
-          media('(prefers-reduced-motion: reduce)') ||
-          media('(forced-colors: active)') ||
-          (connection && connection.saveData) ||
-          performance.now() > 1200
-        )
-          return;
-        root.setAttribute('data-arm-hero', '');
-        setTimeout(
-          function () {
-            var figure = document.querySelector('[data-graphic="hero-globe"]');
-            if (!figure || !figure.hasAttribute('data-figure-state'))
-              root.removeAttribute('data-arm-hero');
-          },
-          Math.max(0, 1200 - performance.now()),
-        );
-      } catch (error) {
-        root.removeAttribute('data-arm-hero');
-      }
-    })(document.documentElement);
-  </script>
   <Glyph sprite />
 
-  <section
-    class="home-hero"
-    id="hero"
-    data-concept
-    aria-labelledby="hero-title"
-  >
-    <div class="section-shell home-hero__grid">
-      <div class="home-hero__head">
-        <p class="section-kicker home-hero__kicker">
-          A shared atlas for global genetics
-        </p>
-        <h1 id="hero-title">Explore genomes across the world.</h1>
-      </div>
-      {
-        /* The text comes before the figure at every width, so the calls to action are read and
-           tabbed to before the globe's own controls (WCAG 2.4.3). */
-      }
-      <div class="home-hero__body">
-        <p class="home-hero__lede">
-          Make the world’s genetic diversity legible and useful, for every
-          population.
-        </p>
-        <div class="home-hero__actions">
-          <a class="button-link" href={sitePath('/app/')}>Open the Atlas</a>
-          <a class="button-link button-link--quiet" href="#how">How it works</a>
+  <section class="home-hero" id="hero" aria-labelledby="hero-title">
+    <HeroMedia
+      poster={heroPoster}
+      sources={heroFilm}
+      position={{ wide: '62% 32%', tall: '61% 40%' }}
+    >
+      <div class="section-shell home-hero__inner">
+        <div class="home-hero__text">
+          <p class="section-kicker home-hero__kicker">
+            A shared atlas for global genetics
+          </p>
+          <h1 id="hero-title">Explore genomes across the world.</h1>
+          <p class="home-hero__lede">
+            Make the world’s genetic diversity legible and useful, for every
+            population.
+          </p>
+          <div class="home-hero__actions">
+            <a class="button-link" href={sitePath('/app/')}>Open the Atlas</a>
+            <a class="button-link button-link--quiet" href="#how"
+              >How it works</a
+            >
+          </div>
         </div>
       </div>
-      <div class="home-hero__figure">
-        <HeroGlobe />
+    </HeroMedia>
+  </section>
+
+  <section
+    class="band home-atlas"
+    id="atlas"
+    data-concept
+    aria-labelledby="atlas-title"
+  >
+    <div class="section-shell home-atlas__grid">
+      <div class="home-atlas__text home-head">
+        <p class="section-kicker">Our flagship project</p>
+        <h2 id="atlas-title">The <BrandName /> Atlas</h2>
+        <p class="home-atlas__lede">
+          An open, interactive map of human genetic variation.
+        </p>
+      </div>
+      <div class="home-atlas__figure">
+        <AtlasPreview />
       </div>
     </div>
   </section>
@@ -346,8 +356,9 @@ const routes = [
    * The page's one island (site redesign spec §7; #454): every Home figure starts here, so the
    * page fetches one module instead of one per figure, as Project and Contribute do.
    */
+  import { initAtlasPreview } from '../components/home/atlas-preview';
   import { initCounts } from '../components/home/counts';
-  import { initHeroGlobe } from '../components/home/hero-globe';
+  import { initHeroMedia } from '../components/home/hero-media';
   import { FigureController } from '../graphics/figure';
 
   const each = (selector: string, init: (figure: HTMLElement) => void) => {
@@ -355,7 +366,11 @@ const routes = [
       init(figure);
   };
 
-  each('figure[data-graphic="hero-globe"]', initHeroGlobe);
+  for (const hero of document.querySelectorAll<HTMLElement>(
+    '[data-hero-media]',
+  ))
+    initHeroMedia(hero);
+  each('figure[data-graphic="atlas-preview"]', initAtlasPreview);
   each('figure[data-graphic="counts"]', initCounts);
   // The evidence base's totals are static text; its composition bars grow once (CSS, home.css).
   each(

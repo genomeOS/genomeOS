@@ -11,6 +11,5 @@
     "desktop": 1200,
     "phone": 2500
   },
-  "cls": 0.02,
-  "heroStage": true
+  "cls": 0.02
 }

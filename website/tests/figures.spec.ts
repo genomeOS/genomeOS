@@ -14,8 +14,8 @@
  *   nothing in <main> is set in a monospace face;
  * - no wordmark inside a call to action; one selected tab and one pressed segment per group;
  * - chip and step rows keep inside the 16 px phone gutters, and control labels never overflow;
- * - the lead figure opens above the fold (Project, Contribute, Privacy), and the hero stage is in
- *   the first phone viewport (Home).
+ * - the lead figure opens above the fold (Project, Contribute, Privacy). (Home's first view is its
+ *   hero film since round 2, ruling R2-1; its figures start below it.)
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -308,17 +308,6 @@ async function fold(
     );
     expect(top, 'the lead figure opens above the fold').toBeLessThan(
       viewport.fold,
-    );
-  }
-  if (manifest.heroStage && viewport.name === 'phone') {
-    const top = await page.evaluate(
-      () =>
-        document
-          .querySelector('main figure[data-graphic] [data-figure-stage]')
-          ?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY,
-    );
-    expect(top, 'the hero stage is in the first viewport').toBeLessThan(
-      viewport.height,
     );
   }
 }
