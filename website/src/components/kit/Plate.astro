@@ -39,6 +39,9 @@ const {
   captionLive = false,
   ...data
 } = Astro.props;
+// A slot passed inside a false expression still counts as present: draw the top bar only when it
+// renders something (the Pipeline's links variant has no controls).
+const top = Astro.slots.has('top') ? await Astro.slots.render('top') : '';
 ---
 
 <figure
@@ -49,9 +52,9 @@ const {
   {...data}
 >
   {
-    Astro.slots.has('top') && (
+    top.trim() && (
       <div class="kit-plate__bar kit-plate__bar--top" data-figure-chrome>
-        <slot name="top" />
+        <Fragment set:html={top} />
       </div>
     )
   }

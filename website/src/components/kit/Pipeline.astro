@@ -8,7 +8,7 @@
  * gets the vertical one at any viewport) and the vertical one below that. Each layout is about
  * 1 unit per CSS px at its narrowest width, so labels stay 13 px or more. The island
  * (pipeline.ts) adds packets, focus, the 3 ↔ 6 morph and Replay; `variant="links"` ships no
- * script at all.
+ * script at all, and its caption is the page's figure legend (the `caption` slot).
  *
  * Two lanes that never join: measured studs bypass every model and the gate and reach the map at
  * its upper port; on the modeled lane a stud becomes a hex only on leaving a model node. No
@@ -38,6 +38,9 @@ import { cssVarStyles } from './svg';
 
 interface Props {
   mode?: PipelineMode;
+  /** `links`: a static map of the guides, mode 6. Its bottom bar is the `caption` slot (the
+   * page's figure legend, as one element: the bar is a flex row); the interactive bar narrates
+   * focus instead. */
   variant?: 'interactive' | 'links';
   /** Offer the 3 stages ↔ 6 parts toggle (interactive only). */
   modeToggle?: boolean;
@@ -487,7 +490,7 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
   <Fragment slot="caption">
     {
       links ? (
-        <span>Select a part to open its guide.</span>
+        <slot name="caption" />
       ) : (
         <p class="kit-pipeline__caption" data-pipeline-caption>
           {PIPELINE[mode].idle}
