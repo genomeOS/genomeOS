@@ -641,8 +641,16 @@
     display: block;
   }
 
-  .contact-letter {
+  /* A long draft (every offer) runs on to a second page between the letter's parts, never inside
+     one, so it starts under the intro instead of leaving page 1 with the intro alone. The caption
+     stays with the sign-off. */
+  .letter__head,
+  .letter__para {
     break-inside: avoid;
+  }
+
+  .contact-letter > figcaption {
+    break-before: avoid;
   }
 
   /* The plate's corner ticks are a positioned overlay: printed without background graphics, it

@@ -13,7 +13,10 @@
  *   open still has it. No `<a href="mailto:…">` sits in the page: the draft buttons build the
  *   link when pressed and navigate to it.
  * - Feedback (shown, copied, how to carry on) goes through the one polite status line. Where the
- *   clipboard is blocked, the text to copy is selected instead: the address, or the letter.
+ *   clipboard is blocked, the text to copy is selected instead: the address, or the letter. The
+ *   letter as laid out is not the draft's text (To and Subject lose their colons, each dash breaks
+ *   from its field, and hidden sections leave blank lines), so while that selection stands a copy
+ *   carries `draftText`, exactly what Copy draft would have copied.
  * - The composer is marked `data-ready` once this has run; the pre-paint script falls back to the
  *   spelled-out address if it never does.
  * - Nothing is sent or stored: no request, no storage, no analytics event. (A browser test reads
@@ -159,17 +162,51 @@ export function initContact(root: HTMLElement): void {
     }
   };
 
+  const draft = () => draftText(reveal(), buildDraft(state()));
+
+  // The whole letter selected (as `copy` selects it, or by hand), once the address is shown: a
+  // hand copy of it (keys, menu) carries the draft as Copy draft writes it, for the choices as
+  // they now stand. Any other selection copies as the browser copies it. The ends are compared by
+  // the text between them and the letter's own ends, since a browser may move a selection's ends
+  // onto the nearest text.
+  const textBetween = (
+    start: Node,
+    startOffset: number,
+    end: Node,
+    endOffset: number,
+  ) => {
+    const range = document.createRange();
+    range.setStart(start, startOffset);
+    range.setEnd(end, endOffset);
+    return range.toString().trim();
+  };
+  const holdsLetter = () => {
+    const selection = window.getSelection();
+    if (!letter || !address || selection?.rangeCount !== 1) return false;
+    const held = selection.getRangeAt(0);
+    return (
+      letter.contains(held.startContainer) &&
+      letter.contains(held.endContainer) &&
+      textBetween(letter, 0, held.startContainer, held.startOffset) === '' &&
+      textBetween(
+        held.endContainer,
+        held.endOffset,
+        letter,
+        letter.childNodes.length,
+      ) === ''
+    );
+  };
+  document.addEventListener('copy', (event) => {
+    if (!event.clipboardData || !holdsLetter()) return;
+    event.clipboardData.setData('text/plain', draft());
+    event.preventDefault();
+  });
+
   const actions: Record<string, () => void> = {
     open: () =>
       open(mailtoUrl(reveal(), buildDraft(state())), 'use Copy draft.'),
     blank: () => open(mailtoUrl(reveal()), 'write to the address above.'),
-    'copy-draft': () =>
-      void copy(
-        draftText(reveal(), buildDraft(state())),
-        'Draft copied',
-        letter,
-        'draft',
-      ),
+    'copy-draft': () => void copy(draft(), 'Draft copied', letter, 'draft'),
     reveal: () => {
       reveal();
       copyAddress?.focus();

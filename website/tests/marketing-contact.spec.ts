@@ -353,32 +353,91 @@ test.describe('the composer', () => {
     );
   });
 
-  test('where the clipboard is blocked, the draft or the address is selected instead', async ({
+  test('where the clipboard is blocked, the draft or the address is selected instead, and copies by hand as itself', async ({
     page,
   }) => {
+    // Only the script's clipboard is blocked: the copy command the keys give still writes it,
+    // and the test reads it back.
     await page.addInitScript(() => {
       Clipboard.prototype.writeText = () =>
         Promise.reject(new DOMException('Blocked', 'NotAllowedError'));
     });
-    await page.goto('/contact/?topic=question');
+    await page.goto('/contact/?topic=contribute&offer=data');
+    await grantClipboard(page);
     const status = composer(page).getByRole('status');
     const selected = () =>
       page.evaluate(() => window.getSelection()?.toString() ?? '');
-    const draft = buildDraft({ topic: 'question', offers: [] });
+    // Emptied first (through `write`, which is not blocked), so a copy that writes nothing fails.
+    const copyByHand = async () => {
+      await page.evaluate(() =>
+        navigator.clipboard.write([
+          new ClipboardItem({
+            'text/plain': new Blob([''], { type: 'text/plain' }),
+          }),
+        ]),
+      );
+      await page.keyboard.press('ControlOrMeta+KeyC');
+      return clipboard(page);
+    };
+    const asText = (offers: Offer[]) =>
+      draftText(ADDRESS, buildDraft({ topic: 'contribute', offers }));
 
     await action(page, 'Copy draft').click();
     await expect(status).toHaveText(
       'Copying is blocked here. The draft is selected, ready to copy.',
     );
-    const letterText = await selected();
-    for (const part of [ADDRESS, draft.subject, 'I have a question about'])
-      expect(letterText).toContain(part);
+    // The letter is what shows as selected, and a copy of it is the draft, line for line.
+    const shown = await selected();
+    for (const part of [ADDRESS, 'Contributing to genomeOS: data'])
+      expect(shown).toContain(part);
+    expect(await copyByHand()).toBe(asText(['data']));
+
+    // Pressed while the letter stays selected, an offer is in the next copy.
+    await offer(page, 'funding').press('Space');
+    await expect(offer(page, 'funding')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(await copyByHand()).toBe(asText(['data', 'funding']));
+
+    // Ends moved onto the letter's first and last text, as a browser may move them (or as a hand
+    // selection of the whole letter sets them), still hold the whole letter.
+    await page.evaluate(() => {
+      const walker = document.createTreeWalker(
+        document.querySelector('[data-letter]')!,
+        NodeFilter.SHOW_TEXT,
+        (node) =>
+          node.textContent?.trim()
+            ? NodeFilter.FILTER_ACCEPT
+            : NodeFilter.FILTER_SKIP,
+      );
+      const first = walker.nextNode()!;
+      let last = first;
+      while (walker.nextNode()) last = walker.currentNode;
+      window
+        .getSelection()
+        ?.setBaseAndExtent(first, 0, last, last.textContent!.length);
+    });
+    expect(await copyByHand()).toBe(asText(['data', 'funding']));
+
+    // Any other selection copies as the browser copies it.
+    await page.evaluate(() =>
+      window
+        .getSelection()
+        ?.selectAllChildren(document.querySelector('.letter__head dt')!),
+    );
+    expect(await copyByHand()).toBe('To');
+    await page.keyboard.press('ControlOrMeta+KeyA');
+    const everything = await copyByHand();
+    expect(everything).toContain('Start the conversation.');
+    expect(everything).not.toContain(asText(['data', 'funding']));
 
     await action(page, 'Copy').click();
     await expect(status).toHaveText(
       'Copying is blocked here. The address is selected, ready to copy.',
     );
     expect(await selected()).toBe(ADDRESS);
+    expect(await copyByHand()).toBe(ADDRESS);
   });
 
   test('the query preselects a purpose and offers; unknown values are ignored', async ({
@@ -747,7 +806,7 @@ test('without JavaScript the address is spelled out and the composer stays hidde
   await context.close();
 });
 
-test('print shows the letter, in dark type on white, without the controls', async ({
+test('print shows the letter, in dark type on white, without the controls, and runs on between its parts', async ({
   page,
 }) => {
   await page.goto('/contact/?topic=contribute&offer=data');
@@ -789,6 +848,15 @@ test('print shows the letter, in dark type on white, without the controls', asyn
     'partner none',
     'press none',
   ]);
+
+  // The longest draft runs on between the letter's parts, so it starts under the intro: two
+  // pages, not the intro alone on page 1 and the whole letter on page 2.
+  await page.goto(
+    '/contact/?topic=contribute&offer=code,data,expertise,funding',
+  );
+  await page.evaluate(() => document.fonts.ready);
+  const pdf = (await page.pdf()).toString('latin1');
+  expect(pdf.match(/\/Type\s*\/Page(?!s)/g)).toHaveLength(2);
 });
 
 test('in forced colours selection is a system fill, and focus still shows on a selected control', async ({

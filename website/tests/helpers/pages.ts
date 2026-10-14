@@ -34,6 +34,8 @@ export interface PageManifest {
   transferKbGz: number | null;
   lcpMs: { desktop: number; phone: number } | null;
   cls: number;
+  /** Why a budget departs from the spec's table (spec §7), for the reader of the manifest. */
+  budgetNote?: string;
 }
 
 const directory = path.resolve(import.meta.dirname, '../pages');
@@ -52,6 +54,7 @@ const KEYS = new Set([
   'transferKbGz',
   'lcpMs',
   'cls',
+  'budgetNote',
 ]);
 
 function load(file: string): PageManifest {
