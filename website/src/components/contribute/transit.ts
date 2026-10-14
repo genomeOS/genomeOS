@@ -1,8 +1,9 @@
 /** The working groups' island (site redesign spec §4.3 C2, §2.7, #454).
  *
- * - The transit line plays once when 35% visible: the ion line draws over 2.4 s with the white
- *   stud riding its head; the teal hex joins at the model step and follows; both rest on the map's
- *   stretch. Stations light as the line reaches them. Then nothing runs.
+ * - The transit line plays once: the ion line draws over 2.4 s with the white stud riding its
+ *   head; the teal hex joins at the model step and follows; both rest on the map's stretch.
+ *   Stations light as the line reaches them. Then nothing runs. As the page's lead figure it plays
+ *   at load when 200 px of it show, rests at once when less does, and otherwise plays at 35%.
  * - Hovering, focusing or tapping a group card (or its lane label) lights that group's lane: its
  *   band tints, its stations and its own stretches of the line stay at full strength, and the other
  *   lanes' art drops to 32%. Text only changes colour, never below 4.5:1.
@@ -15,29 +16,32 @@
 
 import { FigureController, prefersReducedMotion } from '../../graphics/figure';
 import {
-  TRANSIT_LAYOUTS,
   TRANSIT_MS,
-  buildRoute,
-  tokenFrame,
-  type Lane,
-} from './transit-route';
+  filletRoute,
+  tokenAt,
+  type TokenPlan,
+} from './transit-geometry';
+
+type Lane = 'data' | 'modeling' | 'ui';
 
 const VIGNETTE_STAGGER_MS = 300;
 const VIGNETTE_MS = 1600;
+/** The lead figure plays once this much of it is in view (see initTransit). */
+const LEAD_VISIBLE_PX = 200;
 
 const translate = (point: { x: number; y: number }) =>
   `translate(${point.x.toFixed(2)} ${point.y.toFixed(2)})`;
 
 function initTransit(figure: HTMLElement): void {
   const parts = [
-    ...figure.querySelectorAll<SVGSVGElement>('svg[data-layout]'),
+    ...figure.querySelectorAll<SVGSVGElement>('svg[data-plan]'),
   ].map((svg) => {
-    const layout = TRANSIT_LAYOUTS[svg.dataset.layout as 'h' | 'v'];
+    const plan = JSON.parse(svg.dataset.plan!) as TokenPlan;
     const stud = svg.querySelector<SVGGElement>('[data-token="stud"]')!;
     const hex = svg.querySelector<SVGGElement>('[data-token="hex"]')!;
     return {
-      layout,
-      route: buildRoute(layout),
+      plan,
+      route: filletRoute(plan.points, plan.corner),
       line: svg.querySelector<SVGPathElement>('[data-line]')!,
       stud,
       hex,
@@ -51,7 +55,7 @@ function initTransit(figure: HTMLElement): void {
 
   const draw = (progress: number) => {
     for (const part of parts) {
-      const frame = tokenFrame(part.layout, part.route, progress);
+      const frame = tokenAt(part.route, part.plan, progress);
       const share = frame.line / part.route.length;
       part.line.style.strokeDashoffset = String(1 - share);
       part.stud.setAttribute('transform', translate(frame.stud.point));
@@ -66,16 +70,36 @@ function initTransit(figure: HTMLElement): void {
     }
   };
 
-  new FigureController(figure, {
+  // The controller's own clock ends the entrance, and ends it early offscreen or in a hidden tab;
+  // this loop only draws while the controller says the figure is playing. (A `render` loop would
+  // depend on the controller's on-screen flag, which can still read "offscreen" at the moment a
+  // figure that loaded below the fold is told to play.)
+  let request = 0;
+  const controller: FigureController = new FigureController(figure, {
     duration: TRANSIT_MS,
     arm() {
       figure.classList.add('is-armed');
       draw(0);
     },
-    render(t) {
-      draw(t / TRANSIT_MS);
+    start() {
+      const begun = performance.now();
+      const tick = (now: number) => {
+        request = 0;
+        if (controller.state !== 'playing') return;
+        // Dev captures freeze the entrance at ?t=<ms> (FigureController).
+        const frozen = figure.style.getPropertyValue('--figure-freeze');
+        if (frozen) {
+          draw(-Number.parseFloat(frozen) / TRANSIT_MS);
+          return;
+        }
+        draw((now - begun) / TRANSIT_MS);
+        request = requestAnimationFrame(tick);
+      };
+      request = requestAnimationFrame(tick);
     },
     rest() {
+      cancelAnimationFrame(request);
+      request = 0;
       figure.classList.remove('is-armed');
       for (const part of parts) {
         part.line.style.removeProperty('stroke-dashoffset');
@@ -87,6 +111,16 @@ function initTransit(figure: HTMLElement): void {
       }
     },
   });
+
+  // The page's lead figure starts in the first screen, but on a phone or a short laptop screen only
+  // its top shows, short of the 35% the page's observer waits for, so it would sit undrawn until the
+  // visitor scrolled. With LEAD_VISIBLE_PX of it showing it plays now; with less, it rests at once
+  // (spec §2.7 rule 5: above the fold never flashes); offscreen, it waits to be scrolled to.
+  if (controller.state !== 'armed') return;
+  const box = figure.getBoundingClientRect();
+  const showing = Math.min(box.bottom, innerHeight) - Math.max(box.top, 0);
+  if (showing >= LEAD_VISIBLE_PX) controller.play();
+  else if (showing > 0) controller.finish();
 }
 
 function initCards(row: HTMLElement, figure: HTMLElement | null): void {

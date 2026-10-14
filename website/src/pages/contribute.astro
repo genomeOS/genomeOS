@@ -13,8 +13,7 @@ import GroupCard from '../components/contribute/GroupCard.astro';
 import MilestoneRail from '../components/contribute/MilestoneRail.astro';
 import TransitLine from '../components/contribute/TransitLine.astro';
 import WorkBoard from '../components/contribute/WorkBoard.astro';
-import Glyph from '../components/kit/Glyph.astro';
-import Icon from '../components/kit/Icon.astro';
+import Mark from '../components/contribute/Mark.astro';
 import PageIntro from '../components/PageIntro.astro';
 import SiteLayout from '../layouts/SiteLayout.astro';
 import { sitePath } from '../lib/paths';
@@ -103,9 +102,6 @@ const starts = [
   title="Contribute"
   description="Join a genomeOS working group, take Ready work from the project board, and open a reviewable contribution."
 >
-  <Glyph sprite />
-  <Icon sprite />
-
   <PageIntro
     layout="split"
     note="Open collaboration"
@@ -148,7 +144,7 @@ const starts = [
       <MilestoneRail />
       <p class="contribute-more">
         <a href={sitePath('/docs/issues-and-projects/')}
-          >The full workflow in Docs <Icon name="arrow" size={18} /></a
+          >The full workflow in Docs <Mark icon="arrow" size={18} /></a
         >
       </p>
     </div>
@@ -183,3 +179,10 @@ const starts = [
     </div>
   </section>
 </SiteLayout>
+
+<script>
+  // The page's one island: both figures' behaviour in a single module, so a visitor fetches one
+  // script for them (site redesign spec §7: ≤ 10 KB of first-party JS on Contribute).
+  import '../components/contribute/transit';
+  import '../components/contribute/board';
+</script>

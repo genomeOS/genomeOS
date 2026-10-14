@@ -18,11 +18,11 @@
  * definition lines keep their space, so nothing below the board shifts either.
  *
  * Without JavaScript the tabs stay hidden, the five panels read as an ordered list, and the board
- * shows step 3. `board.ts` runs the tour (once, ≤ 6 s, rest on step 5) and the tabs.
+ * shows step 3. `board.ts` (loaded once by the page, with the transit island) runs the tour
+ * (once, ≤ 6 s, rest on step 5) and the tabs.
  */
-import Glyph from '../kit/Glyph.astro';
-import Icon from '../kit/Icon.astro';
 import Plate from '../kit/Plate.astro';
+import Mark from './Mark.astro';
 import {
   BOARD_COLUMNS,
   BOARD_STEPS,
@@ -88,7 +88,7 @@ const cardStep = (at: BoardPlace) => BOARD_STEPS.find((step) => step.at === at);
     >
       <p class="wb-place__head wb-station__head">
         <span class="wb-station__bubble">
-          <Icon name="speech" size={20} />
+          <Mark icon="speech" size={20} />
           <span class="wb-station__reply" aria-hidden="true"
             ><i></i><i></i><i></i></span
           >
@@ -96,7 +96,7 @@ const cardStep = (at: BoardPlace) => BOARD_STEPS.find((step) => step.at === at);
         <span>Discussion #76</span>
       </p>
       <span class="wb-marker wb-marker--idea" aria-hidden="true"
-        ><Glyph name="issue-card" size={16} /></span
+        ><Mark glyph="issue-card" size={16} /></span
       >
     </div>
     {
@@ -119,13 +119,13 @@ const cardStep = (at: BoardPlace) => BOARD_STEPS.find((step) => step.at === at);
             ))}
             {column.key === 'backlog' && (
               <span class="wb-lens">
-                <Icon name="magnifier" size={22} />
+                <Mark icon="magnifier" size={22} />
               </span>
             )}
           </div>
           {cardStep(column.key) && (
             <span class="wb-marker" aria-hidden="true">
-              <Glyph name="issue-card" size={16} />
+              <Mark glyph="issue-card" size={16} />
             </span>
           )}
         </div>
@@ -139,7 +139,7 @@ const cardStep = (at: BoardPlace) => BOARD_STEPS.find((step) => step.at === at);
           hidden={step.n !== NO_SCRIPT_STEP}
         >
           <p class="wb-card__title">
-            <Glyph name="issue-card" size={16} /> Example issue
+            <Mark glyph="issue-card" size={16} /> Example issue
           </p>
           <p class="wb-card__labels">
             <span>skill</span> <span>type</span> <span>priority</span>
@@ -167,7 +167,7 @@ const cardStep = (at: BoardPlace) => BOARD_STEPS.find((step) => step.at === at);
           )}
           {step.n === 5 && (
             <p class="wb-card__pr">
-              <Glyph name="pr" size={16} /> Closes #…
+              <Mark glyph="pr" size={16} /> Closes #…
             </p>
           )}
         </div>
@@ -230,7 +230,3 @@ const cardStep = (at: BoardPlace) => BOARD_STEPS.find((step) => step.at === at);
     </li>
   </ol>
 </Plate>
-
-<script>
-  import './board';
-</script>

@@ -59,19 +59,27 @@
   text-decoration: none;
 }
 
-.contribute-more a:hover .kit-icon {
+.contribute-more a:hover .contribute-mark {
   translate: 0.15rem 0;
 }
 
-.contribute-more .kit-icon {
+.contribute-mark {
+  display: inline-block;
+  flex: none;
+  overflow: visible;
+  vertical-align: middle;
+}
+
+.contribute-more .contribute-mark {
   transition: translate var(--dur-micro) var(--ease-ui);
 }
 
 /* ---------- working groups ---------- */
 
 /* The intro hands straight over to the transit line: the band opens tight, so the line is the
-   first thing below the lede, above the fold on desktops and phones (spec §2.4, §4.3 C1). */
-.wg-section {
+   first thing below the lede, above the fold on desktops and phones (spec §2.4, §4.3 C1). Two
+   classes: the built stylesheet may order the shared .band rule after this one. */
+.band.wg-section {
   padding-top: clamp(1.75rem, 3.2vw, 2.5rem);
 }
 
@@ -982,7 +990,7 @@
   line-height: 1.3;
 }
 
-.wb-card__title .kit-glyph {
+.wb-card__title .contribute-mark {
   color: var(--color-ion);
 }
 
@@ -1069,7 +1077,7 @@
   font-weight: 620;
 }
 
-.wb-card__pr .kit-glyph {
+.wb-card__pr .contribute-mark {
   color: var(--color-aurora);
 }
 

@@ -3,7 +3,8 @@
  * - The step tabs become a roving tablist (`graphics/tabs.ts`) and the five panels its tabpanels.
  * - The tour plays once when the board is 35% visible: steps 1 to 5, 1.2 s each, the example card
  *   moving 450 ms between places on `--ease-camera`; then it rests on step 5. Any choice the
- *   visitor makes ends the tour on the step they chose.
+ *   visitor makes ends the tour on the step they chose. Places, lines and stage names come from
+ *   the server-rendered board, so the island ships no copy.
  * - Reduced motion: no tour; step 1 is selected and every change is instant.
  *
  * At every moment one tab is selected, one card is shown, one place is lit and at most one column
@@ -13,14 +14,7 @@
 
 import { FigureController, prefersReducedMotion } from '../../graphics/figure';
 import { initTabs, type TabsChangeDetail } from '../../graphics/tabs';
-import {
-  BOARD_STEPS,
-  CARD_MOVE_MS,
-  REDUCED_STEP,
-  TOUR_MS,
-  TOUR_REST_STEP,
-  stepAt,
-} from './board-steps';
+import { CARD_MOVE_MS, REDUCED_STEP, STEP_MS } from './board-steps';
 
 const EASE_CAMERA = 'cubic-bezier(0.65, 0, 0.35, 1)';
 
@@ -36,6 +30,9 @@ function initBoard(figure: HTMLElement): void {
   ];
   const labels = JSON.parse(figure.dataset.wbLabels ?? '[]') as string[];
   const reduced = prefersReducedMotion();
+  // One card per step, in step order: step n's card names its place.
+  const steps = cards.length;
+  const placeOf = (n: number) => cards[n - 1].dataset.at;
 
   // The ordered list becomes the tabs' panels; without this script it stays a list.
   panels.setAttribute('role', 'none');
@@ -60,14 +57,14 @@ function initBoard(figure: HTMLElement): void {
 
   /** Show step `n` everywhere at once; `move` slides the card (or marker) from where it was. */
   function show(n: number, move: boolean): void {
-    const step = BOARD_STEPS[n - 1];
+    const at = placeOf(n);
     const before = marks().map((mark) => mark?.getBoundingClientRect());
     board.dataset.step = String(n);
-    for (const card of cards) card.hidden = card.dataset.at !== step.at;
+    for (const card of cards) card.hidden = card.dataset.at !== at;
     for (const place of places)
-      place.classList.toggle('is-here', place.dataset.place === step.at);
+      place.classList.toggle('is-here', place.dataset.place === at);
     for (const line of definitions)
-      line.hidden = line.dataset.definition !== step.at;
+      line.hidden = line.dataset.definition !== at;
     if (labels[n - 1]) stage.setAttribute('aria-label', labels[n - 1]);
     if (tabs.selected !== n - 1) tabs.select(n - 1);
     shown = n;
@@ -86,17 +83,22 @@ function initBoard(figure: HTMLElement): void {
     });
   }
 
+  // The tour steps on timers, so it needs no animation frames; the controller's clock ends it,
+  // early too when the board leaves the screen or the tab hides.
+  let timers: number[] = [];
   const controller = new FigureController(figure, {
-    duration: TOUR_MS,
+    duration: STEP_MS * steps,
     arm() {
       show(1, false);
     },
-    render(t) {
-      const n = stepAt(t);
-      if (n !== shown) show(n, true);
+    start() {
+      for (let n = 2; n <= steps; n += 1)
+        timers.push(window.setTimeout(() => show(n, true), (n - 1) * STEP_MS));
     },
     rest() {
-      const n = chosen ?? (reduced ? REDUCED_STEP : TOUR_REST_STEP);
+      timers.forEach((timer) => window.clearTimeout(timer));
+      timers = [];
+      const n = chosen ?? (reduced ? REDUCED_STEP : steps);
       if (n !== shown) show(n, chosen !== null);
     },
   });

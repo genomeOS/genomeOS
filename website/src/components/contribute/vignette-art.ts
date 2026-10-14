@@ -46,6 +46,29 @@ const STUD_R = 3.2;
 
 const f = (value: number) => Math.round(value * 10) / 10;
 
+/** A cell as a compact relative subpath (pointy-top, a little inside its pitch), so many cells of
+ * one colour share one path. */
+function cellPath(x: number, y: number, r = HEX - 0.7): string {
+  const dx = f((r * Math.sqrt(3)) / 2);
+  const dy = f(r / 2);
+  return `M${f(x)} ${f(y - r)}l${dx} ${dy}v${f(r)}l-${dx} ${dy}-${dx}-${dy}v-${f(r)}z`;
+}
+
+/** Cells grouped by their fill (no fill: the hatch), one path per group. */
+function cellPaths(
+  cells: { x: number; y: number; fill: string | null }[],
+  hatchId: string,
+): string {
+  const groups = new Map<string, string>();
+  for (const cell of cells) {
+    const fill = cell.fill ?? `url(#${hatchId})`;
+    groups.set(fill, (groups.get(fill) ?? '') + cellPath(cell.x, cell.y));
+  }
+  return [...groups]
+    .map(([fill, d]) => `<path d="${d}" fill="${fill}"/>`)
+    .join('');
+}
+
 /** A pointy-top hexagon's path, a little inside its pitch so cells read as cells. */
 function hexPath(x: number, y: number, r = HEX - 0.7): string {
   return (
@@ -128,20 +151,51 @@ const stud = (x: number, y: number, extra = '') =>
 const ring = (x: number, y: number, r: number, extra = '') =>
   `<circle${extra} cx="${f(x)}" cy="${f(y)}" r="${r}" fill="none" stroke="var(--enc-obs-radius)" stroke-width="1" stroke-dasharray="2 2"/>`;
 
-/** Modeled cells, each fading in after a delay that grows with its distance from evidence. */
+/** Distance rings (units) the modeled cells come in by: nearer rings first. */
+export const RING = 8;
+
+export interface CellGroup {
+  fill: string | null;
+  ring: number;
+  /** When the ring fades in, after the vignette starts. */
+  delay: number;
+  cells: Modeled[];
+}
+
+/** Modeled cells grouped by colour and distance ring, so the surface spreads outward from the
+ * evidence in a handful of paths. */
+function groupCells(cells: Modeled[]): CellGroup[] {
+  const groups = new Map<string, CellGroup>();
+  for (const cell of cells) {
+    const ring = Math.floor(cell.d / RING);
+    const key = `${cell.fill}|${ring}`;
+    if (!groups.has(key))
+      groups.set(key, {
+        fill: cell.fill,
+        ring,
+        delay: 120 + ring * RING * 9,
+        cells: [],
+      });
+    groups.get(key)!.cells.push(cell);
+  }
+  return [...groups.values()].sort((a, b) => a.ring - b.ring);
+}
+
 function modeledCells(cells: Modeled[], hatchId: string): string {
-  return cells
+  return groupCells(cells)
     .map(
-      (cell) =>
-        `<path class="wg-vig__grow" style="--wg-d:${Math.round(120 + cell.d * 9)}ms" d="${hexPath(cell.x, cell.y)}" fill="${cell.fill ?? `url(#${hatchId})`}"/>`,
+      (group) =>
+        `<path class="wg-vig__grow" style="--wg-d:${group.delay}ms" d="${group.cells
+          .map((cell) => cellPath(cell.x, cell.y))
+          .join('')}" fill="${group.fill ?? `url(#${hatchId})`}"/>`,
     )
     .join('');
 }
 
 function dataArt(): string {
-  const land = patch(206, 92, 82, 56, 1.3)
-    .map(([x, y]) => `<path d="${hexPath(x, y)}"/>`)
-    .join('');
+  const land = `<path d="${patch(206, 92, 82, 56, 1.3)
+    .map(([x, y]) => cellPath(x, y))
+    .join('')}"/>`;
   // The table: a sheet behind a sheet, placeholder lines, a 3 × 4 grid with one cell lit.
   const table: string[] = [];
   for (let row = 0; row < 4; row += 1)
@@ -226,12 +280,7 @@ function uiArt(): string {
     `<path d="M13 28.5H307" stroke="rgb(165 185 211 / 18%)"/>` +
     `<circle cx="23" cy="20.5" r="2.5" fill="rgb(165 185 211 / 40%)"/><circle cx="32" cy="20.5" r="2.5" fill="rgb(165 185 211 / 40%)"/>` +
     `<g clip-path="url(#wg-ui-clip)">` +
-    `<g stroke="var(--color-plate)" stroke-width="1.2">${cells
-      .map(
-        (cell) =>
-          `<path d="${hexPath(cell.x, cell.y)}" fill="${cell.fill ?? 'url(#wg-hatch-ui)'}"/>`,
-      )
-      .join('')}</g>` +
+    `<g stroke="var(--color-plate)" stroke-width="1.2">${cellPaths(cells, 'wg-hatch-ui')}</g>` +
     STUDS.map(([x, y]) => stud(x - 10, y + 4)).join('') +
     `</g>` +
     `<path class="wg-vig__hi" d="${hexPath(target.x, target.y, HEX + 0.3)}" fill="none" stroke="var(--color-starlight)" stroke-width="1.6"/>` +
@@ -266,6 +315,10 @@ export function vignetteArt(kind: VignetteKind): string {
 }
 
 /** For tests: the modeled cells the modeling vignette draws, with their tier and fill. */
+export function modelingGroups(): CellGroup[] {
+  return groupCells(modelingCells());
+}
+
 export function modelingCells(): Modeled[] {
   return surface(patch(140, 110, 104, 70, 1.3));
 }

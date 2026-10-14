@@ -36,7 +36,9 @@ import {
   type TransitLayout,
 } from '../src/components/contribute/transit-route';
 import {
+  RING,
   modelingCells,
+  modelingGroups,
   vignetteArt,
 } from '../src/components/contribute/vignette-art';
 
@@ -223,16 +225,24 @@ describe('group vignettes', () => {
       expect(cell.fill === null, `${cell.tier} at ${cell.d}`).toBe(
         cell.tier === 'none',
       );
-    // Cells farther from the evidence never come in before nearer ones.
+    // Cells come in by rings of distance from the evidence, each ring one path per colour: every
+    // cell drawn once, nearer rings never after farther ones.
+    const groups = modelingGroups();
+    expect(groups.reduce((n, group) => n + group.cells.length, 0)).toBe(
+      cells.length,
+    );
+    for (const group of groups)
+      for (const cell of group.cells) {
+        expect(cell.fill).toBe(group.fill);
+        expect(Math.floor(cell.d / RING)).toBe(group.ring);
+      }
+    const byRing = [...groups].sort((a, b) => a.ring - b.ring);
+    for (let index = 1; index < byRing.length; index += 1)
+      expect(byRing[index].delay).toBeGreaterThanOrEqual(
+        byRing[index - 1].delay,
+      );
     const art = vignetteArt('modeling');
-    const delays = [...art.matchAll(/--wg-d:(\d+)ms/g)].map(([, ms]) =>
-      Number(ms),
-    );
-    expect(delays).toHaveLength(cells.length);
-    const sorted = [...cells].sort((a, b) => a.d - b.d);
-    expect(sorted.map((cell) => Math.round(120 + cell.d * 9))).toEqual(
-      [...delays].sort((a, b) => a - b),
-    );
+    expect([...art.matchAll(/--wg-d:(\d+)ms/g)]).toHaveLength(groups.length);
   });
 
   it('draws the studs after the surface they sit on', () => {

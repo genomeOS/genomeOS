@@ -4,7 +4,8 @@
  * shared rail of the group cards below it. One ion line runs through three swimlanes; a white stud
  * rides it from the start and a teal hex joins at the model step, and both rest on the map's
  * stretch. Server-rendered in its final state, in both layouts (`transit-route.ts`); `transit.ts`
- * plays the entrance once and lights a group's lane from its card.
+ * (loaded once by the page, with the board's island) plays the entrance once and lights a group's
+ * lane from its card.
  */
 import Plate from '../kit/Plate.astro';
 import { ICON_PATHS } from '../kit/icons';
@@ -14,7 +15,8 @@ import {
   laneStretches,
   lengthAt,
   slicePath,
-  tokenFrame,
+  tokenAt,
+  tokenPlan,
   type Label,
   type StationIcon,
   type TransitLayout,
@@ -50,11 +52,14 @@ interface Drawn {
   stud: { x: number; y: number };
   hex: { x: number; y: number };
   reached: Record<string, number>;
+  /** What the island needs to replay the entrance (transit.ts). */
+  plan: string;
 }
 
 const drawn: Drawn[] = [TRANSIT_LAYOUTS.h, TRANSIT_LAYOUTS.v].map((layout) => {
   const route = buildRoute(layout);
-  const rest = tokenFrame(layout, route, 1);
+  const plan = tokenPlan(layout, route);
+  const rest = tokenAt(route, plan, 1);
   const [a, b] = layout.spur;
   return {
     layout,
@@ -64,6 +69,7 @@ const drawn: Drawn[] = [TRANSIT_LAYOUTS.h, TRANSIT_LAYOUTS.v].map((layout) => {
       d: slicePath(route, stretch.from, stretch.to),
     })),
     spur: `M${a.x} ${a.y}L${b.x} ${b.y}`,
+    plan: JSON.stringify(plan),
     stud: rest.stud.point,
     hex: rest.hex!.point,
     // How far along the line each station sits, as a share: the entrance lights it on arrival.
@@ -88,159 +94,161 @@ const at = (point: { x: number; y: number }) =>
 
 <Plate graphic="transit-line" class="wg-transit" label={ALT}>
   {
-    drawn.map(({ layout, d, stretches, spur, stud, hex: hexAt, reached }) => (
-      <svg
-        class={`wg-transit__svg wg-transit__svg--${layout.id}`}
-        viewBox={`0 0 ${layout.width} ${layout.height}`}
-        style={`max-width: ${layout.maxWidth}px`}
-        data-layout={layout.id}
-        aria-hidden="true"
-        focusable="false"
-      >
-        <g class="wg-lanes">
-          {layout.lanes.map((band) => (
-            <g class="wg-lane" data-lane={band.lane}>
-              <rect
-                class="wg-lane__band"
-                x={band.x}
-                y={band.y}
-                width={band.width}
-                height={band.height}
-              />
-              {band.bracket && (
-                <path
-                  class="wg-lane__bracket"
-                  d={`M${band.bracket.x + 5} ${band.bracket.y}H${band.bracket.x}V${band.bracket.y + band.bracket.length}H${band.bracket.x + 5}`}
+    drawn.map(
+      ({ layout, d, stretches, spur, stud, hex: hexAt, reached, plan }) => (
+        <svg
+          class={`wg-transit__svg wg-transit__svg--${layout.id}`}
+          viewBox={`0 0 ${layout.width} ${layout.height}`}
+          style={`max-width: ${layout.maxWidth}px`}
+          data-layout={layout.id}
+          data-plan={plan}
+          aria-hidden="true"
+          focusable="false"
+        >
+          <g class="wg-lanes">
+            {layout.lanes.map((band) => (
+              <g class="wg-lane" data-lane={band.lane}>
+                <rect
+                  class="wg-lane__band"
+                  x={band.x}
+                  y={band.y}
+                  width={band.width}
+                  height={band.height}
                 />
-              )}
+                {band.bracket && (
+                  <path
+                    class="wg-lane__bracket"
+                    d={`M${band.bracket.x + 5} ${band.bracket.y}H${band.bracket.x}V${band.bracket.y + band.bracket.length}H${band.bracket.x + 5}`}
+                  />
+                )}
+                <text
+                  class="wg-lane__name"
+                  x={band.name.x}
+                  y={band.name.y}
+                  text-anchor={band.name.anchor}
+                  transform={
+                    band.name.rotate
+                      ? `rotate(-90 ${band.name.x} ${band.name.y})`
+                      : undefined
+                  }
+                >
+                  {lines(layout, band.name).map(({ line, dy }) => (
+                    <tspan x={band.name.x} dy={dy}>
+                      {line}
+                    </tspan>
+                  ))}
+                </text>
+                <rect
+                  class="wg-lane__hit"
+                  data-lane-hit={band.lane}
+                  x={band.x}
+                  y={band.y}
+                  width={layout.id === 'h' ? 150 : 36}
+                  height={band.height}
+                />
+              </g>
+            ))}
+            {layout.id === 'h' && (
+              <path
+                class="wg-lane__rule"
+                d={layout.lanes
+                  .slice(1)
+                  .map((band) => `M0 ${band.y + 0.5}H${layout.width}`)
+                  .join('')}
+              />
+            )}
+          </g>
+          <path class="wg-line wg-line--track" d={d} />
+          <path class="wg-line wg-line--lit" d={d} pathLength="1" data-line />
+          {stretches.map((stretch) => (
+            <path
+              class="wg-line wg-line--stretch"
+              data-lane={stretch.lane}
+              d={stretch.d}
+            />
+          ))}
+          <path class="wg-line wg-line--future" d={spur} />
+          <g class="wg-step">
+            <path
+              class="wg-step__hex"
+              transform={at(layout.modelStepLabel.glyph)}
+              d={hex(7)}
+            />
+            <text
+              class="wg-step__label"
+              x={layout.modelStepLabel.x}
+              y={layout.modelStepLabel.y}
+            >
+              {layout.modelStepLabel.lines[0]}
+            </text>
+          </g>
+          {layout.stations.map((station) => (
+            <g
+              class:list={[
+                'wg-station',
+                station.future && 'wg-station--future',
+              ]}
+              data-station={station.key}
+              data-lane={station.lane}
+              data-reach={reached[station.key]}
+            >
+              <g class="wg-station__art" transform={at(station)}>
+                <circle class="wg-station__ring" r={layout.stationRadius} />
+                {station.icon === 'stud' ? (
+                  <>
+                    <circle class="wg-stud__ring" r="5.75" />
+                    <circle class="wg-stud" r="4.25" />
+                  </>
+                ) : station.icon === 'hex' ? (
+                  <path class="wg-hexmark" d={hex(7.5)} />
+                ) : (
+                  <svg
+                    class="wg-station__icon"
+                    x="-9"
+                    y="-9"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d={ICONS[station.icon]} />
+                  </svg>
+                )}
+              </g>
               <text
-                class="wg-lane__name"
-                x={band.name.x}
-                y={band.name.y}
-                text-anchor={band.name.anchor}
-                transform={
-                  band.name.rotate
-                    ? `rotate(-90 ${band.name.x} ${band.name.y})`
-                    : undefined
-                }
+                class="wg-station__label"
+                x={station.label.x}
+                y={station.label.y}
+                text-anchor={station.label.anchor}
               >
-                {lines(layout, band.name).map(({ line, dy }) => (
-                  <tspan x={band.name.x} dy={dy}>
+                {lines(layout, station.label).map(({ line, dy }) => (
+                  <tspan x={station.label.x} dy={dy}>
                     {line}
                   </tspan>
                 ))}
               </text>
-              <rect
-                class="wg-lane__hit"
-                data-lane-hit={band.lane}
-                x={band.x}
-                y={band.y}
-                width={layout.id === 'h' ? 150 : 36}
-                height={band.height}
-              />
             </g>
           ))}
-          {layout.id === 'h' && (
-            <path
-              class="wg-lane__rule"
-              d={layout.lanes
-                .slice(1)
-                .map((band) => `M0 ${band.y + 0.5}H${layout.width}`)
-                .join('')}
-            />
-          )}
-        </g>
-        <path class="wg-line wg-line--track" d={d} />
-        <path class="wg-line wg-line--lit" d={d} pathLength="1" data-line />
-        {stretches.map((stretch) => (
-          <path
-            class="wg-line wg-line--stretch"
-            data-lane={stretch.lane}
-            d={stretch.d}
-          />
-        ))}
-        <path class="wg-line wg-line--future" d={spur} />
-        <g class="wg-step">
-          <path
-            class="wg-step__hex"
-            transform={at(layout.modelStepLabel.glyph)}
-            d={hex(7)}
-          />
-          <text
-            class="wg-step__label"
-            x={layout.modelStepLabel.x}
-            y={layout.modelStepLabel.y}
-          >
-            {layout.modelStepLabel.lines[0]}
-          </text>
-        </g>
-        {layout.stations.map((station) => (
           <g
-            class:list={['wg-station', station.future && 'wg-station--future']}
-            data-station={station.key}
-            data-lane={station.lane}
-            data-reach={reached[station.key]}
+            class="wg-token wg-token--hex"
+            data-token="hex"
+            transform={at(hexAt)}
           >
-            <g class="wg-station__art" transform={at(station)}>
-              <circle class="wg-station__ring" r={layout.stationRadius} />
-              {station.icon === 'stud' ? (
-                <>
-                  <circle class="wg-stud__ring" r="5.75" />
-                  <circle class="wg-stud" r="4.25" />
-                </>
-              ) : station.icon === 'hex' ? (
-                <path class="wg-hexmark" d={hex(7.5)} />
-              ) : (
-                <svg
-                  class="wg-station__icon"
-                  x="-9"
-                  y="-9"
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                >
-                  <path d={ICONS[station.icon]} />
-                </svg>
-              )}
-            </g>
-            <text
-              class="wg-station__label"
-              x={station.label.x}
-              y={station.label.y}
-              text-anchor={station.label.anchor}
-            >
-              {lines(layout, station.label).map(({ line, dy }) => (
-                <tspan x={station.label.x} dy={dy}>
-                  {line}
-                </tspan>
-              ))}
-            </text>
+            <path d={hex(8)} />
           </g>
-        ))}
-        <g
-          class="wg-token wg-token--hex"
-          data-token="hex"
-          transform={at(hexAt)}
-        >
-          <path d={hex(8)} />
-        </g>
-        <g
-          class="wg-token wg-token--stud"
-          data-token="stud"
-          transform={at(stud)}
-        >
-          <circle class="wg-stud__ring" r="6.5" />
-          <circle class="wg-stud" r="5" />
-        </g>
-      </svg>
-    ))
+          <g
+            class="wg-token wg-token--stud"
+            data-token="stud"
+            transform={at(stud)}
+          >
+            <circle class="wg-stud__ring" r="6.5" />
+            <circle class="wg-stud" r="5" />
+          </g>
+        </svg>
+      ),
+    )
   }
   <p slot="caption" class="wg-transit__legend">
     <strong>One line carries evidence to the map.</strong> Each group owns a stretch
     of it. Groups are an invitation, not a boundary.
   </p>
 </Plate>
-
-<script>
-  import './transit';
-</script>
