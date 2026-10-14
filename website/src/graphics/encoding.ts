@@ -65,6 +65,10 @@ export const ENC = {
   /** `unknown` support: hatch strokes over land, no number. */
   hatch: UNKNOWN_HATCH.color,
   hatchAlpha: UNKNOWN_HATCH.alpha,
+  /** Hatch geometry, the same on the canvas, the poster and the legend glyph: 45° strokes this
+   * wide, this far apart (px at 1 unit per px). */
+  hatchWidth: 1.4,
+  hatchPitch: 5,
   /** `prior_dominated` support: dots mixed this far toward white on a 46% base. */
   priorMix: PRIOR_DOTS.highlightMix,
   priorBaseAlpha: PRIOR_DOTS.darkAlpha,

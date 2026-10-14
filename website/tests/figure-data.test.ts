@@ -159,6 +159,27 @@ describe('committed figure data', () => {
     expect(vsupColor(0.1, 'none', domain)).toBeNull();
   });
 
+  it('hatches the poster like the canvas: 45° strokes 1.4 px wide, 5 px apart', () => {
+    const svg = file('poster').toString('utf8');
+    const pattern = svg.match(/<pattern id="h"([^>]*)>(.*?)<\/pattern>/);
+    expect(pattern).not.toBeNull();
+    const attr = (source: string, name: string) =>
+      source.match(new RegExp(`\\b${name}="([^"]+)"`))?.[1];
+    const [, attrs, body] = pattern!;
+    expect(attr(attrs, 'patternTransform')).toBe('rotate(45)');
+    // One stroke per tile, so the tile's width is the pitch.
+    expect(Number(attr(attrs, 'width'))).toBe(ENC.hatchPitch);
+    expect(Number(attr(attrs, 'height'))).toBe(ENC.hatchPitch);
+    const stroke = body.match(/<path d="M([\d.]+) 0V([\d.]+)"/);
+    expect(stroke).not.toBeNull();
+    const width = Number(attr(body, 'stroke-width'));
+    expect(width).toBe(ENC.hatchWidth);
+    // The tile clips its content: the stroke sits inside it, never cut to half its width.
+    const x = Number(stroke![1]);
+    expect(x - width / 2).toBeGreaterThanOrEqual(0);
+    expect(x + width / 2).toBeLessThanOrEqual(ENC.hatchPitch);
+  });
+
   it('stays inside the transfer budgets', () => {
     expect(kb(file('globe'))).toBeLessThanOrEqual(45);
     expect(kb(file('region'))).toBeLessThanOrEqual(85);

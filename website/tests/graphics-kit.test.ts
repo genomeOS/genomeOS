@@ -12,6 +12,8 @@ import {
   NO_VALUE,
 } from '../src/graphics/figure-data';
 import { FrameProbe, contains } from '../src/graphics/hexfield';
+import { GLYPH_SYMBOLS } from '../src/components/kit/glyphs';
+import { ENC } from '../src/graphics/encoding';
 import { jeffreys } from '../src/graphics/jeffreys';
 import {
   fitEqualArea,
@@ -243,5 +245,35 @@ describe('figure data round trip', () => {
     expect(unknown.hi).toBeNull();
     expect(unknown.boundary).toHaveLength(6);
     expect(NO_VALUE).toBe(0xffff);
+  });
+});
+
+describe("the legend hatch glyph is the figures' hatch (spec §2.2, §2.6)", () => {
+  const svg = GLYPH_SYMBOLS.hatch;
+  const strokes = svg.match(/<path clip-path="[^"]+" d="([^"]+)"[^>]*>/)!;
+  const segments = [
+    ...strokes[1].matchAll(/M(-?[\d.]+) (-?[\d.]+)L(-?[\d.]+) (-?[\d.]+)/g),
+  ].map((match) => match.slice(1).map(Number));
+
+  it('draws 45° strokes 1.4 units wide', () => {
+    expect(strokes[0]).toContain(`stroke-width="${ENC.hatchWidth}"`);
+    expect(segments.length).toBeGreaterThan(2);
+    // Lines x + y = c run bottom-left to top-right, like the canvas and the poster.
+    for (const [x1, y1, x2, y2] of segments) {
+      expect(x1 + y1).toBeCloseTo(x2 + y2, 6);
+      expect(x1).not.toBe(x2);
+    }
+  });
+
+  it('spaces them 5 units apart and covers the whole hexagon', () => {
+    const offsets = segments.map(([x, y]) => x + y).sort((a, b) => a - b);
+    for (let index = 1; index < offsets.length; index += 1)
+      expect((offsets[index] - offsets[index - 1]) / Math.SQRT2).toBeCloseTo(
+        ENC.hatchPitch,
+        2,
+      );
+    // The 18-unit hexagon (centre 9, 9; radius 8) spans x + y from about 7.1 to 28.9.
+    expect(offsets[0]).toBeLessThanOrEqual(7.1);
+    expect(offsets.at(-1)).toBeGreaterThanOrEqual(28.9);
   });
 });

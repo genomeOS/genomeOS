@@ -34,6 +34,14 @@ const hex = (cx: number, cy: number, r: number) =>
     return `${k ? 'L' : 'M'}${(cx + r * Math.cos(a)).toFixed(2)} ${(cy + r * Math.sin(a)).toFixed(2)}`;
   }).join('') + 'Z';
 const ring = 1.5;
+// 45° hatch strokes on the figures' pitch: lines x + y = c, c stepping pitch × √2, across the hexagon.
+const hatchStrokes = () =>
+  [-2, -1, 0, 1, 2]
+    .map((k) => {
+      const c = 18 + k * ENC.hatchPitch * Math.SQRT2;
+      return `M${(c + 2).toFixed(2)} -2L${(c - 20).toFixed(2)} 20`;
+    })
+    .join('');
 const stud = (r: number) =>
   `<circle cx="8" cy="8" r="${r}" fill="var(--enc-obs)" stroke="var(--enc-obs-ring)" stroke-width="${ring}" paint-order="stroke"/>`;
 const wedge = () => {
@@ -60,7 +68,7 @@ export const GLYPH_SYMBOLS: Record<GlyphName, string> = {
   hex: `<path d="${hex(9, 9, 8)}" fill="var(--enc-mean-4)"/>`,
   'vsup-wedge': wedge(),
   'hex-land': `<path d="${hex(9, 9, 8)}" fill="var(--enc-land)" stroke="rgb(165 185 211 / 35%)" stroke-width=".8"/>`,
-  hatch: `<path d="${hex(9, 9, 8)}" fill="var(--enc-land)"/><clipPath id="glyph-hatch-clip"><path d="${hex(9, 9, 8)}"/></clipPath><path clip-path="url(#glyph-hatch-clip)" d="M-2 12L12 -2M2 18L18 2M8 22L22 8" stroke="var(--enc-hatch)" stroke-opacity="${ENC.hatchAlpha}" stroke-width="1.4"/>`,
+  hatch: `<path d="${hex(9, 9, 8)}" fill="var(--enc-land)"/><clipPath id="glyph-hatch-clip"><path d="${hex(9, 9, 8)}"/></clipPath><path clip-path="url(#glyph-hatch-clip)" d="${hatchStrokes()}" stroke="var(--enc-hatch)" stroke-opacity="${ENC.hatchAlpha}" stroke-width="${ENC.hatchWidth}"/>`,
   prior: `<path d="${hex(9, 9, 8)}" fill="var(--enc-mean-4)" fill-opacity="${ENC.priorBaseAlpha}"/><g fill="color-mix(in srgb, var(--enc-mean-4), white ${Math.round(ENC.priorMix * 100)}%)"><circle cx="6" cy="6" r="1.1"/><circle cx="12" cy="6" r="1.1"/><circle cx="9" cy="9" r="1.1"/><circle cx="6" cy="12" r="1.1"/><circle cx="12" cy="12" r="1.1"/></g>`,
   gate: `<rect x="4" y="4" width="10" height="10" transform="rotate(45 9 9)" fill="rgb(244 200 106 / 12%)" stroke="var(--enc-gate)" stroke-width="1.4"/><path d="M6 9.2l2.1 2.1L12.2 7" fill="none" stroke="var(--enc-gate)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`,
   future: `<path d="${hex(9, 9, 7.5)}" fill="none" stroke="var(--color-genome)" stroke-width="1.4" stroke-dasharray="2.5 2"/>`,

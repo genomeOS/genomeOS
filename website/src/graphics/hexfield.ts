@@ -213,7 +213,7 @@ export class HexField {
 
   private makeHatch(): CanvasPattern | null {
     // 45° strokes 1.4 px wide on a 5 px pitch (spec §2.2), drawn at the device pixel ratio.
-    const tile = 5 * Math.SQRT2;
+    const tile = ENC.hatchPitch * Math.SQRT2;
     const size = Math.max(1, Math.round(tile * this.dpr));
     const pattern = document.createElement('canvas');
     pattern.width = size;
@@ -222,7 +222,7 @@ export class HexField {
     if (!g) return null;
     g.strokeStyle = ENC.hatch;
     g.globalAlpha = ENC.hatchAlpha;
-    g.lineWidth = 1.4 * this.dpr;
+    g.lineWidth = ENC.hatchWidth * this.dpr;
     g.lineCap = 'square';
     g.beginPath();
     for (const offset of [-size, 0, size]) {

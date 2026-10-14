@@ -464,11 +464,13 @@ function posterSvg() {
       );
     })
     .join('');
-  const tile = Math.round(5 * Math.SQRT2 * 100) / 100;
+  // One centred stroke per tile, rotated 45°: the tile's width is the pitch, and the stroke is
+  // never cut to half its width by the tile's clip.
+  const tile = ENC.hatchPitch;
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${POSTER.size} ${POSTER.size}" width="${POSTER.size}" height="${POSTER.size}">` +
     `<defs><radialGradient id="o" cx=".35" cy=".3" r=".75"><stop offset="0" stop-color="#071831"/><stop offset="1" stop-color="#020712"/></radialGradient>` +
-    `<pattern id="h" width="${tile}" height="${tile}" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M0 0V${tile}" stroke="${ENC.hatch}" stroke-opacity="${ENC.hatchAlpha}" stroke-width="1.4"/></pattern>` +
+    `<pattern id="h" width="${tile}" height="${tile}" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M${tile / 2} 0V${tile}" stroke="${ENC.hatch}" stroke-opacity="${ENC.hatchAlpha}" stroke-width="${ENC.hatchWidth}"/></pattern>` +
     `${studDefs}</defs>` +
     `<circle cx="${c}" cy="${c}" r="${POSTER.radius}" fill="url(#o)"/>` +
     `<g stroke="#020712" stroke-opacity=".85" stroke-width=".7" stroke-linejoin="round">${fills}` +
