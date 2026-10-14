@@ -512,6 +512,104 @@ test('the hero shows its calls to action in the first view on laptops @desktop-c
   }
 });
 
+// Design review, round 3: on a tablet in portrait the stacked figure's lower-right corner landed in
+// the bottom-right 4.5rem the cookie control owns (spec §2.4): the Modeled callout at 768 × 1024,
+// the readout at 820 × 1180. The figure now ends 4.5rem from the screen's edge there.
+test('on a tablet no part of the hero at rest reaches the cookie control’s corner @desktop-chromium', async ({
+  page,
+}) => {
+  for (const [width, height] of [
+    [768, 1024],
+    [810, 1080],
+    [820, 1180],
+    [834, 1194],
+    [912, 1368],
+    [1024, 1200],
+    [1024, 1366],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await page.goto('/');
+    await liveHero(page);
+    const inCorner = await hero(page).evaluate((figure) => {
+      const zone =
+        parseFloat(getComputedStyle(document.documentElement).fontSize) * 4.5;
+      const left = innerWidth - zone;
+      const top = innerHeight - zone;
+      return [
+        ...figure.querySelectorAll(
+          '[data-figure-chrome], .kit-readout, .hg-callout, button',
+        ),
+      ]
+        .filter((element) =>
+          element.checkVisibility({
+            opacityProperty: true,
+            visibilityProperty: true,
+          }),
+        )
+        .filter((element) =>
+          [...element.getClientRects()].some(
+            (rect) =>
+              rect.width > 0 &&
+              rect.right > left &&
+              rect.bottom > top &&
+              rect.top < innerHeight,
+          ),
+        )
+        .map((element) => element.getAttribute('class'));
+    });
+    expect(inCorner, `${width}×${height}`).toEqual([]);
+  }
+});
+
+// Design review, round 3: from 1024 px to the split the figure stopped at its 46rem, 114 px short
+// of the text's row. Its toolbar now spans the row, and the globe, readout and legend are centred
+// under it at their 46rem.
+test('from 1024 px to the split the hero’s toolbar spans the text row, the globe centred under it @desktop-chromium', async ({
+  page,
+}) => {
+  for (const width of [1024, 1100, 1151]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    const geometry = await page.evaluate(() => {
+      const box = (selector: string) =>
+        document.querySelector(selector)!.getBoundingClientRect().toJSON() as {
+          left: number;
+          right: number;
+          width: number;
+        };
+      return {
+        row: box('.home-hero__grid'),
+        toolbar: box('#hero-globe .kit-figure__toolbar'),
+        stage: box('#hero-globe [data-figure-stage]'),
+        readout: box('#hero-globe .hg-readout'),
+        legend: box('#hero-globe .kit-figure__legend'),
+        rem: parseFloat(getComputedStyle(document.documentElement).fontSize),
+      };
+    });
+    const { row, toolbar, stage, readout, legend, rem } = geometry;
+    const at = `${width} px`;
+    expect(Math.abs(toolbar.left - row.left), at).toBeLessThan(1);
+    expect(Math.abs(toolbar.right - row.right), at).toBeLessThan(1);
+    expect(stage.width, at).toBeLessThanOrEqual(46 * rem + 0.5);
+    expect(
+      Math.abs((stage.left + stage.right) / 2 - (row.left + row.right) / 2),
+      at,
+    ).toBeLessThan(1);
+    for (const [name, part] of [
+      ['readout', readout],
+      ['legend', legend],
+    ] as const) {
+      expect(Math.abs(part.left - stage.left), `${name} at ${at}`).toBeLessThan(
+        1,
+      );
+      expect(
+        Math.abs(part.right - stage.right),
+        `${name} at ${at}`,
+      ).toBeLessThan(1);
+    }
+  }
+});
+
 test('on a phone the layer row spans the figure and Reset view never moves the globe @mobile-chromium', async ({
   page,
 }) => {
