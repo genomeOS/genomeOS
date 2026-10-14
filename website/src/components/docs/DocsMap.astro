@@ -86,6 +86,13 @@ const WORK: { slug: string; label: string; icon: IconName }[] = [
 
 <style is:global>
   .docs-map {
+    /* A lit station (below). The socket fill is the kit's own lit-socket colour (Pipeline.astro's
+       hover rule), which has no token yet: named once here so the stations this map lights match
+       the one under the pointer. */
+    --docs-map-lit-socket: #0d2647;
+    --docs-map-lit-stroke: var(--color-ion);
+    --docs-map-lit-label: var(--color-ion);
+
     container: docs-map / inline-size;
     margin-block: 2rem 2.5rem;
     color: var(--color-text-soft);
@@ -109,7 +116,7 @@ const WORK: { slug: string; label: string; icon: IconName }[] = [
   /* The landing's first paragraph is its lede (index.mdx). Set here because the docs load no
      site stylesheet and the map only ships on the landing. */
   .sl-markdown-content:has(> .docs-map) > p:first-child {
-    max-width: 40ch;
+    max-width: 38ch;
     color: var(--color-text-soft);
     font-size: var(--type-lede);
     line-height: 1.5;
@@ -267,67 +274,38 @@ const WORK: { slug: string; label: string; icon: IconName }[] = [
 
   /* ---------- one guide, one highlight ----------
      A station or the bracket, hovered or focused, lights every link in the map that leads to the
-     same guide. The kit's own hover lights the station under the pointer; these rules add the
-     others that share its guide. */
-  :is(
-      .docs-map:has([href$='/data-and-literature/']:is(:hover, :focus-visible))
-        a.pl-node[href$='/data-and-literature/'],
-      .docs-map:has(
-          [href$='/modeling-and-validation/']:is(:hover, :focus-visible)
-        )
-        a.pl-node[href$='/modeling-and-validation/'],
-      .docs-map:has(
-          [href$='/scientific-safeguards/']:is(:hover, :focus-visible)
-        )
-        a.pl-node[href$='/scientific-safeguards/'],
-      .docs-map:has([href$='/system-overview/']:is(:hover, :focus-visible))
-        a.pl-node[href$='/system-overview/']
-    )
-    .pl-node__socket {
-    fill: #0d2647;
-    stroke: var(--color-ion);
-  }
-
-  :is(
-      .docs-map:has([href$='/data-and-literature/']:is(:hover, :focus-visible))
-        a.pl-node[href$='/data-and-literature/'],
-      .docs-map:has(
-          [href$='/modeling-and-validation/']:is(:hover, :focus-visible)
-        )
-        a.pl-node[href$='/modeling-and-validation/'],
-      .docs-map:has(
-          [href$='/scientific-safeguards/']:is(:hover, :focus-visible)
-        )
-        a.pl-node[href$='/scientific-safeguards/'],
-      .docs-map:has([href$='/system-overview/']:is(:hover, :focus-visible))
-        a.pl-node[href$='/system-overview/']
-    )
-    .pl-node__label {
-    fill: var(--color-ion);
-    text-decoration: underline;
-  }
-
-  /* While a station has the pointer or focus, the art of stations leading elsewhere steps back. */
+     same guide. While any station has the pointer or focus, the art of the stations leading
+     elsewhere steps back (their text never dims). */
   .docs-map:has(a.pl-node:is(:hover, :focus-visible)) a.pl-node .pl-node__art {
     opacity: 0.35;
   }
 
+  /* The stations that share the hovered or focused link's guide, the hovered one included. */
   :is(
-      .docs-map:has([href$='/data-and-literature/']:is(:hover, :focus-visible))
-        a.pl-node[href$='/data-and-literature/'],
-      .docs-map:has(
-          [href$='/modeling-and-validation/']:is(:hover, :focus-visible)
-        )
-        a.pl-node[href$='/modeling-and-validation/'],
-      .docs-map:has(
-          [href$='/scientific-safeguards/']:is(:hover, :focus-visible)
-        )
-        a.pl-node[href$='/scientific-safeguards/'],
-      .docs-map:has([href$='/system-overview/']:is(:hover, :focus-visible))
-        a.pl-node[href$='/system-overview/']
-    )
-    .pl-node__art {
-    opacity: 1;
+    .docs-map:has([href$='/data-and-literature/']:is(:hover, :focus-visible))
+      a.pl-node[href$='/data-and-literature/'],
+    .docs-map:has(
+        [href$='/modeling-and-validation/']:is(:hover, :focus-visible)
+      )
+      a.pl-node[href$='/modeling-and-validation/'],
+    .docs-map:has([href$='/scientific-safeguards/']:is(:hover, :focus-visible))
+      a.pl-node[href$='/scientific-safeguards/'],
+    .docs-map:has([href$='/system-overview/']:is(:hover, :focus-visible))
+      a.pl-node[href$='/system-overview/']
+  ) {
+    & .pl-node__socket {
+      fill: var(--docs-map-lit-socket);
+      stroke: var(--docs-map-lit-stroke);
+    }
+
+    & .pl-node__label {
+      fill: var(--docs-map-lit-label);
+      text-decoration: underline;
+    }
+
+    & .pl-node__art {
+      opacity: 1;
+    }
   }
 
   .docs-map:has([href$='/scientific-safeguards/']:is(:hover, :focus-visible))
@@ -358,6 +336,23 @@ const WORK: { slug: string; label: string; icon: IconName }[] = [
   }
 
   @media (forced-colors: active) {
+    .docs-map {
+      --docs-map-lit-socket: Canvas;
+      --docs-map-lit-stroke: Highlight;
+      --docs-map-lit-label: LinkText;
+    }
+
+    /* The kit's lane tags and sockets keep their dark plate fills here, under text and marks
+       drawn in system colours; give them the page's. (Kit request to Task 7: then drop these.) */
+    .docs-map .pl-lane rect {
+      fill: Canvas;
+    }
+
+    .docs-map a.pl-node .pl-node__socket {
+      fill: Canvas;
+      stroke: CanvasText;
+    }
+
     .docs-map__bracket::before,
     .docs-map__bracket::after,
     .docs-map__work,
