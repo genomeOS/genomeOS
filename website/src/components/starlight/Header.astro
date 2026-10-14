@@ -91,7 +91,7 @@ import { sitePath } from '../../lib/paths';
       list-style: none;
     }
 
-    .docs-header__nav a {
+    .docs-header__nav :global(a) {
       color: var(--sl-color-gray-2);
       font-size: var(--sl-text-sm);
       font-weight: 560;
@@ -99,7 +99,7 @@ import { sitePath } from '../../lib/paths';
       white-space: nowrap;
     }
 
-    .docs-header__nav a:hover,
+    .docs-header__nav :global(a:hover),
     .docs-header__nav a[aria-current='page'] {
       color: var(--sl-color-white);
     }
