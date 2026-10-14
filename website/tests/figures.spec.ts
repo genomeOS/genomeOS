@@ -12,7 +12,8 @@
  *   figure in a narrower column than the page, such as the Docs content, must still pick a layout
  *   that fits it);
  *   nothing in <main> is set in a monospace face;
- * - no wordmark inside a call to action; one selected tab and one pressed segment per group;
+ * - no wordmark inside a call to action; one selected tab and one pressed segment per group (a
+ *   group of independent toggles, marked data-select="multiple", may press any number);
  * - chip and step rows keep inside the 16 px phone gutters, and control labels never overflow;
  * - the lead figure opens above the fold (Project, Contribute, Privacy), and the hero stage is in
  *   the first phone viewport (Home).
@@ -153,10 +154,14 @@ function typeAndControls(): string[] {
         );
     }
   }
+  // A segmented control is single-choice: exactly one pressed. A group of independent toggles,
+  // such as Contact's "What you'd offer", says so with data-select="multiple" and may press any.
   const pressedGroups = new Set(
-    [...main.querySelectorAll('[aria-pressed]')].map(
-      (button) => button.closest('[role="group"]') ?? button.parentElement!,
-    ),
+    [...main.querySelectorAll('[aria-pressed]')]
+      .map(
+        (button) => button.closest('[role="group"]') ?? button.parentElement!,
+      )
+      .filter((group) => group.getAttribute('data-select') !== 'multiple'),
   );
   for (const group of pressedGroups) {
     if (!visible(group)) continue;

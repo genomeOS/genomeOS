@@ -1,0 +1,16 @@
+{
+  "route": "/contact/",
+  "words": 90,
+  "wordsEnforced": true,
+  "conceptsEnforced": true,
+  "concepts": 1,
+  "wordsExclude": "[data-letter]",
+  "jsKbGz": 6,
+  "dataKbGz": 0,
+  "transferKbGz": 150,
+  "lcpMs": {
+    "desktop": 1000,
+    "phone": 2200
+  },
+  "cls": 0
+}

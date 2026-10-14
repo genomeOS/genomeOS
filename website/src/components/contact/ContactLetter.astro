@@ -1,0 +1,187 @@
+---
+/**
+ * The Contact page's lead figure (Contact page spec §4): the draft, set like a letter on a plate
+ * (kit Plate anatomy), live as the visitor chooses. Every word comes from the draft builder
+ * (src/lib/contact-draft.ts), so the letter shown is the letter sent.
+ *
+ * - The server renders every part a draft can have: each purpose's opening and subject, About me,
+ *   the four offer sections and the three purposes' sections. The composer's `data-topic` and
+ *   `data-offers` decide which show (styles/pages/contact.css): a section for a newly pressed offer
+ *   grows in and a released one collapses, in --dur-ui, or at once under reduced motion.
+ * - Only a contribution's opening and subject change words, for its offers; the island and the
+ *   pre-paint script write those two spans (`data-offer-list`, `data-offer-subject`).
+ * - To reads "genomeOS Foundation" until the visitor asks for the address.
+ * - The stage is a labelled region, read as text and never announced on a change.
+ *
+ * Offer sections carry the kit's hex, the mark the offer buttons fill when pressed.
+ *
+ * Test hooks: each block of the letter is `[data-letter-block]` and each of its lines
+ * `[data-letter-line]`; the subject is `[data-letter-subject]`; `[data-letter]` is the generated
+ * text, which the word budget leaves out (tests/pages/contact.json).
+ */
+import BrandName from '../BrandName.astro';
+import Plate from '../kit/Plate.astro';
+import {
+  GREETING,
+  OFFERS,
+  OFFER_PLACEHOLDER,
+  OPENINGS,
+  SECTIONS,
+  SIGN_OFF,
+  SUBJECTS,
+  TOPICS,
+  type SectionId,
+} from '../../lib/contact-draft';
+
+/** Text split around "genomeOS", which is always set in the wordmark type. */
+const brand = (text: string) => text.split(/(genomeOS)/g);
+// The two spans a contribution's offers fill, as markers among the text parts, so each line
+// renders from one list with no stray whitespace between its parts.
+const LIST = Symbol('offer list');
+const SUFFIX = Symbol('offer subject');
+const [openingBefore, openingAfter] = OPENINGS.contribute.split('{offers}');
+const openingParts = (topic: (typeof TOPICS)[number]) =>
+  topic === 'contribute'
+    ? [...brand(openingBefore), LIST, openingAfter]
+    : brand(OPENINGS[topic]);
+const subjectParts = (topic: (typeof TOPICS)[number]) =>
+  topic === 'contribute'
+    ? [...brand(SUBJECTS[topic]), SUFFIX]
+    : brand(SUBJECTS[topic]);
+const sections: { id: SectionId; offer: boolean }[] = [
+  ...OFFERS.map((id) => ({ id, offer: true })),
+  ...TOPICS.filter((topic) => topic !== 'contribute').map((id) => ({
+    id: id as SectionId,
+    offer: false,
+  })),
+];
+---
+
+<Plate
+  graphic="contact-letter"
+  class="contact-letter"
+  region
+  labelledby="contact-letter-title"
+>
+  <div class="letter" data-letter>
+    <dl class="letter__head">
+      <div class="letter__row">
+        <dt>To</dt>
+        <dd>
+          <span data-to-name><BrandName /> Foundation</span><span
+            class="letter__address"
+            data-to-address></span>
+        </dd>
+      </div>
+      <div class="letter__row">
+        <dt>Subject</dt>
+        <dd data-letter-subject>
+          {
+            TOPICS.map((topic) => (
+              <span data-for-topic={topic}>
+                {subjectParts(topic).map((part) =>
+                  part === SUFFIX ? (
+                    <span data-offer-subject />
+                  ) : part === 'genomeOS' ? (
+                    <BrandName />
+                  ) : (
+                    part
+                  ),
+                )}
+              </span>
+            ))
+          }
+        </dd>
+      </div>
+    </dl>
+
+    <div class="letter__body">
+      <p class="letter__para" data-letter-block>
+        <span class="letter__line" data-letter-line
+          >{
+            brand(GREETING).map((part) =>
+              part === 'genomeOS' ? <BrandName /> : part,
+            )
+          }</span
+        >
+      </p>
+      <p class="letter__para" data-letter-block>
+        {
+          TOPICS.map((topic) => (
+            <span class="letter__line" data-letter-line data-for-topic={topic}>
+              {openingParts(topic).map((part) =>
+                part === LIST ? (
+                  <span data-offer-list>{OFFER_PLACEHOLDER}</span>
+                ) : part === 'genomeOS' ? (
+                  <BrandName />
+                ) : (
+                  part
+                ),
+              )}
+            </span>
+          ))
+        }
+      </p>
+      <p class="letter__para" data-letter-block>
+        <span class="letter__line letter__heading" data-letter-line
+          >{SECTIONS.about.heading}</span
+        >
+        {
+          SECTIONS.about.fields.map((field) => (
+            <span class="letter__line letter__field" data-letter-line>
+              <span class="letter__dash">-</span>
+              {` ${field}`}
+            </span>
+          ))
+        }
+      </p>
+      {
+        sections.map(({ id, offer }) => (
+          <div
+            class="letter__section"
+            data-section={id}
+            data-offer-section={offer ? '' : undefined}
+          >
+            <div class="letter__clip">
+              <p class="letter__para" data-letter-block>
+                <span class="letter__line letter__heading" data-letter-line>
+                  {offer && (
+                    <svg
+                      class="letter__hex"
+                      viewBox="0 0 16 16"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      <path d="M15 8 11.5 14.06h-7L1 8l3.5-6.06h7z" />
+                    </svg>
+                  )}
+                  {SECTIONS[id].heading}
+                </span>
+                {SECTIONS[id].fields.map((field) => (
+                  <span class="letter__line letter__field" data-letter-line>
+                    <span class="letter__dash">-</span>
+                    {` ${field}`}
+                  </span>
+                ))}
+              </p>
+            </div>
+          </div>
+        ))
+      }
+      <p class="letter__para" data-letter-block>
+        {
+          SIGN_OFF.map((line) => (
+            <span class="letter__line" data-letter-line>
+              {line}
+            </span>
+          ))
+        }
+      </p>
+    </div>
+  </div>
+
+  <span slot="caption"
+    ><strong id="contact-letter-title">Your draft.</strong> It follows your choices;
+    finish it in your email app.</span
+  >
+</Plate>
