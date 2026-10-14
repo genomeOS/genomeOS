@@ -259,6 +259,11 @@ const ENTRANCE = 1200;
 const STEP_PX = 16;
 const CASING = 'rgb(2 7 18 / 88%)';
 const CONTOUR = '#70e6ff';
+/** The threshold outlines, CSS px (the legend's keys in project.css match). */
+export const OUTLINE = {
+  confident: { width: 2.6, casing: 5.4 },
+  possible: { width: 1.8, casing: 4.2, dash: [6, 4] },
+} as const;
 
 /**
  * How much smaller studs draw than the kit's size, by the map's width in CSS px: full size from
@@ -445,7 +450,7 @@ export async function initHbsMap(
       paths: SpherePoint[][],
       width: number,
       colour: string,
-      dash: number[],
+      dash: readonly number[],
     ) => {
       g.beginPath();
       for (const path of paths)
@@ -454,17 +459,24 @@ export async function initHbsMap(
           if (index) g.lineTo(x, y);
           else g.moveTo(x, y);
         });
-      g.setLineDash(dash);
+      g.setLineDash([...dash]);
       g.lineWidth = width;
       g.strokeStyle = colour;
       g.stroke();
     };
-    // A dark casing keeps the ion line legible on the lightest cells.
+    // A dark casing keeps the ion line legible on the lightest cells and parts it from the cells'
+    // own borders; the lines are as heavy as the legend's keys draw them (design review, round 1).
+    // No fill lift: lightening the selected cells would shift their colour up the frequency ramp.
     g.lineJoin = 'round';
-    stroke(lines.possible, 3.4, CASING, []);
-    stroke(lines.confident, 4, CASING, []);
-    stroke(lines.possible, 1.5, CONTOUR, [5, 4]);
-    stroke(lines.confident, 2, CONTOUR, []);
+    stroke(lines.possible, OUTLINE.possible.casing, CASING, []);
+    stroke(lines.confident, OUTLINE.confident.casing, CASING, []);
+    stroke(
+      lines.possible,
+      OUTLINE.possible.width,
+      CONTOUR,
+      OUTLINE.possible.dash,
+    );
+    stroke(lines.confident, OUTLINE.confident.width, CONTOUR, []);
     g.restore();
   };
   const redraw = () => {

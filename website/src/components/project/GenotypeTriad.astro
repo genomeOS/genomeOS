@@ -4,7 +4,9 @@
  * AA, AS and SS as three pressable buttons with two allele dots each, and one shared frame that
  * draws the red cell of the one pressed. AA and AS show the same round, biconcave disc; SS morphs
  * into a sickle (genotype.ts, started by the page's island in project.astro). Sickling is drawn
- * on the cell, never on the alleles.
+ * on the cell, never on the alleles. Because AA and AS draw the same cell, the frame also shows the
+ * pressed allele pair under it, and the outline pulses once on a change, so pressing AS after AA
+ * visibly answers (design review, round 1).
  *
  * The visible protection claim lives in the section's lede ("can protect"); the AS button's
  * description is the catalog's own wording.
@@ -54,6 +56,21 @@ const GENOTYPES: {
         d={pathOf(OUTLINE[selected])}
         fill={`url(#${idPrefix}-cell-fill)`}></path>
       <ellipse class="triad__pallor" cx="60" cy="60" rx="17" ry="15"></ellipse>
+      {
+        GENOTYPES.map((genotype) => (
+          <g class="triad__pair" data-pair={genotype.value}>
+            {genotype.alleles.map((allele, index) => (
+              <circle
+                class="triad__allele"
+                data-allele={allele}
+                cx={index ? 66.5 : 53.5}
+                cy="110"
+                r="3.6"
+              />
+            ))}
+          </g>
+        ))
+      }
     </svg>
   </div>
   <div class="triad__choices" role="group" aria-label="Genotype">

@@ -96,6 +96,11 @@ export function initGenotype(root: HTMLElement): void {
       );
     frame.dataset.genotype = next;
     current = next;
+    // One brief outline pulse (CSS, motion allowed only): AA and AS draw the same disc, so the
+    // press needs an answer in the frame beyond the allele pair under the cell.
+    frame.classList.remove('is-pulse');
+    void frame.getBoundingClientRect();
+    frame.classList.add('is-pulse');
     running?.cancel();
     const from = shown;
     const to = OUTLINE[next];
@@ -117,4 +122,8 @@ export function initGenotype(root: HTMLElement): void {
     button.addEventListener('click', () =>
       select(button.dataset.value as Genotype),
     );
+  frame.addEventListener('animationend', (event) => {
+    if (event.animationName === 'triad-pulse')
+      frame.classList.remove('is-pulse');
+  });
 }

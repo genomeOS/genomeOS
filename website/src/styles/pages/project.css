@@ -773,46 +773,7 @@
   font-variant-numeric: lining-nums tabular-nums;
 }
 
-.hbs__slider {
-  width: 100%;
-  min-height: 2rem;
-  margin: 0;
-  background: transparent;
-  cursor: pointer;
-  appearance: none;
-}
-
-.hbs__slider::-webkit-slider-runnable-track {
-  height: 2px;
-  background: var(--color-line-strong);
-}
-
-.hbs__slider::-moz-range-track {
-  height: 2px;
-  background: var(--color-line-strong);
-}
-
-.hbs__slider::-webkit-slider-thumb {
-  width: 14px;
-  height: 22px;
-  margin-top: -10px;
-  border: 2px solid var(--color-void);
-  background: var(--color-ion);
-  appearance: none;
-}
-
-.hbs__slider::-moz-range-thumb {
-  width: 12px;
-  height: 20px;
-  border: 2px solid var(--color-void);
-  border-radius: 0;
-  background: var(--color-ion);
-}
-
-.hbs__slider:focus-visible {
-  outline: 2px solid var(--color-ion);
-  outline-offset: 4px;
-}
+/* The slider itself is the site's range control (.kit-range, global.css). */
 
 /* Two lines reserved: the count wraps at some stops and not others, and the legend must not jump. */
 .hbs__count {
@@ -867,10 +828,11 @@
   height: 22px;
 }
 
+/* The keys draw the map's outlines at its widths (hbs-map.ts, OUTLINE). */
 .hbs__swatch-casing {
   fill: none;
   stroke: rgb(2 7 18 / 88%);
-  stroke-width: 4;
+  stroke-width: 5.4;
 }
 
 .hbs__swatch-fill {
@@ -881,12 +843,12 @@
 .hbs__swatch-dashed {
   fill: none;
   stroke: var(--color-ion);
-  stroke-width: 2;
+  stroke-width: 2.6;
 }
 
 .hbs__swatch-dashed {
-  stroke-width: 1.5;
-  stroke-dasharray: 5 4;
+  stroke-width: 1.8;
+  stroke-dasharray: 6 4;
 }
 
 .proj-gate {
@@ -945,6 +907,45 @@
 
 .triad__frame[data-genotype='SS'] .triad__pallor {
   opacity: 0;
+}
+
+/* The pressed allele pair under the cell, drawn as on the buttons: A hollow, S filled. */
+.triad__pair {
+  display: none;
+}
+
+.triad__frame[data-genotype='AA'] [data-pair='AA'],
+.triad__frame[data-genotype='AS'] [data-pair='AS'],
+.triad__frame[data-genotype='SS'] [data-pair='SS'] {
+  display: inline;
+}
+
+.triad__allele {
+  fill: none;
+  stroke: var(--color-text-soft);
+  stroke-width: 1.4;
+}
+
+.triad__allele[data-allele='S'] {
+  fill: var(--color-starlight);
+  stroke: var(--color-starlight);
+}
+
+@media screen and (prefers-reduced-motion: no-preference) {
+  .triad__frame.is-pulse .triad__cell {
+    animation: triad-pulse 420ms var(--ease-figure);
+  }
+
+  .triad__frame.is-pulse .triad__pair {
+    animation: proj-fade 240ms var(--ease-figure);
+  }
+}
+
+@keyframes triad-pulse {
+  30% {
+    stroke: var(--color-ion);
+    stroke-width: 3;
+  }
 }
 
 .triad__choices {
@@ -2042,8 +2043,8 @@
 
 /* ---------- follow the work (link row) ---------- */
 
-/* Two, then three columns (spec §2.4: link rows set in 2–4). The board leads across two of them,
- * so five links fill whole rows. */
+/* Five equal cards in whole rows (design review, round 1; spec §2.4: link rows set in 2–4
+ * columns): one column on a phone; two, the board leading on its own row; then three over two. */
 .proj-links {
   display: grid;
   gap: var(--grid-gap);
@@ -2062,9 +2063,15 @@
   }
 }
 
+/* Three over two: six tracks, each card spanning two. */
 @media (min-width: 56em) {
   .proj-links {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .proj-links > li,
+  .proj-links > :first-child {
+    grid-column: span 2;
   }
 }
 

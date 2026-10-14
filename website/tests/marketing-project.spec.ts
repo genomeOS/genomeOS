@@ -144,6 +144,52 @@ test('selecting SS draws the sickled cell', async ({ page }) => {
   );
 });
 
+// AA and AS draw the same disc (a carrier's red cells look like anyone else's), so the frame
+// says which pair it shows: pressing AS after AA visibly changes the frame (design review,
+// round 1). The slider is the site's one range style: a hairline track and a square thumb.
+test('the cell frame names the pressed allele pair, so AS after AA changes it', async ({
+  page,
+}) => {
+  await page.goto('/project/');
+  const figure = page.locator('figure[data-graphic="hbs-threshold"]');
+  const group = figure.getByRole('group', { name: 'Genotype', exact: true });
+  await group.scrollIntoViewIfNeeded();
+  for (const genotype of ['AA', 'AS', 'SS']) {
+    await group
+      .getByRole('button', { name: new RegExp(`^${genotype}`) })
+      .click();
+    for (const other of ['AA', 'AS', 'SS'])
+      if (other === genotype)
+        await expect(figure.locator(`[data-pair="${other}"]`)).toBeVisible();
+      else await expect(figure.locator(`[data-pair="${other}"]`)).toBeHidden();
+  }
+  await expect(figure.getByRole('slider')).toHaveCSS('appearance', 'none');
+});
+
+// Five links in equal cards, three over two (link rows set in 2–4 columns, spec §2.4), never a
+// wide card plus odd ones (design review, round 1).
+test('the follow-the-work links are equal cards in whole rows @desktop-chromium', async ({
+  page,
+}) => {
+  for (const width of [1100, 1280, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/project/');
+    const boxes = await page
+      .locator('.proj-links > li')
+      .evaluateAll((items) =>
+        items.map((item) => item.getBoundingClientRect().toJSON()),
+      );
+    expect(boxes, `${width}`).toHaveLength(5);
+    for (const box of boxes)
+      expect(Math.abs(box.width - boxes[0].width), `${width}`).toBeLessThan(1);
+    const rows = [...new Set(boxes.map((box) => Math.round(box.top)))];
+    const perRow = rows.map(
+      (top) => boxes.filter((box) => Math.round(box.top) === top).length,
+    );
+    expect(perRow, `${width}`).toEqual([3, 2]);
+  }
+});
+
 test('the HbS map describes the area under its keyboard reticle', async ({
   page,
 }) => {
