@@ -1,6 +1,7 @@
 /** Deterministic measured-observation encodings for Atlas design §11. */
 
 import type { Observation } from './contracts';
+import { OBSERVATION_SOLID } from './encoding-tokens';
 import {
   colorAtPosition,
   colorAtStops,
@@ -39,7 +40,7 @@ const STUDY_COLORS = [
   '#a7f3d0',
 ] as const;
 
-export const DEFAULT_OBSERVATION_SOLID_COLOR = '#f4fbff';
+export const DEFAULT_OBSERVATION_SOLID_COLOR = OBSERVATION_SOLID;
 export const DEFAULT_OBSERVATION_GRADIENT = [
   '#24144b',
   '#ad8bff',
