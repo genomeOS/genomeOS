@@ -707,6 +707,13 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
   }
 
   @media (forced-colors: active) {
+    /* Studs in CanvasText with a Canvas ring (spec §2.2). */
+    .kit-pipeline {
+      --enc-obs: CanvasText;
+      --enc-obs-ring: Canvas;
+      --enc-obs-radius: CanvasText;
+    }
+
     .pl-node__label,
     .pl-node__sub,
     .pl-lane text,

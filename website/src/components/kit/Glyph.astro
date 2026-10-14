@@ -74,8 +74,14 @@ const dims = (glyph: GlyphName) => {
     vertical-align: middle;
   }
 
+  /* Forced colours (spec §2.2): line drawings and studs take CanvasText, with a Canvas ring so a
+     stud still reads on any theme; the hatch keeps its strokes on its own land fill. */
   @media (forced-colors: active) {
     .kit-glyph {
+      --enc-obs: CanvasText;
+      --enc-obs-ring: Canvas;
+      --enc-obs-radius: CanvasText;
+
       forced-color-adjust: none;
       color: CanvasText;
     }
