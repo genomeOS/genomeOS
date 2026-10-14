@@ -614,7 +614,8 @@
 }
 
 /* Print: the intro and the letter, in dark type on white, also with background graphics on (the
-   header and footer keep their own grounds); the controls and actions stay on screen. */
+   header and footer keep their own grounds); the controls and actions stay on screen. Without
+   JavaScript, the spelled-out address prints in the letter's place (review 3, N-3). */
 @media print {
   :root:has(.contact-page),
   body:has(.contact-page),
@@ -632,8 +633,7 @@
 
   .contact__controls,
   .contact__actions,
-  .contact-problem,
-  .contact-noscript {
+  .contact-problem {
     display: none;
   }
 

@@ -803,6 +803,11 @@ test('without JavaScript the address is spelled out and the composer stays hidde
     page.locator('main').getByRole('link', { name: /Open a GitHub issue/ }),
   ).toBeVisible();
   expect(addressForms(await page.content())).toEqual([]);
+  // A printout made without JavaScript still says where to write, in the print's dark type.
+  await page.emulateMedia({ media: 'print' });
+  await expect(line).toBeVisible();
+  await expect(line).toHaveCSS('color', 'rgb(17, 17, 17)');
+  await expect(line.locator('strong')).toHaveCSS('color', 'rgb(17, 17, 17)');
   await context.close();
 });
 
@@ -814,6 +819,8 @@ test('print shows the letter, in dark type on white, without the controls, and r
   await expect(page.locator('.contact-letter')).toBeVisible();
   await expect(page.locator('.contact__controls')).toBeHidden();
   await expect(page.locator('.contact__actions')).toBeHidden();
+  // With the island running, the spelled-out line stays off the sheet too.
+  await expect(page.locator('[data-contact-fallback]')).toBeHidden();
   const printed = await page.evaluate(() => {
     const style = (selector: string) =>
       getComputedStyle(document.querySelector(selector)!);

@@ -7,11 +7,11 @@
   "wordsExclude": "[data-letter]",
   "jsKbGz": 6,
   "dataKbGz": 0,
-  "transferKbGz": 150,
+  "transferKbGz": 135,
   "lcpMs": {
     "desktop": 1000,
     "phone": 2200
   },
   "cls": 0.02,
-  "budgetNote": "CLS 0.02 as on the other pages, not the Contact spec's 0, by the controller's ruling: the only shift is the shared web-font swap (Raleway and Figtree, font-display swap, preloaded on Home only), about 0.001 on desktop and phone, as on /privacy/ and /404.html. The swap moves the heading's text box and the header's Atlas pill by a few px; no layout of the page's own shifts."
+  "budgetNote": "CLS 0.02 as on the other pages, not the Contact spec's 0, by the controller's ruling: the only shift is the shared web-font swap (Raleway and Figtree, font-display swap, preloaded on Home only), about 0.001 on desktop and phone, as on /privacy/ and /404.html. The swap moves the heading's text box and the header's Atlas pill by a few px; no layout of the page's own shifts. Transfer 135 KB gz: the deployed build measures 122.8 KB (the shared fonts and brand images, the page's HTML and CSS, its 4.1 KB island and the cookie control), plus 10%, as ruling 12 set /privacy/ (130) and /404.html (125)."
 }

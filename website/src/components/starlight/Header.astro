@@ -18,6 +18,13 @@
  * bar to the site gutter and the 76rem container), the lockup is the compact one (2.6rem tall, the
  * site's --lockup-compact-width) and, as on the site, it keeps the landing lockup's slot, so the
  * nav starts where it starts on every site page.
+ *
+ * Contact page spec §1 (review 3, I-1): Contact lengthens the nav, and Search has only the room the
+ * nav leaves, 75 px at 1,152 px, where the whole button needs about 164 px. Squeezed, its
+ * magnifier shrank to nothing and its key hint ran onto the Atlas link. So Search is a size
+ * container, and where its room is too small its button sheds the key hint, then its label,
+ * leaving the outlined square magnifier (Starlight's own phone header shows that). It keeps the
+ * name "Search" and Ctrl/⌘ K, and no nav item moves or goes.
  */
 import Search from '@astrojs/starlight/components/Search.astro';
 
@@ -86,12 +93,19 @@ import '../../styles/tokens.css';
       height: 2rem;
     }
 
-    /* Search takes the room the nav leaves, its field set against the Atlas link on the right. */
+    /* Search takes the room the nav leaves, its field set against the Atlas link on the right. It
+       is a size container, so its button can fit that room (the utility layer, below). */
     .docs-header__search {
+      container: docs-search / inline-size;
       display: flex;
       flex: 1 1 auto;
       justify-content: flex-end;
       min-width: 0;
+    }
+
+    /* The magnifier keeps its size: a flex item, it would otherwise shrink first. */
+    .docs-header__search :global(button[data-open-modal] > svg) {
+      flex: none;
     }
 
     .docs-header__nav {
@@ -202,6 +216,34 @@ import '../../styles/tokens.css';
 
       .docs-header__nav li:not(.docs-header__github) {
         display: flex;
+      }
+    }
+  }
+
+  /* Search's button in the room the nav leaves (Contact page spec §1). Whole, it needs about 9.1rem
+     with "Ctrl K" (8.5rem with "⌘ K"), and without the key hint about 6rem; each step keeps a
+     little slack for font metrics. This sits in Starlight's utility layer, after the md:sl-flex and
+     md:sl-block utilities that would otherwise show the hint and the label again. From 50em only:
+     below that Starlight already shows the bare magnifier. */
+  @layer starlight.utils {
+    @media (min-width: 50em) {
+      @container docs-search (max-width: 9.5rem) {
+        .docs-header__search :global(button[data-open-modal] > kbd) {
+          display: none;
+        }
+      }
+
+      /* Just the magnifier, in the outlined square: 2.5rem, as tall as before, so 45 px across. */
+      @container docs-search (max-width: 6.5rem) {
+        .docs-header__search :global(button[data-open-modal]) {
+          justify-content: center;
+          width: 2.5rem;
+          padding-inline: 0;
+        }
+
+        .docs-header__search :global(button[data-open-modal] > span) {
+          display: none;
+        }
       }
     }
   }
