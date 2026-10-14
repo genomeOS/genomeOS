@@ -1,7 +1,8 @@
 ---
 /**
- * Starlight's docs footer plus the site's Privacy and Cookie settings links and the cookie control
- * (#422), so the docs carry the same analytics controls as the site layout.
+ * Starlight's docs footer plus the site's Contact link (Contact page spec §1), its Privacy and
+ * Cookie settings links and the cookie control (#422), so the docs carry the same analytics
+ * controls as the site layout. Contact stands beside the Site policies nav, as in SiteFooter.
  */
 import Default from '@astrojs/starlight/components/Footer.astro';
 
@@ -11,19 +12,26 @@ import { sitePath } from '../../lib/paths';
 ---
 
 <Default />
-<nav class="docs-site-links" aria-label="Site policies">
-  <a href={sitePath('/privacy/')}>Privacy</a>
-  <CookieSettings class="docs-site-links__button" />
-</nav>
+<div class="docs-site-links">
+  <a href={sitePath('/contact/')}>Contact</a>
+  <nav class="docs-site-links__policies" aria-label="Site policies">
+    <a href={sitePath('/privacy/')}>Privacy</a>
+    <CookieSettings class="docs-site-links__button" />
+  </nav>
+</div>
 <CookieControl />
 
 <style>
   @layer starlight.core {
-    .docs-site-links {
+    .docs-site-links,
+    .docs-site-links__policies {
       display: flex;
       flex-wrap: wrap;
       gap: 0.5rem 1.5rem;
       justify-content: center;
+    }
+
+    .docs-site-links {
       margin-block: 0 1.5rem;
       font-size: var(--sl-text-sm);
     }

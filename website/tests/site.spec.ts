@@ -105,8 +105,8 @@ test('primary navigation reaches Contribute and exposes GitHub access', async ({
       .getByRole('link', { name: 'Contribute' })
       .click();
   } else {
-    // GitHub is the nav's last link, right after Docs; genomeOS Atlas stands
-    // outside the nav.
+    // GitHub is the nav's last link, right after Contact; genomeOS Atlas
+    // stands outside the nav.
     const primary = page.getByRole('navigation', {
       name: 'Primary navigation',
     });
@@ -119,7 +119,13 @@ test('primary navigation reaches Contribute and exposes GitHub access', async ({
               link.getAttribute('aria-label') ?? link.textContent!.trim(),
           ),
         ),
-    ).toEqual(['Project', 'Contribute', 'Docs', 'View genomeOS on GitHub']);
+    ).toEqual([
+      'Project',
+      'Contribute',
+      'Docs',
+      'Contact',
+      'View genomeOS on GitHub',
+    ]);
     await expect(
       primary.getByRole('link', { name: 'genomeOS Atlas' }),
     ).toHaveCount(0);
@@ -151,12 +157,21 @@ test(
       );
       // The page links join it once there is room for the whole nav: from 72em, and an em in a
       // media query is the 16 px initial size, not the 18 px root, so from 1,152 px.
-      await expect(
-        page
-          .getByRole('navigation', { name: 'Primary navigation' })
-          .getByRole('link', { name: 'Contribute' }),
+      for (const name of ['Contribute', 'Contact'])
+        await expect(
+          page
+            .getByRole('navigation', { name: 'Primary navigation' })
+            .getByRole('link', { name }),
+          `${name} at ${width} px`,
+        ).toBeVisible({ visible: width >= 1152 });
+      // The docs header holds one row: nothing overflows it.
+      expect(
+        await page.evaluate(() => {
+          const row = document.querySelector('.docs-header')!;
+          return row.scrollWidth - row.clientWidth;
+        }),
         `${width} px`,
-      ).toBeVisible({ visible: width >= 1152 });
+      ).toBeLessThanOrEqual(0);
     }
   },
 );
@@ -544,14 +559,16 @@ test(
 );
 
 test(
-  'GitHub sits in the primary nav right after Docs, set exactly like it',
+  'GitHub sits in the primary nav right after Contact, set exactly like it',
   { tag: '@desktop-chromium' },
   async ({ page }) => {
     const compare = () =>
       page.evaluate(() => {
         const nav = document.querySelector('nav.desktop-nav')!;
         const links = [...nav.querySelectorAll('a')];
-        const docs = links.find((link) => link.textContent!.trim() === 'Docs')!;
+        const contact = links.find(
+          (link) => link.textContent!.trim() === 'Contact',
+        )!;
         const github = nav.querySelector<HTMLAnchorElement>('.github-link')!;
         const githubText = github.querySelector('span')!;
         const type = (element: Element) => {
@@ -571,8 +588,8 @@ test(
           return { top, bottom };
         };
         return {
-          after: links.indexOf(github) - links.indexOf(docs),
-          docs: { text: text(docs), type: type(docs) },
+          after: links.indexOf(github) - links.indexOf(contact),
+          contact: { text: text(contact), type: type(contact) },
           github: { text: text(githubText), type: type(githubText) },
           last: links[links.length - 1] === github,
         };
@@ -581,10 +598,10 @@ test(
       const measured = await compare();
       expect(measured.after, label).toBe(1);
       expect(measured.last, label).toBe(true);
-      expect(measured.github.type, label).toEqual(measured.docs.type);
+      expect(measured.github.type, label).toEqual(measured.contact.type);
       for (const edge of ['top', 'bottom'] as const)
         expect(
-          Math.abs(measured.github.text[edge] - measured.docs.text[edge]),
+          Math.abs(measured.github.text[edge] - measured.contact.text[edge]),
           `${label}: text ${edge}`,
         ).toBeLessThanOrEqual(0.5);
     };
@@ -1429,7 +1446,7 @@ test(
 );
 
 test(
-  'the Atlas nav keeps its labels on one line, GitHub on Docs, while the status chip loads',
+  'the Atlas nav keeps its labels on one line, GitHub level with them, while the status chip loads',
   { tag: '@desktop-chromium' },
   async ({ page }) => {
     // Hold the default map's surface, so the chip keeps its loading copy, a
@@ -1473,10 +1490,13 @@ test(
           return { bottom, lines: lines.size, top };
         };
         const links = [...nav.querySelectorAll('a')];
-        const docs = links.find((link) => link.textContent!.trim() === 'Docs')!;
+        // GitHub's text sits level with the link before it, Contact.
+        const contact = links.find(
+          (link) => link.textContent!.trim() === 'Contact',
+        )!;
         const inner = document.querySelector('.site-header__inner')!;
         return {
-          docs: textBox(docs),
+          contact: textBox(contact),
           github: textBox(nav.querySelector('.github-link span')!),
           // GitHub's text is its <span>, beside the icon.
           lines: links.map(
@@ -1485,10 +1505,10 @@ test(
           overflow: inner.scrollWidth - inner.clientWidth,
         };
       });
-      expect(row.lines, label).toEqual([1, 1, 1, 1]);
+      expect(row.lines, label).toEqual([1, 1, 1, 1, 1]);
       for (const edge of ['top', 'bottom'] as const)
         expect(
-          Math.abs(row.github[edge] - row.docs[edge]),
+          Math.abs(row.github[edge] - row.contact[edge]),
           `${label}: text ${edge}`,
         ).toBeLessThanOrEqual(0.5);
       expect(row.overflow, label).toBeLessThanOrEqual(0);
@@ -1925,11 +1945,24 @@ test('mobile navigation is a keyboard-operable disclosure', async ({
   await expect(
     page.getByRole('navigation', { name: 'Mobile navigation' }),
   ).toBeVisible();
-  await expect(
-    page
-      .getByRole('navigation', { name: 'Mobile navigation' })
-      .getByRole('link', { name: 'Docs' }),
-  ).toBeVisible();
+  const mobile = page.getByRole('navigation', { name: 'Mobile navigation' });
+  await expect(mobile.getByRole('link', { name: 'Docs' })).toBeVisible();
+  await expect(mobile.getByRole('link', { name: 'Contact' })).toBeVisible();
+  expect(
+    await mobile
+      .getByRole('link')
+      .evaluateAll((links) =>
+        links.map(
+          (link) => link.getAttribute('aria-label') ?? link.textContent!.trim(),
+        ),
+      ),
+  ).toEqual([
+    'Project',
+    'Contribute',
+    'Docs',
+    'Contact',
+    'View genomeOS on GitHub',
+  ]);
 });
 
 test('the Menu panel scrolls inside short viewports and closes on Escape or when focus leaves it', async ({
@@ -1954,7 +1987,8 @@ test('the Menu panel scrolls inside short viewports and closes on Escape or when
     await page.goto('/');
     await summary.click();
     await expect(menu).toHaveAttribute('open', '');
-    await expect(links).toHaveCount(4);
+    // Project, Contribute, Docs, Contact and GitHub.
+    await expect(links).toHaveCount(5);
     for (const link of await links.all()) {
       const reachable = await link.evaluate((element) => {
         element.scrollIntoView({ block: 'nearest' });

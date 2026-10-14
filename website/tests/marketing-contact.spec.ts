@@ -8,6 +8,8 @@
  *   Chromium makes for it; no mail app answers); Copy draft copies the plain-text draft; the query
  *   preselects, before the island runs too, and keeps in step for sharing.
  * - Keyboard only, phones at 390 and 320 px, no JavaScript, print, and reduced motion.
+ * - The nav: Contact in the site header, the Menu, the docs header and the 404, after Docs and
+ *   before GitHub; in both footers; current on /contact/; and the header row still never wraps.
  *
  * The cross-page suites (word-budget, figures, motion, copy-spacing, performance) read the page's
  * manifest, tests/pages/contact.json. The expected address is built here from its parts, at run
@@ -41,6 +43,14 @@ useSiteFixtures();
 const PARTS = ['info', ['genome-os', 'org'].join('.')] as const;
 const ADDRESS = PARTS.join('@');
 const ISSUES = 'https://github.com/genomeOS/genomeOS/issues/new/choose';
+const NAV = [
+  'Project',
+  'Contribute',
+  'Docs',
+  'Contact',
+  'View genomeOS on GitHub',
+];
+
 const composer = (page: Page) => page.locator('#contact-composer');
 const letter = (page: Page) => page.locator('[data-letter]');
 const purpose = (page: Page, topic: Topic) =>
@@ -693,3 +703,112 @@ for (const viewport of [
       expect(await blocking()).toEqual([]);
     });
   });
+
+test.describe('Contact in the navigation', () => {
+  const names = (nav: Locator) =>
+    nav
+      .getByRole('link')
+      .evaluateAll((links) =>
+        links.map(
+          (link) => link.getAttribute('aria-label') ?? link.textContent!.trim(),
+        ),
+      );
+
+  test('the site header lists it after Docs, current on /contact/ @desktop-chromium', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/contact/');
+    const primary = page.getByRole('navigation', {
+      name: 'Primary navigation',
+    });
+    expect(await names(primary)).toEqual(NAV);
+    await expect(
+      primary.getByRole('link', { name: 'Contact' }),
+    ).toHaveAttribute('aria-current', 'page');
+    await expect(
+      primary.getByRole('link', { name: 'Contact' }),
+    ).toHaveAttribute('href', '/contact/');
+    await page.goto('/project/');
+    await expect(
+      primary.getByRole('link', { name: 'Contact' }),
+    ).not.toHaveAttribute('aria-current', 'page');
+    await primary.getByRole('link', { name: 'Contact' }).click();
+    await expect(page).toHaveURL(/\/contact\/$/);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+      'Start the conversation.',
+    );
+  });
+
+  test('the Menu lists it below 72rem', async ({ page, isMobile }) => {
+    if (!isMobile) await page.setViewportSize({ width: 1100, height: 800 });
+    await page.goto('/contact/');
+    await page.locator('.mobile-nav summary').click();
+    const menu = page.getByRole('navigation', { name: 'Mobile navigation' });
+    expect(await names(menu)).toEqual(NAV);
+    await expect(menu.getByRole('link', { name: 'Contact' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
+
+  test('the docs header and the 404 list it too @desktop-chromium', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    for (const route of ['/docs/', '/404.html']) {
+      await page.goto(route);
+      expect(
+        await names(
+          page.getByRole('navigation', { name: 'Primary navigation' }),
+        ),
+        route,
+      ).toEqual(NAV);
+    }
+  });
+
+  test('both footers link to it, beside Site policies', async ({ page }) => {
+    for (const route of ['/', '/docs/system-overview/']) {
+      await page.goto(route);
+      const contact = page
+        .locator('footer, .docs-site-links')
+        .getByRole('link', { name: 'Contact', exact: true })
+        .last();
+      await expect(contact, route).toHaveAttribute('href', '/contact/');
+      await expect(
+        page
+          .getByRole('navigation', { name: 'Site policies' })
+          .getByRole('link', { name: 'Privacy' }),
+        route,
+      ).toBeVisible();
+    }
+  });
+
+  test('the header row never wraps with Contact in it @desktop-chromium', async ({
+    page,
+  }) => {
+    for (const width of [1153, 1280, 1392, 1440, 1920]) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto('/contact/');
+      await page.evaluate(() => document.fonts.ready);
+      const row = await page.evaluate(() => {
+        const inner = document.querySelector('.site-header__inner')!;
+        const logo = document
+          .querySelector('.wordmark__logo')!
+          .getBoundingClientRect();
+        return {
+          overflow: inner.scrollWidth - inner.clientWidth,
+          heights: [...document.querySelectorAll('nav.desktop-nav a')].map(
+            (link) => link.getBoundingClientRect().height,
+          ),
+          foundation: (logo.height * 41.11) / 300,
+        };
+      });
+      expect(row.overflow, `${width} px`).toBeLessThanOrEqual(0);
+      expect(row.heights, `${width} px`).toHaveLength(5);
+      for (const height of row.heights)
+        expect(height, `${width} px`).toBeLessThan(36);
+      expect(row.foundation, `${width} px`).toBeGreaterThanOrEqual(7);
+    }
+  });
+});
