@@ -146,8 +146,8 @@ describe('genomeOS header lockup (genome + OS + FOUNDATION)', () => {
 });
 
 // #454 ruling 12: the artwork's path data, absolute cubics at 3 decimals, was most of the shell's
-// bytes. The served files write it with relative commands at 0.01 units; site.spec renders them
-// against the original at 1x and 2x.
+// bytes. The served files write it with relative commands at 0.01 units; brand-pixels.spec renders
+// them against the original at 1x and 2x.
 describe('slimmed brand path data', () => {
   const original = [...fullArtwork.matchAll(/ d="([^"]*)"/g)].map(([, d]) => d);
 
