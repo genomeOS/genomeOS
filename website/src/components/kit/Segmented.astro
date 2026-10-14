@@ -1,0 +1,140 @@
+---
+/**
+ * A segmented control (site redesign spec §3, §8, #454): a labelled group of toggle buttons with
+ * exactly one `aria-pressed="true"`. Labels never wrap; on phones each segment is at least 44 px
+ * tall. Pressing a segment dispatches `segmented:change` (detail: { value }) on the group, which
+ * the owning figure listens for.
+ */
+
+interface Item {
+  value: string;
+  label: string;
+}
+
+interface Props {
+  /** The group's accessible name, e.g. "Layer". */
+  label: string;
+  items: Item[];
+  selected?: string;
+  /** Stretch to the container's width (a full-width row on phones). */
+  block?: boolean;
+  class?: string;
+  [key: `data-${string}`]: string | undefined;
+}
+
+const {
+  label,
+  items,
+  selected = items[0]?.value,
+  block = false,
+  class: className,
+  ...data
+} = Astro.props;
+---
+
+<div
+  class:list={['kit-segmented', { 'kit-segmented--block': block }, className]}
+  role="group"
+  aria-label={label}
+  data-segmented
+  data-figure-chrome
+  {...data}
+>
+  {
+    items.map((item) => (
+      <button
+        type="button"
+        aria-pressed={item.value === selected ? 'true' : 'false'}
+        data-value={item.value}
+      >
+        {item.label}
+      </button>
+    ))
+  }
+</div>
+
+<script>
+  for (const group of document.querySelectorAll<HTMLElement>(
+    '[data-segmented]:not([data-segmented-ready])',
+  )) {
+    group.dataset.segmentedReady = '';
+    const buttons = [...group.querySelectorAll<HTMLButtonElement>('button')];
+    for (const button of buttons)
+      button.addEventListener('click', () => {
+        if (button.getAttribute('aria-pressed') === 'true') return;
+        for (const other of buttons)
+          other.setAttribute('aria-pressed', String(other === button));
+        group.dispatchEvent(
+          new CustomEvent('segmented:change', {
+            bubbles: true,
+            detail: { value: button.dataset.value },
+          }),
+        );
+      });
+  }
+</script>
+
+<style is:global>
+  .kit-segmented {
+    display: inline-flex;
+    max-width: 100%;
+    border: 1px solid var(--color-line-strong);
+    background: rgb(2 7 18 / 70%);
+  }
+
+  .kit-segmented--block {
+    display: flex;
+    width: 100%;
+  }
+
+  .kit-segmented button {
+    flex: 1 1 auto;
+    min-height: 2.25rem;
+    margin: 0;
+    padding: 0.35rem 0.85rem;
+    border: 0;
+    background: transparent;
+    color: var(--color-muted);
+    font: inherit;
+    font-size: 0.86rem;
+    font-weight: 620;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color var(--dur-micro) var(--ease-ui),
+      color var(--dur-micro) var(--ease-ui);
+  }
+
+  .kit-segmented button + button {
+    border-left: 1px solid var(--color-line-strong);
+  }
+
+  .kit-segmented button:hover {
+    color: var(--color-starlight);
+  }
+
+  .kit-segmented button[aria-pressed='true'] {
+    background: var(--color-plate-raised);
+    color: var(--color-starlight);
+    box-shadow: inset 0 -2px 0 var(--color-ion);
+  }
+
+  @media (max-width: 47.99rem) {
+    .kit-segmented button {
+      min-height: 44px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .kit-segmented button {
+      transition: none;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .kit-segmented button[aria-pressed='true'] {
+      outline: 2px solid Highlight;
+      outline-offset: -2px;
+    }
+  }
+</style>

@@ -1,0 +1,166 @@
+---
+/**
+ * A data figure (site redesign spec §2.5, §8, §9.2; #454): real data or computed counts, drawn open
+ * on the page with no frame.
+ *
+ *   toolbar   [status tag]                                  [segmented control]
+ *   stage     canvas or SVG, box reserved by `aspect`       callouts in its margins
+ *   readout   one docked strip (Readout.astro)
+ *   legend    the figcaption: glyph and words, bold lead-in
+ *   footnote  provenance · Open in the Atlas
+ *   table     a collapsed "View as table" twin
+ *
+ * Hooks the cross-page tests read: `figure[data-graphic]` holds exactly one `[data-figure-stage]`,
+ * and every control, legend and readout box carries `data-figure-chrome`. A static stage is
+ * `role="img"` with an accessible name; an interactive one is `role="group"` with native controls
+ * inside. The figure's own name is its figcaption.
+ */
+
+interface Props {
+  /** The figure's name for tests and analytics-free hooks, e.g. "hero-globe". */
+  graphic: string;
+  /** Accessible name of the stage (static: required, unless `labelledby`). */
+  label?: string;
+  labelledby?: string;
+  describedby?: string;
+  /** The stage holds controls (drag, keys, buttons): role=group instead of role=img. */
+  interactive?: boolean;
+  /** Reserve the stage box, e.g. "4 / 3". */
+  aspect?: string;
+  id?: string;
+  class?: string;
+  tableSummary?: string;
+}
+
+const {
+  graphic,
+  label,
+  labelledby,
+  describedby,
+  interactive = false,
+  aspect,
+  id,
+  class: className,
+  tableSummary = 'View as table',
+} = Astro.props;
+---
+
+<figure
+  class:list={['kit-figure', className]}
+  data-graphic={graphic}
+  data-kind="data"
+  id={id}
+>
+  {
+    Astro.slots.has('toolbar') && (
+      <div class="kit-figure__toolbar" data-figure-chrome>
+        <slot name="toolbar" />
+      </div>
+    )
+  }
+  <div
+    class="kit-figure__stage"
+    data-figure-stage
+    role={interactive ? 'group' : 'img'}
+    aria-label={label}
+    aria-labelledby={labelledby}
+    aria-describedby={describedby}
+    style={aspect ? `aspect-ratio: ${aspect}` : undefined}
+  >
+    <slot />
+  </div>
+  {Astro.slots.has('readout') && <slot name="readout" />}
+  <figcaption class="kit-figure__legend" data-figure-chrome>
+    <slot name="legend" />
+  </figcaption>
+  {
+    Astro.slots.has('footnote') && (
+      <p class="kit-figure__footnote" data-figure-chrome>
+        <slot name="footnote" />
+      </p>
+    )
+  }
+  {
+    Astro.slots.has('table') && (
+      <details class="kit-figure__table" data-figure-chrome>
+        <summary>{tableSummary}</summary>
+        <slot name="table" />
+      </details>
+    )
+  }
+</figure>
+
+<style is:global>
+  .kit-figure {
+    position: relative;
+    margin: 0;
+    min-width: 0;
+  }
+
+  .kit-figure__toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem 1rem;
+    margin-bottom: 0.9rem;
+  }
+
+  .kit-figure__stage {
+    position: relative;
+    min-width: 0;
+  }
+
+  .kit-figure__stage > :is(svg, canvas, img) {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .kit-figure__legend {
+    margin-top: 1rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--color-deep-line);
+    color: var(--color-muted);
+    font-size: var(--type-legend);
+    line-height: 1.5;
+  }
+
+  .kit-figure__legend > strong:first-child {
+    color: var(--color-starlight);
+    font-weight: 620;
+  }
+
+  .kit-figure__footnote {
+    margin: 0.75rem 0 0;
+    color: var(--color-faint);
+    font-size: 0.8rem;
+    font-variant-numeric: lining-nums tabular-nums;
+    line-height: 1.5;
+  }
+
+  .kit-figure__table {
+    margin-top: 0.75rem;
+    font-size: var(--type-legend);
+  }
+
+  .kit-figure__table summary {
+    min-height: 24px;
+    color: var(--color-ion);
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .kit-figure__table table {
+    width: 100%;
+    margin-top: 0.6rem;
+    border-collapse: collapse;
+    font-variant-numeric: lining-nums tabular-nums;
+  }
+
+  .kit-figure__table :is(th, td) {
+    padding: 0.35rem 0.6rem 0.35rem 0;
+    border-bottom: 1px solid var(--color-deep-line);
+    text-align: left;
+  }
+</style>

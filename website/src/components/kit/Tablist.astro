@@ -1,0 +1,145 @@
+---
+/**
+ * Tabs (site redesign spec §3, §8, #454): markup for `src/graphics/tabs.ts`, a roving-tabindex
+ * tablist with exactly one selected tab. Each tab's panel comes from the slot named
+ * `panel-<id>`; every panel is server-rendered, and all but the selected one are `hidden`
+ * (without JS, the first-selected panel shows; print shows them all).
+ */
+
+interface Tab {
+  id: string;
+  label: string;
+  /** A second line on the tab, e.g. its status. */
+  sub?: string;
+}
+
+interface Props {
+  label: string;
+  tabs: Tab[];
+  selected?: number;
+  idPrefix: string;
+  class?: string;
+}
+
+const { label, tabs, selected = 0, idPrefix, class: className } = Astro.props;
+const panels = await Promise.all(
+  tabs.map((tab) =>
+    Astro.slots.has(`panel-${tab.id}`)
+      ? Astro.slots.render(`panel-${tab.id}`)
+      : Promise.resolve(''),
+  ),
+);
+---
+
+<div class:list={['kit-tabs', className]} data-kit-tabs>
+  <div
+    class="kit-tabs__list"
+    role="tablist"
+    aria-label={label}
+    data-figure-chrome
+  >
+    {
+      tabs.map((tab, index) => (
+        <button
+          type="button"
+          role="tab"
+          id={`${idPrefix}-tab-${tab.id}`}
+          aria-controls={`${idPrefix}-panel-${tab.id}`}
+          aria-selected={index === selected ? 'true' : 'false'}
+          tabindex={index === selected ? 0 : -1}
+        >
+          <span class="kit-tabs__label">{tab.label}</span>
+          {tab.sub && <span class="kit-tabs__sub">{tab.sub}</span>}
+        </button>
+      ))
+    }
+  </div>
+  {
+    tabs.map((tab, index) => (
+      <div
+        class="kit-tabs__panel"
+        role="tabpanel"
+        id={`${idPrefix}-panel-${tab.id}`}
+        aria-labelledby={`${idPrefix}-tab-${tab.id}`}
+        hidden={index !== selected}
+        set:html={panels[index]}
+      />
+    ))
+  }
+</div>
+
+<script>
+  import { initTabs } from '../../graphics/tabs';
+
+  for (const root of document.querySelectorAll<HTMLElement>(
+    '[data-kit-tabs]:not([data-kit-tabs-ready])',
+  )) {
+    root.dataset.kitTabsReady = '';
+    const list = root.querySelector<HTMLElement>('[role="tablist"]');
+    if (list) initTabs(list);
+  }
+</script>
+
+<style is:global>
+  .kit-tabs__list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    border-bottom: 1px solid var(--color-deep-line);
+  }
+
+  .kit-tabs__list [role='tab'] {
+    display: grid;
+    gap: 0.1rem;
+    min-height: 2.75rem;
+    margin: 0 0 -1px;
+    padding: 0.55rem 1rem 0.6rem;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--color-muted);
+    font: inherit;
+    font-size: 0.92rem;
+    font-weight: 620;
+    text-align: left;
+    cursor: pointer;
+    transition: color var(--dur-micro) var(--ease-ui);
+  }
+
+  .kit-tabs__list [role='tab']:hover {
+    color: var(--color-starlight);
+  }
+
+  .kit-tabs__list [role='tab'][aria-selected='true'] {
+    border-bottom-color: var(--color-ion);
+    color: var(--color-starlight);
+  }
+
+  .kit-tabs__label {
+    overflow-wrap: normal;
+    word-break: keep-all;
+  }
+
+  .kit-tabs__sub {
+    color: var(--color-faint);
+    font-size: 0.8rem;
+    font-weight: 560;
+  }
+
+  .kit-tabs__panel {
+    padding-top: 0.9rem;
+    color: var(--color-text-soft);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .kit-tabs__list [role='tab'] {
+      transition: none;
+    }
+  }
+
+  @media print {
+    .kit-tabs__panel[hidden] {
+      display: block;
+    }
+  }
+</style>

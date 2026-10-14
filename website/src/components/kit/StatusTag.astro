@@ -1,0 +1,62 @@
+---
+/**
+ * Honest status tags (site redesign spec §2.6, #454). Signal gold means only validation, refusal or
+ * caution, so there are exactly three kinds:
+ *
+ *   not-validated   every figure that draws a modeled surface, until the HbS, G6PD and
+ *                   carrier-screening gate passes
+ *   schematic       marks that resemble data but hold none (e.g. the Project join-up)
+ *   worked-example  a figure computed from stated illustrative counts
+ */
+
+type StatusKind = 'not-validated' | 'schematic' | 'worked-example';
+
+interface Props {
+  kind: StatusKind;
+  class?: string;
+}
+
+const LABEL: Record<StatusKind, string> = {
+  'not-validated': 'Not yet validated',
+  schematic: 'Schematic',
+  'worked-example': 'Worked example',
+};
+
+const { kind, class: className } = Astro.props;
+---
+
+<span class:list={['kit-status-tag', className]} data-status={kind}
+  >{LABEL[kind]}</span
+>
+
+<style is:global>
+  .kit-status-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.2rem 0.55rem 0.22rem 0.5rem;
+    border: 1px solid var(--color-signal);
+    color: var(--color-signal);
+    font-family: var(--font-body);
+    font-size: var(--type-tag);
+    font-weight: 600;
+    line-height: 1.3;
+    white-space: nowrap;
+  }
+
+  .kit-status-tag::before {
+    content: '';
+    flex: none;
+    width: 0.42rem;
+    height: 0.42rem;
+    border: 1.5px solid currentColor;
+    transform: rotate(45deg);
+  }
+
+  @media (forced-colors: active) {
+    .kit-status-tag {
+      border-color: CanvasText;
+      color: CanvasText;
+    }
+  }
+</style>

@@ -1,0 +1,11 @@
+---
+/**
+ * The figure data tokens as :root custom properties (site redesign spec §2.2, #454), computed at
+ * build time from the Atlas's own encoding (src/graphics/encoding.ts ← src/atlas/encoding-tokens.ts),
+ * so the marketing marks cannot drift from the product's. Rendered once in SiteLayout's head (and
+ * the docs header, for figures in the guides).
+ */
+import { encodingCss } from '../../graphics/encoding';
+---
+
+<style is:inline set:html={encodingCss()}></style>

@@ -1,0 +1,83 @@
+---
+/**
+ * The figure glyph kit (site redesign spec §2.6, #454): one inline SVG sprite per page, and
+ * `<Glyph name>` references into it, so a legend's mark is exactly the figure's mark.
+ *
+ *   <Glyph sprite />            once per page, anywhere in <body>
+ *   <Glyph name="stud-md" />    a 16 px stud: measured survey, sized by alleles tested
+ *
+ * Colours come from the --enc-* tokens (EncodingStyle.astro) and the status tokens; line
+ * drawings use currentColor. Glyphs are decorative (aria-hidden): the words beside them carry
+ * the meaning.
+ */
+import { GLYPHS, GLYPH_SYMBOLS, type GlyphName } from './glyphs';
+import { cssVarStyles } from './svg';
+
+interface Props {
+  name?: GlyphName;
+  /** Render the sprite itself (once per page). */
+  sprite?: boolean;
+  /** Display height in px; width follows the glyph's proportions. */
+  size?: number;
+  class?: string;
+}
+
+const { name, sprite = false, size, class: className } = Astro.props;
+
+const viewBox = (glyph: GlyphName) =>
+  `0 0 ${GLYPHS[glyph][0]} ${GLYPHS[glyph][1]}`;
+const dims = (glyph: GlyphName) => {
+  const [w, h] = GLYPHS[glyph];
+  const height = size ?? h;
+  return { width: Math.round((w / h) * height * 100) / 100, height };
+};
+---
+
+{
+  sprite ? (
+    <svg class="kit-glyph-sprite" aria-hidden="true" focusable="false">
+      {(Object.keys(GLYPH_SYMBOLS) as GlyphName[]).map((glyph) => (
+        <symbol
+          id={`glyph-${glyph}`}
+          viewBox={viewBox(glyph)}
+          set:html={cssVarStyles(GLYPH_SYMBOLS[glyph])}
+        />
+      ))}
+    </svg>
+  ) : (
+    name && (
+      <svg
+        class:list={['kit-glyph', `kit-glyph--${name}`, className]}
+        {...dims(name)}
+        viewBox={viewBox(name)}
+        aria-hidden="true"
+        focusable="false"
+      >
+        <use href={`#glyph-${name}`} />
+      </svg>
+    )
+  )
+}
+
+<style is:global>
+  .kit-glyph-sprite {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+  }
+
+  .kit-glyph {
+    display: inline-block;
+    flex: none;
+    overflow: visible;
+    vertical-align: middle;
+  }
+
+  @media (forced-colors: active) {
+    .kit-glyph {
+      forced-color-adjust: none;
+      color: CanvasText;
+    }
+  }
+</style>

@@ -1,0 +1,707 @@
+---
+/**
+ * The shared evidence Pipeline (site redesign spec §3.1, #454): Home shows 3 stages, Project 6 parts
+ * with a morph between them, the Docs landing a static map of links to the guides.
+ *
+ * Rendered on the server in its final state, horizontally at 72rem and up and vertically below
+ * (each layout about 1 unit per CSS px at its narrowest width, so labels stay 13 px or more). The
+ * island (pipeline.ts) adds packets, focus, the 3 ↔ 6 morph and Replay; `variant="links"` ships
+ * no script at all.
+ *
+ * Two lanes that never join: measured studs bypass every model and the gate and reach the map at
+ * its upper port; on the modeled lane a stud becomes a hex only on leaving a model node. No
+ * invented numbers, and no repository part codes in text, ids, classes or labels.
+ */
+import {
+  ALL_KEYS,
+  CENTRE_COLUMN,
+  PIPELINE,
+  SOCKET,
+  edgePath,
+  laneTagPosition,
+  type NodeGlyph,
+  type Orientation,
+  type PipelineMode,
+  type PipelineNode,
+} from '../../data/pipeline';
+import { ENC } from '../../graphics/encoding';
+import { sitePath } from '../../lib/paths';
+import PipelineMotion from './PipelineMotion.astro';
+import Plate from './Plate.astro';
+import Segmented from './Segmented.astro';
+import { cssVarStyles } from './svg';
+
+interface Props {
+  mode?: PipelineMode;
+  variant?: 'interactive' | 'links';
+  /** Offer the 3 stages ↔ 6 parts toggle (interactive only). */
+  modeToggle?: boolean;
+  /** Draw the stage brackets in mode 6 too (mode 3 always has them). */
+  stageBrackets?: boolean;
+  /** Unique per page: prefixes every id this instance renders. */
+  idPrefix: string;
+  class?: string;
+}
+
+const {
+  mode: initial = 3,
+  variant = 'interactive',
+  modeToggle = true,
+  stageBrackets = true,
+  idPrefix,
+  class: className,
+} = Astro.props;
+
+const links = variant === 'links';
+const mode: PipelineMode = links ? 6 : initial;
+const modes: PipelineMode[] = !links && modeToggle ? [3, 6] : [mode];
+const orientations: Orientation[] = ['h', 'v'];
+const R = SOCKET;
+const id = (suffix: string) => `${idPrefix}-${suffix}`;
+const inModes = (key: string) =>
+  modes.filter((m) => PIPELINE[m].nodes.some((node) => node.key === key));
+const nodeIn = (key: string, m: PipelineMode) =>
+  PIPELINE[m].nodes.find((node) => node.key === key);
+const showBrackets = (m: PipelineMode) => m === 3 || stageBrackets;
+
+const LANE_COLOUR = {
+  source: 'var(--color-faint)',
+  measured: 'rgb(244 251 255 / 78%)',
+  modeled: 'var(--enc-mean-5)',
+} as const;
+
+const DESCRIPTION: Record<PipelineMode, string> = {
+  3: 'Published samples become counted observations. Counts go straight to the Atlas as measured points; separately, an offline model turns them into a modeled surface with uncertainty. The two arrive as separate layers.',
+  6: 'A population-location registry places every observation. Counts go straight to the data service and the map as measured points; separately, frequency and disease-burden models turn them into modeled estimates that pass a validation gate before the data service. The two arrive at the map as separate layers.',
+};
+
+/* ---------- node glyphs: the Atlas's marks at socket scale (about 56 units) ---------- */
+const hexPath = (cx: number, cy: number, r: number) =>
+  Array.from({ length: 6 }, (_, k) => {
+    const a = (Math.PI / 3) * k + Math.PI / 6;
+    return `${k ? 'L' : 'M'}${(cx + r * Math.cos(a)).toFixed(1)} ${(cy + r * Math.sin(a)).toFixed(1)}`;
+  }).join('') + 'Z';
+const stud = (x: number, y: number, r: number, ring: number) =>
+  `<circle cx="${x}" cy="${y}" r="${ring}" fill="none" stroke="var(--enc-obs-radius)" stroke-dasharray="2 2"/>` +
+  `<circle cx="${x}" cy="${y}" r="${r}" fill="var(--enc-obs)" stroke="var(--enc-obs-ring)" stroke-width="1.5"/>`;
+const GLYPH: Record<NodeGlyph, () => string> = {
+  docs: () =>
+    '<rect x="-14" y="-24" width="28" height="34" fill="none" stroke="var(--color-faint)" opacity=".7"/>' +
+    '<rect x="-19" y="-19" width="28" height="34" fill="var(--color-plate-raised)" stroke="var(--color-faint)"/>' +
+    '<rect x="-24" y="-14" width="28" height="34" fill="var(--color-plate-raised)" stroke="var(--color-muted)"/>' +
+    '<path d="M-19 -7h18M-19 -2h14M-19 3h18" stroke="var(--color-muted)"/>' +
+    '<path d="M-19 9h18v7h-18zM-13 9v7M-7 9v7" fill="none" stroke="var(--color-muted)" stroke-width=".8"/>',
+  pin: () =>
+    '<circle r="21" fill="none" stroke="var(--enc-obs-radius)" stroke-dasharray="2.5 2.5"/>' +
+    '<path d="M0 -28v8M0 20v8M-28 0h8M20 0h8" stroke="var(--color-muted)"/>' +
+    '<path d="M0 0L15 -15" stroke="var(--color-ion)"/>' +
+    '<circle r="4" fill="var(--enc-obs)" stroke="var(--enc-obs-ring)" stroke-width="1.5"/>',
+  studs: () => stud(-13, 8, 5.5, 11) + stud(9, -10, 7, 14) + stud(14, 15, 4, 8),
+  model: () =>
+    '<path d="M-24 22H24M-24 22V-24" stroke="var(--color-faint)"/>' +
+    '<path d="M-22 10C-10 4 -6 -14 6 -12S18 4 24 -6L24 4C18 14 8 -2 6 -2S-10 16 -22 20Z" fill="var(--enc-mean-5)" fill-opacity=".22"/>' +
+    '<path d="M-22 15C-10 10 -6 -8 6 -7S18 9 24 -1" fill="none" stroke="var(--enc-mean-5)" stroke-width="1.6"/>' +
+    [
+      [-16, 12],
+      [-4, 0],
+      [8, -9],
+      [19, 4],
+    ]
+      .map(
+        ([x, y]) =>
+          `<circle cx="${x}" cy="${y}" r="2.6" fill="var(--enc-obs)" stroke="var(--enc-obs-ring)"/>`,
+      )
+      .join(''),
+  surface: () => {
+    const r = 9.6;
+    const d = r * Math.sqrt(3);
+    const cells: [number, number, string][] = [
+      [0, 0, ENC.mean[5]],
+      [d, 0, ENC.mean[4]],
+      [d / 2, -1.5 * r, ENC.mean[3]],
+      [-d / 2, -1.5 * r, ENC.meanPartial[1]],
+      [-d, 0, ENC.meanWeak],
+      [-d / 2, 1.5 * r, ENC.mean[2]],
+      [d / 2, 1.5 * r, 'unknown'],
+    ];
+    return cells
+      .map(([x, y, colour]) => {
+        const p = hexPath(x, y, r - 1);
+        if (colour === 'unknown')
+          return (
+            `<path d="${p}" fill="var(--enc-land)"/>` +
+            `<path d="M${x - 5} ${y + 5}L${x + 5} ${y - 5}M${x - 7.5} ${y}L${x} ${y - 7.5}M${x} ${y + 7.5}L${x + 7.5} ${y}" stroke="var(--enc-hatch)" stroke-opacity="${ENC.hatchAlpha}" stroke-width="1.4"/>`
+          );
+        return `<path d="${p}" fill="${colour}"/>`;
+      })
+      .join('');
+  },
+  burden: () => {
+    const person = (x: number) =>
+      `<circle cx="${x}" cy="-12" r="4.5" fill="none" stroke="var(--color-text-soft)" stroke-width="1.4"/>` +
+      `<path d="M${x - 7} 6C${x - 7} -3 ${x + 7} -3 ${x + 7} 6" fill="none" stroke="var(--color-text-soft)" stroke-width="1.4"/>`;
+    return (
+      person(-15) +
+      person(0) +
+      person(15) +
+      '<path d="M-22 18H22" stroke="var(--enc-mean-5)" stroke-opacity=".45" stroke-width="4"/>' +
+      '<path d="M-12 18H10" stroke="var(--enc-mean-5)" stroke-width="4"/>' +
+      '<path d="M0 13v10" stroke="var(--color-starlight)" stroke-width="1.5"/>'
+    );
+  },
+  gate: () =>
+    '<rect x="-17" y="-17" width="34" height="34" transform="rotate(45)" fill="rgb(244 200 106 / 10%)" stroke="var(--enc-gate)" stroke-width="1.5"/>' +
+    '<path d="M-8 0l5.5 5.5L9 -6" fill="none" stroke="var(--enc-gate)" stroke-width="2"/>',
+  service: () =>
+    [-14, 0, 14]
+      .map(
+        (y) =>
+          `<rect x="-20" y="${y - 5.5}" width="40" height="11" fill="var(--color-plate-raised)" stroke="var(--color-line-strong)"/>` +
+          `<circle cx="-13" cy="${y}" r="1.8" fill="var(--color-ion)"/><path d="M-6 ${y}h18" stroke="var(--color-muted)" stroke-opacity=".6"/>`,
+      )
+      .join(''),
+  atlas: () =>
+    '<rect x="-27" y="-20" width="54" height="40" fill="var(--color-void)" stroke="var(--color-text-soft)"/>' +
+    '<circle cx="-6" cy="0" r="12.5" fill="none" stroke="var(--color-ion)"/>' +
+    '<path d="M-18.5 0h25M-6 -12.5c4 3.5 4 21.5 0 25M-6 -12.5c-4 3.5 -4 21.5 0 25" fill="none" stroke="var(--color-ion)" stroke-opacity=".5" stroke-width=".8"/>' +
+    '<circle cx="15" cy="-7" r="3.4" fill="var(--enc-obs)" stroke="var(--enc-obs-ring)"/>' +
+    `<path d="${hexPath(15, 7, 4)}" fill="var(--enc-mean-5)"/>`,
+};
+
+/* ---------- labels ---------- */
+const TYPE = {
+  h: { label: 17, sub: 16, line: 19 },
+  v: { label: 15.5, sub: 15, line: 17.5 },
+} as const;
+function labelPlacement(o: Orientation, x: number) {
+  const left = o === 'v' && x !== CENTRE_COLUMN;
+  return left
+    ? { x: -R - 14, y: -12, anchor: 'end' }
+    : { x: 0, y: R + (o === 'h' ? 24 : 22), anchor: 'middle' };
+}
+const nodeName = (node: PipelineNode) =>
+  `${node.label.join(' ')}${node.sub ? ` (${node.sub})` : ''}`;
+const ariaLabel = (node: PipelineNode) => `${nodeName(node)}. ${node.caption}`;
+const docsHref = (node: PipelineNode) => sitePath(`/docs/${node.guide ?? ''}`);
+const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
+---
+
+<Plate
+  graphic="pipeline"
+  class:list={['kit-pipeline', className]}
+  interactive
+  labelledby={id('title')}
+  describedby={id('description')}
+  captionLive={!links}
+  data-pipeline={variant}
+  data-mode={String(mode)}
+  data-id-prefix={idPrefix}
+>
+  {
+    !links && (
+      <Fragment slot="top">
+        {modeToggle && (
+          <Segmented
+            label="Level of detail"
+            items={[
+              { value: '3', label: '3 stages' },
+              { value: '6', label: '6 parts' },
+            ]}
+            selected={String(mode)}
+            data-pipeline-mode=""
+          />
+        )}
+        <button
+          class="kit-text-button kit-pipeline__replay"
+          type="button"
+          data-pipeline-replay
+        >
+          Replay
+        </button>
+      </Fragment>
+    )
+  }
+  <p class="visually-hidden" id={id('title')}>
+    {
+      links
+        ? 'The pipeline, with a guide for each part'
+        : 'How the pipeline works'
+    }
+  </p>
+  {
+    modes.map((m) => (
+      <p
+        class="visually-hidden kit-pipeline__alt"
+        id={m === mode ? id('description') : id(`description-${m}`)}
+        data-modes={String(m)}
+      >
+        {DESCRIPTION[m]}
+      </p>
+    ))
+  }
+  {
+    orientations.map((o) => {
+      const viewBoxes = Object.fromEntries(
+        modes.map((m) => [
+          `data-viewbox-${m}`,
+          `0 0 ${PIPELINE[m].layouts[o].width} ${PIPELINE[m].layouts[o].height}`,
+        ]),
+      );
+      const layout = PIPELINE[mode].layouts[o];
+      return (
+        <svg
+          class:list={['kit-pipeline__svg', `kit-pipeline__svg--${o}`]}
+          data-orient={o}
+          viewBox={`0 0 ${layout.width} ${layout.height}`}
+          {...viewBoxes}
+        >
+          <defs>
+            {(['source', 'measured', 'modeled'] as const).map((lane) => (
+              <marker
+                id={id(`arrow-${lane}-${o}`)}
+                viewBox="0 0 8 8"
+                refX="7"
+                refY="4"
+                markerWidth="7"
+                markerHeight="7"
+                orient="auto"
+              >
+                <path
+                  d="M1 1L7 4L1 7"
+                  fill="none"
+                  style={`stroke: ${LANE_COLOUR[lane]}`}
+                  stroke-width="1.3"
+                />
+              </marker>
+            ))}
+          </defs>
+          {modes.filter(showBrackets).map((m) => {
+            const L = PIPELINE[m].layouts[o];
+            return (
+              <g class="pl-brackets" data-modes={String(m)} aria-hidden="true">
+                {PIPELINE[m].stages.map((stage, index) => {
+                  if (o === 'h') {
+                    const xs = stage.keys.map((key) => L.pos[key][0]);
+                    const x0 = Math.min(...xs) - 62;
+                    const x1 = Math.max(...xs) + 62;
+                    return (
+                      <g class="pl-bracket">
+                        <path d={`M${x0} 54V46H${x1}V54`} />
+                        <text x={x0} y="34" font-size="16">
+                          {stage.label}
+                        </text>
+                      </g>
+                    );
+                  }
+                  const y = L.heads![index];
+                  return (
+                    <g class="pl-bracket">
+                      <text x="56" y={y + 5} font-size="15">
+                        {stage.label}
+                      </text>
+                      <path d={`M56 ${y + 16}H348`} />
+                    </g>
+                  );
+                })}
+              </g>
+            );
+          })}
+          <g class="pl-edges" aria-hidden="true">
+            {modes.map((m) =>
+              PIPELINE[m].edges.map((edge, index) => (
+                <path
+                  class:list={[
+                    'pl-edge',
+                    `pl-edge--${edge.lane}`,
+                    { 'pl-edge--draw': edge.lane !== 'source' },
+                  ]}
+                  d={edgePath(PIPELINE[m], edge, o)}
+                  data-modes={String(m)}
+                  data-edge={edge.id}
+                  data-from={edge.from}
+                  data-to={edge.to}
+                  data-lane={edge.lane}
+                  data-packet={edge.packet}
+                  pathLength={edge.lane === 'source' ? undefined : '1'}
+                  marker-end={`url(#${id(`arrow-${edge.lane}-${o}`)})`}
+                  style={`--d: ${index * 90}ms`}
+                />
+              )),
+            )}
+          </g>
+          <g class="pl-lanes" aria-hidden="true">
+            {modes.map((m) =>
+              (['measured', 'modeled'] as const).map((lane) => {
+                const { x, y, vertical } = laneTagPosition(
+                  PIPELINE[m],
+                  lane,
+                  o,
+                );
+                const text = lane === 'measured' ? 'Measured' : 'Modeled';
+                const size = o === 'h' ? 16 : 15;
+                const width = text.length * size * 0.56 + 18;
+                return (
+                  <g
+                    class:list={['pl-lane', `pl-lane--${lane}`]}
+                    data-modes={String(m)}
+                    transform={`translate(${x} ${y})${vertical ? ' rotate(-90)' : ''}`}
+                  >
+                    <rect
+                      x={-width / 2}
+                      y={-size * 0.75}
+                      width={width}
+                      height={size * 1.5}
+                      style={`stroke: ${LANE_COLOUR[lane]}`}
+                    />
+                    <text y={size * 0.33} text-anchor="middle" font-size={size}>
+                      {text}
+                    </text>
+                  </g>
+                );
+              }),
+            )}
+          </g>
+          <g class="pl-nodes">
+            {keys.map((key) => {
+              const present = inModes(key);
+              const node = nodeIn(
+                key,
+                present.includes(mode) ? mode : present[0],
+              )!;
+              const [x, y] =
+                PIPELINE[present.includes(mode) ? mode : present[0]].layouts[o]
+                  .pos[key];
+              const positions = Object.fromEntries(
+                present.map((m) => [
+                  `data-pos-${m}`,
+                  PIPELINE[m].layouts[o].pos[key].join(' '),
+                ]),
+              );
+              const perMode = Object.fromEntries(
+                present.flatMap((m) => {
+                  const variantNode = nodeIn(key, m)!;
+                  return [
+                    [`data-id-${m}`, id(`${o}-${variantNode.id}`)],
+                    [`data-label-${m}`, ariaLabel(variantNode)],
+                  ];
+                }),
+              );
+              const body = (
+                <Fragment>
+                  <g class="pl-node__art" aria-hidden="true">
+                    <rect
+                      class="pl-node__socket"
+                      x={-R}
+                      y={-R}
+                      width={2 * R}
+                      height={2 * R}
+                    />
+                    <g set:html={cssVarStyles(GLYPH[node.glyph]())} />
+                  </g>
+                  {present.map((m) => {
+                    const variantNode = nodeIn(key, m)!;
+                    const [px] = PIPELINE[m].layouts[o].pos[key];
+                    const place = labelPlacement(o, px);
+                    const t = TYPE[o];
+                    return (
+                      <g
+                        class="pl-node__text"
+                        data-modes={String(m)}
+                        aria-hidden={links ? undefined : 'true'}
+                      >
+                        <text
+                          class="pl-node__label"
+                          x={place.x}
+                          y={place.y}
+                          text-anchor={place.anchor}
+                          font-size={t.label}
+                        >
+                          {variantNode.label.map((line, index) => (
+                            <tspan x={place.x} dy={index ? t.line : 0}>
+                              {line}
+                            </tspan>
+                          ))}
+                        </text>
+                        {variantNode.sub && (
+                          <text
+                            class="pl-node__sub"
+                            x={place.x}
+                            y={place.y + variantNode.label.length * t.line}
+                            text-anchor={place.anchor}
+                            font-size={t.sub}
+                          >
+                            {variantNode.sub}
+                          </text>
+                        )}
+                      </g>
+                    );
+                  })}
+                </Fragment>
+              );
+              const common = {
+                class: 'pl-node',
+                'data-key': key,
+                'data-kind': node.kind,
+                'data-modes': present.join(' '),
+                style: `transform: translate(${x}px, ${y}px)`,
+                ...positions,
+              };
+              return links ? (
+                <a href={docsHref(node)} {...common}>
+                  {body}
+                </a>
+              ) : (
+                <g
+                  {...common}
+                  {...perMode}
+                  id={id(`${o}-${node.id}`)}
+                  role="button"
+                  tabindex={key === 'source' ? '0' : '-1'}
+                  aria-label={ariaLabel(node)}
+                >
+                  {body}
+                </g>
+              );
+            })}
+          </g>
+          {!links && <g class="pl-packets" aria-hidden="true" data-packets />}
+        </svg>
+      );
+    })
+  }
+  {
+    !links &&
+      modes.map((m) => (
+        <ol class="visually-hidden kit-pipeline__alt" data-modes={String(m)}>
+          {PIPELINE[m].nodes.map((node) => (
+            <li>
+              {nodeName(node)}: {node.caption}
+            </li>
+          ))}
+        </ol>
+      ))
+  }
+  <Fragment slot="caption">
+    {
+      links ? (
+        <span>Select a part to open its guide.</span>
+      ) : (
+        <p class="kit-pipeline__caption" data-pipeline-caption>
+          {PIPELINE[mode].idle}
+        </p>
+      )
+    }
+  </Fragment>
+</Plate>
+
+{!links && <PipelineMotion />}
+
+<style is:global>
+  .kit-pipeline__svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+    font-family: var(--font-body);
+  }
+
+  .kit-pipeline__svg--v {
+    display: none;
+    max-width: 26rem;
+    margin-inline: auto;
+  }
+
+  @media (max-width: 71.99rem) {
+    .kit-pipeline__svg--h {
+      display: none;
+    }
+
+    .kit-pipeline__svg--v {
+      display: block;
+    }
+  }
+
+  .kit-pipeline__replay {
+    margin-left: auto;
+  }
+
+  .kit-pipeline__caption {
+    min-height: 2.9em;
+    margin: 0;
+  }
+
+  /* Mode visibility: elements belong to one mode or both. */
+  .kit-pipeline[data-mode='3'] [data-modes]:not([data-modes~='3']),
+  .kit-pipeline[data-mode='6'] [data-modes]:not([data-modes~='6']) {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .kit-pipeline[data-mode='3'] .kit-pipeline__alt:not([data-modes~='3']),
+  .kit-pipeline[data-mode='6'] .kit-pipeline__alt:not([data-modes~='6']) {
+    display: none;
+  }
+
+  .pl-brackets,
+  .pl-lanes,
+  .pl-node__text,
+  .pl-edge {
+    transition:
+      opacity var(--dur-ui) var(--ease-ui),
+      visibility var(--dur-ui);
+  }
+
+  .pl-bracket path {
+    fill: none;
+    stroke: var(--color-line-strong);
+  }
+
+  .pl-bracket text {
+    fill: var(--color-ion);
+    font-weight: 650;
+  }
+
+  .pl-edge {
+    fill: none;
+    stroke-width: 1.5;
+  }
+
+  .pl-edge--source {
+    stroke: var(--color-faint);
+    stroke-dasharray: 3 4;
+  }
+
+  .pl-edge--measured {
+    stroke: rgb(244 251 255 / 78%);
+  }
+
+  .pl-edge--modeled {
+    stroke: var(--enc-mean-5);
+  }
+
+  .pl-edge--draw {
+    stroke-dasharray: 1 1;
+    stroke-dashoffset: 0;
+  }
+
+  .kit-pipeline[data-figure-state='armed'] .pl-edge--draw {
+    stroke-dashoffset: 1;
+  }
+
+  .kit-pipeline:is([data-figure-state='armed'], .is-drawing) .pl-edge {
+    marker-end: none;
+  }
+
+  .kit-pipeline.is-drawing .pl-edge--draw {
+    animation: pl-draw 720ms var(--ease-figure) var(--d, 0ms) both;
+  }
+
+  @keyframes pl-draw {
+    from {
+      stroke-dashoffset: 1;
+    }
+
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+
+  .pl-lane rect {
+    fill: var(--color-plate);
+  }
+
+  .pl-lane text {
+    fill: var(--color-starlight);
+    font-weight: 620;
+  }
+
+  .pl-node {
+    cursor: pointer;
+    outline: none;
+    transition:
+      transform var(--dur-stage) var(--ease-camera),
+      opacity var(--dur-ui) var(--ease-ui),
+      visibility var(--dur-ui);
+  }
+
+  .pl-node__art {
+    transition: opacity var(--dur-ui) var(--ease-ui);
+  }
+
+  .pl-node__socket {
+    fill: var(--color-plate-raised);
+    stroke: var(--color-line-strong);
+    stroke-width: 1;
+    transition:
+      stroke var(--dur-micro) var(--ease-ui),
+      fill var(--dur-micro) var(--ease-ui);
+  }
+
+  .pl-node[data-kind='gate'] .pl-node__socket {
+    stroke: rgb(244 200 106 / 70%);
+  }
+
+  .pl-node__label {
+    fill: var(--color-starlight);
+    font-weight: 640;
+  }
+
+  .pl-node__sub {
+    fill: var(--color-muted);
+    font-weight: 520;
+    font-variant-numeric: lining-nums tabular-nums;
+  }
+
+  .pl-node:hover .pl-node__socket,
+  .pl-node:focus-visible .pl-node__socket,
+  .pl-node.is-active .pl-node__socket,
+  .pl-node.is-pulse .pl-node__socket {
+    fill: #0d2647;
+    stroke: var(--color-ion);
+  }
+
+  .pl-node:focus-visible .pl-node__socket {
+    stroke-width: 2;
+  }
+
+  /* Focus: art outside the focused node's neighbourhood dims; text never does. */
+  .kit-pipeline.has-focus .pl-node:not(.is-active, .is-linked) .pl-node__art,
+  .kit-pipeline.has-focus .pl-edge:not(.is-lit) {
+    opacity: 0.35;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pl-brackets,
+    .pl-lanes,
+    .pl-node,
+    .pl-node__art,
+    .pl-node__text,
+    .pl-node__socket,
+    .pl-edge {
+      transition: none;
+    }
+
+    .kit-pipeline.is-drawing .pl-edge--draw {
+      animation: none;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .pl-node__label,
+    .pl-node__sub,
+    .pl-lane text,
+    .pl-bracket text {
+      fill: CanvasText;
+    }
+
+    .pl-edge,
+    .pl-node__socket {
+      stroke: CanvasText;
+    }
+
+    a.pl-node .pl-node__label {
+      fill: LinkText;
+    }
+  }
+</style>

@@ -1,6 +1,7 @@
 ---
 import Analytics from '../components/Analytics.astro';
 import CookieControl from '../components/CookieControl.astro';
+import EncodingStyle from '../components/kit/EncodingStyle.astro';
 import SiteFooter from '../components/SiteFooter.astro';
 import SiteHeader from '../components/SiteHeader.astro';
 import MotionController from '../components/MotionController.astro';
@@ -70,6 +71,7 @@ const socialImage = new URL(
       <slot />
     </main>
     <SiteFooter />
+    <EncodingStyle />
     <MotionController />
     <CookieControl />
   </body>

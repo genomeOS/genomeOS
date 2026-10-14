@@ -1,0 +1,168 @@
+---
+/**
+ * A mechanism plate (site redesign spec §2.5, #454): the frame for schematics of how things work
+ * (Pipeline, join-up, transit line, work board, privacy flow), never for data.
+ *
+ *   ┌ tick                                                        tick ┐
+ *   │ top bar:  controls · legend                             Replay   │
+ *   │ stage:    24 px dot grid on --color-plate, sockets on plate-raised│
+ *   │ bottom bar: one caption line (the focused part's sentence)       │
+ *   └ tick                                                        tick ┘
+ *
+ * A 1 px hairline frame with 14 px registration ticks, square corners. The bottom bar is the
+ * figcaption; give it `captionLive` when it changes with focus. Same hooks as Figure.astro.
+ */
+
+interface Props {
+  graphic: string;
+  label?: string;
+  labelledby?: string;
+  describedby?: string;
+  interactive?: boolean;
+  aspect?: string;
+  id?: string;
+  class?: string;
+  /** The bottom bar is a polite live region (it narrates focus changes). */
+  captionLive?: boolean;
+  [key: `data-${string}`]: string | undefined;
+}
+
+const {
+  graphic,
+  label,
+  labelledby,
+  describedby,
+  interactive = false,
+  aspect,
+  id,
+  class: className,
+  captionLive = false,
+  ...data
+} = Astro.props;
+---
+
+<figure
+  class:list={['kit-plate', className]}
+  data-graphic={graphic}
+  data-kind="mechanism"
+  id={id}
+  {...data}
+>
+  {
+    Astro.slots.has('top') && (
+      <div class="kit-plate__bar kit-plate__bar--top" data-figure-chrome>
+        <slot name="top" />
+      </div>
+    )
+  }
+  <div
+    class="kit-plate__stage"
+    data-figure-stage
+    role={interactive ? 'group' : 'img'}
+    aria-label={label}
+    aria-labelledby={labelledby}
+    aria-describedby={describedby}
+    style={aspect ? `aspect-ratio: ${aspect}` : undefined}
+  >
+    <slot />
+  </div>
+  <figcaption
+    class="kit-plate__bar kit-plate__bar--bottom"
+    data-figure-chrome
+    aria-live={captionLive ? 'polite' : undefined}
+  >
+    <slot name="caption" />
+  </figcaption>
+</figure>
+
+<style is:global>
+  .kit-plate {
+    position: relative;
+    margin: 0;
+    min-width: 0;
+    border: 1px solid var(--color-line);
+    background-color: var(--color-plate);
+    background-image: radial-gradient(
+      circle at 1px 1px,
+      var(--color-grid-dot) 1px,
+      transparent 1.3px
+    );
+    background-size: 24px 24px;
+  }
+
+  /* Registration ticks at the four corners. */
+  .kit-plate::before {
+    --tick: var(--color-line-strong);
+
+    content: '';
+    position: absolute;
+    inset: -1px;
+    pointer-events: none;
+    background:
+      linear-gradient(var(--tick), var(--tick)) top left / 14px 1px no-repeat,
+      linear-gradient(var(--tick), var(--tick)) top left / 1px 14px no-repeat,
+      linear-gradient(var(--tick), var(--tick)) top right / 14px 1px no-repeat,
+      linear-gradient(var(--tick), var(--tick)) top right / 1px 14px no-repeat,
+      linear-gradient(var(--tick), var(--tick)) bottom left / 14px 1px no-repeat,
+      linear-gradient(var(--tick), var(--tick)) bottom left / 1px 14px no-repeat,
+      linear-gradient(var(--tick), var(--tick)) bottom right / 14px 1px
+        no-repeat,
+      linear-gradient(var(--tick), var(--tick)) bottom right / 1px 14px
+        no-repeat;
+  }
+
+  .kit-plate__bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem 1.25rem;
+    min-height: 3.2rem;
+    padding: 0.65rem 1.1rem;
+    color: var(--color-muted);
+    font-size: 0.86rem;
+    line-height: 1.45;
+  }
+
+  .kit-plate__bar--top {
+    border-bottom: 1px solid var(--color-deep-line);
+  }
+
+  .kit-plate__bar--bottom {
+    border-top: 1px solid var(--color-deep-line);
+    color: var(--color-text-soft);
+  }
+
+  .kit-plate__bar--bottom strong {
+    color: var(--color-starlight);
+    font-weight: 650;
+  }
+
+  .kit-plate__stage {
+    position: relative;
+    min-width: 0;
+    padding: clamp(0.75rem, 3vw, 2.2rem) clamp(0.75rem, 2.5vw, 2rem);
+  }
+
+  .kit-text-button {
+    min-height: 2.25rem;
+    margin: 0;
+    padding: 0.3rem 0.2rem;
+    border: 0;
+    background: none;
+    color: var(--color-ion);
+    font: inherit;
+    font-size: 0.86rem;
+    font-weight: 620;
+    cursor: pointer;
+  }
+
+  .kit-text-button:hover {
+    color: var(--color-starlight);
+  }
+
+  @media (forced-colors: active) {
+    .kit-plate::before {
+      display: none;
+    }
+  }
+</style>

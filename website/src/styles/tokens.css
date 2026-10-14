@@ -16,4 +16,43 @@
   --reading-width: 47.5rem;
   --space-page: clamp(1.2rem, 4vw, 3.5rem);
   --focus-ring: 0 0 0 3px rgb(112 230 255 / 35%);
+
+  /*
+   * Site redesign (#454, spec §2.1). Contrast is against void (orbit in brackets).
+   * Status colours (ion, aurora, genome, signal) mean status only and always come with a word;
+   * the figure data colours are the --enc-* tokens (EncodingStyle.astro), never UI chrome.
+   */
+  --color-plate: #06142a; /* mechanism plate ground, detail panels */
+  --color-plate-raised: #0a2140; /* sockets, readouts, selected segment */
+  --color-text-soft: #cfdcec; /* body and ledes, 14.5:1 [12.8] */
+  --color-faint: #7f93ae; /* footnotes, hints, axis labels; 13 px and up only, 6.4:1 [5.7] */
+  /* Plate ticks, sockets, control borders. */
+  --color-line-strong: rgb(112 230 255 / 42%);
+  /* The plate dot grid; never carries data. */
+  --color-grid-dot: rgb(165 185 211 / 10%);
+
+  /* Type scale (spec §2.3). Root is 112.5%, so 1rem is 18 px. */
+  --type-hero: clamp(2.6rem, 5.6vw, 5.4rem);
+  --type-h1: clamp(2.4rem, 5.2vw, 4.8rem);
+  --type-h2: clamp(1.95rem, 3.6vw, 3.1rem);
+  --type-h3: clamp(1.2rem, 1.6vw, 1.38rem);
+  --type-lede: clamp(1.12rem, 1.45vw, 1.3rem);
+  --type-body: 1.08rem;
+  --type-legend: 0.95rem;
+  --type-kicker: 0.9rem;
+  --type-tag: 0.8rem;
+
+  /* Layout (spec §2.4). */
+  --grid-gap: clamp(1rem, 2vw, 1.5rem);
+  --band-pad: clamp(4rem, 8.5vw, 7rem);
+  --head-gap: clamp(1.75rem, 3.5vw, 2.75rem);
+
+  /* Motion (spec §2.7). Reveals and draws ease on --ease-figure; turns and morphs on --ease-camera. */
+  --ease-ui: cubic-bezier(0.2, 0.75, 0.25, 1);
+  --ease-figure: cubic-bezier(0.2, 0.72, 0.2, 1);
+  --ease-camera: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 160ms;
+  --dur-ui: 240ms;
+  --dur-figure: 700ms;
+  --dur-stage: 1200ms;
 }

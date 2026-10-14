@@ -1,0 +1,45 @@
+---
+/**
+ * A figure's docked readout strip (site redesign spec §2.5, §8, #454). It sits under the stage,
+ * never over the data, and keeps a two-line minimum height so a changing readout never moves the
+ * page. It is a polite live region: figures write to it only for changes the visitor made, at
+ * most once per 400 ms (`createAnnouncer` in src/graphics/figure.ts).
+ */
+
+interface Props {
+  /** The resting text, shown until the visitor inspects something. */
+  idle?: string;
+  id?: string;
+  class?: string;
+}
+
+const { idle, id, class: className } = Astro.props;
+---
+
+<div
+  class:list={['kit-readout', className]}
+  id={id}
+  data-figure-chrome
+  data-readout
+  aria-live="polite"
+>
+  <slot>{idle}</slot>
+</div>
+
+<style is:global>
+  .kit-readout {
+    min-height: calc(2 * 1.45em + 1.3rem);
+    padding: 0.65rem 0.9rem;
+    border: 1px solid var(--color-deep-line);
+    background: var(--color-plate);
+    color: var(--color-text-soft);
+    font-size: var(--type-legend);
+    font-variant-numeric: lining-nums tabular-nums;
+    line-height: 1.45;
+  }
+
+  .kit-readout strong {
+    color: var(--color-starlight);
+    font-weight: 620;
+  }
+</style>

@@ -1,0 +1,11 @@
+---
+/**
+ * The Pipeline's island (site redesign spec §3.1, #454), in its own component so that only the
+ * interactive variant ships it: Astro renders a component's script only where the component
+ * renders, and the `links` variant never renders this one.
+ */
+---
+
+<script>
+  import './pipeline';
+</script>

@@ -1,0 +1,67 @@
+---
+/**
+ * Interface icons (site redesign spec §2.6, #454): one inline sprite per page, referenced by `<use>`.
+ *
+ *   <Icon sprite />               once per page
+ *   <Icon name="external" />      a 24 px line icon in currentColor
+ *
+ * Icons are decorative (aria-hidden); the link or button they sit in carries the name.
+ */
+import { ICON_PATHS, type IconName } from './icons';
+
+interface Props {
+  name?: IconName;
+  sprite?: boolean;
+  size?: number;
+  class?: string;
+}
+
+const { name, sprite = false, size = 24, class: className } = Astro.props;
+---
+
+{
+  sprite ? (
+    <svg class="kit-icon-sprite" aria-hidden="true" focusable="false">
+      {(Object.keys(ICON_PATHS) as IconName[]).map((icon) => (
+        <symbol id={`icon-${icon}`} viewBox="0 0 24 24">
+          <path
+            d={ICON_PATHS[icon]}
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </symbol>
+      ))}
+    </svg>
+  ) : (
+    name && (
+      <svg
+        class:list={['kit-icon', className]}
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <use href={`#icon-${name}`} />
+      </svg>
+    )
+  )
+}
+
+<style is:global>
+  .kit-icon-sprite {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+  }
+
+  .kit-icon {
+    display: inline-block;
+    flex: none;
+    vertical-align: middle;
+  }
+</style>

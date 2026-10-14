@@ -1,0 +1,66 @@
+---
+/**
+ * A figure legend (site redesign spec §2.3, §2.5, #454): the legend is the copy. An optional bold
+ * lead-in in starlight (Nature style), then glyph-and-word items. Glyphs are the figure's own
+ * marks (Glyph.astro), so a legend can never show a mark the figure does not draw.
+ */
+import Glyph from './Glyph.astro';
+import type { GlyphName } from './glyphs';
+
+interface Item {
+  glyph?: GlyphName;
+  label: string;
+}
+
+interface Props {
+  items: Item[];
+  lead?: string;
+  class?: string;
+}
+
+const { items, lead, class: className } = Astro.props;
+---
+
+<div class:list={['kit-legend', className]}>
+  {lead && <strong class="kit-legend__lead">{lead}</strong>}
+  <ul class="kit-legend__items">
+    {
+      items.map(({ glyph, label }) => (
+        <li>
+          {glyph && <Glyph name={glyph} />}
+          <span>{label}</span>
+        </li>
+      ))
+    }
+  </ul>
+</div>
+
+<style is:global>
+  .kit-legend {
+    color: var(--color-muted);
+    font-size: var(--type-legend);
+    line-height: 1.5;
+  }
+
+  .kit-legend__lead {
+    display: block;
+    margin-bottom: 0.35rem;
+    color: var(--color-starlight);
+    font-weight: 620;
+  }
+
+  .kit-legend__items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem 1.35rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .kit-legend__items li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+</style>
