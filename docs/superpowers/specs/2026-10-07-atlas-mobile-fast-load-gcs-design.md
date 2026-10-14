@@ -216,6 +216,41 @@ phones under 34rem tall use the same sheets with `peek` reduced to the handle ro
     flex layout (−1 px explorer height) and the empty top slot. Desktop axe, keyboard and existing
     tests keep passing.
 
+    (Amended 2026-10-13 under #452, whose design the owner approved: one more desktop delta. The
+    controls panel floats over the left of the full-width canvas, so the globe is drawn centred in
+    the open area to its right. The camera's frustum shifts its projection centre right by half the
+    canvas width the panel covers, measured as the panel's right edge minus the canvas's left edge;
+    the camera itself does not move, so the URL view, fly-to, zoom, the keyboard controls and every
+    pick keep their meaning. The shift is 0 while the panel is hidden and in the phone layout, where
+    the panel is a bottom sheet, and it follows any resize of the panel or the canvas. Only the
+    persistent controls panel counts; the inspector and the other transient panels do not move the
+    globe, so at 1280 px an open inspector (from about 844 px) covers the globe's centre (874 px),
+    which it clears above about 1,340 px. The flat map (2D) keeps Cesium's centred orthographic
+    frustum. The island measures the panel (`useGlobeOffset`) and passes the covered width through
+    `AtlasSceneController.setLeftObstruction`, first when a scene is bound, before its first frame,
+    so the globe never starts at the canvas centre; the scene never reads the explorer's DOM. Cesium
+    1.145 does not carry `PerspectiveFrustum.xOffset` through a frame, and `scene/globe-offset.ts`
+    closes each gap it leaves: a frustum subclass keeps the shift a fixed fraction of its width at
+    every near plane Scene renders with and through the clones Scene and picking make
+    (`PerspectiveFrustum.clone` drops `xOffset`); `Camera.getPickRay` is cast through the point
+    drawn under the pointer; pick passes cull to the sub-frustum behind their own scissor rectangle
+    instead of a volume centred as if unshifted; the globe's per-fragment ground atmosphere rebuilds
+    its view ray from the frustum planes instead of assuming a centred frustum (unpatched, it
+    painted the far limb white); and `ScreenSpaceCameraController`, which takes the canvas centre
+    for the view axis (its zoom to the cursor above 1,000 km drifted the ground under the cursor 25
+    to 45 px per wheel notch towards the panel), runs each update in the frame of a centred view, so
+    zoom, drag, tilt and its pivots behave exactly as on a centred globe (§B.7 "camera pivot
+    behaviour" holds relative to the drawn globe). Reveal ordering starts from the centre of the
+    open area. Rejected: starting the canvas to the right of the panel, which loses the full-bleed
+    starfield behind the translucent panel and moves the credits and the legend; and turning the
+    camera, which moves the map's content rather than the globe. Tests: unit tests for the offset
+    arithmetic (visible, hidden, phone, resize) and for each Cesium gap against real Cesium objects;
+    Playwright measures the globe's disc on desktop (centred in the open area, back at the canvas
+    centre with the panel hidden, following a resize) and on phones (unchanged), opens the inspector
+    on the known cell under the camera by hovering and clicking where it is drawn (from 1,000 km,
+    and from 8,000 km flat and elevated, where a pick culled as if unshifted misses the fixture's
+    cells), and wheel-zooms there without the cell leaving the cursor.)
+
 ### A.2 Code organisation
 
 `AtlasExplorer.tsx` (755 logical lines) does not grow: the sheet state machine, drag handling,
