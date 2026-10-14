@@ -46,6 +46,8 @@ export interface FlatCellBuffers {
   positions: Float64Array;
   normals: Float32Array;
   st: Float32Array;
+  /** ECEF centre of each vertex's cell at the clearance. */
+  cellCentres: Float32Array;
   indices: Uint16Array | Uint32Array;
   boundingSphere: BoundingSphere;
 }
@@ -63,12 +65,15 @@ export interface SupportChunkBuffers {
 interface Part {
   points: [number, number][];
   fanCentre: [number, number] | null;
+  /** The whole cell's centre, `[lon, lat]`. */
+  cellCentre: [number, number];
 }
 
 function partsForRow(input: MeshInput, row: number): Part[] {
   const cell = cellLanes(input.grid, row);
   const [centreLat, centreLon] = cellToLatLng(cell);
   return h3PolygonParts(cell).map((points) => ({
+    cellCentre: [centreLon, centreLat],
     fanCentre: points.length === 3 ? null : [centreLon, centreLat],
     points,
   }));
@@ -137,10 +142,18 @@ export function flatCellBuffers(
   const positions = new Float64Array(vertexCount * 3);
   const normals = new Float32Array(vertexCount * 3);
   const st = new Float32Array(vertexCount * 2);
+  const cellCentres = new Float32Array(vertexCount * 3);
   const indices = new Array<number>(indexCount);
+  const centre = new Float64Array(3);
   let vertex = 0;
   let next = 0;
   for (const part of parts) {
+    geodeticToEcef(
+      part.cellCentre[0],
+      part.cellCentre[1],
+      SURFACE_CLEARANCE_METRES,
+      centre,
+    );
     const corners = part.fanCentre
       ? [part.fanCentre, ...part.points]
       : part.points;
@@ -167,6 +180,7 @@ export function flatCellBuffers(
       const [e, n] = plane[index];
       st[vertex * 2] = Math.min(1, Math.max(0, (e - minE) / (maxE - minE)));
       st[vertex * 2 + 1] = Math.min(1, Math.max(0, (n - minN) / (maxN - minN)));
+      cellCentres.set(centre, vertex * 3);
       vertex += 1;
     });
     if (!part.fanCentre) {
@@ -184,6 +198,7 @@ export function flatCellBuffers(
   }
   return {
     boundingSphere: boundingSphereOf([positions]),
+    cellCentres,
     indices: indexArrayFor(vertexCount, indices),
     normals,
     positions,

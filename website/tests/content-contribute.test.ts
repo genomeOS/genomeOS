@@ -67,6 +67,38 @@ describe('contribute page content', () => {
     expect(main.match(/Group forming/g)).toHaveLength(3);
   });
 
+  // Design review, round 2: the lanes and the cards named the same groups two ways, in two cases,
+  // and the section the Working groups links land on never said "Working groups".
+  it('names its section, and names each lane as its card does', () => {
+    const section = main.match(
+      /<section[^>]*id="working-groups"[\s\S]*?<\/section>/,
+    )![0];
+    expect(section).toMatch(
+      /<p class="section-kicker[^"]*">\s*Working groups\s*<\/p>\s*<h2\b[^>]*>\s*Three groups are forming\./,
+    );
+    const titles = Object.fromEntries(
+      [
+        ...section.matchAll(
+          /<article[^>]*id="group-(\w+)"[\s\S]*?<\/article>/g,
+        ),
+      ].map(([card, lane]) => [
+        lane,
+        textOf(card.match(/<h3\b[\s\S]*?<\/h3>/)![0]),
+      ]),
+    );
+    expect(Object.keys(titles)).toEqual(['data', 'modeling', 'ui']);
+    const names = [
+      ...section.matchAll(
+        /<g class="wg-lane" data-lane="(\w+)">[\s\S]*?<text class="wg-lane__name"[^>]*>([\s\S]*?)<\/text>/g,
+      ),
+    ].map(([, lane, name]) => [lane, textOf(name)] as const);
+    // Both layouts: the wide two-line names and the phone's one-word brackets.
+    expect(names.length).toBeGreaterThanOrEqual(6);
+    for (const [lane, name] of names)
+      for (const word of name.split(' '))
+        expect(titles[lane].split(' '), `${lane}: ${name}`).toContain(word);
+  });
+
   it('keeps every group scope line to 25 words or fewer', () => {
     const scopes = [
       ...main.matchAll(/<p class="wg-card__scope"[^>]*>([\s\S]*?)<\/p>/g),
@@ -108,10 +140,29 @@ describe('contribute page content', () => {
     expect(panels!.match(/<li\b/g)).toHaveLength(5);
     expect(panels).not.toMatch(/\shidden(?:=|\s|>)/);
     expect(textOf(panels!)).toMatch(
-      /Discussion #76[\s\S]*mention the original issue author[\s\S]*Ready means[\s\S]*wants-expert-review[\s\S]*needs-human-decision[\s\S]*pull request/,
+      /Discussion #76[\s\S]*mention the original issue author[\s\S]*Filter Ready work[\s\S]*wants-expert-review[\s\S]*needs-human-decision[\s\S]*pull request/,
     );
     expect(main).toMatch(/class="wb"[^>]*data-step="3"/);
     expect(main).toMatch(/<div[^>]*role="tablist"[^>]*hidden/);
+  });
+
+  // Design review, round 3: step 3's panel said the board's Ready definition a second time. The
+  // definition line under the board says it once; the panel adds only the filters, with "Ready"
+  // (a pinned term) as its link to the board.
+  it('says what Ready means once, and links Ready to the board from step 3', () => {
+    const panel = main.match(
+      /<div class="wb-panel" id="wb-panel-3"[\s\S]*?<\/div>/,
+    )?.[0];
+    expect(panel).toBeDefined();
+    expect(textOf(panel!)).toBe(
+      'Filter Ready work by skill, type and priority labels.',
+    );
+    expect(panel).toMatch(
+      /<a href="https:\/\/github\.com\/orgs\/genomeOS\/projects\/1"[^>]*>Ready<\/a>/,
+    );
+    expect(textOf(main).match(/fully specified and unblocked/g)).toHaveLength(
+      1,
+    );
   });
 
   it('retires the community image, the old flow and its detail articles', () => {

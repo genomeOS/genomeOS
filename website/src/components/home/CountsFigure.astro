@@ -8,10 +8,12 @@
  *
  * The intervals are computed here, at build time (jeffreys.ts), and shipped as a table: nothing is
  * fitted in the browser. Server-rendered at the default stop (20), the final state, so the figure
- * is complete without JavaScript; counts.ts adds the slider and the entrance. Row B's room for
- * 2,000 alleles is a ghost grid (faint outlines: alleles not yet tested) that the tested squares
- * fill as the slider moves, so at rest the figure shows sample size, not an empty box. Each row
- * stacks its label, grid and bar across the figure's full width, both bars on one 0–25% axis.
+ * is complete without JavaScript; counts.ts adds the slider and the entrance. Tested alleles are
+ * solid squares at 3:1 or more on the band (carriers starlight, the rest TESTED_FILL); row B's room
+ * for 2,000 alleles is a faint dot per allele not yet tested, which the tested squares cover as the
+ * slider moves, so at rest the figure shows sample size and the tested block visibly grows (design
+ * review, round 2). Each row stacks its label, grid and bar across the figure's full width, both
+ * bars on one 0–25% axis.
  */
 import Figure from '../kit/Figure.astro';
 import StatusTag from '../kit/StatusTag.astro';
@@ -20,7 +22,9 @@ import {
   GRID,
   ROW_A,
   ROW_B_MAX,
+  TESTED_FILL,
   buildCountsTable,
+  ghostDot,
   gridHeight,
   gridRects,
   onAxis,
@@ -48,7 +52,7 @@ const layouts = Object.keys(GRID) as Layout[];
 
 /**
  * One grid: `n` tested squares, the first `ac` lit. Row B reserves room for the largest stop and
- * draws it as a ghost grid of the alleles not yet tested, under the tested ones.
+ * draws it as a dot per allele not yet tested, under the tested squares.
  */
 const grid = (row: 'a' | 'b', layout: Layout, n: number, ac: number) => {
   const { columns, pitch, size } = GRID[layout];
@@ -59,7 +63,8 @@ const grid = (row: 'a' | 'b', layout: Layout, n: number, ac: number) => {
   // Carriers are drawn over the first squares, so non-carriers fill the rest.
   const on = gridRects(ac, columns, pitch);
   const id = `cf-${layout}-${row}`;
-  return { row, layout, columns, pitch, size, width, height, off, on, id };
+  const dot = ghostDot(pitch);
+  return { row, layout, columns, pitch, size, dot, width, height, off, on, id };
 };
 const grids = {
   a: layouts.map((layout) => grid('a', layout, ROW_A.an, ROW_A.ac)),
@@ -107,6 +112,7 @@ const aOrigin = ((table.a.mean - table.a.lo) / (table.a.hi - table.a.lo)) * 100;
                 data-grid={row}
                 data-columns={g.columns}
                 data-pitch={g.pitch}
+                data-size={g.size}
                 width={g.width}
                 height={g.height}
                 viewBox={`0 0 ${g.width} ${g.height}`}
@@ -121,11 +127,9 @@ const aOrigin = ((table.a.mean - table.a.lo) / (table.a.hi - table.a.lo)) * 100;
                     patternUnits="userSpaceOnUse"
                   >
                     <rect
-                      x="0.25"
-                      y="0.25"
-                      width={g.size - 0.5}
-                      height={g.size - 0.5}
-                      style="fill: var(--enc-land); stroke: rgb(165 185 211 / 48%); stroke-width: 0.5"
+                      width={g.size}
+                      height={g.size}
+                      style={`fill: ${TESTED_FILL}`}
                     />
                   </pattern>
                   <pattern
@@ -147,12 +151,11 @@ const aOrigin = ((table.a.mean - table.a.lo) / (table.a.hi - table.a.lo)) * 100;
                       height={g.pitch}
                       patternUnits="userSpaceOnUse"
                     >
-                      <rect
-                        x="0.25"
-                        y="0.25"
-                        width={g.size - 0.5}
-                        height={g.size - 0.5}
-                        style="fill: none; stroke: rgb(165 185 211 / 14%); stroke-width: 0.5"
+                      <circle
+                        cx={g.size / 2}
+                        cy={g.size / 2}
+                        r={g.dot}
+                        style="fill: rgb(165 185 211 / 34%)"
                       />
                     </pattern>
                   )}

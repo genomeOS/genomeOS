@@ -150,10 +150,36 @@
   margin-top: 1.5rem;
 }
 
-/* Too narrow for both on one line: two equal, full-width buttons rather than a ragged pair. */
+/* A phone (design review, round 2): the page is visual-first, so the text above the globe is kept
+   tight. The two calls to action share one row of equal halves wherever each label fits in 9rem
+   (from about a 375 px screen), and stack as two equal, full-width buttons below that, never as a
+   ragged pair; the gaps from the H1 to the lede, the lede to the buttons and the buttons to the
+   figure are tightened. At 390 × 844 most of the disc shows in the first view. */
 @media (max-width: 26rem) {
+  .home-hero__grid {
+    row-gap: 1.2rem;
+  }
+
+  .home-hero__actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    margin-top: 1rem;
+  }
+
   .home-hero__actions .button-link {
-    flex: 1 1 100%;
+    padding-inline: 0.6rem;
+    white-space: nowrap;
+  }
+}
+
+/* A tablet in portrait (design review, round 3): the stacked figure fills the lower part of the
+   first view, so its lower-right corner (a callout, the readout) landed in the bottom-right 4.5rem
+   the cookie control owns (spec §2.4) at 768 × 1024 and 820 × 1180. Here the figure ends 4.5rem
+   from the screen's edge, so no part of it ever passes under the control. From 45em the narrower
+   figure still holds its wide form (a 33rem container) and its row of steps (about 600 px). */
+@media (min-width: 45em) and (max-width: 63.999rem) {
+  .home-hero__figure {
+    max-width: min(46rem, 100% - (4.5rem - var(--space-page)));
   }
 }
 
@@ -165,6 +191,23 @@
     grid-template-areas: 'head body' 'figure figure';
     align-items: end;
     column-gap: var(--grid-gap);
+  }
+}
+
+/* Up to the split, the figure's toolbar spans the text's row, and the globe and what follows it
+   are centred under it at their 46rem, instead of leaving an empty strip at the right (design
+   review, round 3). Centred, the stage, readout and legend also end clear of the cookie control's
+   4.5rem. */
+@media (min-width: 64rem) and (max-width: 71.999rem) {
+  .home-hero__figure {
+    max-width: none;
+  }
+
+  /* The steps already centre themselves on the stage's bottom band. */
+  .hg > :not(.kit-figure__toolbar, .hg-steps) {
+    width: 100%;
+    max-width: 46rem;
+    justify-self: center;
   }
 }
 
@@ -944,8 +987,9 @@
   font-variant-numeric: lining-nums tabular-nums;
 }
 
-/* Wide: the same stacked rows, in larger grids of a hundred alleles per row, each grid and bar
-   spanning the figure (spec §4.1 H2; design review, round 1). */
+/* Wide: the same stacked rows, in larger grids of eighty alleles per row (about 9 px squares at
+   1440 px, so one allele reads as one square), each grid and bar spanning the figure (spec §4.1 H2;
+   design review, rounds 1 and 2). */
 @container cf (min-width: 36rem) {
   .cf-grid--wide {
     display: block;
@@ -967,7 +1011,7 @@
   }
 
   .cf[data-figure-state='playing'] [data-row='a'] .cf-grid {
-    animation: home-unroll 600ms steps(5, end) both;
+    animation: home-unroll 600ms steps(6, end) both;
   }
 
   .cf[data-figure-state='playing'] [data-row='a'] .cf-grid__on {
@@ -1210,10 +1254,12 @@
   transform: translateY(-2px);
 }
 
+/* At least the spec's 96 × 64 (design review, round 3): the 84 × 48 band at 4.5rem tall (141.75 ×
+   81 px), so each drawing reads at about 128 × 80 and the title starts a spacing step below it. */
 .application-card .ag {
-  width: 96px;
-  height: 64px;
-  margin-bottom: 0.35rem;
+  width: 7.875rem;
+  height: 4.5rem;
+  margin-bottom: 0.45rem;
   overflow: visible;
 }
 
@@ -1333,8 +1379,9 @@
   }
 
   .application-card:hover .ag-range {
-    transform-box: view-box;
-    transform-origin: 63px 32px;
+    /* The bar grows from its tick (x 63 of the bar's 52–78), whatever the glyph's viewBox. */
+    transform-box: fill-box;
+    transform-origin: 42.3077% 50%;
     animation: home-grow 700ms var(--ease-figure) both;
   }
 
@@ -1410,91 +1457,54 @@
 
 /* --------------------------------------------------------------------------- vision strip */
 
+/* Project's scale frames at teaser scale (VisionStrip.astro; the art is styles/scale-frames.css):
+   a row of four from a 600 px stage, a 2 × 2 "U" below that. */
 .vs {
-  --art: clamp(6.5rem, 10.5vw, 8.5rem);
-
+  container: vs / inline-size;
   margin: 0;
 }
 
-.vs-stage {
-  display: flex;
-  align-items: flex-start;
-  max-width: 62rem;
+.vs-toolbar {
+  margin-bottom: 0.9rem;
 }
 
-.vs-frame {
-  flex: none;
-  width: var(--art);
-  display: grid;
-  justify-items: center;
-  gap: 0.65rem;
-}
-
-.vs-frame__art {
-  position: relative;
+.vs-svg {
+  display: block;
   width: 100%;
-  aspect-ratio: 1;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--color-line-strong);
-  color: var(--color-starlight);
-}
-
-.vs-frame__art::before {
-  content: '';
-  position: absolute;
-  top: 0.55rem;
-  left: 0.55rem;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  background: var(--color-ion);
-}
-
-.vs-frame[data-status='future'] .vs-frame__art {
-  border: 1.5px dashed var(--color-genome);
-  color: var(--color-genome);
-}
-
-.vs-frame[data-status='future'] .vs-frame__art::before {
-  border: 1.5px dashed var(--color-genome);
-  background: none;
-}
-
-/* The region of this frame that the next one opens. */
-.vs-frame__focus {
-  position: absolute;
-  top: 42%;
-  right: -1px;
-  width: 16%;
-  height: 16%;
-  border: 1px solid currentColor;
-  opacity: 0.8;
-}
-
-.vs-frame__label {
-  color: var(--color-text-soft);
-  font-size: 0.95rem;
-  font-weight: 600;
-  text-align: center;
-}
-
-.vs-wedge {
-  flex: 1 1 0;
-  min-width: 1.25rem;
-  height: var(--art);
+  height: auto;
   overflow: visible;
+  font-family: var(--font-body);
 }
 
-.vs-wedge path {
+.vs-svg--row {
+  display: none;
+  max-width: 760px;
+}
+
+.vs-svg--grid {
+  max-width: 26rem;
+}
+
+@container vs (min-width: 600px) {
+  .vs-svg--row {
+    display: block;
+  }
+
+  .vs-svg--grid {
+    display: none;
+  }
+}
+
+/* Each frame's status, as in the legend: an ion dot, or a dashed violet ring for future work. */
+.vs-dot {
+  fill: var(--color-ion);
+}
+
+.vs-dot[data-status='future'] {
   fill: none;
-  stroke: rgb(112 230 255 / 45%);
-  stroke-width: 1;
-}
-
-.vs-wedge[data-status='future'] path {
   stroke: var(--color-genome);
-  stroke-dasharray: 3 3;
+  stroke-dasharray: 2 2;
+  stroke-width: 1.5;
 }
 
 .vs-legend {
@@ -1550,28 +1560,6 @@
   }
 }
 
-@media (max-width: 40rem) {
-  .vs-stage {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1.25rem 1rem;
-  }
-
-  /* The 2×2 grid has no zoom wedges, so no frame marks a region for one. */
-  .vs-wedge,
-  .vs-frame__focus {
-    display: none;
-  }
-
-  .vs-frame {
-    width: auto;
-  }
-
-  .vs-frame__art {
-    max-width: 9rem;
-  }
-}
-
 @media screen {
   .vs[data-figure-state='armed'] :is(.vs-frame, .vs-wedge) {
     opacity: 0;
@@ -1584,26 +1572,50 @@
 
 /* --------------------------------------------------------------------- built in the open */
 
-/* The band sits on its calls to action's columns (design review, round 1): two from 52rem (text
-   over the first card, the field over the second), four from 64rem (text over the first two, the
-   field across the last two), the cards a subgrid of the same tracks, so the field ends where the
-   last card ends. */
+/* The band sits on its calls to action's columns (design review, rounds 1 and 2): one column on a
+   phone; from 52rem two tracks (the text over the first card, the field over the second) with the
+   cards 2 × 2 on the same tracks; four tracks only from 80rem, where four cards fit in a row (the
+   text over the first three, the field over the last). The field is small and ends where the last
+   card ends. */
 .home-open__grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   column-gap: var(--grid-gap);
   row-gap: var(--head-gap);
   align-items: center;
 }
 
-@media (min-width: 64rem) {
+.home-open__figure {
+  justify-self: end;
+  width: 100%;
+  max-width: 20rem;
+}
+
+@media (max-width: 51.99rem) {
+  .home-open__figure {
+    justify-self: start;
+  }
+}
+
+@media (min-width: 52rem) {
+  .home-open__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* Two classes: the shared .link-row rules load after this file. */
+  .home-open__grid > .home-open__routes {
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+  }
+}
+
+@media (min-width: 80rem) {
   .home-open__grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
-  .home-open__text,
-  .home-open__figure {
-    grid-column: span 2;
+  .home-open__text {
+    grid-column: span 3;
   }
 }
 
@@ -1614,16 +1626,16 @@
   line-height: 1.5;
 }
 
-.home-open__routes {
-  grid-column: 1 / -1;
-  grid-template-columns: subgrid;
-}
-
 .of {
   margin: 0;
 }
 
+.of-toolbar {
+  margin-bottom: 0.75rem;
+}
+
 .of-stage svg {
+  display: block;
   width: 100%;
   height: auto;
 }
@@ -1654,24 +1666,9 @@
   align-items: center;
   gap: 0.5rem;
   margin-top: 0.75rem;
-  color: var(--color-muted);
+  color: var(--color-text-soft);
   font-size: var(--type-legend);
-}
-
-@media (max-width: 52rem) {
-  .home-open__grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  /* One column: the cards keep the link row's own two-up layout where it fits, and the field
-     keeps a modest size. */
-  .home-open__routes {
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
-  }
-
-  .of-stage svg {
-    max-width: 34rem;
-  }
+  font-weight: 600;
 }
 
 /* --------------------------------------------------------------------------- shared motion */

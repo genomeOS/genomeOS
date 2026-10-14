@@ -292,6 +292,36 @@ describe('support (mask) buffers (fast-load §B.6.5)', () => {
     }
   });
 
+  it('gives every vertex of a masked cell its cell centre, pole-enclosing parts included (#453)', () => {
+    const cells = [...DISK, SOUTH_POLE_CELL];
+    const input = meshInputFor(
+      sortedU64(cells).map((h3) => ({
+        h3,
+        support: 'unknown' as const,
+        value: 0.2,
+      })),
+    );
+    const buffers = flatCellBuffers(input, [...wholeGridChunk(input).rows]);
+    expect(buffers.cellCentres).toBeInstanceOf(Float32Array);
+    expect(buffers.cellCentres).toHaveLength(buffers.positions.length);
+    let vertex = 0;
+    for (const h3 of sortedU64(cells)) {
+      const [lat, lon] = cellToLatLng(h3);
+      const centre = Cartesian3.fromDegrees(lon, lat, 650);
+      const count = h3PolygonParts(h3).reduce(
+        (total, points) =>
+          total + points.length + (points.length === 3 ? 0 : 1),
+        0,
+      );
+      for (let index = 0; index < count; index += 1, vertex += 1)
+        expect(
+          Array.from(buffers.cellCentres.subarray(vertex * 3, vertex * 3 + 3)),
+          `${h3} vertex ${index}`,
+        ).toEqual([centre.x, centre.y, centre.z].map(Math.fround));
+    }
+    expect(vertex * 3).toBe(buffers.cellCentres.length);
+  });
+
   it('keeps the legacy fan split for pole-enclosing cells', () => {
     const input = meshInputFor([
       { h3: SOUTH_POLE_CELL, support: 'unknown', value: 0.2 },

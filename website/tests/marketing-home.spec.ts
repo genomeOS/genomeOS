@@ -357,6 +357,58 @@ test('application cards reveal on scroll and respond to hover @desktop-chromium'
   expect(hoverTransform).not.toBe(restingTransform);
 });
 
+// Design review, round 3: the glyphs' drawings filled about 60% of their 96 × 64 box, each at its
+// own place in it. They are now drawn at one scale, at least 96 × 64 and about 128 × 80 a glyph,
+// each drawing on its card's text edge, with the title a spacing step under the glyph.
+test('the application glyphs read at card scale, on each card’s text edge', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const first = page.locator('.application-card').first();
+  await first.scrollIntoViewIfNeeded();
+  await expect(first).toHaveClass(/is-visible/);
+  const cards = await page.locator('.application-card').evaluateAll((list) =>
+    list.map((card) => {
+      const svg = card.querySelector<SVGSVGElement>('svg.ag')!;
+      const title = card.querySelector('h3')!.getBoundingClientRect();
+      const glyph = svg.getBoundingClientRect();
+      let left = Infinity;
+      let top = Infinity;
+      let bottom = -Infinity;
+      for (const mark of svg.querySelectorAll<SVGGraphicsElement>(
+        'path, circle, ellipse, rect, line',
+      )) {
+        if (mark.closest('defs, pattern, clipPath')) continue;
+        const rect = mark.getBoundingClientRect();
+        left = Math.min(left, rect.left);
+        top = Math.min(top, rect.top);
+        bottom = Math.max(bottom, rect.bottom);
+      }
+      return {
+        width: glyph.width,
+        height: glyph.height,
+        scale: svg.getScreenCTM()!.a,
+        markLeft: left - title.left,
+        markTop: top - glyph.top,
+        markBottom: glyph.bottom - bottom,
+        titleGap: title.top - glyph.bottom,
+      };
+    }),
+  );
+  expect(cards).toHaveLength(6);
+  for (const [index, card] of cards.entries()) {
+    const at = `glyph ${index + 1}`;
+    expect(card.width, at).toBeGreaterThanOrEqual(120);
+    expect(card.height, at).toBeGreaterThanOrEqual(80);
+    expect(card.scale, at).toBeCloseTo(cards[0]!.scale, 3);
+    // The drawing starts on the text edge (its stroke may sit a pixel either side).
+    expect(Math.abs(card.markLeft), at).toBeLessThan(2);
+    expect(card.markTop, at).toBeGreaterThanOrEqual(-0.5);
+    expect(card.markBottom, at).toBeGreaterThanOrEqual(-0.5);
+    expect(card.titleGap, at).toBeGreaterThanOrEqual(8);
+  }
+});
+
 test('the hero stage opens in the first phone viewport @mobile-chromium', async ({
   page,
 }) => {
@@ -512,6 +564,104 @@ test('the hero shows its calls to action in the first view on laptops @desktop-c
   }
 });
 
+// Design review, round 3: on a tablet in portrait the stacked figure's lower-right corner landed in
+// the bottom-right 4.5rem the cookie control owns (spec §2.4): the Modeled callout at 768 × 1024,
+// the readout at 820 × 1180. The figure now ends 4.5rem from the screen's edge there.
+test('on a tablet no part of the hero at rest reaches the cookie control’s corner @desktop-chromium', async ({
+  page,
+}) => {
+  for (const [width, height] of [
+    [768, 1024],
+    [810, 1080],
+    [820, 1180],
+    [834, 1194],
+    [912, 1368],
+    [1024, 1200],
+    [1024, 1366],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await page.goto('/');
+    await liveHero(page);
+    const inCorner = await hero(page).evaluate((figure) => {
+      const zone =
+        parseFloat(getComputedStyle(document.documentElement).fontSize) * 4.5;
+      const left = innerWidth - zone;
+      const top = innerHeight - zone;
+      return [
+        ...figure.querySelectorAll(
+          '[data-figure-chrome], .kit-readout, .hg-callout, button',
+        ),
+      ]
+        .filter((element) =>
+          element.checkVisibility({
+            opacityProperty: true,
+            visibilityProperty: true,
+          }),
+        )
+        .filter((element) =>
+          [...element.getClientRects()].some(
+            (rect) =>
+              rect.width > 0 &&
+              rect.right > left &&
+              rect.bottom > top &&
+              rect.top < innerHeight,
+          ),
+        )
+        .map((element) => element.getAttribute('class'));
+    });
+    expect(inCorner, `${width}×${height}`).toEqual([]);
+  }
+});
+
+// Design review, round 3: from 1024 px to the split the figure stopped at its 46rem, 114 px short
+// of the text's row. Its toolbar now spans the row, and the globe, readout and legend are centred
+// under it at their 46rem.
+test('from 1024 px to the split the hero’s toolbar spans the text row, the globe centred under it @desktop-chromium', async ({
+  page,
+}) => {
+  for (const width of [1024, 1100, 1151]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    const geometry = await page.evaluate(() => {
+      const box = (selector: string) =>
+        document.querySelector(selector)!.getBoundingClientRect().toJSON() as {
+          left: number;
+          right: number;
+          width: number;
+        };
+      return {
+        row: box('.home-hero__grid'),
+        toolbar: box('#hero-globe .kit-figure__toolbar'),
+        stage: box('#hero-globe [data-figure-stage]'),
+        readout: box('#hero-globe .hg-readout'),
+        legend: box('#hero-globe .kit-figure__legend'),
+        rem: parseFloat(getComputedStyle(document.documentElement).fontSize),
+      };
+    });
+    const { row, toolbar, stage, readout, legend, rem } = geometry;
+    const at = `${width} px`;
+    expect(Math.abs(toolbar.left - row.left), at).toBeLessThan(1);
+    expect(Math.abs(toolbar.right - row.right), at).toBeLessThan(1);
+    expect(stage.width, at).toBeLessThanOrEqual(46 * rem + 0.5);
+    expect(
+      Math.abs((stage.left + stage.right) / 2 - (row.left + row.right) / 2),
+      at,
+    ).toBeLessThan(1);
+    for (const [name, part] of [
+      ['readout', readout],
+      ['legend', legend],
+    ] as const) {
+      expect(Math.abs(part.left - stage.left), `${name} at ${at}`).toBeLessThan(
+        1,
+      );
+      expect(
+        Math.abs(part.right - stage.right),
+        `${name} at ${at}`,
+      ).toBeLessThan(1);
+    }
+  }
+});
+
 test('on a phone the layer row spans the figure and Reset view never moves the globe @mobile-chromium', async ({
   page,
 }) => {
@@ -586,13 +736,20 @@ test('at 320 px the layer segments stay inside their row @mobile-chromium', asyn
   }
 });
 
-test('on a phone the hero’s calls to action are two equal, full-width buttons @mobile-chromium', async ({
+// Design review, round 2: where both fit (a 390 px phone) the two calls to action share one row of
+// equal halves, so the globe gets the room; where they do not (320 px) they stack full width.
+test('on a phone the hero’s calls to action are two equal buttons, side by side where they fit @mobile-chromium', async ({
   page,
 }) => {
-  for (const width of [320, 390]) {
+  for (const [width, sideBySide] of [
+    [320, false],
+    [390, true],
+    [412, true],
+  ] as const) {
     await page.setViewportSize({ width, height: 844 });
     await page.goto('/');
     const lede = (await page.locator('.home-hero__lede').boundingBox())!;
+    const row = (await page.locator('.home-hero__actions').boundingBox())!;
     const [first, second] = await Promise.all(
       [0, 1].map(
         async (index) =>
@@ -604,8 +761,32 @@ test('on a phone the hero’s calls to action are two equal, full-width buttons 
     );
     expect(Math.abs(first.width - second.width), `${width}`).toBeLessThan(1);
     expect(first.x, `${width}`).toBeCloseTo(lede.x, 0);
-    expect(second.y, `${width}`).toBeGreaterThan(first.y + first.height - 1);
+    if (sideBySide) {
+      expect(second.y, `${width}`).toBeCloseTo(first.y, 0);
+      expect(second.x + second.width, `${width}`).toBeCloseTo(
+        row.x + row.width,
+        0,
+      );
+    } else {
+      expect(second.y, `${width}`).toBeGreaterThan(first.y + first.height - 1);
+      expect(first.width, `${width}`).toBeCloseTo(row.width, 0);
+    }
+    // Labels never wrap inside a button.
+    for (const box of [first, second])
+      expect(box.height, `${width}`).toBeLessThan(70);
   }
+});
+
+// Design review, round 2: on a 390 × 844 phone only 40% of the disc showed in the first view, under
+// text and stacked controls. The page is visual-first: at least 60% of it shows.
+test('on a 390 × 844 phone most of the globe is in the first view @mobile-chromium', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const globe = (await hero(page).locator('.hg-globe').boundingBox())!;
+  const shown = Math.min(844, globe.y + globe.height) - globe.y;
+  expect(shown / globe.height).toBeGreaterThanOrEqual(0.6);
 });
 
 test('on a phone the counts axis heads the bar it scales @mobile-chromium', async ({
@@ -639,9 +820,72 @@ test('on a phone the vision teaser reads heading, figure, then its link @mobile-
     ),
   );
   expect([...order].sort((a, b) => a - b)).toEqual(order);
-  // The 2×2 grid has no zoom wedges, so no frame marks a region for one.
-  for (const focus of await vision.locator('.vs-frame__focus').all())
-    await expect(focus).toBeHidden();
+});
+
+// Design review, round 2: each zoom square sits on the content it magnifies, inside its frame, and
+// its wedge opens from it to the next frame, as on Project's ladder; at every width.
+test('the vision teaser’s zoom squares sit on what they magnify, and its wedges open from them', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const figure = page.locator('figure[data-graphic="vision"]');
+  await figure.scrollIntoViewIfNeeded();
+  await expect(figure).toHaveAttribute('data-figure-state', 'rest');
+  const frames = await figure.evaluate((element) => {
+    const svg = [...element.querySelectorAll('svg.vs-svg')].find((candidate) =>
+      candidate.checkVisibility(),
+    )!;
+    const box = (node: Element | null) =>
+      node ? node.getBoundingClientRect().toJSON() : null;
+    // Where each wedge line starts, on screen.
+    const starts = (index: number) =>
+      [
+        ...svg.querySelectorAll<SVGLineElement>(
+          `[data-wedge="${index + 1}"] line`,
+        ),
+      ].map((line) => {
+        const point = new DOMPoint(
+          line.x1.baseVal.value,
+          line.y1.baseVal.value,
+        ).matrixTransform(line.getScreenCTM()!);
+        return [point.x, point.y];
+      });
+    return [...svg.querySelectorAll('[data-frame]')].map((frame, index) => ({
+      border: box(frame.querySelector('.ladder__border')),
+      zoom: box(frame.querySelector('.ladder__zoom')),
+      starts: starts(index),
+    }));
+  });
+  expect(frames).toHaveLength(4);
+  for (const [index, { border, zoom, starts }] of frames
+    .slice(0, 3)
+    .entries()) {
+    expect(zoom, `frame ${index + 1}`).not.toBeNull();
+    const centre =
+      (zoom!.left + zoom!.width / 2 - border!.left) / border!.width;
+    // On the content, not on the frame's edge.
+    expect(centre, `frame ${index + 1} zoom`).toBeGreaterThan(0.15);
+    expect(centre, `frame ${index + 1} zoom`).toBeLessThan(0.85);
+    expect(zoom!.right, `frame ${index + 1} zoom`).toBeLessThan(
+      border!.right - 4,
+    );
+    // Both wedge lines start at the zoom square, inside the frame.
+    expect(starts, `frame ${index + 1} wedge`).toHaveLength(2);
+    for (const [x, y] of starts) {
+      expect(x, `frame ${index + 1} wedge`).toBeGreaterThanOrEqual(
+        zoom!.left - 1.5,
+      );
+      expect(x, `frame ${index + 1} wedge`).toBeLessThanOrEqual(
+        zoom!.right + 1.5,
+      );
+      expect(y, `frame ${index + 1} wedge`).toBeGreaterThanOrEqual(
+        zoom!.top - 1.5,
+      );
+      expect(y, `frame ${index + 1} wedge`).toBeLessThanOrEqual(
+        zoom!.bottom + 1.5,
+      );
+    }
+  }
 });
 
 test('the layer control has one pressed layer and swaps the legend', async ({
@@ -889,6 +1133,101 @@ test('the counts grids span the figure, and row B’s room is alleles not yet te
     .toBeLessThan(1);
 });
 
+/**
+ * The share of a screenshot's pixels that stand out from `ground` at 3:1 or more (WCAG 1.4.11),
+ * decoded in a blank page so the page under test is untouched.
+ */
+async function standOutShare(
+  page: Page,
+  png: Buffer,
+  ground: string,
+): Promise<number> {
+  const scratch = await page.context().newPage();
+  try {
+    return await scratch.evaluate(
+      async ({ data, ground }) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${data}`;
+        await image.decode();
+        const canvas = document.createElement('canvas');
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext('2d')!;
+        context.drawImage(image, 0, 0);
+        const pixels = context.getImageData(0, 0, image.width, image.height);
+        const channel = (value: number) => {
+          const c = value / 255;
+          return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+        };
+        const luminance = (r: number, g: number, b: number) =>
+          0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+        const [r, g, b] = ground.match(/\d+/g)!.map(Number);
+        const base = luminance(r, g, b);
+        let marked = 0;
+        for (let i = 0; i < pixels.data.length; i += 4) {
+          const value = luminance(
+            pixels.data[i],
+            pixels.data[i + 1],
+            pixels.data[i + 2],
+          );
+          const ratio =
+            (Math.max(value, base) + 0.05) / (Math.min(value, base) + 0.05);
+          if (ratio >= 3) marked += 1;
+        }
+        return marked / (pixels.data.length / 4);
+      },
+      { data: png.toString('base64'), ground },
+    );
+  } finally {
+    await scratch.close();
+  }
+}
+
+// Design review, round 2: tested non-carriers drew at about 1.25:1 on the orbit band, the same as
+// the room for untested alleles, so row B read as one empty textured block and the slider visibly
+// moved only the 2 px bar. Tested squares now stand out at 3:1 or more; untested room does not.
+test('row B’s tested alleles stand out from the band, and the slider visibly grows them', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const why = page.locator('#why');
+  const figure = why.locator('figure[data-graphic="counts"]');
+  await figure.scrollIntoViewIfNeeded();
+  await expect(figure).toHaveAttribute('data-figure-state', 'rest');
+  const ground = await why.evaluate(
+    (band) => getComputedStyle(band).backgroundColor,
+  );
+  const grid = figure.locator('[data-grid="b"]:visible');
+  const { columns, pitch, size } = await grid.evaluate((svg) => ({
+    columns: Number((svg as SVGSVGElement).dataset.columns),
+    pitch: Number((svg as SVGSVGElement).dataset.pitch),
+    size: Number((svg as SVGSVGElement).dataset.size),
+  }));
+  const rows = Math.ceil(2000 / columns);
+
+  // 20 of 2,000: each tested square shows (at least a quarter of its cell stands out), and the
+  // untested room adds nothing.
+  const at20 = await standOutShare(page, await grid.screenshot(), ground);
+  const cells = columns * rows;
+  expect(at20, 'twenty tested squares').toBeGreaterThanOrEqual(
+    (20 * 0.25) / cells,
+  );
+  expect(at20, 'the untested room stays quiet').toBeLessThan(
+    (20 * 1.2) / cells,
+  );
+
+  await why.getByRole('slider', { name: 'Alleles tested in B' }).focus();
+  await page.keyboard.press('End');
+  await expect(why.locator('[data-count-n]')).toHaveText('2,000');
+  await page.waitForTimeout(400); // the 240 ms grid tween
+  const at2000 = await standOutShare(page, await grid.screenshot(), ground);
+  // All 2,000 tested: most of every square's area stands out (edges blend into the band).
+  expect(at2000, 'two thousand tested squares').toBeGreaterThan(
+    0.6 * (size / pitch) ** 2,
+  );
+  expect(at2000 / at20).toBeGreaterThan(40);
+});
+
 // A mouse drag; the phone's touch drag is tested on its own below.
 test('dragging turns the globe: the callouts step aside until Reset view @desktop-chromium', async ({
   page,
@@ -980,12 +1319,13 @@ test('the counts slider moves bar B and its sentence together, both in view on a
   }
 });
 
-// The closing band sits on the calls-to-action grid: the field spans the last two cards' columns
-// and the text the first two, so nothing ends on a ragged gap (design review, round 1).
+// The closing band sits on the calls-to-action grid: 2 × 2 cards (never 3 + 1) until there is room
+// for one row of four at 80rem, and the field ends where the last card ends, inside that card's
+// column (design review, rounds 1 and 2). The field is small: about half its round-1 size.
 test('the open field lines up with the calls to action below it @desktop-chromium', async ({
   page,
 }) => {
-  for (const width of [1280, 1440, 1920]) {
+  for (const width of [960, 1024, 1180, 1200, 1279, 1280, 1440, 1920]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto('/');
     const field = (await page.locator('.of-stage svg').boundingBox())!;
@@ -995,11 +1335,15 @@ test('the open field lines up with the calls to action below it @desktop-chromiu
         links.map((link) => link.getBoundingClientRect().toJSON()),
       );
     expect(ctas, `${width}`).toHaveLength(4);
-    expect(Math.abs(field.x - ctas[2].left), `${width} left`).toBeLessThan(1.5);
+    const rows = new Set(ctas.map((cta) => Math.round(cta.top))).size;
+    expect(rows, `${width} rows`).toBe(width >= 1280 ? 1 : 2);
+    const last = ctas[3];
     expect(
-      Math.abs(field.x + field.width - ctas[3].right),
+      Math.abs(field.x + field.width - last.right),
       `${width} right`,
     ).toBeLessThan(1.5);
+    expect(field.x, `${width} left`).toBeGreaterThanOrEqual(last.left - 1.5);
+    expect(field.width, `${width} size`).toBeLessThanOrEqual(360);
   }
   // One range style on the site: Home's counts slider is Project's.
   await expect(

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  assertE2eHooks,
   assertRequestStallOverride,
   E2E_ATLAS_CATALOG_PATH,
 } from '../src/lib/catalog-build';
@@ -89,5 +90,24 @@ describe('request stall override (fast-load design §B.2)', () => {
     expect(() =>
       assertRequestStallOverride(E2E_ATLAS_CATALOG_PATH, 'soon'),
     ).toThrow(/positive whole number of milliseconds/);
+  });
+});
+
+describe('e2e test hooks (fast-load design §B.8; #453)', () => {
+  it('allows the hooks off, or on in the e2e build only', () => {
+    expect(() => assertE2eHooks(undefined, undefined)).not.toThrow();
+    expect(() => assertE2eHooks(undefined, '')).not.toThrow();
+    expect(() => assertE2eHooks(E2E_ATLAS_CATALOG_PATH, '1')).not.toThrow();
+  });
+
+  it('refuses the hooks in a production build, and any value but 1', () => {
+    for (const catalogPath of [undefined, '', 'public/data/atlas/catalog.json'])
+      expect(() => assertE2eHooks(catalogPath, '1')).toThrow(
+        /PUBLIC_ATLAS_E2E_HOOKS is only allowed in the e2e build/,
+      );
+    for (const value of ['true', '0', 'yes'])
+      expect(() => assertE2eHooks(E2E_ATLAS_CATALOG_PATH, value)).toThrow(
+        /PUBLIC_ATLAS_E2E_HOOKS must be 1/,
+      );
   });
 });

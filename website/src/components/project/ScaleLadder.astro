@@ -17,18 +17,16 @@
  * (project.astro) calls `initLadder`.
  */
 import StatusTag from '../kit/StatusTag.astro';
-import { cssVarStyles, studSvg } from '../kit/svg';
 import {
   FRAME,
-  HBB_TICK,
-  LAYOUTS,
-  TARGET_STUD,
-  ZOOM,
-  wedge,
+  FRAME_ORDER,
+  WEDGES,
+  frameArt,
+  isFutureFrame,
   type FrameKey,
-  type Layout,
-  type Level,
-} from './ladder';
+} from '../kit/scale-frames';
+import '../../styles/scale-frames.css';
+import { LAYOUTS, wedge, type Layout, type Level } from './ladder';
 
 interface Props {
   idPrefix?: string;
@@ -74,107 +72,19 @@ const TABS: {
   },
 ];
 
-/* ---------- frame art, in one 170-unit square ---------- */
-const flatHex = (cx: number, cy: number, r: number) =>
-  Array.from({ length: 6 }, (_, k) => {
-    const a = (Math.PI / 3) * k;
-    return `${k ? 'L' : 'M'}${(cx + r * Math.cos(a)).toFixed(1)} ${(cy + r * Math.sin(a)).toFixed(1)}`;
-  }).join('') + 'Z';
-
-// A value-free land footprint: hexagons inside an abstract blob, inside the globe. No data.
-const landCells: string[] = [];
-{
-  const r = 6;
-  for (let col = -12; col <= 12; col += 1)
-    for (let row = -12; row <= 12; row += 1) {
-      const x = 85 + col * 1.5 * r;
-      const y =
-        85 + row * Math.sqrt(3) * r + (col % 2 ? (Math.sqrt(3) * r) / 2 : 0);
-      const inBlob =
-        Math.hypot(x - 104, y - 78) < 30 ||
-        Math.hypot(x - 80, y - 108) < 19 ||
-        Math.hypot(x - 58, y - 62) < 13;
-      if (inBlob && Math.hypot(x - 85, y - 85) < 58)
-        landCells.push(flatHex(x, y, r - 0.6));
-    }
-}
-
-const studs = [
-  { x: 44, y: 58, r: 3, ring: 16 },
-  { x: 84, y: 38, r: 2, ring: 10 },
-  { x: 64, y: 106, r: 4.25, ring: 24 },
-  { x: 106, y: 140, r: 2, ring: 9 },
-  TARGET_STUD,
-];
-
-const box = (frame: keyof typeof ZOOM) => {
-  const [x, y, w, h] = ZOOM[frame];
-  return `<rect class="ladder__zoom" x="${x}" y="${y}" width="${w}" height="${h}"/>`;
-};
-
-const ART: Record<FrameKey, string> = {
-  earth:
-    '<circle class="ladder__globe" cx="85" cy="85" r="66"/>' +
-    '<ellipse class="ladder__grat" cx="85" cy="85" rx="66" ry="22"/>' +
-    '<ellipse class="ladder__grat" cx="85" cy="85" rx="26" ry="66"/>' +
-    '<ellipse class="ladder__grat" cx="85" cy="85" rx="54" ry="66"/>' +
-    landCells.map((d) => `<path class="ladder__land" d="${d}"/>`).join('') +
-    box('earth'),
-  population:
-    studs
-      .map(
-        ({ x, y, ring }) =>
-          `<circle class="ladder__ring" cx="${x}" cy="${y}" r="${ring}"/>`,
-      )
-      .join('') +
-    studs.map(({ x, y, r }) => studSvg(x, y, r)).join('') +
-    box('population'),
-  chromosome:
-    '<clipPath id="CLIP"><path d="M74 27A11 11 0 0 1 96 27V64L91 70L96 76V143A11 11 0 0 1 74 143V76L79 70L74 64Z"/></clipPath>' +
-    '<g clip-path="url(#CLIP)">' +
-    [
-      [33, 6],
-      [48, 10],
-      [86, 9],
-      [104, 7],
-      [121, 13],
-      [141, 6],
-    ]
-      .map(
-        ([y, h]) =>
-          `<rect class="ladder__band" x="70" y="${y}" width="30" height="${h}"/>`,
-      )
-      .join('') +
-    '</g>' +
-    '<path class="ladder__future" d="M74 27A11 11 0 0 1 96 27V64L91 70L96 76V143A11 11 0 0 1 74 143V76L79 70L74 64Z"/>' +
-    `<path class="ladder__tick" d="M${HBB_TICK.x - 20} ${HBB_TICK.y}H${HBB_TICK.x + 20}"/>` +
-    box('chromosome'),
-  nucleus:
-    '<ellipse class="ladder__future" cx="85" cy="85" rx="70" ry="60"/>' +
-    '<circle class="ladder__future ladder__future--faint" cx="112" cy="62" r="11"/>' +
-    '<path class="ladder__chromatin" d="M30 78c8-16 22-2 30-12s16-16 26-4M40 112c10-6 14 8 26 2s12-14 24-8M98 120c8 6 18-4 24 4s12 2 16-6M104 88c6-10 18-6 22 2"/>' +
-    '<path class="ladder__locus" d="M62 92c-12 6-10 24 4 22s10-20 0-18-8 16 6 18 18-6 16-16"/>',
-};
-
-const FUTURE = new Set<FrameKey>(['chromosome', 'nucleus']);
 const LABEL: Record<FrameKey, string> = {
   earth: 'Earth',
   population: 'Population',
   chromosome: 'Chromosome 11',
   nucleus: 'Cell nucleus',
 };
-const WEDGES: [Exclude<FrameKey, 'nucleus'>, FrameKey][] = [
-  ['earth', 'population'],
-  ['population', 'chromosome'],
-  ['chromosome', 'nucleus'],
-];
-const ORDER: FrameKey[] = ['earth', 'population', 'chromosome', 'nucleus'];
+
 const layouts: Layout[] = ['row', 'grid'];
 const svgFor = (layout: Layout) => {
   const geometry = LAYOUTS[layout];
-  // Unique ids per layout for the chromosome's clip path.
-  const art = (frame: FrameKey) =>
-    cssVarStyles(ART[frame].replaceAll('CLIP', id(`clip-${layout}`)));
+  // The frame art (kit/scale-frames.ts), with a unique id per layout for the chromosome's clip.
+  const drawn = frameArt(id(`clip-${layout}`));
+  const art = (frame: FrameKey) => drawn[frame];
   return { geometry, art };
 };
 ---
@@ -240,7 +150,7 @@ const svgFor = (layout: Layout) => {
                   <g
                     class:list={[
                       'ladder__wedge',
-                      { 'ladder__wedge--future': FUTURE.has(to) },
+                      { 'ladder__wedge--future': isFutureFrame(to) },
                     ]}
                     data-wedge={index + 1}
                     style={`--d: ${index * 300 + 220}`}
@@ -258,13 +168,13 @@ const svgFor = (layout: Layout) => {
                 );
               })}
             </g>
-            {ORDER.map((frame, index) => {
+            {FRAME_ORDER.map((frame, index) => {
               const { x, y, scale } = geometry.frames[frame];
               return (
                 <g
                   class:list={[
                     'ladder__frame',
-                    { 'ladder__frame--future': FUTURE.has(frame) },
+                    { 'ladder__frame--future': isFutureFrame(frame) },
                   ]}
                   data-frame={frame}
                   style={`--d: ${index * 300}`}
@@ -287,7 +197,7 @@ const svgFor = (layout: Layout) => {
             })}
             <path class="ladder__bridge" d={geometry.bridge} style="--d: 950" />
             <g class="ladder__labels" font-size={geometry.font}>
-              {ORDER.map((frame, index) => (
+              {FRAME_ORDER.map((frame, index) => (
                 <text
                   class="ladder__label"
                   x={geometry.labels[frame].x}

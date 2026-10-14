@@ -19,6 +19,7 @@ import {
   firstMarkTime,
   medianOrNull,
   revealStats,
+  revealWaveFrom,
   scaleCriticalPath,
   workerStepsFrom,
   type ChunkFrame,
@@ -118,6 +119,8 @@ export interface ColdLoadRun {
   };
   scaled: ScaledTimeline | null;
   reveal: { frames: number; totalMs: number; longestFrameMs: number } | null;
+  /** The cold reveal's wave (#453), when the build has one; reported, not budgeted. */
+  wave: { startMs: number; endMs: number; durationMs: number } | null;
   longFrames: LongFrameSummary;
   transport: {
     tier: string;
@@ -591,6 +594,7 @@ export function analyseRun(args: {
     raw,
     scaled,
     reveal: revealStats(frames),
+    wave: revealWaveFrom(m.measures),
     longFrames,
     transport: tierUrls.map((entry) => ({
       ...entry,
@@ -648,6 +652,8 @@ export function summarise(runs: readonly ColdLoadRun[]) {
     longestRevealFrameMs: medianOrNull(
       runs.map((run) => run.reveal?.longestFrameMs ?? null),
     ),
+    waveMs: medianOrNull(runs.map((run) => run.wave?.durationMs ?? null)),
+    waveEndMs: medianOrNull(runs.map((run) => run.wave?.endMs ?? null)),
     maxAtlasFrameMs: medianOrNull(
       runs.map((run) => run.longFrames.maxAtlasFrameMs),
     ),

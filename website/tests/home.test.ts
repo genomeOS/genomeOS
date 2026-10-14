@@ -19,7 +19,12 @@ import {
   formatShare,
   layerFader,
 } from '../src/components/home/hero-globe';
-import { COUNT_STOPS, buildCountsTable } from '../src/components/home/counts';
+import {
+  COUNT_STOPS,
+  GRID,
+  TESTED_FILL,
+  buildCountsTable,
+} from '../src/components/home/counts';
 import provenance from '../src/data/figures/hbs.provenance.json';
 import { jeffreys } from '../src/graphics/jeffreys';
 
@@ -28,6 +33,40 @@ const html = existsSync(homepage) ? readFileSync(homepage, 'utf8') : '';
 const visibleText = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 const main = html.slice(html.indexOf('<main'), html.indexOf('</main>'));
 const body = html.slice(html.indexOf('<body'));
+const tokens = readFileSync(
+  path.resolve(import.meta.dirname, '../src/styles/tokens.css'),
+  'utf8',
+);
+
+/** A colour token's hex value from tokens.css. */
+const token = (name: string) =>
+  tokens.match(new RegExp(`${name}:\\s*(#[0-9a-f]{6})`, 'i'))![1];
+
+/** WCAG 2 contrast ratio of two hex colours. */
+function contrast(a: string, b: string): number {
+  const luminance = (hex: string) => {
+    const [r, g, bl] = hex
+      .slice(1)
+      .match(/../g)!
+      .map((pair) => {
+        const c = parseInt(pair, 16) / 255;
+        return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (high + 0.05) / (low + 0.05);
+}
+
+/** The first mark inside a grid's `<pattern id="…{suffix}">`. */
+const pattern = (svg: string, suffix: string) =>
+  svg
+    .match(
+      new RegExp(
+        `<pattern\\b[^>]*id="[^"]*${suffix}"[^>]*>([\\s\\S]*?)</pattern>`,
+      ),
+    )?.[1]
+    .trim() ?? '';
 
 /** The opening tag and contents of the element whose opening tag matches `open`. */
 function section(pattern: RegExp): string {
@@ -56,6 +95,59 @@ describe('homepage contract', () => {
     expect(visibleText).toMatch(
       /Why genomeOS[\s\S]*How genomeOS works[\s\S]*Aggregate the evidence[\s\S]*Model what the evidence supports[\s\S]*Open it to the world[\s\S]*Potential applications[\s\S]*Built in the open/,
     );
+  });
+
+  // Design review, round 2: the teaser's zoom squares sat on each frame's right edge over 40 px
+  // icons, so its wedges read as connectors. It now draws Project's ladder frames at teaser scale:
+  // the same art, zoom boxes on the content they magnify, and the same wedge geometry.
+  it('draws the vision teaser with the Project ladder’s frame art and zoom boxes', () => {
+    const vision = section(/<section\b[^>]*\bid="vision"/);
+    const project = readFileSync(
+      path.resolve(import.meta.dirname, '../dist/project/index.html'),
+      'utf8',
+    );
+    const ladder = project.match(
+      /<figure\b[^>]*data-graphic="scale-ladder"[\s\S]*?<\/figure>/,
+    )![0];
+    const land = (markup: string) =>
+      new Set(
+        [...markup.matchAll(/<path class="ladder__land" d="([^"]+)"/g)].map(
+          ([, d]) => d,
+        ),
+      );
+    expect(land(vision).size).toBeGreaterThan(20);
+    expect(land(vision)).toEqual(land(ladder));
+    for (const svg of vision.match(/<svg\b[^>]*vs-svg[\s\S]*?<\/svg>/g)!) {
+      expect(svg.match(/class="ladder__zoom"/g)).toHaveLength(3);
+      expect(
+        svg.match(/<g class="vs-wedge [^"]*"[^>]*data-wedge="\d"/g),
+      ).toHaveLength(3);
+    }
+    expect(vision).not.toContain('vs-frame__focus');
+    // Its studs and footprint look like data but hold none (spec §2.6).
+    expect(vision).toMatch(/class="kit-status-tag" data-status="schematic"/);
+  });
+
+  // Design review, round 2: the closing field was a 650 × 290 px mass of saturated ramp hexes, a
+  // map with no data. It is small, mostly the grid's no-value footprint, and its focus is the
+  // hatched cell that a contribution fills.
+  it('keeps the closing field small and quiet, focused on the hatched cell', () => {
+    const open = section(/<section\b[^>]*\bid="open"/);
+    const svg = open.match(/<svg\b[^>]*>[\s\S]*?<\/svg>/)![0];
+    const cells = [
+      ...svg.matchAll(
+        /<path d="[^"]+" (?:fill="([^"]+)"|style="fill:([^"]+)")/g,
+      ),
+    ]
+      .map(([, fill, style]) => fill ?? style)
+      .filter((fill) => !fill.startsWith('url('));
+    const land = cells.filter((fill) => fill.includes('--enc-land')).length;
+    const ramp = cells.length - land;
+    expect(land / cells.length).toBeGreaterThanOrEqual(0.65);
+    expect(ramp).toBeGreaterThanOrEqual(3);
+    expect(ramp).toBeLessThanOrEqual(12);
+    expect(svg).toContain('url(#of-hatch)');
+    expect(open).toMatch(/class="kit-status-tag" data-status="schematic"/);
   });
 
   it('leads into the larger vision with the scale strip, not images', () => {
@@ -285,7 +377,7 @@ describe('homepage figures', () => {
     expect(script).toContain('1200');
   });
 
-  it('draws row B’s untested alleles as a ghost grid, never an empty box', () => {
+  it('draws row B’s untested alleles as faint dots, never an empty box', () => {
     const why = section(/<section\b[^>]*\bid="why"/);
     expect(why).not.toContain('cf-grid__room');
     const grids = [
@@ -303,7 +395,39 @@ describe('homepage figures', () => {
       expect(Number(ghost.match(/\bheight="([\d.]+)"/)?.[1])).toBe(
         Math.ceil(2000 / columns) * pitch,
       );
+      // Each untested allele is a dot well inside its cell, not an outline that reads as a
+      // tested square (design review, round 2).
+      const mark = pattern(svg, '-ghost');
+      expect(mark).toMatch(/^<circle\b/);
+      expect(mark).not.toMatch(/stroke/);
+      expect(Number(mark.match(/\br="([\d.]+)"/)![1])).toBeLessThanOrEqual(
+        pitch / 8,
+      );
     }
+  });
+
+  // Design review, round 2: tested non-carriers were --enc-land on orbit, about 1.25:1, and read
+  // as the same texture as the room for untested alleles. WCAG 1.4.11 asks 3:1 of a meaningful mark.
+  it('draws tested alleles at 3:1 or more on the band, distinct from carriers', () => {
+    const why = section(/<section\b[^>]*\bid="why"/);
+    const orbit = token('--color-orbit');
+    const starlight = token('--color-starlight');
+    expect(contrast(TESTED_FILL, orbit)).toBeGreaterThanOrEqual(3);
+    expect(contrast(TESTED_FILL, starlight)).toBeGreaterThanOrEqual(3);
+    const grids = [
+      ...why.matchAll(/<svg\b[^>]*data-grid="[ab]"[^>]*>[\s\S]*?<\/svg>/g),
+    ].map(([svg]) => svg);
+    expect(grids).toHaveLength(4);
+    for (const svg of grids) {
+      expect(pattern(svg, '-off')).toContain(`fill: ${TESTED_FILL}`);
+      expect(pattern(svg, '-off')).not.toContain('--enc-land');
+    }
+  });
+
+  it('sets one allele as a square big enough to count on a wide figure', () => {
+    // About 80 columns of 8 on a 10 pitch: single alleles read, not a barcode.
+    expect(GRID.wide).toEqual({ columns: 80, pitch: 10, size: 8 });
+    expect(GRID.narrow.size / GRID.narrow.pitch).toBeGreaterThanOrEqual(0.75);
   });
 
   it('colours each corpus source the same way in every tile', () => {

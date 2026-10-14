@@ -1,4 +1,5 @@
-/** Cesium lifecycle and scientific-layer orchestration for Atlas design §11 (spec 2026-10-07 §B.6).
+/** Cesium lifecycle and scientific-layer orchestration for Atlas design §11 (spec 2026-10-07 §B.6;
+ * the reveal wave of #453, §B.6.7 as amended 2026-10-13).
  *
  * After the surface is visible, the scene runs the post-reveal load order (§B.6.9, `load-order.ts`):
  * the Natural Earth borders' download, then each displayed artifact's detail tier (`queueDetail`),
@@ -7,6 +8,11 @@
 
 import { SceneMode, type CesiumWidget } from 'cesium';
 
+import {
+  cameraMotionTestHook,
+  revealWaveTestHold,
+  type CameraMotionHook,
+} from '../e2e-hooks';
 import { createLoadOrder, type LoadOrder, type LoadTask } from '../load-order';
 import type {
   BasemapId,
@@ -17,7 +23,11 @@ import type {
   SurfaceGeometry,
   TerrainId,
 } from '../url-state';
-import type { Metric, PaletteId } from '../visual-encoding';
+import {
+  MAX_HEIGHT_METRES,
+  type Metric,
+  type PaletteId,
+} from '../visual-encoding';
 import { bindKeyboardCamera, cameraState, setCameraState } from './camera';
 import { revealFrameBudgetMs } from './chunk-scheduler';
 import {
@@ -26,10 +36,16 @@ import {
   type ContextWarningUpdate,
 } from './context-controller';
 import { ContextOverlay } from './context-overlay';
+import { installGlobeOffset, type GlobeOffset } from './globe-offset';
 import { createGlobeWidget, type GlobeWidget } from './globe-widget';
 import { HighlightLayer } from './highlight-layer';
 import { bindAtlasPicking } from './picking';
 import { RenderLoop } from './render-loop';
+import {
+  createRevealWave,
+  waveViewOf,
+  type RevealWave,
+} from './reveal-wave-driver';
 import { createMarkTracker, type MarkTracker } from './scene-marks';
 import {
   DEFAULT_LAYERS,
@@ -42,6 +58,7 @@ import {
 } from './scene-policy';
 import { animateValue } from './scene-transition';
 import { ScientificLayers, type ScientificStyle } from './scientific-layers';
+import { SURFACE_CLEARANCE_METRES } from './surface-appearance';
 import { createSurfacePickResolver } from './surface-pick';
 import type {
   ArtifactLoad,
@@ -95,6 +112,7 @@ class CesiumAtlasScene implements AtlasSceneController {
   >();
   readonly #warnings = new Map<ContextWarning['id'], ContextWarning>();
   readonly #renderLoop: RenderLoop;
+  readonly #globeOffset: GlobeOffset;
   readonly #unbindKeyboard: () => void;
   readonly #unbindPicking: () => void;
   readonly #removeMoveEnd: () => void;
@@ -104,6 +122,9 @@ class CesiumAtlasScene implements AtlasSceneController {
   readonly #overlay: ContextOverlay;
   readonly #highlightLayer: HighlightLayer;
   readonly #marks: MarkTracker;
+  readonly #wave: RevealWave;
+  /** The e2e build's camera motion hook; undefined elsewhere. */
+  readonly #cameraMotion: CameraMotionHook | undefined;
   readonly #layers: ScientificLayers;
   readonly #revealSky: () => void;
   readonly #loadOrder: LoadOrder;
@@ -135,6 +156,7 @@ class CesiumAtlasScene implements AtlasSceneController {
       this.#widget.resize();
       this.#widget.render();
     });
+    this.#globeOffset = installGlobeOffset(this.#widget.scene);
     this.#removeRenderError = this.#widget.scene.renderError.addEventListener(
       (_scene, error: unknown) => this.#renderLoop.fail(error),
     );
@@ -162,6 +184,20 @@ class CesiumAtlasScene implements AtlasSceneController {
     styleAtlasScene(this.#widget);
     this.#highlightLayer = new HighlightLayer(this.#widget.scene);
     this.#widget.scene.primitives.add(this.#highlightLayer.collection);
+    this.#wave = createRevealWave({
+      hold: revealWaveTestHold(),
+      scene: this.#widget.scene,
+      // The explorer root, like the load marks; the driver writes nothing once destroyed.
+      target: options.markTarget ?? null,
+      // The higher of the drawn and the target exaggeration, so a raised column is never cut.
+      view: () =>
+        waveViewOf(
+          this.#widget.scene,
+          SURFACE_CLEARANCE_METRES +
+            MAX_HEIGHT_METRES *
+              Math.max(this.#elevationFactor, this.#targetElevationFactor()),
+        ),
+    });
     this.#layers = new ScientificLayers({
       frameBudgetMs:
         options.frameBudgetMs ??
@@ -171,6 +207,7 @@ class CesiumAtlasScene implements AtlasSceneController {
       onCommit: (artifactKey) => this.#commit(artifactKey),
       scene: this.#widget.scene,
       style: () => this.#scientificStyle(),
+      wave: this.#wave,
       worker: options.worker,
     });
     this.#removeMarks = this.#marks.onMark((mark) => {
@@ -178,6 +215,7 @@ class CesiumAtlasScene implements AtlasSceneController {
       if (mark === 'surface-visible') this.#startContext();
     });
     this.#unbindKeyboard = bindKeyboardCamera(this.#widget, container);
+    this.#cameraMotion = cameraMotionTestHook(this.#widget.camera);
     this.#removeMoveEnd = this.#widget.camera.moveEnd.addEventListener(() => {
       const state = cameraState(this.#widget);
       if (!state) return;
@@ -198,6 +236,7 @@ class CesiumAtlasScene implements AtlasSceneController {
         geometry: () =>
           this.#layers.displayedLayer()?.geometry ?? this.#surfaceGeometry,
         metric: () => this.#layers.displayedLayer()?.metric ?? this.#metric,
+        reveal: (direction) => this.#wave.reveal(direction),
         target: () => this.#layers.pickTarget(),
       }),
     );
@@ -454,7 +493,16 @@ class CesiumAtlasScene implements AtlasSceneController {
   }
 
   setCamera(camera: CameraState, animated: boolean): void {
-    setCameraState(this.#widget, camera, animated);
+    setCameraState(
+      this.#widget,
+      camera,
+      animated,
+      this.#cameraMotion?.flight(),
+    );
+  }
+
+  setLeftObstruction(width: number): void {
+    this.#globeOffset.setCoveredLeft(width);
   }
 
   setSelection(pick: AtlasPick | null): void {
@@ -462,7 +510,12 @@ class CesiumAtlasScene implements AtlasSceneController {
   }
 
   home(animated: boolean): void {
-    setCameraState(this.#widget, HOME_CAMERA, animated);
+    setCameraState(
+      this.#widget,
+      HOME_CAMERA,
+      animated,
+      this.#cameraMotion?.flight(),
+    );
   }
 
   zoom(direction: 'in' | 'out'): void {
@@ -539,12 +592,15 @@ class CesiumAtlasScene implements AtlasSceneController {
     this.#elevationSequence += 1;
     this.#renderLoop.stop();
     this.#layers.destroy();
+    this.#wave.destroy();
     this.#removeMarks();
     this.#marks.destroy();
     this.#unbindKeyboard();
     this.#unbindPicking();
     this.#removeMoveEnd();
+    this.#cameraMotion?.destroy();
     this.#removeRenderError();
+    this.#globeOffset.destroy();
     this.#globe.destroy();
   }
 }

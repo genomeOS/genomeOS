@@ -4,6 +4,8 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { REVEAL_WAVE_MEASURE } from '../src/atlas/scene/reveal-wave';
+
 import {
   atlasLongFrames,
   attributeScript,
@@ -15,6 +17,7 @@ import {
   medianOrNull,
   requestDepths,
   revealStats,
+  revealWaveFrom,
   scaleCriticalPath,
   workerStepsFrom,
   type ChunkFrame,
@@ -225,6 +228,33 @@ describe('User Timing parsing', () => {
       longestFrameMs: 20,
     });
     expect(revealStats([])).toBeNull();
+  });
+
+  it('reads the reveal wave measure (#453)', () => {
+    expect(REVEAL_WAVE_MEASURE).toBe('atlas:reveal-wave');
+    expect(
+      revealWaveFrom([
+        {
+          name: 'atlas:chunk-frame',
+          startTime: 400,
+          duration: 20,
+          detail: {},
+        },
+        {
+          name: REVEAL_WAVE_MEASURE,
+          startTime: 1_206.5,
+          duration: 810.25,
+          detail: { durationMs: 800, reach: 1.3 },
+        },
+        {
+          name: REVEAL_WAVE_MEASURE,
+          startTime: 9_000,
+          duration: 805,
+          detail: { durationMs: 800, reach: 1.1 },
+        },
+      ]),
+    ).toEqual({ durationMs: 810.25, endMs: 2_016.75, startMs: 1_206.5 });
+    expect(revealWaveFrom([])).toBeNull();
   });
 });
 

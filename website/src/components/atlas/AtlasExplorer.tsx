@@ -62,6 +62,7 @@ import { EscapeStackProvider } from './useEscapeStack';
 import { ExplorerPanelsProvider } from './useExplorerPanels';
 import { useObservationPlaces } from './useObservationPlaces';
 import { useAtlasSceneLifecycle } from './useAtlasSceneLifecycle';
+import { useGlobeOffset } from './useGlobeOffset';
 import {
   useAtlasDataProvider,
   useContextSourceUrls,
@@ -129,6 +130,7 @@ export default function AtlasExplorer({
   const [reducedMotion, setReducedMotion] = useState(prefersReducedMotion);
   const [explorerNode, setExplorerNode] = useState<HTMLDivElement | null>(null);
   const [topSlot, setTopSlot] = useState<HTMLDivElement | null>(null);
+  const [controlsPanel, setControlsPanel] = useState<HTMLElement | null>(null);
   const {
     activity,
     begin: beginActivity,
@@ -228,9 +230,18 @@ export default function AtlasExplorer({
     return () => media.removeEventListener('change', updatePreference);
   }, []);
 
+  // #452: the desktop globe is drawn centred in the open area beside the controls panel.
+  const coveredLeft = useGlobeOffset(
+    controlsPanel,
+    sceneElement,
+    sceneController,
+  );
+
   const sceneGeneration = useAtlasSceneLifecycle({
     attempt: sceneAttempt,
     bind: (controller) => {
+      // Before its first frame, so the globe starts beside the controls panel (#452).
+      controller.setLeftObstruction(coveredLeft());
       setSceneController(controller);
       setCapabilities(controller.capabilities());
       const removePick = controller.onPick((pick) => {
@@ -613,6 +624,7 @@ export default function AtlasExplorer({
               state={state}
               disabled={false}
               explorer={explorerNode}
+              panelRef={setControlsPanel}
               topSlot={topSlot}
               onEntity={chooseEntity}
               onExternalInfo={(source, signal) => {

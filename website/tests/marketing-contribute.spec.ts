@@ -92,6 +92,29 @@ test('/working-groups/ shows "Three groups are forming." below the fixed header'
   expect(bottom).toBeLessThanOrEqual(page.viewportSize()!.height);
 });
 
+// Design review, round 2: four cards broke 3 + 1 from 960 to 1279 px, leaving an orphan. They sit
+// 2 × 2 until one row of four fits (80rem), as on Home's closing band.
+test('Start here sets its four cards 2 × 2 until one row of four fits @desktop-chromium', async ({
+  page,
+}) => {
+  for (const width of [700, 960, 1024, 1180, 1200, 1279, 1280, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/contribute/');
+    const boxes = await page
+      .locator('#start .github-cta')
+      .evaluateAll((links) =>
+        links.map((link) => link.getBoundingClientRect().toJSON()),
+      );
+    expect(boxes, `${width}`).toHaveLength(4);
+    const rows = new Map<number, number>();
+    for (const box of boxes)
+      rows.set(Math.round(box.top), (rows.get(Math.round(box.top)) ?? 0) + 1);
+    expect([...rows.values()], `${width} px`).toEqual(
+      width >= 1280 ? [4] : [2, 2],
+    );
+  }
+});
+
 for (const [tag, width, height, fold] of [
   ['@desktop-chromium', 1440, 900, 640],
   ['@mobile-chromium', 390, 844, 700],

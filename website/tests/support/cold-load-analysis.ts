@@ -4,6 +4,7 @@
  * path and the bytes ledger. No Playwright or browser dependency.
  */
 import { CHUNK_FRAME_MEASURE } from '../../src/atlas/scene/chunk-scheduler';
+import { REVEAL_WAVE_MEASURE } from '../../src/atlas/scene/reveal-wave';
 import type { NetworkConditions } from './cold-load-profiles';
 
 export interface TimingEntry {
@@ -157,6 +158,22 @@ export function revealStats(
     totalMs: frames[frames.length - 1].end - frames[0].start,
     longestFrameMs: Math.max(...frames.map((frame) => frame.end - frame.start)),
   };
+}
+
+/** The cold reveal's wave (#453): the first `atlas:reveal-wave` measure, page times in ms. */
+export function revealWaveFrom(
+  measures: readonly TimingEntry[],
+): { startMs: number; endMs: number; durationMs: number } | null {
+  const wave = measures
+    .filter((entry) => entry.name === REVEAL_WAVE_MEASURE)
+    .sort((left, right) => left.startTime - right.startTime)[0];
+  return wave
+    ? {
+        durationMs: wave.duration,
+        endMs: wave.startTime + wave.duration,
+        startMs: wave.startTime,
+      }
+    : null;
 }
 
 export type ScriptAttribution = 'atlas' | 'cesium' | 'cesium-eval' | 'other';

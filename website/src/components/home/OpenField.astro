@@ -1,14 +1,20 @@
 ---
 /**
- * Built in the open (site redesign spec §4.1 H7; #454): a small abstract hex field, no geography,
- * mostly modeled colour, with one hatched cell: "Your expertise". Hovering or focusing any of the
- * band's calls to action (`[data-open-cta]` in the same section) fills that cell (600 ms) and lands
- * a survey stud in it: a contribution turns unknown into known. Leaving reverts it; reduced motion
- * makes it instant. The colours are seeded (SEED = 42), so the field is the same on every build.
+ * Built in the open (site redesign spec §4.1 H7; #454): a small abstract hex field, no geography.
+ * Most of it is the model grid with no value drawn (`--enc-land`); two survey studs carry a few
+ * modeled cells around them, fading with distance as the Atlas fades away from evidence; one cell,
+ * outlined, is still hatched: "Your expertise". Hovering or focusing any of the band's calls to
+ * action (`[data-open-cta]` in the same section) fills that cell (600 ms) and lands a survey stud
+ * in it: a contribution turns unknown into known. Leaving reverts it; reduced motion makes it
+ * instant. Its marks look like data but hold none, so it carries the "Schematic" tag (spec §2.6).
+ *
+ * Design review, round 2: the field had been a 650 × 290 px mass of saturated ramp cells, the
+ * largest coloured shape on the lower page, a map with no data in which the hatched cell got lost.
+ * It is now at most 20rem wide, mostly land, and the hatched cell is its focus.
  */
 import Glyph from '../kit/Glyph.astro';
+import StatusTag from '../kit/StatusTag.astro';
 import { ENC, STUD_RADIUS } from '../../graphics/encoding';
-import { mulberry32 } from '../../graphics/rng';
 import { cssVarStyles, studSvg } from '../kit/svg';
 
 const COLS = 12;
@@ -18,7 +24,12 @@ const W = Math.sqrt(3) * R;
 const PAD = 4;
 const width = +(PAD * 2 + COLS * W + W / 2).toFixed(1);
 const height = PAD * 2 + R * 2 + (ROWS - 1) * 1.5 * R;
-const TARGET = { col: 7, row: 2 };
+const TARGET = { col: 8, row: 2 };
+/** Two neighbouring surveys at the left, each with its own cell's modeled colour (ENC.mean). */
+const STUDS = [
+  { col: 2, row: 1, size: 'md' as const, step: 4 },
+  { col: 3, row: 2, size: 'sm' as const, step: 3 },
+];
 
 const hex = (cx: number, cy: number, r: number) =>
   Array.from({ length: 6 }, (_, k) => {
@@ -26,27 +37,28 @@ const hex = (cx: number, cy: number, r: number) =>
     return `${k ? 'L' : 'M'}${(cx + r * Math.cos(a)).toFixed(1)} ${(cy + r * Math.sin(a)).toFixed(1)}`;
   }).join('') + 'Z';
 
-// A smooth abstract surface with a little seeded grain: two rises, fading toward the edges the way
-// the Atlas fades away from evidence (partial and weak tiers at the margins).
-const random = mulberry32();
+const centre = (col: number, row: number) => ({
+  x: PAD + W / 2 + col * W + (row % 2 ? W / 2 : 0),
+  y: PAD + R + row * 1.5 * R,
+});
+const studCentres = STUDS.map(({ col, row }) => centre(col, row));
+
+// Each cell takes its distance, in cell steps, to the nearest stud: a stud's own cell carries a
+// strong estimate, its neighbours a partial one, and nothing further out (the grid with no value
+// drawn): ten modeled cells in sixty.
 const cells = Array.from({ length: ROWS }, (_, row) =>
   Array.from({ length: COLS }, (_, col) => {
-    const x = PAD + W / 2 + col * W + (row % 2 ? W / 2 : 0);
-    const y = PAD + R + row * 1.5 * R;
-    const rise =
-      Math.exp(-((col - 3) ** 2 + (row - 2) ** 2) / 9) +
-      0.8 * Math.exp(-((col - 9) ** 2 + (row - 1) ** 2) / 7);
-    const value = Math.min(
-      0.999,
-      Math.max(0, rise * 0.85 + (random() - 0.5) * 0.25),
+    const { x, y } = centre(col, row);
+    const steps = studCentres.map((stud) =>
+      Math.round(Math.hypot(stud.x - x, stud.y - y) / W),
     );
-    const edge = Math.min(col, COLS - 1 - col, row, ROWS - 1 - row);
+    const own = steps.indexOf(0);
     const fill =
-      edge === 0
-        ? random() < 0.5
-          ? ENC.meanWeak
-          : ENC.meanPartial[Math.floor(value * 3)]
-        : ENC.mean[Math.floor(value * 6)];
+      own >= 0
+        ? ENC.mean[STUDS[own].step]
+        : Math.min(...steps) === 1
+          ? ENC.meanPartial[1]
+          : 'var(--enc-land)';
     return { x, y, fill, target: col === TARGET.col && row === TARGET.row };
   }),
 ).flat();
@@ -61,18 +73,24 @@ const art =
         `<path d="${hex(cell.x, cell.y, R - 0.8)}" fill="${cell.fill}"/>`,
     )
     .join('') +
+  STUDS.map(({ size }, index) =>
+    studSvg(studCentres[index].x, studCentres[index].y, STUD_RADIUS[size]),
+  ).join('') +
   `<path d="${hex(target.x, target.y, R - 0.8)}" fill="url(#of-hatch)"/>` +
   `<path class="of-fill" d="${hex(target.x, target.y, R - 0.8)}" fill="${ENC.mean[4]}"/>` +
   `<g class="of-stud">${studSvg(target.x, target.y, STUD_RADIUS.lg)}</g>` +
-  `<path class="of-outline" d="${hex(target.x, target.y, R - 0.2)}" fill="none" stroke="var(--color-ion)" stroke-width="1.5"/>`;
+  `<path class="of-outline" d="${hex(target.x, target.y, R + 0.6)}" fill="none" stroke="var(--color-ion)" stroke-width="2"/>`;
 ---
 
 <figure class="of" data-graphic="open-field" data-kind="mechanism">
+  <div class="of-toolbar" data-figure-chrome>
+    <StatusTag kind="schematic" />
+  </div>
   <div
     class="of-stage"
     data-figure-stage
     role="img"
-    aria-label="An abstract field of modeled estimates with one cell still hatched, marked your expertise"
+    aria-label="An abstract grid, mostly without estimates, where two surveys give a few modeled cells and one cell is still hatched, marked your expertise"
   >
     <svg
       viewBox={`0 0 ${width} ${height}`}

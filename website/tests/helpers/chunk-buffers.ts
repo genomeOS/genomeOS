@@ -60,6 +60,7 @@ export function triangleSurfaceBuffers(
   const normals = radial(positions);
   return {
     boundingSphere: sphere(west),
+    cellCentres: null,
     chunk,
     colors,
     elevationNormals: normals.slice(),
@@ -76,10 +77,25 @@ export function seamSurfaceBuffers(chunk: number): SurfaceChunkBuffers {
   return triangleSurfaceBuffers(chunk, undefined, SEAM_WEST_LONGITUDE);
 }
 
+/** The triangle's three vertices share one cell centre, its first corner, as a cell's do. */
+function sharedCentre(positions: Float64Array): Float32Array {
+  const centres = new Float32Array(positions.length);
+  for (let index = 0; index < positions.length; index += 3)
+    centres.set(positions.subarray(0, 3), index);
+  return centres;
+}
+
+/** A flat (hexagon-mode) triangle: its vertices carry their cell's centre (#453). */
+export function flatTriangleSurfaceBuffers(chunk: number): SurfaceChunkBuffers {
+  const buffers = triangleSurfaceBuffers(chunk);
+  return { ...buffers, cellCentres: sharedCentre(buffers.positions) };
+}
+
 export function triangleCellBuffers(): FlatCellBuffers {
   const positions = ecef();
   return {
     boundingSphere: sphere(),
+    cellCentres: sharedCentre(positions),
     indices: Uint16Array.of(0, 1, 2),
     normals: radial(positions),
     positions,

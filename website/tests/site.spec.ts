@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { cellToLatLng } from 'h3-js';
+import { cellToLatLng, latLngToCell } from 'h3-js';
 
 import {
   contextSourceKey,
@@ -19,14 +19,37 @@ import {
   urlMatchesKey,
 } from './atlas-browser-fixture';
 import {
+  besideGlobeCentre,
+  canvasCentre,
+  GLOBE_DISC_QUERY,
+  globeViewCentre,
+  heldReadoutsOf,
+  measureGlobeDisc,
+  waitForSettledGlobe,
+  type Point,
+} from './atlas-globe-helpers';
+import {
   expandExplorerSheet,
   INSPECTOR_CAMERA,
   legendRow,
   markLegendLoading,
   recordedLegendLoading,
   recordLegendLoading,
+  waitForRevealWave,
   type LegendRow,
 } from './atlas-mobile-helpers';
+import {
+  cameraAtRest,
+  cellCamera,
+  EARLY_PROGRESS,
+  globeView,
+  holdRevealWave,
+  holdRevealWaveFromStart,
+  readWave,
+  renderedFrames,
+  SURFACE_ONLY,
+  waveFrame,
+} from './atlas-reveal-wave-helpers';
 import { useSiteFixtures } from './helpers/marketing';
 import { topLevelRoutes } from './site-routes';
 
@@ -176,6 +199,117 @@ test(
   },
 );
 
+// Design review, round 2: the docs header set its nav right-aligned after Search, at weight 560 in
+// a lighter grey, with GitHub 2 px above the others, so from Home to Docs the primary nav jumped
+// about 440 px and changed weight. It reads as the site's: lockup, nav, then Search and the Atlas
+// link on the right; the site's weight and colours; one baseline.
+test(
+  'the docs header orders and sets its nav as the site header does',
+  { tag: '@desktop-chromium' },
+  async ({ page }) => {
+    const style = () =>
+      page
+        .getByRole('navigation', { name: 'Primary navigation' })
+        .getByRole('link')
+        .evaluateAll((links) =>
+          links.map((link) => {
+            const label = link.querySelector('span') ?? link;
+            const { fontWeight, color, fontSize } = getComputedStyle(label);
+            return [
+              link.getAttribute('aria-current') ? 'current' : 'link',
+              fontWeight,
+              color,
+              fontSize,
+            ].join(' ');
+          }),
+        );
+    for (const width of [1440, 1153, 1920]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/contribute/');
+      const site = await style();
+      // Design review, round 3: the lockup and the nav also stand where the compact site header
+      // puts them (the site gutter and 76rem container, the compact lockup), so neither jumps.
+      await page.evaluate(() => window.scrollTo(0, 900));
+      await expect(page.locator('.site-header')).toHaveClass(
+        /site-header--compact/,
+      );
+      const siteLogo = page.locator('.wordmark__logo');
+      const compactWidth = (2.6 * 18 * 1395) / 300;
+      await expect
+        .poll(async () => (await siteLogo.boundingBox())!.width)
+        .toBeCloseTo(compactWidth, 0);
+      const siteHeader = await page.evaluate(() => ({
+        lockup: document
+          .querySelector('.wordmark__logo')!
+          .getBoundingClientRect()
+          .toJSON() as DOMRect,
+        firstLink: document
+          .querySelector('nav[aria-label="Primary navigation"] a')!
+          .getBoundingClientRect()
+          .toJSON() as DOMRect,
+      }));
+      for (const route of ['/docs/', '/docs/system-overview/']) {
+        await page.goto(route);
+        const docs = await style();
+        // Docs is current here as Contribute is there; current and plain links match the site's.
+        expect(docs[2], `${route} at ${width}`).toBe(site[1]);
+        expect(
+          docs.filter((_, index) => index !== 2),
+          `${route} at ${width}`,
+        ).toEqual(site.filter((_, index) => index !== 1));
+        const geometry = await page.evaluate(() => {
+          const header = document.querySelector('header')!;
+          const nav = header.querySelector(
+            'nav[aria-label="Primary navigation"]',
+          )!;
+          const search = header.querySelector('button[data-open-modal]')!;
+          const box = (element: Element) =>
+            element.getBoundingClientRect().toJSON();
+          const baselines = [...nav.querySelectorAll('a')].map((link) => {
+            const range = document.createRange();
+            range.selectNodeContents(link.querySelector('span') ?? link);
+            return range.getBoundingClientRect().bottom;
+          });
+          return {
+            lockup: box(header.querySelector('.docs-header__lockup')!),
+            nav: box(nav),
+            firstLink: box(nav.querySelector('a')!),
+            search: box(search),
+            atlas: box(header.querySelector('.docs-header__atlas')!),
+            navFirst: Boolean(
+              nav.compareDocumentPosition(search) &
+              Node.DOCUMENT_POSITION_FOLLOWING,
+            ),
+            baselines,
+          };
+        });
+        const at = `${route} at ${width}`;
+        for (const edge of ['left', 'width'] as const)
+          expect(
+            Math.abs(geometry.lockup[edge] - siteHeader.lockup[edge]),
+            `${at}: lockup ${edge}`,
+          ).toBeLessThan(1);
+        expect(
+          Math.abs(geometry.firstLink.left - siteHeader.firstLink.left),
+          `${at}: first nav link`,
+        ).toBeLessThan(1);
+        // (Round 2 held the nav within 80 px of the lockup; it now stands exactly where the site
+        // header puts it, after the landing lockup's slot, 134 px after the compact lockup at 1440.)
+        expect(geometry.nav.left, at).toBeGreaterThan(geometry.lockup.right);
+        expect(geometry.search.left, at).toBeGreaterThan(geometry.nav.right);
+        expect(geometry.atlas.left, at).toBeGreaterThanOrEqual(
+          geometry.search.right,
+        );
+        expect(geometry.navFirst, `${at}: tab order`).toBe(true);
+        expect(
+          Math.max(...geometry.baselines) - Math.min(...geometry.baselines),
+          `${at}: one baseline`,
+        ).toBeLessThan(0.75);
+      }
+    }
+  },
+);
+
 // The docs shell speaks the site's visual language, not stock Starlight (design review, round 1):
 // Raleway at the site's weights and tracking, square controls, a square ion-ruled current item, and
 // the current page shown as the site shows it (starlight colour, no underline).
@@ -211,6 +345,49 @@ test('the docs shell uses the site’s type, square controls and current-page ma
     await expect(docs).toHaveCSS('color', 'rgb(242, 248, 255)');
     await expect(docs).toHaveCSS('box-shadow', 'none');
     await expect(docs).toHaveCSS('text-decoration-line', 'none');
+  }
+});
+
+// Design review, round 3: the previous and next cards were Starlight's rounded grey cards, set
+// 4 px above the footer's Privacy link, and the docs H1 ran larger than the site's page H1.
+test('the docs pager cards are the site’s square link cards, clear of the footer links', async ({
+  page,
+  isMobile,
+}) => {
+  await page.goto('/contribute/');
+  const siteH1 = await page
+    .getByRole('heading', { level: 1 })
+    .evaluate((heading) => getComputedStyle(heading).fontSize);
+  await page.goto('/docs/system-overview/');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveCSS(
+    'font-size',
+    siteH1,
+  );
+  const cards = page.locator('.pagination-links a');
+  await expect(cards).toHaveCount(2);
+  for (const card of await cards.all()) {
+    await expect(card).toHaveCSS('border-radius', '0px');
+    await expect(card).toHaveCSS(
+      'border-top-color',
+      'rgba(112, 230, 255, 0.18)',
+    );
+    await expect(card).toHaveCSS('box-shadow', 'none');
+  }
+  const gap = await page.evaluate(() => {
+    const last = [...document.querySelectorAll('.pagination-links a')].at(-1)!;
+    const privacy = document.querySelector('.docs-site-links a')!;
+    return (
+      privacy.getBoundingClientRect().top - last.getBoundingClientRect().bottom
+    );
+  });
+  // At least 2rem (36 px at the 18 px root).
+  expect(gap).toBeGreaterThanOrEqual(36);
+  if (!isMobile) {
+    await cards.first().hover();
+    await expect(cards.first()).toHaveCSS(
+      'border-top-color',
+      'rgb(112, 230, 255)',
+    );
   }
 });
 
@@ -3294,9 +3471,10 @@ test('explorer previews and opens separate surface and observation inspectors', 
   });
   const canvas = page.locator('.atlas-scene canvas').first();
   const hoverPreview = page.locator('.atlas-hover-preview');
-  const hoverNearCenter = async () => {
-    const box = await canvas.boundingBox();
-    expect(box).not.toBeNull();
+  // Near a point on the globe: the camera target, which desktop draws in the open area beside the
+  // controls, or a cell just west of it that the inspector will not cover (#452).
+  const hoverNearCenter = async (centre: Point) => {
+    await waitForRevealWave(page);
     for (const [offsetX, offsetY] of [
       [0, 0],
       [-18, 0],
@@ -3308,16 +3486,12 @@ test('explorer previews and opens separate surface and observation inspectors', 
       [-18, 18],
       [18, 18],
     ]) {
-      await page.mouse.move(
-        box!.x + box!.width / 2 + offsetX,
-        box!.y + box!.height / 2 + offsetY,
-      );
+      await page.mouse.move(centre.x + offsetX, centre.y + offsetY);
       if (await hoverPreview.isVisible()) return;
     }
   };
-  const clickNearCenter = async (inspector: Locator) => {
-    const box = await canvas.boundingBox();
-    expect(box).not.toBeNull();
+  const clickNearCenter = async (inspector: Locator, centre: Point) => {
+    await waitForRevealWave(page);
     for (const [offsetX, offsetY] of [
       [0, 0],
       [-18, 0],
@@ -3329,10 +3503,7 @@ test('explorer previews and opens separate surface and observation inspectors', 
       [-18, 18],
       [18, 18],
     ]) {
-      await page.mouse.click(
-        box!.x + box!.width / 2 + offsetX,
-        box!.y + box!.height / 2 + offsetY,
-      );
+      await page.mouse.click(centre.x + offsetX, centre.y + offsetY);
       if (await inspector.isVisible()) return;
     }
   };
@@ -3349,12 +3520,14 @@ test('explorer previews and opens separate surface and observation inspectors', 
   const surfaceInspector = page.getByRole('complementary', {
     name: 'Selected map cell',
   });
-  await hoverNearCenter();
+  // The surface inspector opens in the right rail; the pointer stays on the globe beside it.
+  const besideTarget = await besideGlobeCentre(page);
+  await hoverNearCenter(besideTarget);
   await expect(hoverPreview).toContainText('Modeled estimate');
   await expect(hoverPreview).toContainText('Posterior');
   await expect(hoverPreview).toContainText('95% credible range');
   await expect(hoverPreview).toContainText('Uncertainty');
-  await clickNearCenter(surfaceInspector);
+  await clickNearCenter(surfaceInspector, besideTarget);
   await expect(surfaceInspector).toBeVisible();
   await expect(hoverPreview).toBeVisible();
   const inspectorMetrics = await surfaceInspector.evaluate((element) => ({
@@ -3431,13 +3604,15 @@ test('explorer previews and opens separate surface and observation inspectors', 
   const observationInspector = page.getByRole('complementary', {
     name: 'Selected observation',
   });
-  await hoverNearCenter();
+  // The measured point sits at the camera target.
+  const target = await globeViewCentre(page);
+  await hoverNearCenter(target);
   await expect(hoverPreview).toBeVisible();
   await expect(hoverPreview).toContainText('Allele count (AC)');
   await expect(
     hoverPreview.locator('[data-observation-color]'),
   ).toHaveAttribute('data-observation-color', /^#[0-9a-f]{6}$/);
-  await clickNearCenter(observationInspector);
+  await clickNearCenter(observationInspector, target);
   await expect(observationInspector).toBeVisible();
   await expect(observationInspector).toContainText('Allele count (AC)');
   await expect(
@@ -3461,6 +3636,237 @@ test('explorer previews and opens separate surface and observation inspectors', 
   await page.keyboard.press('Escape');
   await expect(observationInspector).toHaveCount(0);
 });
+
+/**
+ * The HbS hover preview, its detail tier held, shows `cell`'s render-tier readouts. It names no
+ * cell (#449), and `heldReadoutsOf` refuses readouts another fixture cell shares, so these name it.
+ */
+async function expectHoverOnCell(
+  hoverPreview: Locator,
+  cell: string,
+): Promise<void> {
+  const held = heldReadoutsOf('hbs-rs334', cell);
+  await expect(valueRow(hoverPreview, 'Posterior')).toHaveText(held.posterior);
+  await expect(valueRow(hoverPreview, 'Uncertainty')).toHaveText(
+    held.uncertainty,
+  );
+}
+
+test.describe(
+  'the desktop globe beside the controls panel (#452)',
+  { tag: '@desktop-chromium' },
+  () => {
+    /** Covered canvas width from the layout: the panel's right edge minus the canvas's left. */
+    const coveredWidth = (page: Page) =>
+      page.evaluate(() => {
+        const canvas = document
+          .querySelector('.atlas-scene canvas')!
+          .getBoundingClientRect();
+        const panel = document
+          .querySelector('aside.atlas-controls')!
+          .getBoundingClientRect();
+        return panel.right - canvas.left;
+      });
+    const discOffCentre = async (page: Page, expected: () => Promise<Point>) =>
+      Math.abs((await measureGlobeDisc(page)).centreX - (await expected()).x);
+
+    test('is drawn centred in the open area, and at the canvas centre while the panel is hidden', async ({
+      page,
+    }) => {
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.goto(`/app/?${GLOBE_DISC_QUERY}`);
+      await waitForSettledGlobe(page);
+      const covered = await coveredWidth(page);
+      const centre = await canvasCentre(page);
+      // The panel covers the left of the full-width canvas, and the camera target is drawn
+      // half that width right of the canvas centre, in the middle of the open area.
+      expect(covered).toBeGreaterThan(300);
+      await expect
+        .poll(() =>
+          discOffCentre(page, async () => ({
+            x: centre.x + covered / 2,
+            y: centre.y,
+          })),
+        )
+        .toBeLessThanOrEqual(4);
+      expect((await measureGlobeDisc(page)).left).toBeGreaterThan(covered);
+
+      const panel = page.locator('aside.atlas-controls');
+      await panel.evaluate((element: HTMLElement) => {
+        element.hidden = true;
+      });
+      await expect
+        .poll(() => discOffCentre(page, () => canvasCentre(page)))
+        .toBeLessThanOrEqual(4);
+      await panel.evaluate((element: HTMLElement) => {
+        element.hidden = false;
+      });
+      await expect
+        .poll(() =>
+          discOffCentre(page, async () => ({
+            x: centre.x + covered / 2,
+            y: centre.y,
+          })),
+        )
+        .toBeLessThanOrEqual(4);
+
+      // A narrower window narrows the dock (21rem below 75rem) and moves the globe with it.
+      await page.setViewportSize({ height: 720, width: 1100 });
+      await expect.poll(() => coveredWidth(page)).toBeLessThan(covered);
+      await expect
+        .poll(() => discOffCentre(page, () => globeViewCentre(page)))
+        .toBeLessThanOrEqual(4);
+    });
+
+    test('hover and click select the cell drawn under the pointer', async ({
+      page,
+    }) => {
+      test.setTimeout(120_000);
+      // Held cell values keep the hover preview on the render tier's readouts, which name the cell.
+      const detail = await delayArtifactTier(
+        page,
+        'hbs-rs334',
+        'detail',
+        Number.POSITIVE_INFINITY,
+      );
+      // A camera straight above a resolution-4 cell's centroid (the e2e grid's resolution).
+      const cell = latLngToCell(40.4407, -3.7201, 4);
+      const [lat, lon] = cellToLatLng(cell);
+      const query = new URLSearchParams({
+        heading: '0',
+        height: '1000000',
+        lat: String(lat),
+        layers: 'surface,support,context,countries',
+        lon: String(lon),
+        pitch: '-90',
+        // No measured points or their sampling radii: they would win the pick over the cell.
+        samplingAreas: 'false',
+      });
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.goto(`/app/?${query}`);
+      await expect(page.locator('[data-atlas-ready="true"]')).toBeVisible({
+        timeout: 45_000,
+      });
+      const target = await globeViewCentre(page);
+      expect(target.x - (await canvasCentre(page)).x).toBeGreaterThan(150);
+
+      const hoverPreview = page.locator('.atlas-hover-preview');
+      await page.mouse.move(target.x, target.y);
+      await expectHoverOnCell(hoverPreview, cell);
+      const inspector = page.getByRole('complementary', {
+        name: 'Selected map cell',
+      });
+      const cellId = inspector
+        .locator('dt', { hasText: 'Cell ID' })
+        .locator('..')
+        .locator('dd');
+      await page.mouse.click(target.x, target.y);
+      await expect(cellId).toHaveText(cell);
+
+      detail.release();
+    });
+
+    for (const [geometry, elevation] of [
+      ['triangles', 'false'],
+      ['extruded', 'true'],
+    ] as const) {
+      test(`from 8,000 km the ${geometry} surface${elevation === 'true' ? ' at elevation' : ''} picks the cell drawn under the pointer`, async ({
+        page,
+      }) => {
+        test.setTimeout(120_000);
+        const detail = await delayArtifactTier(
+          page,
+          'hbs-rs334',
+          'detail',
+          Number.POSITIVE_INFINITY,
+        );
+        // From orbit the fixture's cells are a small patch, so a pick pass culled around the
+        // unshifted ray (thousands of km east of the pointer) would miss them; elevation reads
+        // depth through the translucent pick pass.
+        const cell = latLngToCell(40.4407, -3.7201, 4);
+        const [lat, lon] = cellToLatLng(cell);
+        const query = new URLSearchParams({
+          elevation,
+          exaggeration: '3',
+          geometry,
+          heading: '0',
+          height: '8000000',
+          lat: String(lat),
+          layers: 'surface,support,context,countries',
+          lon: String(lon),
+          pitch: '-90',
+          samplingAreas: 'false',
+        });
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+        await page.goto(`/app/?${query}`);
+        await expect(page.locator('[data-atlas-ready="true"]')).toBeVisible({
+          timeout: 45_000,
+        });
+        const target = await globeViewCentre(page);
+        await page.mouse.move(target.x, target.y);
+        await expectHoverOnCell(page.locator('.atlas-hover-preview'), cell);
+        await page.mouse.click(target.x, target.y);
+        await expect(
+          page
+            .getByRole('complementary', { name: 'Selected map cell' })
+            .locator('dt', { hasText: 'Cell ID' })
+            .locator('..')
+            .locator('dd'),
+        ).toHaveText(cell);
+        detail.release();
+      });
+    }
+
+    test('wheel zoom keeps the ground under the cursor there, as on a centred globe', async ({
+      page,
+    }) => {
+      test.setTimeout(120_000);
+      const detail = await delayArtifactTier(
+        page,
+        'hbs-rs334',
+        'detail',
+        Number.POSITIVE_INFINITY,
+      );
+      // Above 1,000 km Cesium zooms to the cursor by turning the globe towards its canvas centre.
+      const cell = latLngToCell(40.4407, -3.7201, 4);
+      const [lat, lon] = cellToLatLng(cell);
+      const query = new URLSearchParams({
+        heading: '0',
+        height: '4000000',
+        lat: String(lat),
+        layers: 'surface,support,context,countries',
+        lon: String(lon),
+        pitch: '-90',
+        samplingAreas: 'false',
+      });
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.goto(`/app/?${query}`);
+      await expect(page.locator('[data-atlas-ready="true"]')).toBeVisible({
+        timeout: 45_000,
+      });
+      const target = await globeViewCentre(page);
+      await page.mouse.move(target.x, target.y);
+      await expectHoverOnCell(page.locator('.atlas-hover-preview'), cell);
+      for (let notch = 0; notch < 3; notch += 1)
+        await page.mouse.wheel(0, -120);
+      // The URL takes the camera once it settles.
+      await expect
+        .poll(() => Number(new URL(page.url()).searchParams.get('height')))
+        .toBeLessThan(3_500_000);
+      const inspector = page.getByRole('complementary', {
+        name: 'Selected map cell',
+      });
+      await page.mouse.click(target.x, target.y);
+      await expect(
+        inspector
+          .locator('dt', { hasText: 'Cell ID' })
+          .locator('..')
+          .locator('dd'),
+      ).toHaveText(cell);
+      detail.release();
+    });
+  },
+);
 
 test('explorer reports unavailable WebGL with a retry action', async ({
   page,
@@ -3551,6 +3957,13 @@ test('explorer recovers from a render-loop error through Retry globe', async ({
   expect(restored.get('entity')).toBe('g6pd-deficiency');
   expect(restored.get('metric')).toBe('post_sd');
   expect(restored.get('opacity')).toBe('0.4');
+  // The recovered globe reveals its surface as a wave again (#453).
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'done');
+  expect(
+    await page.evaluate(
+      () => performance.getEntriesByName('atlas:reveal-wave').length,
+    ),
+  ).toBe(1);
   await expect(failure).toHaveCount(0);
   await expect(rawPanel).toHaveCount(0);
   expect(rawPanelSeen).toBe(false);
@@ -3805,6 +4218,301 @@ test('after the reveal, the borders load first, then the detail tier, then the s
   });
 });
 
+test('the surface reveals as a wave from the view centre to the horizon (#453)', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await holdRevealWaveFromStart(page, 0);
+  await page.goto(`/app/?${SURFACE_ONLY}`);
+  const explorer = page.locator('.atlas-explorer');
+  await expect(explorer).toHaveAttribute('data-atlas-ready', 'true', {
+    timeout: 45_000,
+  });
+  // Held at its start: every chunk is added, and nothing has grown yet.
+  await expect(explorer).toHaveAttribute('data-atlas-surface-visible', 'true');
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'running');
+  await cameraAtRest(page);
+  const view = await globeView(page);
+  const before = await waveFrame(page);
+  await holdRevealWave(page, EARLY_PROGRESS);
+  const early = await waveFrame(page);
+  await holdRevealWave(page, null);
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'done');
+  await renderedFrames(page);
+  const done = await waveFrame(page);
+
+  const reading = await readWave(page, { before, done, early }, view);
+  // Early in the wave the view centre is coloured and the limb is not; after it, both are.
+  expect(reading.centreEarly).toBeGreaterThan(0);
+  expect(reading.centreDone).toBeGreaterThan(0);
+  expect(reading.far).toBeGreaterThan(0);
+  expect(reading.farEarly).toBe(0);
+  expect(
+    await page.evaluate(
+      () => performance.getEntriesByName('atlas:reveal-wave').length,
+    ),
+  ).toBe(1);
+});
+
+test('a dataset switch retires the old surface at once and grows the new one from the centre (#453)', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await holdRevealWaveFromStart(page, 0);
+  await page.goto(`/app/?${SURFACE_ONLY}`);
+  const explorer = page.locator('.atlas-explorer');
+  await expect(explorer).toHaveAttribute('data-atlas-ready', 'true', {
+    timeout: 45_000,
+  });
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'running');
+  await cameraAtRest(page);
+  const view = await globeView(page);
+  const empty = await waveFrame(page);
+  await holdRevealWave(page, null);
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'done');
+  await renderedFrames(page);
+  const hbs = await waveFrame(page);
+
+  await holdRevealWave(page, 0);
+  await chooseAtlasMap(page, 'g6pd-deficiency');
+  await expect(explorer).toHaveAttribute(
+    'data-atlas-active',
+    'g6pd-deficiency',
+    { timeout: 45_000 },
+  );
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'running');
+  await expect(
+    page.locator('[role="option"][data-map-id="g6pd-deficiency"]'),
+  ).toBeHidden();
+  await renderedFrames(page);
+  const before = await waveFrame(page);
+  // At the commit the old surface is gone: none of HbS shows, near the centre or the limb.
+  const gone = await readWave(
+    page,
+    { before: empty, done: hbs, early: before },
+    view,
+  );
+  expect(gone.centreDone).toBeGreaterThan(0);
+  expect(gone.far).toBeGreaterThan(0);
+  expect(gone.centreEarly).toBe(0);
+  expect(gone.farEarly).toBe(0);
+
+  await holdRevealWave(page, EARLY_PROGRESS);
+  const early = await waveFrame(page);
+  await holdRevealWave(page, null);
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'done');
+  await renderedFrames(page);
+  const done = await waveFrame(page);
+  const reading = await readWave(page, { before, done, early }, view);
+  expect(reading.centreEarly).toBeGreaterThan(0);
+  expect(reading.far).toBeGreaterThan(0);
+  expect(reading.farEarly).toBe(0);
+});
+
+test('reduced motion shows the whole surface at once, with no wave (#453)', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  // A wave would stand at nothing for the whole test.
+  await holdRevealWaveFromStart(page, 0);
+  await page.addInitScript(() => {
+    const states: string[] = [];
+    (window as Window & { __atlasWaveStates?: string[] }).__atlasWaveStates =
+      states;
+    new MutationObserver(() => {
+      const explorer = document.querySelector('.atlas-explorer');
+      const state = explorer?.getAttribute('data-atlas-wave');
+      if (state && states.at(-1) !== state) states.push(state);
+    }).observe(document, {
+      attributeFilter: ['data-atlas-wave'],
+      attributes: true,
+      subtree: true,
+    });
+  });
+  const render = await delayArtifactTier(
+    page,
+    'hbs-rs334',
+    'render',
+    Number.POSITIVE_INFINITY,
+  );
+  await page.goto(`/app/?${SURFACE_ONLY}`);
+  const explorer = page.locator('.atlas-explorer');
+  await expect.poll(() => render.hits(), { timeout: 30_000 }).toBe(1);
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'pending');
+  await cameraAtRest(page);
+  const view = await globeView(page);
+  const before = await waveFrame(page);
+
+  render.release();
+  await expect(explorer).toHaveAttribute('data-atlas-ready', 'true', {
+    timeout: 45_000,
+  });
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'done');
+  await renderedFrames(page);
+  const shown = await waveFrame(page);
+  const reading = await readWave(
+    page,
+    { before, done: shown, early: shown },
+    view,
+  );
+  expect(reading.centreEarly).toBeGreaterThan(0);
+  expect(reading.far).toBeGreaterThan(0);
+  expect(reading.farEarly).toBe(reading.far);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as Window & { __atlasWaveStates?: string[] }).__atlasWaveStates,
+    ),
+  ).toEqual(['pending', 'done']);
+  expect(
+    await page.evaluate(
+      () => performance.getEntriesByName('atlas:reveal-wave').length,
+    ),
+  ).toBe(0);
+});
+
+/** Early enough that the ring is well inside "far" even when the wave runs to the horizon. */
+const UNREACHED_PROGRESS = 0.2;
+
+test('hexagons the wave has not reached cannot be hovered (#453)', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(
+    isMobile,
+    'coordinate-sensitive canvas picking is covered in the desktop project',
+  );
+  test.setTimeout(120_000);
+  // Close enough for hexagons several pixels wide. The cold reveal runs at the home view, so
+  // this wave is a dataset switch's, started once the camera has flown in.
+  await page.goto(`/app/?${cellCamera(4_000_000, { geometry: 'hexagons' })}`);
+  const explorer = page.locator('.atlas-explorer');
+  await expect(explorer).toHaveAttribute('data-atlas-ready', 'true', {
+    timeout: 45_000,
+  });
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'done');
+  await cameraAtRest(page);
+  await holdRevealWave(page, 0);
+  await chooseAtlasMap(page, 'g6pd-deficiency');
+  await expect(explorer).toHaveAttribute(
+    'data-atlas-active',
+    'g6pd-deficiency',
+    { timeout: 45_000 },
+  );
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'running');
+  await expect(
+    page.locator('[role="option"][data-map-id="g6pd-deficiency"]'),
+  ).toBeHidden();
+  await renderedFrames(page);
+  const box = (await page
+    .locator('.atlas-scene canvas')
+    .first()
+    .boundingBox())!;
+  // The globe fills this view; "far" is half way from the centre to a corner. The wave starts
+  // where the view ray meets the globe, which desktop draws in the open area beside the controls
+  // (#452).
+  const view = {
+    centre: await globeViewCentre(page),
+    farFrom: Math.hypot(box.width, box.height) / 4,
+    near: 3,
+  };
+  const before = await waveFrame(page);
+  // Nearly at its end the wave has grown every visible hexagon (stepping back is test-only).
+  await holdRevealWave(page, 0.9999);
+  const grown = await waveFrame(page);
+  // On desktop the drawn view axis sits 234 px right of the canvas centre (#452). By the
+  // camera's geometry, at 4,000 km the canvas's left edge, under the controls panel, then shows
+  // sky past the limb, so the wave runs to the horizon (about 53°, drawn about 860 px from the
+  // view axis) instead of the view's edge (about 30°). The wave is timed on screen (#453,
+  // 2026-10-14): at 20% its leading edge lies about 230 px out, well inside "far" (about 357 px),
+  // and the centre hexagon is fully grown.
+  await holdRevealWave(page, UNREACHED_PROGRESS);
+  const early = await waveFrame(page);
+  const reading = await readWave(page, { before, done: grown, early }, view);
+  expect(reading.centreEarly).toBeGreaterThan(0);
+  expect(reading.far).toBeGreaterThan(0);
+  expect(reading.farEarly).toBe(0);
+  expect(reading.farPoint).not.toBeNull();
+
+  const preview = page.locator('.atlas-hover-preview');
+  const far = reading.farPoint!;
+  await page.mouse.move(far.x, far.y);
+  await renderedFrames(page);
+  await page.waitForTimeout(500);
+  await expect(preview).toBeHidden();
+  await page.mouse.move(view.centre.x, view.centre.y);
+  await expect(preview).toBeVisible();
+
+  await holdRevealWave(page, null);
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'done');
+  await page.mouse.move(far.x, far.y);
+  await expect(preview).toBeVisible();
+});
+
+test('the cold wave runs once, and the post-reveal loads arrive during or after it (#450, #453)', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  // The wave starts with the first chunk (§B.6.7) and the load order starts the borders at
+  // surface-visible (§B.6.9). Whether they land during the wave or after it depends on how long
+  // the chunked reveal takes; either way none arrives before the wave has started, neither the
+  // borders nor the detail tier restarts it, and cell outlines are built once it has passed.
+  const catalog = await readInlineCatalog(page);
+  const borders = contextSourceKey(
+    catalog as unknown as AtlasCatalog,
+    NATURAL_EARTH_BORDERS,
+  );
+  const detail = artifactTierKey(catalog, 'hbs-rs334', 'detail');
+  await page.goto('/app/');
+  const explorer = page.locator('.atlas-explorer');
+  for (const attribute of [
+    'data-atlas-values-ready',
+    'data-atlas-context-ready',
+    'data-atlas-edges-ready',
+  ])
+    await expect(explorer).toHaveAttribute(attribute, 'true', {
+      timeout: 45_000,
+    });
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'done');
+
+  const timing = await page.evaluate(
+    ({ borders, detail }) => {
+      const resources = (key: string) =>
+        (
+          performance.getEntriesByType(
+            'resource',
+          ) as PerformanceResourceTiming[]
+        )
+          .filter((entry) => new URL(entry.name).pathname.endsWith(`/${key}`))
+          .map((entry) => ({ end: entry.responseEnd, start: entry.startTime }));
+      return {
+        borders: resources(borders),
+        detail: resources(detail),
+        edges:
+          performance.getEntriesByName('atlas:edges-ready')[0]?.startTime ??
+          null,
+        waves: performance
+          .getEntriesByName('atlas:reveal-wave')
+          .map((entry) => ({
+            end: entry.startTime + entry.duration,
+            start: entry.startTime,
+          })),
+      };
+    },
+    { borders, detail },
+  );
+  expect(timing.waves).toHaveLength(1);
+  const [wave] = timing.waves;
+  expect(timing.borders).toHaveLength(1);
+  expect(timing.detail).toHaveLength(1);
+  expect(timing.borders[0].end).toBeLessThanOrEqual(timing.detail[0].start);
+  expect(timing.borders[0].end).toBeGreaterThanOrEqual(wave.start);
+  expect(timing.detail[0].end).toBeGreaterThanOrEqual(wave.start);
+  expect(timing.edges).not.toBeNull();
+  expect(timing.edges!).toBeGreaterThanOrEqual(wave.end);
+});
+
 test('style choices in the URL reach the scene that renders them', async ({
   page,
 }) => {
@@ -3846,7 +4554,7 @@ test('switching dataset closes the inspector instead of keeping the old artifact
   const inspector = page.getByRole('complementary', {
     name: 'Selected map cell',
   });
-  await pointNearCanvasCentre(page, 'click', inspector);
+  await pointNearGlobeCentre(page, 'click', inspector);
   await expect(inspector).toBeVisible();
 
   await chooseAtlasMap(page, 'g6pd-deficiency');
@@ -3860,7 +4568,7 @@ test('switching dataset closes the inspector instead of keeping the old artifact
   await expect(inspector).toBeHidden();
 });
 
-const CANVAS_CENTRE_OFFSETS = [
+const GLOBE_CENTRE_OFFSETS = [
   [0, 0],
   [-18, 0],
   [18, 0],
@@ -3898,16 +4606,21 @@ const STALL_ABORT_SETTLE_MS = 2_000;
 const HELD_PAST_PRODUCTION_STALL =
   'the provider aborted the held detail tier at the production stall window (build with npm run build:e2e)';
 
-async function pointNearCanvasCentre(
+/**
+ * Points near a surface cell just west of the camera target, which desktop draws in the open area
+ * beside the controls, so the inspector that opens in the right rail never covers the pointer
+ * (#452).
+ */
+async function pointNearGlobeCentre(
   page: Page,
   action: 'move' | 'click',
   until: Locator,
 ): Promise<void> {
-  const box = await page.locator('.atlas-scene canvas').first().boundingBox();
-  expect(box).not.toBeNull();
-  for (const [offsetX, offsetY] of CANVAS_CENTRE_OFFSETS) {
-    const x = box!.x + box!.width / 2 + offsetX;
-    const y = box!.y + box!.height / 2 + offsetY;
+  await waitForRevealWave(page);
+  const centre = await besideGlobeCentre(page);
+  for (const [offsetX, offsetY] of GLOBE_CENTRE_OFFSETS) {
+    const x = centre.x + offsetX;
+    const y = centre.y + offsetY;
     if (action === 'move') await page.mouse.move(x, y);
     else await page.mouse.click(x, y);
     if (await until.isVisible()) return;
@@ -3974,7 +4687,7 @@ test('surface hover and inspector show marked render values until the detail tie
   await expect(explorer).not.toHaveAttribute('data-atlas-values-ready', 'true');
 
   const hoverPreview = page.locator('.atlas-hover-preview');
-  await pointNearCanvasCentre(page, 'move', hoverPreview);
+  await pointNearGlobeCentre(page, 'move', hoverPreview);
   await expect(valueRow(hoverPreview, 'Posterior')).toHaveText(
     PROVISIONAL_VALUE,
   );
@@ -3990,7 +4703,7 @@ test('surface hover and inspector show marked render values until the detail tie
   const inspector = page.getByRole('complementary', {
     name: 'Selected map cell',
   });
-  await pointNearCanvasCentre(page, 'click', inspector);
+  await pointNearGlobeCentre(page, 'click', inspector);
   await expect(inspector).toBeVisible();
   await expect(valueRow(inspector, 'Posterior estimate')).toHaveText(
     provisionalWithNote('loading'),
@@ -4105,7 +4818,7 @@ test('surface values report an unavailable detail tier and recover on retry', as
   const inspector = page.getByRole('complementary', {
     name: 'Selected map cell',
   });
-  await pointNearCanvasCentre(page, 'click', inspector);
+  await pointNearGlobeCentre(page, 'click', inspector);
   await expect(inspector).toContainText('Cell values unavailable', {
     timeout: 20_000,
   });

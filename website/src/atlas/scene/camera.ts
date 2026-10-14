@@ -90,10 +90,15 @@ export function cameraState(widget: CesiumWidget): CameraState | null {
   };
 }
 
+/**
+ * Moves the camera to `state`, in a 1.2 s flight when `animated`. `settled` runs once the camera
+ * stands there, or once the flight is cancelled (a newer flight or a scene morph cancels it).
+ */
 export function setCameraState(
   widget: CesiumWidget,
   state: CameraState,
   animated: boolean,
+  settled?: () => void,
 ): void {
   const destination = Cartesian3.fromDegrees(
     state.lon,
@@ -106,8 +111,16 @@ export function setCameraState(
     roll: 0,
   };
   if (animated)
-    widget.camera.flyTo({ destination, duration: 1.2, orientation });
-  else widget.camera.setView({ destination, orientation });
+    widget.camera.flyTo({
+      destination,
+      duration: 1.2,
+      orientation,
+      ...(settled && { cancel: settled, complete: settled }),
+    });
+  else {
+    widget.camera.setView({ destination, orientation });
+    settled?.();
+  }
 }
 
 function runCommand(widget: CesiumWidget, command: KeyboardCommand): void {

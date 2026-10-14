@@ -14,6 +14,10 @@ import {
   type SurfaceChunkBuffers,
 } from '../src/atlas/geometry/surface-buffers';
 import { needsLongitudeSplit } from '../src/atlas/geometry/wgs84';
+import {
+  restingWave,
+  type RevealWaveUniforms,
+} from '../src/atlas/scene/reveal-wave';
 import { animateSwap, fadeTogether } from '../src/atlas/scene/scene-transition';
 import {
   createSurfaceChunkGroup,
@@ -23,6 +27,7 @@ import type { ElevatedSurfaceAppearance } from '../src/atlas/scene/surface-appea
 import type { SurfaceGeometry } from '../src/atlas/url-state';
 import {
   emptySupport,
+  flatTriangleSurfaceBuffers,
   maskedSupport,
   seamSurfaceBuffers,
   triangleSurfaceBuffers,
@@ -31,7 +36,10 @@ import { stubCesiumBrowserImageTypes } from './helpers/cesium-stubs';
 
 const KEY = 'hbs-rs334:v3:map-2026-08';
 
-function group(geometry: SurfaceGeometry = 'triangles') {
+function group(
+  geometry: SurfaceGeometry = 'triangles',
+  wave?: RevealWaveUniforms,
+) {
   stubCesiumBrowserImageTypes();
   return createSurfaceChunkGroup({
     artifactKey: KEY,
@@ -40,7 +48,15 @@ function group(geometry: SurfaceGeometry = 'triangles') {
     geometry,
     requestRender: vi.fn(),
     surfaceOpacity: 0.5,
+    wave,
   });
+}
+
+type GeometryAttributesOf = Record<string, { values: ArrayLike<number> }>;
+
+function attributesOf(primitive: Primitive): GeometryAttributesOf {
+  return (primitive.geometryInstances as GeometryInstance).geometry
+    .attributes as unknown as GeometryAttributesOf;
 }
 
 function markReady(primitives: readonly Primitive[]): void {
@@ -422,6 +438,83 @@ describe('surface chunk group', () => {
       true,
       true,
     ]);
+  });
+
+  it('grows flat chunks from their cell centres and fades smooth ones per vertex (#453)', () => {
+    const flat = group('hexagons');
+    const buffers = flatTriangleSurfaceBuffers(0);
+    flat.addChunk(buffers, emptySupport(0));
+    const smooth = group('triangles');
+    smooth.addChunk(triangleSurfaceBuffers(0), emptySupport(0));
+
+    expect(attributesOf(childAt(flat, 0, 0)).cellCentre.values).toBe(
+      buffers.cellCentres,
+    );
+    expect(childAt(flat, 0, 0).appearance.vertexShaderSource).toContain(
+      '#define ATLAS_CELL_GROWTH',
+    );
+    expect(attributesOf(childAt(smooth, 0, 0))).not.toHaveProperty(
+      'cellCentre',
+    );
+    expect(childAt(smooth, 0, 0).appearance.vertexShaderSource).not.toContain(
+      '#define ATLAS_CELL_GROWTH',
+    );
+  });
+
+  it('gives every surface chunk and mask the one shared wave (#453)', () => {
+    const wave = restingWave();
+    const layer = group('hexagons', wave);
+    const support = maskedSupport(0);
+    layer.addChunk(flatTriangleSurfaceBuffers(0), support);
+    layer.addChunk(triangleSurfaceBuffers(1), maskedSupport(1));
+    wave.radius = 0.3;
+
+    for (const primitive of childrenOf(layer, 0))
+      expect(
+        (primitive.appearance as ElevatedSurfaceAppearance).uniforms
+          .u_waveRadius,
+      ).toBe(0.3);
+    const masks = childrenOf(layer, 1);
+    expect(masks).toHaveLength(4);
+    for (const primitive of masks) {
+      expect(
+        (
+          primitive.appearance as unknown as {
+            uniforms: { u_waveRadius: number };
+          }
+        ).uniforms.u_waveRadius,
+      ).toBe(0.3);
+      expect(primitive.appearance.vertexShaderSource).toContain(
+        'in vec3 cellCentre;',
+      );
+    }
+    expect(attributesOf(masks[0]).cellCentre.values).toBe(
+      support.unknown!.cellCentres,
+    );
+    expect(attributesOf(masks[1]).cellCentre.values).toBe(
+      support.priorDominated[0].buffers.cellCentres,
+    );
+    // The masks keep their hatch and dot materials.
+    expect(masks[0].appearance.material.type).toBe('Grid');
+    expect(masks[1].appearance.material.type).toBe('Dot');
+  });
+
+  it('holds the cell outlines while the wave runs and shows them once it ends (#453)', () => {
+    const layer = group();
+    expect(layer.edges.collection.show).toBe(true);
+    layer.setEdgesHeld(true);
+    expect(layer.edges.collection.show).toBe(false);
+    // A visibility or fade change during the wave keeps them held.
+    layer.setVisibility(true, true);
+    layer.setOpacity(1);
+    expect(layer.edges.collection.show).toBe(false);
+    layer.setEdgesHeld(false);
+    expect(layer.edges.collection.show).toBe(true);
+    // Outlines turned off stay off when the wave ends.
+    layer.setEdgesHeld(true);
+    void layer.setCellEdges(false);
+    layer.setEdgesHeld(false);
+    expect(layer.edges.collection.show).toBe(false);
   });
 
   it('gamma-corrects and closes extruded chunks', () => {

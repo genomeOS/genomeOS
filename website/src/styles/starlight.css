@@ -24,7 +24,8 @@
   --sl-text-lg: 1.25rem;
   --sl-text-body: var(--sl-text-base);
   --sl-text-body-sm: var(--sl-text-sm);
-  --sl-text-h1: clamp(2.6rem, 6vw, 4.8rem);
+  /* The site's page H1 (design review, round 3); tokens.css comes with the docs header. */
+  --sl-text-h1: var(--type-h1);
 }
 
 html {
@@ -127,8 +128,36 @@ button[data-open-modal] > kbd {
   backdrop-filter: blur(18px);
 }
 
+/* Where the sidebar sits beside the page, the bar's contents sit in the site's content column: the
+   site gutter, or the room either side of the 76rem container (tokens.css, global.css
+   .site-header__inner), so the lockup and the nav stand where they stand on a site page (design
+   review, round 3). The percentage is of the viewport, the fixed bar's containing block. */
+@media (min-width: 50rem) {
+  .header {
+    padding-inline: max(var(--space-page), (100% - var(--content-width)) / 2);
+  }
+}
+
 .sidebar-pane {
   border-right-color: var(--sl-color-hairline);
+}
+
+/* The previous and next cards read as the site's link cards (github-cta.css): square, on a
+   hairline, ion on hover and focus (design review, round 3). */
+.pagination-links a {
+  border-color: var(--color-line);
+  border-radius: 0;
+  background-color: rgb(7 24 49 / 66%);
+  box-shadow: none;
+  transition:
+    border-color 220ms ease,
+    background-color 220ms ease;
+}
+
+.pagination-links a:hover,
+.pagination-links a:focus-visible {
+  border-color: var(--color-ion);
+  background-color: rgb(10 35 67 / 96%);
 }
 
 a:focus-visible,
@@ -156,5 +185,9 @@ select:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
+  }
+
+  .pagination-links a {
+    transition: none;
   }
 }

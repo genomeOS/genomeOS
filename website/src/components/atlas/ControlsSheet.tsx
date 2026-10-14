@@ -81,6 +81,8 @@ function restoreFocusAfterWidening(
 interface ControlsSheetProps {
   children: ReactNode;
   explorer: HTMLElement | null;
+  /** Receives the panel element, which the desktop globe offset measures (#452). */
+  panelRef?: (node: HTMLElement | null) => void;
   peekExtra?: ReactNode;
   summary: string;
 }
@@ -88,6 +90,7 @@ interface ControlsSheetProps {
 export function ControlsSheet({
   children,
   explorer,
+  panelRef,
   peekExtra,
   summary,
 }: ControlsSheetProps) {
@@ -108,8 +111,9 @@ export function ControlsSheet({
     (node: HTMLElement | null) => {
       aside.current = node;
       sheetRef(node);
+      panelRef?.(node);
     },
-    [sheetRef],
+    [panelRef, sheetRef],
   );
   const peekHeldFocus = useRef(false);
   useLayoutEffect(() => {
