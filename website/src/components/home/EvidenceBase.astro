@@ -1,0 +1,243 @@
+---
+/**
+ * A growing global evidence base (site redesign spec §4.1 H4; #454; replaces CorpusMetrics and
+ * MetricIcon). Three totals from the pinned corpus revision (src/data/corpusMetrics.ts), each with
+ * what it is made of: a hairline composition bar (segments at least 2 px, 1 px gaps, labels
+ * outside the bar) for variants and people, two labelled glyphs for diseases. The people total adds
+ * its sources together, so its bar ends in a hatch cap: "not deduplicated". Each source keeps one
+ * tone in every tile (HbS light, AFND grey, G6PD faint). The collapsed definition and its revision
+ * hash are unchanged. Final values are in the HTML; count-up.ts only animates the visible digits,
+ * which are aria-hidden: assistive technology reads the final value beside them, never a zero.
+ */
+import Figure from '../kit/Figure.astro';
+import { corpusMetrics, metricTotal } from '../../data/corpusMetrics';
+
+const { variants, people } = corpusMetrics;
+const millions = (value: number) => `${(value / 1e6).toFixed(2)}M`;
+const int = (value: number) => value.toLocaleString('en-US');
+
+type Source = 'hbs' | 'afnd' | 'g6pd';
+
+/** One tone per source, the same in every tile. */
+const TONE: Record<Source, 1 | 2 | 3> = { hbs: 1, afnd: 2, g6pd: 3 };
+
+interface Part {
+  source: Source;
+  short: string;
+  name: string;
+  value: number;
+  shown: string;
+}
+
+const tiles: {
+  kind: 'variants' | 'people';
+  total: number;
+  shown: string;
+  format: 'int' | 'millions';
+  label: string;
+  parts: Part[];
+  cap?: string;
+}[] = [
+  {
+    kind: 'variants',
+    total: metricTotal(variants),
+    shown: int(metricTotal(variants)),
+    format: 'int',
+    label: 'Genetic variants & alleles',
+    parts: [
+      {
+        source: 'afnd',
+        short: 'AFND',
+        name: 'AFND allele identifiers',
+        value: variants.components.afndAlleleIdentifiersAfterCurrentFilters,
+        shown: int(
+          variants.components.afndAlleleIdentifiersAfterCurrentFilters,
+        ),
+      },
+      {
+        source: 'hbs',
+        short: 'HbS',
+        name: 'HbS variant (rs334)',
+        value: variants.components.hbsVariant,
+        shown: int(variants.components.hbsVariant),
+      },
+    ],
+  },
+  {
+    kind: 'people',
+    total: metricTotal(people),
+    shown: millions(metricTotal(people)),
+    format: 'millions',
+    label: 'People represented',
+    parts: [
+      {
+        source: 'hbs',
+        short: 'HbS',
+        name: 'HbS-typed participants',
+        value: people.components.hbsTypedParticipants,
+        shown: millions(people.components.hbsTypedParticipants),
+      },
+      {
+        source: 'afnd',
+        short: 'AFND',
+        name: 'AFND population records',
+        value: people.components.afndPopulationRecords,
+        shown: millions(people.components.afndPopulationRecords),
+      },
+      {
+        source: 'g6pd',
+        short: 'G6PD',
+        name: 'G6PD-tested hemizygous males',
+        value: people.components.g6pdHemizygousMaleParticipants,
+        shown: millions(people.components.g6pdHemizygousMaleParticipants),
+      },
+    ],
+    cap: people.isDeduplicated ? undefined : 'not deduplicated',
+  },
+];
+const diseases = metricTotal(corpusMetrics.diseases);
+---
+
+<Figure
+  graphic="evidence-base"
+  interactive
+  labelledby="metrics-title"
+  class="eb"
+>
+  <div class="eb-tiles">
+    {
+      tiles.map((tile) => (
+        <div class="metric" data-metric-kind={tile.kind}>
+          <data
+            value={tile.total}
+            data-count-to={tile.total}
+            data-count-format={tile.format}
+            aria-hidden="true"
+          >
+            {tile.shown}
+          </data>
+          <span class="visually-hidden">{tile.shown}</span>
+          <h3>{tile.label}</h3>
+          <div class="eb-bar" aria-hidden="true">
+            {tile.parts.map((part) => (
+              <span
+                class="eb-bar__segment"
+                data-source={part.source}
+                data-tone={TONE[part.source]}
+                style={`flex-grow: ${part.value}`}
+                title={`${part.name}: ${int(part.value)}`}
+              />
+            ))}
+            {tile.cap && (
+              <span
+                class="eb-bar__cap"
+                title="Sources are summed, not deduplicated"
+              />
+            )}
+          </div>
+          <ul class="eb-parts" aria-hidden="true">
+            {tile.parts.map((part) => (
+              <li title={part.name}>
+                <i
+                  class="eb-swatch"
+                  data-source={part.source}
+                  data-tone={TONE[part.source]}
+                />
+                {part.short} {part.shown}
+              </li>
+            ))}
+            {tile.cap && (
+              <li>
+                <i class="eb-swatch eb-swatch--cap" />
+                {tile.cap}
+              </li>
+            )}
+          </ul>
+          <ul class="visually-hidden">
+            {tile.parts.map((part) => (
+              <li>
+                {part.name}: {int(part.value)}
+              </li>
+            ))}
+            {tile.cap && <li>The sources are summed, not deduplicated.</li>}
+          </ul>
+        </div>
+      ))
+    }
+    <div class="metric" data-metric-kind="diseases">
+      <data
+        value={diseases}
+        data-count-to={diseases}
+        data-count-format="int"
+        aria-hidden="true">{int(diseases)}</data
+      >
+      <span class="visually-hidden">{int(diseases)}</span>
+      <h3>Diseases represented</h3>
+      <ul class="eb-diseases">
+        <li>
+          <svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true">
+            <path
+              d="M5 20c4-9 15-13 23-9-3-1-7 1-10 4s-6 7-13 5z"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linejoin="round"></path>
+          </svg>
+          Sickle-cell disease
+        </li>
+        <li>
+          <svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true">
+            <circle
+              cx="16"
+              cy="16"
+              r="10.5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"></circle>
+            <circle
+              cx="16"
+              cy="16"
+              r="5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.2"
+              stroke-dasharray="2 2"></circle>
+          </svg>
+          G6PD deficiency
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <details slot="legend" class="eb-method">
+    <summary>How these counts are defined</summary>
+    <div>
+      <p>
+        Variant total: 4,391 identifiers from the <a
+          href="https://www.allelefrequencies.net/"
+          >Allele Frequency Net Database (AFND)</a
+        > after the current quality filters, plus the haemoglobin S variant associated
+        with sickle-cell disease (also known as HbS or rs334). Participant total:
+        each retained database population sample counted once, plus people tested
+        in the retained haemoglobin S surveys and male participants in the retained
+        glucose-6-phosphate dehydrogenase (G6PD) deficiency surveys. Some studies
+        may include overlapping groups, so this total describes the scale of the collected
+        evidence rather than a verified census of unique individuals.
+      </p>
+      <p>
+        Recomputed {corpusMetrics.countedAt} from source snapshot {
+          corpusMetrics.sourceRevision
+        }, last updated {corpusMetrics.sourceUpdatedAt}.
+      </p>
+    </div>
+  </details>
+</Figure>
+
+<script>
+  import { initCountUp } from './count-up';
+
+  for (const figure of document.querySelectorAll<HTMLElement>(
+    'figure[data-graphic="evidence-base"]',
+  ))
+    initCountUp(figure);
+</script>

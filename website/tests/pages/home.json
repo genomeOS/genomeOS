@@ -1,8 +1,8 @@
 {
   "route": "/",
   "words": 425,
-  "wordsEnforced": false,
-  "conceptsEnforced": false,
+  "wordsEnforced": true,
+  "conceptsEnforced": true,
   "concepts": 7,
   "jsKbGz": 24,
   "dataKbGz": 60,

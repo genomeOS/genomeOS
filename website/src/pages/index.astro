@@ -1,89 +1,312 @@
 ---
-// Home's own stylesheets, ahead of the shared CSS as when global.css imported them (#454).
-import '../styles/home.css';
-import '../styles/metrics.css';
-import '../styles/applications.css';
-import '../styles/mission.css';
-import '../styles/process.css';
-import Applications from '../components/Applications.astro';
+/**
+ * Home (site redesign spec §4.1, #454): seven concepts, each one figure plus its legend, in this
+ * order: the evidence globe (hero), counts not guesses (#why), the Pipeline (#how), the evidence
+ * base (#metrics-title), potential applications, the larger vision, and one closing band.
+ */
+import ralewayLatin from '@fontsource-variable/raleway/files/raleway-latin-wght-normal.woff2?url';
 import BrandName from '../components/BrandName.astro';
-import CorpusMetrics from '../components/CorpusMetrics.astro';
-import Hero from '../components/Hero.astro';
-import HowItWorks from '../components/HowItWorks.astro';
-import MissionIntro from '../components/MissionIntro.astro';
+import ApplicationCard from '../components/home/ApplicationCard.astro';
+import CountsFigure from '../components/home/CountsFigure.astro';
+import EvidenceBase from '../components/home/EvidenceBase.astro';
+import HeroGlobe from '../components/home/HeroGlobe.astro';
+import OpenField from '../components/home/OpenField.astro';
+import VisionStrip from '../components/home/VisionStrip.astro';
+import Glyph from '../components/kit/Glyph.astro';
+import Pipeline from '../components/kit/Pipeline.astro';
 import SiteLayout from '../layouts/SiteLayout.astro';
 import { sitePath } from '../lib/paths';
 import '../styles/pages/home.css';
+
+const applications = [
+  {
+    title: 'Screening programmes',
+    horizon: 'First-release direction',
+    tone: 'aurora',
+    line: 'Where carrier screening would help most.',
+  },
+  {
+    title: 'Diagnostic context',
+    horizon: 'Clinical validation needed',
+    tone: 'signal',
+    line: 'Regional context before a genetic test.',
+  },
+  {
+    title: 'Trial planning',
+    horizon: 'Study planning',
+    tone: 'ion',
+    line: 'Where a study could find enough carriers.',
+  },
+  {
+    title: 'The map of what we don’t know',
+    horizon: 'Headline output',
+    tone: 'ion',
+    line: 'Where the next sample matters most.',
+  },
+  {
+    title: 'Medicines and drug response',
+    horizon: 'Future exploration',
+    tone: 'genome',
+    line: 'Variants that change a dose.',
+  },
+  {
+    title: 'Research and discovery',
+    horizon: 'Hypothesis generation',
+    tone: 'ion',
+    line: 'Patterns worth testing.',
+  },
+] as const;
+
+const repository = 'https://github.com/genomeOS/genomeOS';
+const routes = [
+  {
+    href: `${repository}/discussions/76`,
+    lead: 'Meet the community',
+    label: 'Introduce yourself',
+    external: true,
+    primary: true,
+  },
+  {
+    href: sitePath('/contribute/#working-groups'),
+    lead: 'Find your group',
+    label: 'Working groups',
+    external: false,
+    primary: false,
+  },
+  {
+    href: `${repository}/issues`,
+    lead: 'See what needs doing',
+    label: 'Open issues',
+    external: true,
+    primary: false,
+  },
+  {
+    href: 'https://github.com/orgs/genomeOS/projects/1',
+    lead: 'See the roadmap',
+    label: 'Project board',
+    external: true,
+    primary: false,
+  },
+];
 ---
 
 <SiteLayout
   title="genomeOS"
   description="Make the world's genetic diversity useful for better screening, medicine, discovery, and more representative research."
 >
-  <Hero />
-  <MissionIntro />
-  <CorpusMetrics />
-  <Applications />
+  <link
+    slot="head"
+    rel="preload"
+    href={ralewayLatin}
+    as="font"
+    type="font/woff2"
+    crossorigin
+  />
+  <Glyph sprite />
 
-  <HowItWorks />
-
-  <section class="home-project-path" aria-labelledby="home-project-path-title">
-    <div class="section-shell home-project-path__inner" data-reveal>
-      <div class="home-project-path__media">
-        <img
-          src={sitePath('/images/vision-earth.webp')}
-          alt="A luminous globe showing genetic evidence points distributed unevenly across the world"
-          width="1536"
-          height="1024"
-          loading="lazy"
-          decoding="async"
-        />
-      </div>
-      <div class="home-project-path__copy">
-        <p class="section-kicker">Explore the larger vision</p>
-        <h2 id="home-project-path-title">
-          From one world map to many biological scales.
-        </h2>
-        <p>
-          See why geographic evidence comes first, how <BrandName /> could later connect
-          Earth to the genome inside our cells, and which scientific safeguards govern
-          every layer.
+  <section
+    class="home-hero"
+    id="hero"
+    data-concept
+    aria-labelledby="hero-title"
+  >
+    <div class="section-shell home-hero__grid">
+      <div class="home-hero__head">
+        <p class="section-kicker home-hero__kicker">
+          A shared atlas for global genetics
         </p>
-        <a class="button-link button-link--quiet" href={sitePath('/project/')}
-          >Explore the project</a
-        >
+        <h1 id="hero-title">Explore genomes across the world.</h1>
+      </div>
+      <div class="home-hero__figure">
+        <HeroGlobe />
+      </div>
+      <div class="home-hero__body">
+        <p class="home-hero__lede">
+          Make the world’s genetic diversity legible and useful, for every
+          population.
+        </p>
+        <div class="home-hero__actions">
+          <a class="button-link" href={sitePath('/app/')}>Open the Atlas</a>
+          <a class="button-link button-link--quiet" href="#how">How it works</a>
+        </div>
       </div>
     </div>
   </section>
 
-  <section class="final-invitation">
-    <div class="section-shell final-invitation__inner">
-      <p class="section-kicker">Your perspective belongs here</p>
-      <h2>Help build a genomic resource for everyone.</h2>
-      <p>
-        Introduce yourself, find a task, or start a conversation about evidence,
-        places, communities, applications, and ideas the current roadmap has
-        missed.
-      </p>
-      <div class="final-invitation__actions">
-        <a
-          class="github-cta github-cta--primary"
-          href="https://github.com/genomeOS/genomeOS/discussions/76"
-          target="_blank"
-          rel="noopener noreferrer"
-          ><span>Start here</span><strong>Join the conversation</strong><span
-            aria-hidden="true">↗</span
-          ></a
+  <section
+    class="band band--orbit home-why"
+    id="why"
+    data-concept
+    aria-labelledby="why-title"
+  >
+    <div class="section-shell layout-figure-split">
+      <div class="layout-figure-split__text home-head">
+        <p class="section-kicker">Why <BrandName /></p>
+        <h2 id="why-title">Genetic knowledge should serve everyone.</h2>
+        <div class="mission-copy">
+          <p>
+            Location matters because a genetic variant can be common in one
+            population and rare in another.
+          </p>
+        </div>
+      </div>
+      <div class="layout-figure-split__figure">
+        <CountsFigure />
+      </div>
+    </div>
+  </section>
+
+  <section
+    class="band home-how"
+    id="how"
+    data-concept
+    aria-labelledby="how-title"
+  >
+    <div class="section-shell layout-wide-figure">
+      <div class="layout-wide-figure__head home-head">
+        <p class="section-kicker">How <BrandName /> works</p>
+        <h2 id="how-title">
+          Measured first. Modeled second. Uncertainty always.
+        </h2>
+      </div>
+      <div class="layout-wide-figure__figure">
+        <Pipeline mode={3} modeToggle={false} idPrefix="home-how" />
+      </div>
+    </div>
+  </section>
+
+  <section
+    class="band band--orbit home-metrics"
+    id="metrics"
+    data-concept
+    aria-labelledby="metrics-title"
+  >
+    <div class="section-shell layout-figure-split">
+      <div class="layout-figure-split__text home-head">
+        <h2 id="metrics-title">A growing global evidence base.</h2>
+      </div>
+      <div class="layout-figure-split__figure">
+        <EvidenceBase />
+      </div>
+    </div>
+  </section>
+
+  <section
+    class="band home-apps"
+    id="applications"
+    data-concept
+    aria-labelledby="applications-title"
+    data-motion-surface
+  >
+    <div class="section-shell home-apps__layout">
+      <div class="home-head home-apps__head">
+        <p class="section-kicker">Potential applications</p>
+        <h2 id="applications-title">
+          From scattered evidence to better decisions.
+        </h2>
+      </div>
+      <a
+        class="github-cta home-apps__cta"
+        href={`${repository}/discussions/1`}
+        target="_blank"
+        rel="noopener noreferrer"
+        ><span>Help shape it</span><strong>Suggest an application</strong><span
+          aria-hidden="true">↗</span
+        ></a
+      >
+      <div class="home-apps__figure">
+        <figure class="apps" data-graphic="applications" data-kind="mechanism">
+          <figcaption class="apps__rule" data-figure-chrome>
+            Population evidence is context, not a diagnosis.
+          </figcaption>
+          <div
+            class="apps__grid"
+            data-figure-stage
+            role="group"
+            aria-labelledby="applications-title"
+          >
+            {
+              applications.map((application, index) => (
+                <ApplicationCard
+                  index={index}
+                  glyph={(index + 1) as 1 | 2 | 3 | 4 | 5 | 6}
+                  {...application}
+                />
+              ))
+            }
+          </div>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section
+    class="band band--orbit home-vision"
+    id="vision"
+    data-concept
+    aria-labelledby="vision-title"
+  >
+    <div class="section-shell layout-figure-split">
+      <div class="layout-figure-split__text home-head">
+        <h2 id="vision-title">From one world map to many biological scales.</h2>
+        <a class="home-vision__link" href={sitePath('/project/#vision')}
+          >Explore the larger vision <span aria-hidden="true">→</span></a
         >
-        <a
-          class="github-cta"
-          href="https://github.com/genomeOS/genomeOS/issues"
-          target="_blank"
-          rel="noopener noreferrer"
-          ><span>See what needs doing</span><strong>Explore open issues</strong
-          ><span aria-hidden="true">↗</span></a
-        >
+      </div>
+      <div class="layout-figure-split__figure">
+        <VisionStrip />
+      </div>
+    </div>
+  </section>
+
+  <section
+    class="band home-open"
+    id="open"
+    data-concept
+    aria-labelledby="open-title"
+  >
+    <div class="section-shell home-open__grid">
+      <div class="home-open__text home-head">
+        <p class="section-kicker">Built in the open</p>
+        <h2 id="open-title">
+          A global community can build what no single lab can.
+        </h2>
+        <p class="home-open__line">Open source, for the public good.</p>
+      </div>
+      <div class="home-open__figure">
+        <OpenField />
+      </div>
+      <div class="link-row home-open__routes">
+        {
+          routes.map((route) => (
+            <a
+              class:list={[
+                'github-cta',
+                { 'github-cta--primary': route.primary },
+              ]}
+              href={route.href}
+              data-open-cta
+              target={route.external ? '_blank' : undefined}
+              rel={route.external ? 'noopener noreferrer' : undefined}
+            >
+              <span>{route.lead}</span>
+              <strong>{route.label}</strong>
+              <span aria-hidden="true">{route.external ? '↗' : '→'}</span>
+            </a>
+          ))
+        }
       </div>
     </div>
   </section>
 </SiteLayout>
+
+<script>
+  import { FigureController } from '../graphics/figure';
+
+  // The application glyphs draw in once, 90 ms apart (CSS, home.css); each replays its mechanism
+  // on hover.
+  for (const figure of document.querySelectorAll<HTMLElement>(
+    'figure[data-graphic="applications"]',
+  ))
+    new FigureController(figure, { duration: 1100, rest() {} });
+</script>

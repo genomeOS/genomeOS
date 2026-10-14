@@ -1,1 +1,1745 @@
-/* home page styles (site redesign #454). Owned by the home page task; loaded after the shared CSS. */
+/*
+ * Home (site redesign spec §4.1, §2.3–§2.7; #454). Imported by src/pages/index.astro only, so every
+ * rule here is Home's own. Sections: page type and calls to action · hero layout · the evidence
+ * globe (.hg) · counts not guesses (.cf) · the evidence base (.eb) · applications (.apps, .ag) ·
+ * the vision strip (.vs) · built in the open (.of) · reduced motion, print, forced colours.
+ *
+ * Entrances arm only on screen (`@media screen`) and key on FigureController's
+ * data-figure-state (armed → playing → rest), so print and reduced motion show the final state.
+ */
+
+/* ------------------------------------------------------------ page type and calls to action */
+
+#main-content .section-kicker {
+  margin: 0 0 0.9rem;
+  font-size: var(--type-kicker);
+  font-weight: 640;
+}
+
+.home-head h2 {
+  max-width: 22ch;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--type-h2);
+  font-weight: 400;
+  line-height: 1.04;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.mission-copy p {
+  max-width: 38ch;
+  margin: 1.25rem 0 0;
+  color: var(--color-text-soft);
+  font-size: var(--type-lede);
+  line-height: 1.5;
+}
+
+.button-link {
+  min-height: 3rem;
+  padding: 0.68rem 1.1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-ion);
+  background: var(--color-ion);
+  color: var(--color-void);
+  font-weight: 720;
+  text-decoration: none;
+  transition:
+    background-color var(--dur-micro) var(--ease-ui),
+    border-color var(--dur-micro) var(--ease-ui);
+}
+
+.button-link:hover {
+  border-color: var(--color-starlight);
+  background: var(--color-starlight);
+  color: var(--color-void);
+}
+
+.button-link--quiet {
+  border-color: rgb(242 248 255 / 42%);
+  background: rgb(2 7 18 / 52%);
+  color: var(--color-starlight);
+}
+
+.button-link--quiet:hover {
+  border-color: var(--color-starlight);
+  background: rgb(2 7 18 / 78%);
+  color: var(--color-starlight);
+}
+
+/* ------------------------------------------------------------------------------ hero layout */
+
+/* Home's six bands sit at the band token's own minimum (4rem) at every width. At its full desktop
+   value (7rem) their padding alone costs 1.6 screens at 1440×900 against Home's ≤ 6-screen target
+   (spec §4.1); the alternating band colours and hairlines still part the sections. */
+#main-content > .band {
+  --band-pad: 4rem;
+}
+
+.home-hero {
+  position: relative;
+  padding-block: clamp(1.25rem, 3vw, 2.25rem) clamp(3rem, 6vw, 4rem);
+  overflow-x: clip;
+}
+
+/* The one soft glow on the site, behind the globe (spec §2.4). */
+.home-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    46rem 34rem at 68% 44%,
+    rgb(39 169 208 / 9%),
+    transparent 70%
+  );
+}
+
+.home-hero__grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'head' 'figure' 'body';
+  row-gap: 1.6rem;
+}
+
+.home-hero__head {
+  grid-area: head;
+}
+
+/* Stacked, the figure shares the text's left edge (its tag under the kicker) up to 46rem wide. */
+.home-hero__figure {
+  grid-area: figure;
+  justify-self: start;
+  width: 100%;
+  max-width: 46rem;
+  min-width: 0;
+}
+
+.home-hero__body {
+  grid-area: body;
+}
+
+.home-hero h1 {
+  max-width: 12ch;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--type-hero);
+  font-weight: 360;
+  line-height: 0.96;
+  letter-spacing: -0.05em;
+  text-wrap: balance;
+}
+
+.home-hero__lede {
+  max-width: 38ch;
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: var(--type-lede);
+  line-height: 1.5;
+}
+
+.home-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+/* Too narrow for both on one line: two equal, full-width buttons rather than a ragged pair. */
+@media (max-width: 26rem) {
+  .home-hero__actions .button-link {
+    flex: 1 1 100%;
+  }
+}
+
+/* From 1024 px, the text is one row over the figure: the H1 left, the lede and calls to action
+   right, so a tablet in landscape shows its calls to action in the first view with the stage. */
+@media (min-width: 64rem) {
+  .home-hero__grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: 'head body' 'figure figure';
+    align-items: end;
+    column-gap: var(--grid-gap);
+  }
+}
+
+/* The split starts where its 7/12 column holds the figure's wide form (a 33rem container), so the
+   hero never sets its text beside the tall phone form. The text starts level with the figure, so
+   on a laptop's first view its calls to action are on screen (1366×768, 1280×720). */
+@media (min-width: 72rem) {
+  .home-hero__grid {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    grid-template-rows: auto auto 1fr;
+    grid-template-areas: 'head figure' 'body figure' '. figure';
+    align-items: start;
+    column-gap: var(--grid-gap);
+    row-gap: 0;
+  }
+
+  .home-hero__figure {
+    max-width: none;
+  }
+
+  .home-hero__body {
+    margin-top: 1.7rem;
+  }
+}
+
+/* --------------------------------------------------------------------- the evidence globe */
+
+.hg {
+  container: hg / inline-size;
+}
+
+.hg .kit-figure__toolbar {
+  margin-bottom: 0.75rem;
+}
+
+/* Compact form: the status tag and Reset view share the first row; the layer control is a
+   full-width row of three equal segments under them (spec §4.1 phone). */
+.hg-toolbar__end {
+  display: contents;
+}
+
+.hg-reset {
+  order: 1;
+  margin-left: auto;
+}
+
+.hg .hg-layers {
+  order: 2;
+  display: flex;
+  flex: 1 0 100%;
+}
+
+/* Three equal segments. At 320 px the kit's padding makes them wider than the row, so here they
+   may shrink and pad less; their labels still fit. */
+.hg .hg-layers button {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-inline: 0.5rem;
+}
+
+/* Reset view keeps its slot while hidden: showing it on the first drag never moves the globe. */
+.hg:not([data-view='moved']) .hg-reset {
+  visibility: hidden;
+}
+
+/* Without JavaScript nothing turns or inspects, so the readout keeps its box but gives no hint
+   (data-view is set as soon as the island starts). */
+.hg:not([data-view]) [data-readout-text] {
+  visibility: hidden;
+}
+
+/* The layer control only does something once the live canvas is up; the poster (Modeled, at
+   rest) neither switches nor turns. */
+.hg:not([data-live]) .hg-layers,
+.hg[data-mode='poster'] :is(.hg-layers, .hg-reset) {
+  visibility: hidden;
+}
+
+.hg .kit-figure__stage {
+  container-type: inline-size;
+  position: relative;
+}
+
+/* Compact form (a narrow figure): a square globe, numbered markers, a three-row key. */
+.hg-globe {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  touch-action: pan-y;
+}
+
+.hg-globe:focus-visible {
+  border-radius: 50%;
+  outline-offset: 2px;
+}
+
+.hg[data-live]:not([data-mode='poster']) .hg-globe {
+  cursor: grab;
+}
+
+.hg[data-dragging] .hg-globe {
+  cursor: grabbing;
+}
+
+/* The poster's 640-unit square holds a 300-unit disc; the globe box is the disc plus 4%. */
+.hg-poster {
+  position: absolute;
+  top: -1.282%;
+  left: -1.282%;
+  width: 102.564%;
+  max-width: none;
+  height: auto;
+  pointer-events: none;
+  user-select: none;
+}
+
+.hg-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+}
+
+.hg[data-live] .hg-canvas {
+  opacity: 1;
+}
+
+.hg[data-live] .hg-poster,
+.hg[data-mode='poster'] .hg-canvas {
+  visibility: hidden;
+}
+
+.hg-reticle {
+  --hg-reticle-ink: var(--color-ion);
+  --hg-reticle-halo: var(--color-void);
+
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: none;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--hg-reticle-ink), var(--hg-reticle-ink)) center top /
+      2px 9px no-repeat,
+    linear-gradient(var(--hg-reticle-ink), var(--hg-reticle-ink)) center
+      bottom / 2px 9px no-repeat,
+    linear-gradient(var(--hg-reticle-ink), var(--hg-reticle-ink)) left center /
+      9px 2px no-repeat,
+    linear-gradient(var(--hg-reticle-ink), var(--hg-reticle-ink)) right center /
+      9px 2px no-repeat;
+  filter: drop-shadow(0 0 1px var(--hg-reticle-halo));
+}
+
+.hg[data-reticle] .hg-reticle {
+  display: block;
+}
+
+/* The kit sizes a stage's direct svg children (.kit-figure__stage > svg), hence the extra class. */
+.hg .hg-leaders,
+.hg .hg-callout {
+  display: none;
+}
+
+.hg-marker {
+  position: absolute;
+  top: var(--my);
+  left: var(--mx);
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.hg-marker__ring {
+  position: absolute;
+  top: -7.5px;
+  left: -7.5px;
+  width: 15px;
+  height: 15px;
+  border: 1.5px solid var(--color-starlight);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 1.5px rgb(2 7 18 / 75%),
+    inset 0 0 0 1px rgb(2 7 18 / 55%);
+}
+
+.hg-marker__badge,
+.hg-step button::before {
+  display: grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border: 1px solid var(--color-starlight);
+  background: var(--color-void);
+  color: var(--color-starlight);
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.hg-marker__badge {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+}
+
+.hg-marker__badge::before {
+  content: attr(data-n);
+}
+
+.hg-steps {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+  list-style: none;
+  counter-reset: hg-step;
+}
+
+.hg-step button {
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 0.5rem 0.65rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 0.65rem;
+  align-items: center;
+  border: 1px solid var(--color-deep-line);
+  background: rgb(2 7 18 / 40%);
+  color: var(--color-text-soft);
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-micro) var(--ease-ui),
+    color var(--dur-ui) var(--ease-ui);
+}
+
+.hg-step button::before {
+  counter-increment: hg-step;
+  content: counter(hg-step);
+  grid-row: span 2;
+  border-color: var(--color-ion);
+  color: var(--color-ion);
+  transition:
+    border-color var(--dur-ui) var(--ease-ui),
+    color var(--dur-ui) var(--ease-ui);
+}
+
+.hg-step button:hover {
+  border-color: var(--color-line-strong);
+}
+
+.hg-step__name {
+  color: var(--color-starlight);
+  font-weight: 640;
+}
+
+.hg-step__detail {
+  display: block;
+  color: var(--color-muted);
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.hg-step__detail strong {
+  font-weight: 600;
+}
+
+/* Unlit during the entrance: the number dims; the words stay legible. */
+.hg-step.is-off button::before {
+  border-color: var(--color-deep-line);
+  color: var(--color-faint);
+}
+
+.hg-step.is-off .hg-step__name {
+  color: var(--color-muted);
+}
+
+/* Callouts, leaders and markers describe the rest view: they step aside while it moves. */
+.hg :is(.hg-callout, .hg-leader, .hg-marker) {
+  transition:
+    opacity var(--dur-ui) var(--ease-ui),
+    visibility 0s;
+}
+
+.hg :is(.hg-callout, .hg-leader, .hg-marker).is-off,
+.hg[data-view='moved'] :is(.hg-callout, .hg-leader, .hg-marker) {
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity var(--dur-ui) var(--ease-ui),
+    visibility 0s var(--dur-ui);
+}
+
+.hg-readout {
+  margin-top: 0.75rem;
+}
+
+.hg-nowrap {
+  white-space: nowrap;
+}
+
+.hg-readout [data-readout-text] strong {
+  font-weight: 640;
+}
+
+/* Wide form: a 4:3 stage, the disc centred in its upper part, callouts in its margins with
+   leader lines into the disc, the steps in a row under it. Units are cqw of the stage, as in
+   HeroGlobe.astro: disc centre (50, 32.25), radius 30. */
+@container hg (min-width: 33rem) {
+  .hg-toolbar__end {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem 0.9rem;
+    margin-left: auto;
+  }
+
+  .hg-reset {
+    margin-left: 0;
+  }
+
+  .hg .hg-layers {
+    display: inline-flex;
+    flex: none;
+  }
+
+  .hg .hg-layers button {
+    flex: 1 1 auto;
+    min-width: auto;
+    padding-inline: 0.85rem;
+  }
+
+  .hg .kit-figure__stage {
+    aspect-ratio: 4 / 3;
+  }
+
+  .hg-globe {
+    position: absolute;
+    top: 1.05cqw;
+    left: 18.8cqw;
+    width: 62.4cqw;
+    height: 62.4cqw;
+  }
+
+  .hg-marker,
+  .hg-step__detail {
+    display: none;
+  }
+
+  .hg .hg-leaders {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .hg-leader line {
+    stroke: rgb(205 217 232 / 62%);
+    stroke-width: 1;
+  }
+
+  .hg-leader circle {
+    fill: none;
+    stroke: var(--color-starlight);
+    stroke-width: 1.4;
+  }
+
+  /* Each box hangs from its corner point (--cx, --cy, set in HeroGlobe.astro) and grows away from
+     the disc, out to the stage's edge: its text wraps to the room the corner leaves. */
+  .hg .hg-callout {
+    position: absolute;
+    display: block;
+    margin: 0;
+    padding: 0.45rem 0.6rem 0.5rem;
+    border: 1px solid var(--color-line);
+    background: rgb(2 7 18 / 86%);
+    color: var(--color-starlight);
+    font-size: 0.8rem;
+    line-height: 1.35;
+    font-variant-numeric: lining-nums tabular-nums;
+  }
+
+  .hg-callout__label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--color-muted);
+    font-weight: 620;
+  }
+
+  .hg-callout__value {
+    display: block;
+  }
+
+  .hg-callout--left {
+    right: calc((100 - var(--cx)) * 1cqw);
+  }
+
+  .hg-callout--right {
+    left: calc(var(--cx) * 1cqw);
+  }
+
+  .hg-callout--up {
+    bottom: calc((75 - var(--cy)) * 1cqw);
+  }
+
+  .hg-callout--down {
+    top: calc(var(--cy) * 1cqw);
+  }
+
+  .hg-steps {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    margin: 0;
+    display: flex;
+    justify-content: center;
+    gap: 0;
+  }
+
+  .hg-step + .hg-step button {
+    border-left-width: 0;
+  }
+
+  .hg-step button {
+    width: auto;
+    min-height: 2.4rem;
+    padding: 0.35rem 0.85rem 0.35rem 0.5rem;
+    grid-template-columns: auto auto;
+    white-space: nowrap;
+  }
+
+  .hg-step button::before {
+    grid-row: auto;
+  }
+}
+
+.hg-legend {
+  display: grid;
+}
+
+.hg-legend__variant {
+  grid-area: 1 / 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 1.4rem;
+  visibility: hidden;
+}
+
+.hg-legend__variant[data-active] {
+  visibility: visible;
+}
+
+.hg-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.hg-key__studs {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.hg-key abbr {
+  text-decoration: none;
+  cursor: help;
+}
+
+/* The VSUP wedge: its label over the top (strong-evidence) row, the fading named beside the
+   rows that fade (spec §4.1 H1). */
+.hg-key--wedge {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  grid-template-areas: 'top top' 'wedge side';
+  align-items: center;
+  gap: 0.2rem 0.6rem;
+}
+
+.hg-wedge__top {
+  grid-area: top;
+}
+
+.hg-key--wedge .kit-glyph {
+  grid-area: wedge;
+}
+
+.hg-wedge__side {
+  grid-area: side;
+}
+
+.hg-table {
+  display: grid;
+  gap: 1rem;
+}
+
+.hg-table p {
+  margin: 0;
+}
+
+/* ------------------------------------------------------------------ counts, not guesses */
+
+.cf {
+  container: cf / inline-size;
+}
+
+/* Narrow: the rows stack (label, grid, bar), and the shared axis heads bar A, directly under
+   grid A; bar B, its sentence and the slider follow grid B (spec §4.1 H2 phone). */
+.cf-stage {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.cf-row {
+  display: contents;
+}
+
+[data-row='a'] .cf-row__label {
+  order: 1;
+}
+
+[data-row='a'] .cf-row__grid {
+  order: 2;
+}
+
+.cf-axis {
+  order: 3;
+}
+
+[data-row='a'] .cf-row__bar {
+  order: 4;
+}
+
+[data-row='b'] .cf-row__label {
+  order: 5;
+  margin-top: 1.4rem;
+}
+
+[data-row='b'] .cf-row__grid {
+  order: 6;
+}
+
+[data-row='b'] .cf-row__bar {
+  order: 7;
+}
+
+.cf-slider {
+  order: 8;
+}
+
+.cf-axis {
+  margin: 0.4rem 6.25rem 0 0;
+  display: grid;
+  gap: 0.15rem;
+  color: var(--color-faint);
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.cf-axis__name {
+  color: var(--color-muted);
+}
+
+.cf-axis__ends {
+  display: flex;
+  justify-content: space-between;
+}
+
+.cf-row__label {
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 0.95rem;
+  font-weight: 560;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.cf-row__label::first-letter {
+  color: var(--color-starlight);
+  font-weight: 760;
+}
+
+.cf-row__grid {
+  min-width: 0;
+}
+
+.cf-grid {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.cf-grid--narrow {
+  max-width: 320px;
+}
+
+.cf-grid--wide {
+  display: none;
+  max-width: 300px;
+}
+
+.cf-grid__room {
+  fill: none;
+  stroke: rgb(165 185 211 / 22%);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+.cf-grid [data-squares] {
+  transition:
+    width var(--dur-ui) var(--ease-ui),
+    height var(--dur-ui) var(--ease-ui),
+    y var(--dur-ui) var(--ease-ui);
+}
+
+.cf-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5.5rem;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* The shared 0–25% axis: a baseline and faint 5% rules behind each bar. */
+.cf-bar__track {
+  position: relative;
+  height: 1.4rem;
+  border-bottom: 1px solid var(--color-deep-line);
+  background: linear-gradient(
+      to right,
+      rgb(165 185 211 / 12%) 1px,
+      transparent 1px
+    )
+    0 0 / 20% 100%;
+}
+
+.cf-bar__range {
+  position: absolute;
+  top: 50%;
+  height: 8px;
+  min-width: 2px;
+  margin-top: -4px;
+  background: rgb(242 248 255 / 72%);
+  transform-origin: var(--origin, 0%) 50%;
+  transition: width var(--dur-ui) var(--ease-ui);
+}
+
+.cf-bar__mean {
+  position: absolute;
+  top: 50%;
+  width: 2px;
+  height: 18px;
+  margin: -9px 0 0 -1px;
+  background: var(--color-starlight);
+  box-shadow: 0 0 0 1px var(--color-orbit);
+  transition: left var(--dur-ui) var(--ease-ui);
+}
+
+.cf-bar__value {
+  color: var(--color-starlight);
+  font-size: 0.95rem;
+  font-weight: 620;
+  font-variant-numeric: lining-nums tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.cf-output {
+  display: block;
+  min-height: 1.5em;
+  margin-top: 0.6rem;
+  color: var(--color-starlight);
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.cf-slider {
+  display: grid;
+  gap: 0.15rem;
+  max-width: 320px;
+}
+
+.cf-slider label {
+  color: var(--color-text-soft);
+  font-size: 0.9rem;
+  font-weight: 620;
+}
+
+.cf-slider input {
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  accent-color: var(--color-ion);
+  cursor: pointer;
+}
+
+.cf-slider__ends {
+  display: flex;
+  justify-content: space-between;
+  color: var(--color-faint);
+  font-size: 0.8rem;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+/* Wide: grids in a 300 px column, bars on the shared axis beside them; the axis heads the bar
+   column on row A's label row, and the slider sits under grid B. */
+@container cf (min-width: 36rem) {
+  .cf-stage {
+    grid-template-columns: 300px minmax(0, 1fr);
+    column-gap: 2rem;
+    row-gap: 0.6rem;
+    align-items: center;
+  }
+
+  .cf-axis {
+    grid-area: 1 / 2;
+    align-self: end;
+    margin-top: 0;
+  }
+
+  [data-row='a'] .cf-row__label {
+    grid-area: 1 / 1;
+    align-self: end;
+  }
+
+  [data-row='a'] .cf-row__grid {
+    grid-area: 2 / 1;
+  }
+
+  [data-row='a'] .cf-row__bar {
+    grid-area: 2 / 2;
+  }
+
+  [data-row='b'] .cf-row__label {
+    grid-area: 3 / 1;
+    margin-top: 1rem;
+  }
+
+  [data-row='b'] .cf-row__grid,
+  [data-row='b'] .cf-row__bar {
+    align-self: start;
+  }
+
+  [data-row='b'] .cf-row__grid {
+    grid-area: 4 / 1;
+  }
+
+  [data-row='b'] .cf-row__bar {
+    grid-area: 4 / 2;
+  }
+
+  .cf-slider {
+    grid-area: 5 / 1;
+  }
+
+  .cf-grid--wide {
+    display: block;
+  }
+
+  .cf-grid--narrow {
+    display: none;
+  }
+
+  .cf-slider input {
+    min-height: 24px;
+  }
+}
+
+@media screen {
+  .cf[data-figure-state='armed'] .cf-grid {
+    clip-path: inset(0 0 100% 0);
+  }
+
+  .cf[data-figure-state='armed'] :is(.cf-grid__on, .cf-bar__mean),
+  .cf[data-figure-state='armed'] .cf-bar__range {
+    opacity: 0;
+  }
+
+  .cf[data-figure-state='playing'] [data-row='a'] .cf-grid {
+    animation: home-unroll 600ms steps(7, end) both;
+  }
+
+  .cf[data-figure-state='playing'] [data-row='a'] .cf-grid__on {
+    animation: home-fade 200ms linear 600ms both;
+  }
+
+  .cf[data-figure-state='playing'] [data-bar='a'] .cf-bar__range {
+    animation: home-grow 500ms var(--ease-figure) 800ms both;
+  }
+
+  .cf[data-figure-state='playing'] [data-bar='a'] .cf-bar__mean {
+    animation: home-fade 200ms linear 800ms both;
+  }
+
+  .cf[data-figure-state='playing'] [data-row='b'] .cf-grid {
+    animation: home-unroll 400ms var(--ease-figure) 900ms both;
+  }
+
+  .cf[data-figure-state='playing'] [data-bar='b'] .cf-bar__range {
+    animation: home-grow 500ms var(--ease-figure) 1100ms both;
+  }
+
+  .cf[data-figure-state='playing'] [data-bar='b'] .cf-bar__mean {
+    animation: home-fade 200ms linear 1100ms both;
+  }
+}
+
+/* ------------------------------------------------------------------------ evidence base */
+
+.eb-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-block: 1px solid var(--color-deep-line);
+}
+
+.eb-tiles > .metric {
+  min-width: 0;
+  padding: clamp(1.25rem, 2.4vw, 2rem);
+}
+
+.eb-tiles > .metric + .metric {
+  border-left: 1px solid var(--color-deep-line);
+}
+
+.metric data {
+  display: block;
+  color: var(--color-starlight);
+  font-family: var(--font-body);
+  font-size: clamp(2.6rem, 4.6vw, 3.6rem);
+  font-weight: 560;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.metric h3 {
+  margin: 0.65rem 0 1.15rem;
+  color: var(--color-text-soft);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  font-weight: 620;
+}
+
+.eb-bar {
+  display: flex;
+  gap: 1px;
+  height: 6px;
+  transform-origin: left center;
+}
+
+.eb-bar__segment {
+  flex-basis: 0;
+  min-width: 2px;
+}
+
+[data-tone='1'].eb-bar__segment,
+[data-tone='1'].eb-swatch {
+  background: rgb(242 248 255 / 88%);
+}
+
+[data-tone='2'].eb-bar__segment,
+[data-tone='2'].eb-swatch {
+  background: var(--color-muted);
+}
+
+[data-tone='3'].eb-bar__segment,
+[data-tone='3'].eb-swatch {
+  background: var(--color-faint);
+}
+
+.eb-bar__cap,
+.eb-swatch--cap {
+  background:
+    repeating-linear-gradient(
+      135deg,
+      var(--enc-hatch) 0 1.2px,
+      transparent 1.2px 4px
+    ),
+    var(--enc-land);
+}
+
+.eb-bar__cap {
+  flex: 0 0 1.1rem;
+}
+
+.eb-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1.05rem;
+  margin: 0.7rem 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-muted);
+  font-size: 0.86rem;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.eb-parts li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.eb-swatch {
+  display: inline-block;
+  flex: none;
+  width: 0.6rem;
+  height: 0.6rem;
+}
+
+.eb-diseases {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-text-soft);
+  font-size: 0.95rem;
+}
+
+.eb-diseases li {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.eb-diseases svg {
+  flex: none;
+  color: var(--color-starlight);
+}
+
+.eb-method summary {
+  min-height: 24px;
+  color: var(--color-ion);
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.eb-method p {
+  max-width: var(--reading-width);
+  margin: 0.75rem 0 0;
+  color: var(--color-muted);
+  font-size: 0.92rem;
+}
+
+@media (max-width: 52rem) {
+  .eb-tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .eb-tiles > .metric + .metric {
+    border-top: 1px solid var(--color-deep-line);
+    border-left: 0;
+  }
+}
+
+@media screen {
+  .eb[data-figure-state='armed'] .eb-bar {
+    transform: scaleX(0);
+  }
+
+  .eb[data-figure-state='playing'] .eb-bar {
+    animation: home-grow 600ms var(--ease-figure) both;
+  }
+}
+
+/* --------------------------------------------------------------------------- applications */
+
+.home-apps {
+  --spotlight-x: 78%;
+  --spotlight-y: 24rem;
+
+  background:
+    radial-gradient(
+      circle 30rem at var(--spotlight-x) var(--spotlight-y),
+      rgb(112 230 255 / 7%),
+      transparent 72%
+    ),
+    var(--color-void);
+}
+
+.apps {
+  margin: 0;
+}
+
+.apps__rule {
+  margin: 0 0 1.25rem;
+  color: var(--color-starlight);
+  font-size: var(--type-legend);
+  font-weight: 620;
+}
+
+.apps__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--color-line);
+  border-left: 1px solid var(--color-line);
+}
+
+.application-card {
+  position: relative;
+  min-width: 0;
+  padding: clamp(1.25rem, 2.4vw, 1.75rem);
+  display: grid;
+  align-content: start;
+  gap: 0.55rem;
+  border-right: 1px solid var(--color-line);
+  border-bottom: 1px solid var(--color-line);
+  background: rgb(7 24 49 / 54%);
+  transition:
+    transform var(--dur-micro) var(--ease-ui),
+    border-color var(--dur-micro) var(--ease-ui),
+    background-color var(--dur-micro) var(--ease-ui);
+}
+
+.application-card:hover {
+  z-index: 1;
+  border-color: rgb(112 230 255 / 54%);
+  background: rgb(10 35 67 / 90%);
+  transform: translateY(-2px);
+}
+
+.application-card .ag {
+  width: 96px;
+  height: 64px;
+  margin-bottom: 0.35rem;
+  overflow: visible;
+}
+
+.application-card h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--type-h3);
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+}
+
+.application-card__horizon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.86rem;
+  font-weight: 620;
+}
+
+.application-card__horizon::before {
+  content: '';
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--tone);
+}
+
+.application-card__horizon[data-tone='aurora'] {
+  --tone: var(--color-aurora);
+}
+
+.application-card__horizon[data-tone='signal'] {
+  --tone: var(--color-signal);
+}
+
+.application-card__horizon[data-tone='ion'] {
+  --tone: var(--color-ion);
+}
+
+/* Future work is a violet dashed outline, never a fill (spec §6.1 rule 7). */
+.application-card__horizon[data-tone='genome']::before {
+  border: 1.5px dashed var(--color-genome);
+  background: none;
+}
+
+.application-card__line {
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.home-apps__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 22rem);
+  column-gap: var(--grid-gap);
+  row-gap: var(--head-gap);
+  align-items: end;
+}
+
+.home-apps__figure {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 52rem) {
+  .home-apps__layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .home-apps__cta {
+    order: 3;
+  }
+}
+
+.ag .ag-allele-was {
+  opacity: 0;
+}
+
+.ag :is(.ag-ring, .ag-contour[pathLength]) {
+  stroke-dasharray: 1;
+}
+
+@media (max-width: 64rem) {
+  .apps__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 40rem) {
+  .apps__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media screen {
+  .apps[data-figure-state='armed'] .ag {
+    opacity: 0;
+  }
+
+  .apps[data-figure-state='playing'] .ag {
+    animation: home-rise 600ms var(--ease-figure) calc(var(--i, 0) * 90ms) both;
+  }
+}
+
+/* Hover plays the card's mechanism once (≤ 1.2 s); the drawing at rest is its end state. */
+@media (prefers-reduced-motion: no-preference) {
+  .application-card:hover .ag-sweep {
+    animation: ag-sweep 800ms var(--ease-camera) both;
+  }
+
+  .application-card:hover .ag-above {
+    animation: home-fade 260ms linear calc(620ms + var(--k) * 80ms) both;
+  }
+
+  .application-card:hover .ag-range {
+    transform-box: view-box;
+    transform-origin: 63px 32px;
+    animation: home-grow 700ms var(--ease-figure) both;
+  }
+
+  .application-card:hover .ag-ring {
+    animation: ag-close 900ms var(--ease-figure) 200ms both;
+  }
+
+  .application-card:hover .ag-dot {
+    animation: ag-gather 700ms var(--ease-camera) calc(var(--k) * 40ms) both;
+  }
+
+  .application-card:hover .ag-stud {
+    animation: ag-land 420ms var(--ease-camera) both;
+  }
+
+  .application-card:hover .ag-fill {
+    animation: home-fade 300ms linear calc(420ms + var(--k) * 70ms) both;
+  }
+
+  .application-card:hover .ag-allele-was {
+    animation: ag-was 900ms linear both;
+  }
+
+  .application-card:hover .ag-allele-now {
+    animation: home-fade 300ms linear 500ms both;
+  }
+
+  .application-card:hover .ag-contour[pathLength] {
+    animation: ag-close 700ms var(--ease-figure) both;
+  }
+
+  .application-card:hover .ag-intersect {
+    animation: home-fade 400ms linear 650ms both;
+  }
+}
+
+@keyframes ag-sweep {
+  from {
+    transform: translateY(26px);
+  }
+}
+
+@keyframes ag-close {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
+@keyframes ag-gather {
+  from {
+    transform: translate(var(--dx), var(--dy));
+    opacity: 0.25;
+  }
+}
+
+@keyframes ag-land {
+  from {
+    transform: translateY(-14px);
+    opacity: 0;
+  }
+}
+
+@keyframes ag-was {
+  0%,
+  55% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+/* --------------------------------------------------------------------------- vision strip */
+
+.vs {
+  --art: clamp(6.5rem, 10.5vw, 8.5rem);
+
+  margin: 0;
+}
+
+.vs-stage {
+  display: flex;
+  align-items: flex-start;
+  max-width: 62rem;
+}
+
+.vs-frame {
+  flex: none;
+  width: var(--art);
+  display: grid;
+  justify-items: center;
+  gap: 0.65rem;
+}
+
+.vs-frame__art {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--color-line-strong);
+  color: var(--color-starlight);
+}
+
+.vs-frame__art::before {
+  content: '';
+  position: absolute;
+  top: 0.55rem;
+  left: 0.55rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--color-ion);
+}
+
+.vs-frame[data-status='future'] .vs-frame__art {
+  border: 1.5px dashed var(--color-genome);
+  color: var(--color-genome);
+}
+
+.vs-frame[data-status='future'] .vs-frame__art::before {
+  border: 1.5px dashed var(--color-genome);
+  background: none;
+}
+
+/* The region of this frame that the next one opens. */
+.vs-frame__focus {
+  position: absolute;
+  top: 42%;
+  right: -1px;
+  width: 16%;
+  height: 16%;
+  border: 1px solid currentColor;
+  opacity: 0.8;
+}
+
+.vs-frame__label {
+  color: var(--color-text-soft);
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.vs-wedge {
+  flex: 1 1 0;
+  min-width: 1.25rem;
+  height: var(--art);
+  overflow: visible;
+}
+
+.vs-wedge path {
+  fill: none;
+  stroke: rgb(112 230 255 / 45%);
+  stroke-width: 1;
+}
+
+.vs-wedge[data-status='future'] path {
+  stroke: var(--color-genome);
+  stroke-dasharray: 3 3;
+}
+
+.vs-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  margin-top: 1.4rem;
+  color: var(--color-muted);
+  font-size: var(--type-legend);
+}
+
+.vs-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.vs-status::before {
+  content: '';
+  flex: none;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--color-ion);
+}
+
+.vs-status[data-status='future']::before {
+  border: 1.5px dashed var(--color-genome);
+  background: none;
+}
+
+.home-vision__link {
+  display: inline-flex;
+  gap: 0.4rem;
+  min-height: 24px;
+  margin-top: 1.5rem;
+  font-weight: 650;
+}
+
+/* Stacked, the figure-led split reads heading, figure (with its legend), then the link on. */
+@media (max-width: 52rem) {
+  .home-vision .layout-figure-split__text {
+    display: contents;
+  }
+
+  .home-vision .layout-figure-split__text > * {
+    grid-column: 1 / -1;
+  }
+
+  .home-vision__link {
+    order: 1;
+    justify-self: start;
+  }
+}
+
+@media (max-width: 40rem) {
+  .vs-stage {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.25rem 1rem;
+  }
+
+  /* The 2×2 grid has no zoom wedges, so no frame marks a region for one. */
+  .vs-wedge,
+  .vs-frame__focus {
+    display: none;
+  }
+
+  .vs-frame {
+    width: auto;
+  }
+
+  .vs-frame__art {
+    max-width: 9rem;
+  }
+}
+
+@media screen {
+  .vs[data-figure-state='armed'] :is(.vs-frame, .vs-wedge) {
+    opacity: 0;
+  }
+
+  .vs[data-figure-state='playing'] :is(.vs-frame, .vs-wedge) {
+    animation: home-fade 320ms var(--ease-figure) calc(var(--k, 0) * 110ms) both;
+  }
+}
+
+/* --------------------------------------------------------------------- built in the open */
+
+.home-open__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  column-gap: var(--grid-gap);
+  row-gap: var(--head-gap);
+  align-items: center;
+}
+
+.home-open__line {
+  margin: 1.1rem 0 0;
+  color: var(--color-text-soft);
+  font-size: var(--type-lede);
+  line-height: 1.5;
+}
+
+.home-open__routes {
+  grid-column: 1 / -1;
+}
+
+.of {
+  margin: 0;
+}
+
+.of-stage svg {
+  width: 100%;
+  max-width: 34rem;
+  height: auto;
+}
+
+.of-fill {
+  opacity: 0;
+  transition: opacity 600ms var(--ease-figure);
+}
+
+.of-stud {
+  opacity: 0;
+  transform: scale(0.3);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition:
+    opacity 300ms var(--ease-figure) 200ms,
+    transform 600ms var(--ease-camera);
+}
+
+.of[data-filled] .of-fill,
+.of[data-filled] .of-stud {
+  opacity: 1;
+  transform: none;
+}
+
+.of-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  color: var(--color-muted);
+  font-size: var(--type-legend);
+}
+
+@media (max-width: 52rem) {
+  .home-open__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* --------------------------------------------------------------------------- shared motion */
+
+@keyframes home-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes home-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes home-grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes home-unroll {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+
+  to {
+    clip-path: inset(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button-link,
+  .application-card,
+  .hg-step button,
+  .hg-step button::before,
+  .hg :is(.hg-callout, .hg-leader, .hg-marker),
+  .hg :is(.hg-callout, .hg-leader, .hg-marker).is-off,
+  .hg[data-view='moved'] :is(.hg-callout, .hg-leader, .hg-marker),
+  .cf-grid [data-squares],
+  .cf-bar__range,
+  .cf-bar__mean,
+  .of-fill,
+  .of-stud {
+    transition: none;
+  }
+
+  .application-card:hover {
+    transform: none;
+  }
+}
+
+/* The live canvas never prints or forces colours: the poster stands in (spec §2.2, §8). The poster
+   is the Modeled layer at rest, so a print carries that layer's legend and the callouts that
+   describe it, never the last layer's legend or a readout from a turned view. */
+@media print {
+  /* As specific as the screen rules that show them (.hg .hg-layers, .hg[data-reticle] …). */
+  .hg :is(.hg-canvas, .hg-layers, .hg-reset, .hg-readout),
+  .hg[data-reticle] .hg-reticle {
+    display: none;
+  }
+
+  .hg[data-live] .hg-poster {
+    visibility: visible;
+  }
+
+  .hg-legend__variant:not([data-legend='modeled']) {
+    visibility: hidden;
+  }
+
+  .hg-legend__variant[data-legend='modeled'],
+  .hg[data-view='moved'] :is(.hg-callout, .hg-leader, .hg-marker) {
+    opacity: 1;
+    visibility: visible;
+    transition: none;
+  }
+}
+
+/* The island also enters its poster mode here (hero-globe.ts), so nothing turns a hidden canvas.
+   Forced colours drop background images, so the reticle keeps its own, in system colours. */
+@media (forced-colors: active) {
+  .hg-canvas {
+    visibility: hidden;
+  }
+
+  .hg-reticle {
+    --hg-reticle-ink: CanvasText;
+    --hg-reticle-halo: Canvas;
+
+    forced-color-adjust: none;
+  }
+
+  .hg[data-live] .hg-poster {
+    visibility: visible;
+  }
+
+  .hg-marker__ring {
+    border-color: CanvasText;
+  }
+
+  .hg-leader line,
+  .hg-leader circle {
+    stroke: CanvasText;
+  }
+}

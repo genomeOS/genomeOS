@@ -1,0 +1,264 @@
+---
+/**
+ * "Counts, not guesses" (site redesign spec §4.1 H2, §6.1 rule 2; #454): a worked example of why
+ * the Atlas stores AC of AN. Population A: 61 of 412 alleles carry the variant. Population B: none
+ * of n, for n from 20 to 2,000. Each row is an allele grid (one square per allele, always, drawn as
+ * two pattern rects per layer, never one node per allele) and a Jeffreys 95% interval on a shared
+ * 0–25% axis with a tick at the posterior mean.
+ *
+ * The intervals are computed here, at build time (jeffreys.ts), and shipped as a table: nothing is
+ * fitted in the browser. Server-rendered at the default stop (20), the final state, so the figure
+ * is complete without JavaScript; counts.ts adds the slider and the entrance.
+ */
+import Figure from '../kit/Figure.astro';
+import StatusTag from '../kit/StatusTag.astro';
+import { jeffreys } from '../../graphics/jeffreys';
+import {
+  GRID,
+  ROW_A,
+  ROW_B_MAX,
+  buildCountsTable,
+  gridHeight,
+  gridRects,
+  onAxis,
+} from './counts';
+
+const table = buildCountsTable(jeffreys);
+const [first] = table.stops;
+const last = table.stops[table.stops.length - 1];
+const clientTable = JSON.stringify({
+  stops: table.stops.map(
+    ({ an, mean, hi, range, output, valuetext, sentence }) => ({
+      an,
+      mean: +mean.toFixed(6),
+      hi: +hi.toFixed(6),
+      range,
+      output,
+      valuetext,
+      sentence,
+    }),
+  ),
+});
+
+type Layout = keyof typeof GRID;
+const layouts = Object.keys(GRID) as Layout[];
+
+/** One grid: `total` squares (row B reserves room for the largest stop), the first `ac` lit. */
+const grid = (row: 'a' | 'b', layout: Layout, n: number, ac: number) => {
+  const { columns, pitch, size } = GRID[layout];
+  const capacity = row === 'b' ? ROW_B_MAX : n;
+  const width = columns * pitch;
+  const height = gridHeight(capacity, columns, pitch);
+  const off = gridRects(n, columns, pitch);
+  // Carriers are drawn over the first squares, so non-carriers fill the rest.
+  const on = gridRects(ac, columns, pitch);
+  const id = `cf-${layout}-${row}`;
+  return { row, layout, columns, pitch, size, width, height, off, on, id };
+};
+const grids = {
+  a: layouts.map((layout) => grid('a', layout, ROW_A.an, ROW_A.ac)),
+  b: layouts.map((layout) => grid('b', layout, first.an, 0)),
+};
+// Bar A grows out from its mean.
+const aOrigin = ((table.a.mean - table.a.lo) / (table.a.hi - table.a.lo)) * 100;
+---
+
+<Figure
+  graphic="counts"
+  interactive
+  label="Allele counts for two populations, A and B, each with the share of alleles it could plausibly carry"
+  class="cf"
+>
+  <StatusTag slot="toolbar" kind="worked-example" />
+
+  <div class="cf-stage" data-counts={clientTable}>
+    <p class="cf-axis" aria-hidden="true">
+      <span class="cf-axis__name">Plausible share (95%)</span>
+      <span class="cf-axis__ends"><span>0%</span><span>25%</span></span>
+    </p>
+    {
+      (['a', 'b'] as const).map((row) => (
+        <div class="cf-row" data-row={row}>
+          <p class="cf-row__label" aria-hidden="true">
+            {row === 'a' ? (
+              `A · ${ROW_A.ac} of ${ROW_A.an} alleles carry it`
+            ) : (
+              <Fragment>
+                B · 0 of{' '}
+                <span data-count-n>{first.an.toLocaleString('en-US')}</span>{' '}
+                alleles carry it
+              </Fragment>
+            )}
+          </p>
+          <p class="visually-hidden" data-row-sentence={row}>
+            {row === 'a' ? table.a.sentence : first.sentence}
+          </p>
+          <div class="cf-row__grid">
+            {grids[row].map((g) => (
+              <svg
+                class:list={['cf-grid', `cf-grid--${g.layout}`]}
+                data-grid={row}
+                data-columns={g.columns}
+                data-pitch={g.pitch}
+                width={g.width}
+                height={g.height}
+                viewBox={`0 0 ${g.width} ${g.height}`}
+                aria-hidden="true"
+                focusable="false"
+              >
+                <defs>
+                  <pattern
+                    id={`${g.id}-off`}
+                    width={g.pitch}
+                    height={g.pitch}
+                    patternUnits="userSpaceOnUse"
+                  >
+                    <rect
+                      x="0.25"
+                      y="0.25"
+                      width={g.size - 0.5}
+                      height={g.size - 0.5}
+                      style="fill: var(--enc-land); stroke: rgb(165 185 211 / 48%); stroke-width: 0.5"
+                    />
+                  </pattern>
+                  <pattern
+                    id={`${g.id}-on`}
+                    width={g.pitch}
+                    height={g.pitch}
+                    patternUnits="userSpaceOnUse"
+                  >
+                    <rect
+                      width={g.size}
+                      height={g.size}
+                      style="fill: var(--color-starlight)"
+                    />
+                  </pattern>
+                </defs>
+                {row === 'b' && (
+                  <rect
+                    class="cf-grid__room"
+                    x="0.5"
+                    y="0.5"
+                    width={g.width - 1}
+                    height={g.height - 1}
+                  />
+                )}
+                <g class="cf-grid__off">
+                  {g.off.map((rect) => (
+                    <rect
+                      data-squares
+                      x={rect.x}
+                      y={rect.y}
+                      width={rect.width}
+                      height={rect.height}
+                      fill={`url(#${g.id}-off)`}
+                    />
+                  ))}
+                </g>
+                {row === 'a' && (
+                  <g class="cf-grid__on">
+                    {g.on.map((rect) => (
+                      <rect
+                        x={rect.x}
+                        y={rect.y}
+                        width={rect.width}
+                        height={rect.height}
+                        fill={`url(#${g.id}-on)`}
+                      />
+                    ))}
+                  </g>
+                )}
+              </svg>
+            ))}
+          </div>
+          <div class="cf-row__bar">
+            <div class="cf-bar" data-bar={row} aria-hidden="true">
+              <div class="cf-bar__track">
+                <span
+                  class="cf-bar__range"
+                  style={
+                    row === 'a'
+                      ? `left: ${onAxis(table.a.lo)}; width: ${onAxis(table.a.hi - table.a.lo)}; --origin: ${aOrigin.toFixed(2)}%`
+                      : `left: 0%; width: ${onAxis(first.hi)}; --origin: 0%`
+                  }
+                />
+                <span
+                  class="cf-bar__mean"
+                  style={`left: ${onAxis(row === 'a' ? table.a.mean : first.mean)}`}
+                />
+              </div>
+              <span class="cf-bar__value">
+                {row === 'a' ? table.a.range : first.range}
+              </span>
+            </div>
+            {row === 'b' && (
+              <output class="cf-output" for="cf-slider">
+                {first.output}
+              </output>
+            )}
+          </div>
+          {row === 'b' && (
+            <div class="cf-slider">
+              <label for="cf-slider">Alleles tested in B</label>
+              <input
+                id="cf-slider"
+                type="range"
+                min="0"
+                max={table.stops.length - 1}
+                step="1"
+                value="0"
+                aria-valuetext={first.valuetext}
+              />
+              <span class="cf-slider__ends" aria-hidden="true">
+                <span>{first.an.toLocaleString('en-US')}</span>
+                <span>{last.an.toLocaleString('en-US')}</span>
+              </span>
+            </div>
+          )}
+        </div>
+      ))
+    }
+  </div>
+
+  <strong slot="legend">Zero is weak evidence, not absence.</strong>
+  <Fragment slot="footnote"
+    >Illustrative counts; 95% Jeffreys intervals.</Fragment
+  >
+  <table slot="table">
+    <thead>
+      <tr>
+        <th scope="col">Population</th>
+        <th scope="col">Alleles tested</th>
+        <th scope="col">Carry it</th>
+        <th scope="col">Plausible share (95%)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>A</td>
+        <td>{ROW_A.an}</td>
+        <td>{ROW_A.ac}</td>
+        <td>{table.a.range}</td>
+      </tr>
+      {
+        table.stops.map((stop) => (
+          <tr>
+            <td>B</td>
+            <td>{stop.an.toLocaleString('en-US')}</td>
+            <td>0</td>
+            <td>{stop.range}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</Figure>
+
+<script>
+  import { initCounts } from './counts';
+
+  for (const figure of document.querySelectorAll<HTMLElement>(
+    'figure[data-graphic="counts"]',
+  ))
+    initCounts(figure);
+</script>

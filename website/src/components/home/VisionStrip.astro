@@ -1,0 +1,81 @@
+---
+/**
+ * The larger vision, as a teaser (site redesign spec §4.1 H6; #454): four scale glyphs joined by
+ * zoom wedges, each a small region of one frame opening into the next. Earth and population are
+ * drawn solid with an ion "In active development" dot; chromosome 11 and the cell are violet dashed
+ * outlines with a "Future exploration" dot, the only way future work is drawn (spec §6.1 rule 7).
+ * The frames fade in left to right once (CSS, home.css). The page links on to the Project's full
+ * ladder.
+ */
+import Glyph from '../kit/Glyph.astro';
+import type { GlyphName } from '../kit/glyphs';
+
+const frames: {
+  label: string;
+  glyph: GlyphName;
+  status: 'active' | 'future';
+}[] = [
+  { label: 'Earth', glyph: 'scale-earth', status: 'active' },
+  { label: 'Population', glyph: 'scale-population', status: 'active' },
+  { label: 'Chromosome 11', glyph: 'scale-chromosome', status: 'future' },
+  { label: 'Cell', glyph: 'scale-cell', status: 'future' },
+];
+---
+
+<figure class="vs" data-graphic="vision" data-kind="mechanism">
+  <div
+    class="vs-stage"
+    data-figure-stage
+    role="img"
+    aria-label="Four scales, from Earth to a cell. Only the Earth and population scales are in development."
+  >
+    {
+      frames.map((frame, index) => (
+        <Fragment>
+          {index > 0 && (
+            <svg
+              class="vs-wedge"
+              data-status={frame.status}
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+              style={`--k: ${index}`}
+            >
+              <path
+                d="M0 42L100 0M0 58L100 100"
+                vector-effect="non-scaling-stroke"
+              />
+            </svg>
+          )}
+          <div
+            class="vs-frame"
+            data-status={frame.status}
+            style={`--k: ${index}`}
+          >
+            <span class="vs-frame__art">
+              <Glyph name={frame.glyph} size={60} />
+              {index < frames.length - 1 && (
+                <span class="vs-frame__focus" aria-hidden="true" />
+              )}
+            </span>
+            <span class="vs-frame__label">{frame.label}</span>
+          </div>
+        </Fragment>
+      ))
+    }
+  </div>
+  <figcaption class="vs-legend" data-figure-chrome>
+    <span class="vs-status" data-status="active">In active development</span>
+    <span class="vs-status" data-status="future">Future exploration</span>
+  </figcaption>
+</figure>
+
+<script>
+  import { FigureController } from '../../graphics/figure';
+
+  // A CSS-only entrance: the frames fade in left to right, once (home.css).
+  for (const figure of document.querySelectorAll<HTMLElement>(
+    'figure[data-graphic="vision"]',
+  ))
+    new FigureController(figure, { duration: 700, rest() {} });
+</script>
