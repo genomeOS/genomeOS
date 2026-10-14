@@ -1,0 +1,370 @@
+---
+/**
+ * The Docs landing's map of the guides (site redesign spec §4.4, #454): the shared Pipeline in its
+ * static `links` variant (mode 6), where every station is a link to the guide for its part; a
+ * bracket over all the stations that links to the scientific safeguards, because they apply to
+ * every part; and a row beneath for the guides about working on the project.
+ *
+ * No script (docs are reference): hover and focus are CSS. A hovered or focused station lights,
+ * together with everything else in the map that leads to the same guide (the registry and the
+ * observations share one, the gate shares the safeguards bracket's), and the other stations' art
+ * steps back; their text never dims. The stage titles of Home's three-stage telling are left out:
+ * the one bracket here is the safeguards'.
+ *
+ * Starlight pages do not load the site's stylesheet, so this component brings the UI tokens the
+ * kit draws with (tokens.css: custom properties only) and hides the kit's visually hidden text
+ * itself, inside the map only. StationNames gives the station links the names their words read
+ * (WCAG 2.5.3) until the kit does. The landing has no "On this page" column (index.mdx), so the
+ * map gets the docs column's full width and keeps its stage columns on laptops.
+ */
+import '../../styles/tokens.css';
+
+import Pipeline from '../kit/Pipeline.astro';
+import { ICON_PATHS, type IconName } from '../kit/icons';
+import { sitePath } from '../../lib/paths';
+import StationNames from './StationNames.astro';
+
+const guide = (slug: string) => sitePath(`/docs/${slug}/`);
+
+const WORK: { slug: string; label: string; icon: IconName }[] = [
+  { slug: 'issues-and-projects', label: 'Issues and projects', icon: 'board' },
+  { slug: 'local-development', label: 'Local development', icon: 'branch' },
+  { slug: 'deployment', label: 'Deployment', icon: 'globe' },
+];
+---
+
+<section class="docs-map not-content" data-concept>
+  <a class="docs-map__bracket" href={guide('scientific-safeguards')}>
+    <span class="docs-map__bracket-label">
+      <svg
+        class="docs-map__icon"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <path d={ICON_PATHS['shield-check']}></path>
+      </svg>
+      <span class="docs-map__bracket-text">Scientific safeguards</span>
+    </span>
+  </a>
+  <StationNames>
+    <Pipeline
+      variant="links"
+      mode={6}
+      stageBrackets={false}
+      idPrefix="docs-map"
+    >
+      <span slot="caption">
+        <strong>The pipeline, with a guide for each part.</strong> Safeguards apply
+        to every part.
+      </span>
+    </Pipeline>
+  </StationNames>
+  <nav class="docs-map__work" aria-labelledby="docs-map-work">
+    <p class="docs-map__work-title" id="docs-map-work">Work on it</p>
+    <ul class="docs-map__work-list">
+      {
+        WORK.map(({ slug, label, icon }) => (
+          <li>
+            <a class="docs-map__work-link" href={guide(slug)}>
+              <svg
+                class="docs-map__icon"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path d={ICON_PATHS[icon]} />
+              </svg>
+              <span class="docs-map__work-text">{label}</span>
+            </a>
+          </li>
+        ))
+      }
+    </ul>
+  </nav>
+</section>
+
+<style is:global>
+  .docs-map {
+    /* A lit station (below). The socket fill is the kit's own lit-socket colour (Pipeline.astro's
+       hover rule), which has no token yet: named once here so the stations this map lights match
+       the one under the pointer. */
+    --docs-map-lit-socket: #0d2647;
+    --docs-map-lit-stroke: var(--color-ion);
+    --docs-map-lit-label: var(--color-ion);
+
+    container: docs-map / inline-size;
+    margin-block: 2rem 2.5rem;
+    color: var(--color-text-soft);
+    font-family: var(--font-body);
+  }
+
+  /* The kit's visually hidden text (the map's title and description), hidden here because the
+     docs do not load the site stylesheet that defines the class. */
+  .docs-map .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /* The landing's first paragraph is its lede (index.mdx). Set here because the docs load no
+     site stylesheet and the map only ships on the landing. */
+  .sl-markdown-content:has(> .docs-map) > p:first-child {
+    max-width: 38ch;
+    color: var(--color-text-soft);
+    font-size: var(--type-lede);
+    line-height: 1.5;
+  }
+
+  /* The six-part table below the map must fit a 320 px phone without scrolling the page (spec §8):
+     there, its cells may hyphenate and keep a narrower gap. */
+  @media (max-width: 359px) {
+    .sl-markdown-content:has(> .docs-map) :is(th, td) {
+      padding-inline-end: 0.6rem;
+      hyphens: auto;
+    }
+  }
+
+  .docs-map__icon {
+    flex: none;
+    width: 1.3rem;
+    height: 1.3rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* ---------- the safeguards bracket: a hairline over the whole plate, ends turned down ---------- */
+  .docs-map__bracket {
+    display: grid;
+    grid-template-columns: minmax(1.5rem, 1fr) auto minmax(1.5rem, 1fr);
+    align-items: center;
+    min-height: 2.75rem;
+    margin-bottom: 0.45rem;
+    color: var(--color-ion);
+    text-decoration: none;
+  }
+
+  .docs-map__bracket::before,
+  .docs-map__bracket::after {
+    content: '';
+    align-self: stretch;
+    margin-top: 1.375rem;
+    border-top: 1px solid var(--color-line-strong);
+    transition: border-color var(--dur-micro) var(--ease-ui);
+  }
+
+  .docs-map__bracket::before {
+    grid-column: 1;
+    grid-row: 1;
+    border-left: 1px solid var(--color-line-strong);
+  }
+
+  .docs-map__bracket::after {
+    grid-column: 3;
+    grid-row: 1;
+    border-right: 1px solid var(--color-line-strong);
+  }
+
+  .docs-map__bracket-label {
+    grid-column: 2;
+    grid-row: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding-inline: 0.85rem;
+    font-size: 0.95rem;
+    font-weight: 650;
+    line-height: 1.3;
+  }
+
+  .docs-map__bracket-text {
+    text-decoration: underline;
+    text-decoration-color: transparent;
+    text-underline-offset: 0.22em;
+    transition: text-decoration-color var(--dur-micro) var(--ease-ui);
+  }
+
+  /* ---------- the work-on-it row: three guides in a hairline row under the plate ---------- */
+  .docs-map__work {
+    margin-top: 1rem;
+    border: 1px solid var(--color-line);
+  }
+
+  .docs-map__work-title {
+    margin: 0;
+    padding: 0.55rem 1.1rem;
+    border-bottom: 1px solid var(--color-deep-line);
+    color: var(--color-muted);
+    font-size: 0.86rem;
+    font-weight: 650;
+    line-height: 1.35;
+  }
+
+  .docs-map__work-list {
+    display: grid;
+    grid-template-columns: 1fr;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .docs-map__work-list li + li {
+    border-top: 1px solid var(--color-deep-line);
+  }
+
+  .docs-map__work-link {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-height: 3.25rem;
+    height: 100%;
+    padding: 0.6rem 1rem;
+    color: var(--color-starlight);
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.3;
+    text-decoration: none;
+    transition: background-color var(--dur-micro) var(--ease-ui);
+  }
+
+  .docs-map__work-link .docs-map__icon {
+    color: var(--color-ion);
+  }
+
+  .docs-map__work-text {
+    flex: 1 1 auto;
+    text-decoration: underline;
+    text-decoration-color: transparent;
+    text-underline-offset: 0.22em;
+    transition: text-decoration-color var(--dur-micro) var(--ease-ui);
+  }
+
+  .docs-map__work-link:is(:hover, :focus-visible) {
+    background-color: var(--color-plate);
+  }
+
+  .docs-map__work-link:is(:hover, :focus-visible) .docs-map__work-text {
+    text-decoration-color: currentColor;
+  }
+
+  .docs-map__work-link:focus-visible {
+    outline-offset: -2px;
+  }
+
+  /* One row once each guide's name fits on one line; a list below that. */
+  @container docs-map (min-width: 660px) {
+    .docs-map__work-list {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .docs-map__work-list li + li {
+      border-top: 0;
+      border-left: 1px solid var(--color-deep-line);
+    }
+  }
+
+  /* ---------- one guide, one highlight ----------
+     A station or the bracket, hovered or focused, lights every link in the map that leads to the
+     same guide. While any station has the pointer or focus, the art of the stations leading
+     elsewhere steps back (their text never dims). */
+  .docs-map:has(a.pl-node:is(:hover, :focus-visible)) a.pl-node .pl-node__art {
+    opacity: 0.35;
+  }
+
+  /* The stations that share the hovered or focused link's guide, the hovered one included. */
+  :is(
+    .docs-map:has([href$='/data-and-literature/']:is(:hover, :focus-visible))
+      a.pl-node[href$='/data-and-literature/'],
+    .docs-map:has(
+        [href$='/modeling-and-validation/']:is(:hover, :focus-visible)
+      )
+      a.pl-node[href$='/modeling-and-validation/'],
+    .docs-map:has([href$='/scientific-safeguards/']:is(:hover, :focus-visible))
+      a.pl-node[href$='/scientific-safeguards/'],
+    .docs-map:has([href$='/system-overview/']:is(:hover, :focus-visible))
+      a.pl-node[href$='/system-overview/']
+  ) {
+    & .pl-node__socket {
+      fill: var(--docs-map-lit-socket);
+      stroke: var(--docs-map-lit-stroke);
+    }
+
+    & .pl-node__label {
+      fill: var(--docs-map-lit-label);
+      text-decoration: underline;
+    }
+
+    & .pl-node__art {
+      opacity: 1;
+    }
+  }
+
+  .docs-map:has([href$='/scientific-safeguards/']:is(:hover, :focus-visible))
+    .docs-map__bracket {
+    color: var(--color-starlight);
+  }
+
+  .docs-map:has([href$='/scientific-safeguards/']:is(:hover, :focus-visible))
+    .docs-map__bracket::before,
+  .docs-map:has([href$='/scientific-safeguards/']:is(:hover, :focus-visible))
+    .docs-map__bracket::after {
+    border-color: var(--color-ion);
+  }
+
+  .docs-map:has([href$='/scientific-safeguards/']:is(:hover, :focus-visible))
+    .docs-map__bracket-text {
+    text-decoration-color: currentColor;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .docs-map__bracket::before,
+    .docs-map__bracket::after,
+    .docs-map__bracket-text,
+    .docs-map__work-link,
+    .docs-map__work-text {
+      transition: none;
+    }
+  }
+
+  @media (forced-colors: active) {
+    .docs-map {
+      --docs-map-lit-socket: Canvas;
+      --docs-map-lit-stroke: Highlight;
+      --docs-map-lit-label: LinkText;
+    }
+
+    /* The kit's lane tags and sockets keep their dark plate fills here, under text and marks
+       drawn in system colours; give them the page's. (Kit request to Task 7: then drop these.) */
+    .docs-map .pl-lane rect {
+      fill: Canvas;
+    }
+
+    .docs-map a.pl-node .pl-node__socket {
+      fill: Canvas;
+      stroke: CanvasText;
+    }
+
+    .docs-map__bracket::before,
+    .docs-map__bracket::after,
+    .docs-map__work,
+    .docs-map__work-title,
+    .docs-map__work-list li + li {
+      border-color: CanvasText;
+    }
+
+    .docs-map__bracket,
+    .docs-map__work-link,
+    .docs-map__work-link .docs-map__icon {
+      color: LinkText;
+    }
+  }
+</style>

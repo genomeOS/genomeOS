@@ -5,7 +5,7 @@ sidebar:
   order: 4
 ---
 
-The Data working group expands geographic evidence through exact publication measurements and
+The Data [working group](../../contribute/#working-groups) expands geographic evidence through exact publication measurements and
 compatible database transfers. More rows are useful only when their meaning survives extraction.
 
 ## Never infer a required field from plausibility
