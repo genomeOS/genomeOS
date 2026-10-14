@@ -1,10 +1,13 @@
 /**
  * Build the site favicons from the globe "O" of the genomeOS logo.
  *
- * favicon.svg keeps the logo's gradient <defs> and its #wordmark-os group (the
- * OS outline and the continent silhouettes) byte for byte, and drops "genome",
- * the FOUNDATION line and the tagline. Coordinates stay in the logo's user
- * space, so the userSpaceOnUse gradient lands exactly where it does in the logo.
+ * favicon.svg keeps the logo's gradient <defs> byte for byte and its
+ * #wordmark-os group (the OS outline and the continent silhouettes) with only
+ * its path data slimmed, as every brand file the site serves is
+ * (scripts/brand-svg.mjs: relative commands at 0.01 user units, no visible
+ * change), and drops "genome", the FOUNDATION line and the tagline.
+ * Coordinates stay in the logo's user space, so the userSpaceOnUse gradient
+ * lands exactly where it does in the logo.
  *
  * Only the O is shown. It is approximately the left square of the OS group:
  * its side is taken as the group's height, measured with getBBox() in
@@ -39,6 +42,8 @@ import path from 'node:path';
 
 import { chromium } from '@playwright/test';
 
+import { slimPaths } from './brand-svg.mjs';
+
 const publicDir = path.resolve(import.meta.dirname, '../public');
 const logo = readFileSync(
   path.join(publicDir, 'brand/genomeos-foundation-dark.svg'),
@@ -64,7 +69,9 @@ function extract(pattern, name) {
 }
 
 const defs = extract(/^ {2}<defs>\n[\s\S]*?^ {2}<\/defs>$/m, 'gradient defs');
-const os = extract(/^ {2}<g id="wordmark-os"[\s\S]*?^ {2}<\/g>$/m, 'OS group');
+const os = slimPaths(
+  extract(/^ {2}<g id="wordmark-os"[\s\S]*?^ {2}<\/g>$/m, 'OS group'),
+);
 
 const round = (value) => Number(value.toFixed(3));
 

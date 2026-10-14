@@ -29,6 +29,8 @@ export default defineConfig({
     'figures.spec.ts',
     'motion.spec.ts',
     'redirect.spec.ts',
+    // The slimmed brand SVGs against the owner's artwork (#454 ruling 12).
+    'brand-pixels.spec.ts',
   ],
   fullyParallel: false,
   workers: playwrightWorkers(),

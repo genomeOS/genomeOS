@@ -1,9 +1,17 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { inflateSync } from 'node:zlib';
+import { gzipSync, inflateSync } from 'node:zlib';
 
 import { describe, expect, it } from 'vitest';
+
+import {
+  absoluteSegments,
+  brandFiles,
+  FULL_ARTWORK_COPY,
+  slimPathData,
+  slimPaths,
+} from '../scripts/brand-svg.mjs';
 
 const brand = path.resolve(import.meta.dirname, '../public/brand');
 /** The full genomeOS Foundation artwork, tagline included; the crops come from it. */
@@ -19,6 +27,8 @@ const headerLockup = readFileSync(
   path.join(brand, 'genomeos-lockup-dark.svg'),
   'utf8',
 );
+/** The artwork with only its path data slimmed (scripts/brand-svg.mjs, #454 ruling 12). */
+const slimArtwork = slimPaths(fullArtwork);
 
 const rootTag = (svg: string) => svg.match(/<svg\b[^>]*>/)![0];
 const attribute = (tag: string, name: string) =>
@@ -59,13 +69,33 @@ describe('genomeOS brand assets', () => {
     );
   });
 
-  it('crops the wordmark from the same paths, byte for byte', () => {
+  it('serves every brand file exactly as derived from that artwork', () => {
+    // npm run build:brand writes these; a hand edit, or a crop re-copied with the artwork's
+    // unslimmed paths, fails here.
+    for (const [file, svg] of Object.entries(brandFiles(fullArtwork)))
+      expect(readFileSync(path.join(brand, '..', file), 'utf8'), file).toBe(
+        svg,
+      );
+  });
+
+  it('crops the wordmark from the same paths, slimmed', () => {
     expect(paths(fullArtwork)).toHaveLength(5);
-    expect(paths(wordmark)).toEqual(paths(fullArtwork));
+    expect(paths(wordmark)).toEqual(paths(slimArtwork));
+  });
+
+  it('gives the footer the whole artwork, its paths slimmed and nothing else changed', () => {
+    const copy = readFileSync(
+      path.join(brand, '..', FULL_ARTWORK_COPY),
+      'utf8',
+    );
+    expect(copy).toBe(slimArtwork);
+    expect(copy.replace(/ d="[^"]*"/g, '')).toBe(
+      fullArtwork.replace(/ d="[^"]*"/g, ''),
+    );
   });
 
   it('changes only the root box and the title and description text', () => {
-    expect(artwork(wordmark)).toBe(artwork(fullArtwork));
+    expect(artwork(wordmark)).toBe(artwork(slimArtwork));
     expect(wordmark).toContain('<title id="logo-title">genomeOS</title>');
     expect(wordmark).toContain('<desc id="logo-description">genomeOS</desc>');
   });
@@ -95,16 +125,16 @@ describe('genomeOS header lockup (genome + OS + FOUNDATION)', () => {
     expect(attribute(root, 'viewBox')).toBe('136 270 1395 300');
   });
 
-  it('keeps the wordmark and FOUNDATION paths byte for byte, without the tagline', () => {
+  it('keeps the wordmark and FOUNDATION paths, slimmed, without the tagline', () => {
     expect(fullArtwork).toMatch(taglineGroup);
     expect(headerLockup).not.toContain('id="tagline"');
-    expect(paths(headerLockup)).toEqual(paths(fullArtwork).slice(0, 4));
+    expect(paths(headerLockup)).toEqual(paths(slimArtwork).slice(0, 4));
     expect(paths(fullArtwork)[4]).toContain('M256.310,661.710');
   });
 
   it('changes only the root box, the title and description, and drops the tagline', () => {
     expect(artwork(headerLockup)).toBe(
-      artwork(fullArtwork).replace(taglineGroup, ''),
+      artwork(slimArtwork).replace(taglineGroup, ''),
     );
     expect(headerLockup).toContain(
       '<title id="logo-title">genomeOS Foundation</title>',
@@ -112,6 +142,54 @@ describe('genomeOS header lockup (genome + OS + FOUNDATION)', () => {
     expect(headerLockup).toContain(
       '<desc id="logo-description">genomeOS Foundation</desc>',
     );
+  });
+});
+
+// #454 ruling 12: the artwork's path data, absolute cubics at 3 decimals, was most of the shell's
+// bytes. The served files write it with relative commands at 0.01 units; site.spec renders them
+// against the original at 1x and 2x.
+describe('slimmed brand path data', () => {
+  const original = [...fullArtwork.matchAll(/ d="([^"]*)"/g)].map(([, d]) => d);
+
+  it('decodes to the same segments, every point within 0.005 units of the original', () => {
+    let points = 0;
+    for (const d of original) {
+      const before = absoluteSegments(d);
+      const after = absoluteSegments(slimPathData(d));
+      expect(after.map(([command]) => command)).toEqual(
+        before.map(([command]) => command),
+      );
+      after.forEach(([, ...values], segment) =>
+        values.forEach((value, at) => {
+          expect(
+            Math.abs(value - (before[segment]![at + 1] as number)),
+          ).toBeLessThanOrEqual(0.005 + 1e-9);
+          points += 1;
+        }),
+      );
+    }
+    expect(points).toBeGreaterThan(7000);
+  });
+
+  it('writes the shortest numbers and relative steps without drift', () => {
+    expect(slimPathData('M10.000,20.000 L10.000,25.500 L12.250,25.500 Z')).toBe(
+      'M10 20v5.5h2.25z',
+    );
+    // Points round first (0.004 to 0, 0.506 to 0.51), then the steps are their differences;
+    // ".11.19" reads as two numbers, and the repeated c is left out.
+    expect(
+      slimPathData(
+        'M0.004,0.006 C0.106,0.204 0.304,0.406 0.506,0.604 C0.708,0.806 0.906,1.004 1.104,1.206',
+      ),
+    ).toBe('M0 .01c.11.19.3.4.51.59.2.21.4.4.59.61');
+    expect(() => slimPathData('M0 0 Q1 1 2 2')).toThrow(/unsupported/);
+  });
+
+  it('cuts the gzipped size of every path by more than a third', () => {
+    for (const d of original)
+      expect(
+        gzipSync(slimPathData(d)).length / gzipSync(d).length,
+      ).toBeLessThan(0.65);
   });
 });
 
@@ -197,17 +275,17 @@ const decodePng = (png: Buffer) => {
 };
 
 describe('genomeOS favicon', () => {
-  it('keeps only the gradient and the OS paths, byte for byte', () => {
-    for (const [start, end] of [
-      ['  <defs>', '  </defs>'],
-      ['  <g id="wordmark-os"', '  </g>'],
-    ]) {
+  it('keeps only the gradient, byte for byte, and the OS paths, slimmed', () => {
+    for (const [start, end, source] of [
+      ['  <defs>', '  </defs>', fullArtwork],
+      ['  <g id="wordmark-os"', '  </g>', slimArtwork],
+    ] as const) {
       const kept = block(favicon, start, end);
-      expect(kept).toBe(block(fullArtwork, start, end));
+      expect(kept).toBe(block(source, start, end));
       expect(favicon).toContain(kept);
     }
     expect(paths(favicon)).toEqual(
-      paths(block(fullArtwork, '  <g id="wordmark-os"', '  </g>')),
+      paths(block(slimArtwork, '  <g id="wordmark-os"', '  </g>')),
     );
     expect(paths(favicon)).toHaveLength(2);
     for (const dropped of ['wordmark-genome', 'foundation-line', 'tagline']) {
