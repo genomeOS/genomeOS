@@ -106,9 +106,47 @@ jobs:
           path: website/test-results
           retention-days: 7
 
+  # The marketing pages' performance budgets (site redesign spec §7, #454 ruling 13), measured on
+  # the deployed build: an analytics id is set, so the cookie control ships as it does live, and
+  # Google Analytics itself never loads (consent is declined). Byte, LCP and CLS budgets all hold
+  # here; should runner noise ever fail the timing ones, PERF_TIMING: log on the budgets step logs
+  # them instead (marketing-performance.spec.ts). Like the shards, its steps before "Install
+  # browser runtime" stay identical to validate's steps before "Check formatting".
+  performance:
+    name: performance budgets
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install exact dependencies
+        run: npm ci
+      - name: Install browser runtime
+        run: npx playwright install --with-deps chromium
+      - name: Build the deployed site
+        run: npm run build:deployed
+      - name: Run the marketing performance budgets
+        run: npm run test:performance:marketing
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-performance-results
+          path: website/test-results
+          retention-days: 7
+
   build:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    needs: [validate, e2e]
+    needs: [validate, e2e, performance]
     runs-on: ubuntu-latest
     env:
       PUBLIC_ATLAS_DATA_BASE_URL: ${{ vars.ATLAS_DATA_BASE_URL }}

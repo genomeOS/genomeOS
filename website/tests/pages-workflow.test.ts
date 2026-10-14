@@ -57,7 +57,36 @@ describe('Pages workflow browser shards', () => {
 
   it('runs the browser contracts only in the shards and deploys only after all pass', () => {
     expect(pagesWorkflow.split('npm run test:e2e')).toHaveLength(2);
-    expect(job('build')).toContain('needs: [validate, e2e]');
+    expect(job('build')).toContain('needs: [validate, e2e, performance]');
+  });
+
+  // #454 ruling 13: spec §7's budgets ran nowhere. One job builds the deployed site (an analytics
+  // id set, ruling 10) and runs the marketing budgets under playwright.performance.config.ts.
+  it('runs the marketing performance budgets on the deployed build, prepared as validate is', () => {
+    const performance = job('performance');
+    expect(preparation(performance, 'Install browser runtime')).toBe(
+      preparation(job('validate'), 'Check formatting'),
+    );
+    const install = performance.indexOf(
+      'run: npx playwright install --with-deps chromium',
+    );
+    const build = performance.indexOf('run: npm run build:deployed\n');
+    const budgets = performance.indexOf(
+      'run: npm run test:performance:marketing\n',
+    );
+    expect(install).toBeGreaterThan(-1);
+    expect(build).toBeGreaterThan(install);
+    expect(budgets).toBeGreaterThan(build);
+    expect(pagesWorkflow.split('npm run test:performance')).toHaveLength(2);
+    expect(performance).not.toContain('GA_MEASUREMENT_ID');
+    const scripts = (
+      JSON.parse(read('website/package.json')) as {
+        scripts: Record<string, string>;
+      }
+    ).scripts;
+    expect(scripts['test:performance:marketing']).toContain(
+      'npm run test:performance -- tests/marketing-performance.spec.ts',
+    );
   });
 
   it('passes the GA Measurement ID to the production build step only (#422)', () => {
@@ -71,7 +100,7 @@ describe('Pages workflow browser shards', () => {
     );
     expect(step).toContain('run: npm run build\n');
     expect(step).toContain(variable);
-    for (const name of ['validate', 'e2e', 'deploy'])
+    for (const name of ['validate', 'e2e', 'performance', 'deploy'])
       expect(job(name), name).not.toContain('GA_MEASUREMENT_ID');
     expect(pagesWorkflow).not.toMatch(/goatcounter/i);
   });

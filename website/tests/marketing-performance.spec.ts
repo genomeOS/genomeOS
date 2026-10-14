@@ -1,11 +1,25 @@
 /**
  * Marketing page budgets (site redesign spec §7, §9.2–§9.3; #454), under
- * playwright.performance.config.ts against a production build, in CI only.
+ * playwright.performance.config.ts against the deployed build (`npm run build:deployed`), in the
+ * Pages workflow's performance job.
  *
  * Gzip transfer by type (first-party JS, deferred figure data, images, total), LCP and CLS, on a
  * desktop profile and a phone profile (Pixel 7 viewport, 4× CPU, Slow 4G), from each finished
- * page's manifest. Google Analytics is left out: it loads only after consent. Every marketing
- * route is also held to no Cesium, no React and no third-party request.
+ * page's manifest. Every marketing route is also held to no Cesium, no React and no third-party
+ * request.
+ *
+ * The rulings of 2026-10-14 (spec §7):
+ *   10  The budgets measure what visitors download: a build with an analytics id. Google
+ *       Analytics itself never loads (consent is declined), so it is still left out; the cookie
+ *       control is in. A build without an id is refused, not measured.
+ *   11  The cookie control is site chrome, like the fonts: page JS budgets leave it out, and it
+ *       is held to its own budget once per route.
+ *   13  The Pages workflow's performance job runs this. The byte budgets (JS, data, transfer)
+ *       are exact. LCP and CLS are enforced too: with every profile's CPU slowed a further 2.5×
+ *       (PERF_CPU_SCALE=2.5, a stand-in for a slower runner) the worst phone LCP was 1,452 ms of
+ *       2,500 and the worst desktop LCP 128 ms of 1,000, and CLS did not move. If runners prove
+ *       noisier than that, PERF_TIMING=log keeps them measured and logged but not enforced
+ *       (spec §7).
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -13,7 +27,11 @@ import { fullyEnforced, type PageManifest } from './helpers/pages';
 import { marketingRoutes } from './site-routes';
 
 interface Measured {
+  /** First-party JS without the cookie control (ruling 11). */
   jsKb: number;
+  /** The cookie control's module and the modules it imports. */
+  cookieKb: number;
+  cookieUrls: string[];
   dataKb: number;
   imageKb: number;
   totalKb: number;
@@ -21,6 +39,18 @@ interface Measured {
   cls: number;
   urls: string[];
 }
+
+/** The cookie control's own budget, gzip KB, on every route (spec §7, ruling 11). */
+const COOKIE_CONTROL_KB_GZ = 3.6;
+
+/** `PERF_TIMING=log`: measure and log LCP and CLS without enforcing them (ruling 13's fallback). */
+const TIMING_ENFORCED = process.env.PERF_TIMING !== 'log';
+
+/**
+ * Extra CPU slowdown on top of each profile's own (`PERF_CPU_SCALE`, default 1): a stand-in for a
+ * slower machine, used to see how much headroom the timing budgets have (ruling 13).
+ */
+const CPU_SCALE = Number(process.env.PERF_CPU_SCALE ?? '1');
 
 const PROFILES = {
   desktop: { viewport: { width: 1440, height: 900 }, cpu: 1, network: null },
@@ -44,7 +74,7 @@ async function measure(
   const { viewport, cpu, network } = PROFILES[profile];
   await page.setViewportSize(viewport);
   const cdp = await page.context().newCDPSession(page);
-  await cdp.send('Emulation.setCPUThrottlingRate', { rate: cpu });
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate: cpu * CPU_SCALE });
   if (network)
     await cdp.send('Network.emulateNetworkConditions', {
       offline: false,
@@ -78,11 +108,32 @@ async function measure(
     window.scrollTo({ top: 0, behavior: 'instant' });
   });
   await page.waitForLoadState('networkidle');
-  return page.evaluate(() => {
+  return page.evaluate(async () => {
     const kb = (bytes: number) => Math.round((bytes / 1024) * 10) / 10;
+    // Read the timing first: fetching the control's sources below adds entries of its own.
     const entries = performance.getEntriesByType(
       'resource',
     ) as PerformanceResourceTiming[];
+    // The cookie control: its module script and, transitively, the modules it imports.
+    const control = document.querySelector<HTMLScriptElement>(
+      'script[type="module"][src*="CookieControl.astro_astro_type_script"]',
+    );
+    if (!control)
+      throw new Error(
+        'This build has no cookie control, so it loads no analytics: the budgets measure the deployed build (ruling 10). Build with `npm run build:deployed`.',
+      );
+    const cookieUrls = new Set<string>();
+    const pending = [control.src];
+    while (pending.length) {
+      const url = pending.pop()!;
+      if (cookieUrls.has(url)) continue;
+      cookieUrls.add(url);
+      const source = await (await fetch(url)).text();
+      for (const [, specifier] of source.matchAll(
+        /(?:\bfrom|\bimport)\s*["'](\.{1,2}\/[^"']+)["']/g,
+      ))
+        pending.push(new URL(specifier!, url).href);
+    }
     const [navigation] = performance.getEntriesByType(
       'navigation',
     ) as PerformanceNavigationTiming[];
@@ -96,7 +147,11 @@ async function measure(
         (total, entry) => total + (entry.transferSize || entry.encodedBodySize),
         0,
       );
-    const js = firstParty.filter((entry) => /\.m?js(\?|$)/.test(entry.name));
+    const scripts = firstParty.filter((entry) =>
+      /\.m?js(\?|$)/.test(entry.name),
+    );
+    const cookie = scripts.filter((entry) => cookieUrls.has(entry.name));
+    const js = scripts.filter((entry) => !cookieUrls.has(entry.name));
     const data = firstParty.filter((entry) =>
       /\/_astro\/hbs-[^/]+\.bin(\?|$)/.test(entry.name),
     );
@@ -106,6 +161,8 @@ async function measure(
     ).__perf;
     return {
       jsKb: kb(sum(js)),
+      cookieKb: kb(sum(cookie)),
+      cookieUrls: [...cookieUrls],
       dataKb: kb(sum(data)),
       imageKb: kb(sum(images)),
       totalKb: kb(sum(firstParty) + (navigation?.transferSize ?? 0)),
@@ -132,6 +189,15 @@ function expectBudgets(
     expect(measured.totalKb, `${label} transfer`).toBeLessThanOrEqual(
       manifest.transferKbGz,
     );
+  if (profile === 'desktop') {
+    expect(
+      measured.cookieKb,
+      `${label} cookie control (site chrome, ruling 11)`,
+    ).toBeLessThanOrEqual(COOKIE_CONTROL_KB_GZ);
+    // Every file of the control was fetched: an empty sum would pass the budget unmeasured.
+    expect(measured.cookieKb, `${label} cookie control`).toBeGreaterThan(0);
+  }
+  if (!TIMING_ENFORCED) return;
   if (manifest.lcpMs)
     expect(measured.lcpMs, `${label} LCP`).toBeLessThanOrEqual(
       profile === 'desktop' ? manifest.lcpMs.desktop : manifest.lcpMs.phone,
@@ -144,7 +210,7 @@ for (const manifest of fullyEnforced.filter((page) => !page.redirect))
     test(`${manifest.route} meets its ${profile} budgets`, async ({ page }) => {
       const measured = await measure(page, manifest.route, profile);
       console.log(
-        `budgets ${manifest.route} ${profile}: ${JSON.stringify({ ...measured, urls: undefined })}`,
+        `budgets ${manifest.route} ${profile}: ${JSON.stringify({ ...measured, urls: undefined, cookieUrls: undefined })}`,
       );
       expectBudgets(manifest, measured, profile);
     });
