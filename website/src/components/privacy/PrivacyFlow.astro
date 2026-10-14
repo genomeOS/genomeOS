@@ -1,0 +1,223 @@
+---
+/**
+ * "What leaves your browser" (site redesign spec §4.5, #454): the privacy page's lead figure, a
+ * mechanism plate. Your browser → the consent gate → Google Analytics 4 → aggregate reports.
+ *
+ * - The gate is drawn in the visitor's real state (`privacy-flow.ts`): open in aurora when
+ *   analytics is on, closed behind a hatched bar when it is off or not chosen yet, and removed in a
+ *   build without analytics. It is a link to the choice it reads (`#your-choice`).
+ * - Above the wire, what Google Analytics 4 receives once the gate is open; below it, struck, what
+ *   is never sent or kept.
+ * - A separate grey wire runs from the browser over the gate to a map tile: map imagery loads from
+ *   its providers whatever the choice.
+ * - Every state's words are in the markup; CSS shows the one that `data-gate` names, so the
+ *   accessible name and the description always state the drawn state.
+ *
+ * Styles live in `styles/pages/privacy.css` (they key on the Plate's figure, which this
+ * component does not render itself).
+ */
+import Plate from '../kit/Plate.astro';
+import { gaMeasurementId } from '../../lib/ga.mjs';
+import { gatePaintScript } from './privacy-flow';
+
+const analytics = gaMeasurementId() !== null;
+const id = 'privacy-flow';
+// Without JavaScript nothing loads Google Analytics, so the honest default is "not chosen yet";
+// the inline script replaces it with the stored choice before the first paint.
+const initial = analytics ? 'pending' : 'removed';
+
+const sent = [
+  'Page path',
+  'Linking page',
+  'Approximate location',
+  'Device, browser and operating system',
+  'Language and screen size',
+  'Three Atlas actions',
+];
+const never = [
+  'IP address stored',
+  'Ads',
+  'Google signals',
+  'Names',
+  'Places you view',
+];
+---
+
+<Plate
+  graphic="privacy-flow"
+  id={id}
+  class="privacy-flow"
+  interactive
+  labelledby="privacy-flow-title"
+  describedby="privacy-flow-desc"
+  data-gate={initial}
+  data-privacy-flow=""
+>
+  <div class="pf-frame">
+    <div class="pf">
+      <div class="pf-lane">
+        <svg
+          class="pf-tile"
+          viewBox="0 0 30 30"
+          role="img"
+          aria-label="Map imagery loads from its providers"
+        >
+          <path
+            class="pf-tile__sheet"
+            d="M2 7.5 10 4l10 3.5L28 4v18.5L20 26l-10-3.5L2 26z"></path>
+          <path class="pf-tile__fold" d="M10 4v18.5M20 7.5V26"></path>
+          <path
+            class="pf-tile__road"
+            d="M4.5 19.5c3-3.5 6-1 8.5-4.5s5.5-3 9-2.5"></path>
+        </svg>
+      </div>
+
+      <div class="pf-node pf-node--browser">
+        <span class="pf-socket">
+          <svg viewBox="0 0 40 40" aria-hidden="true" focusable="false">
+            <rect x="4" y="7" width="32" height="26"></rect>
+            <path d="M4 13h32"></path>
+            <path class="pf-soft" d="M9 19h14M9 23.5h20M9 28h10"></path>
+            <circle class="pf-dot" cx="8" cy="10" r="1.1"></circle>
+            <circle class="pf-dot" cx="11.5" cy="10" r="1.1"></circle>
+            <circle class="pf-dot" cx="15" cy="10" r="1.1"></circle>
+          </svg>
+        </span>
+        <span class="pf-label">Your browser</span>
+      </div>
+
+      <span class="pf-wire pf-wire--in" aria-hidden="true"></span>
+
+      <a class="pf-node pf-node--gate" href="#your-choice">
+        <span class="pf-socket pf-socket--gate">
+          <svg viewBox="0 0 72 72" aria-hidden="true" focusable="false">
+            <defs>
+              <pattern
+                id="pf-hatch"
+                width="5"
+                height="5"
+                patternUnits="userSpaceOnUse"
+                patternTransform="rotate(45)"
+              >
+                <rect class="pf-hatch__ground" width="5" height="5"></rect>
+                <path class="pf-hatch__line" d="M0 0V5"></path>
+              </pattern>
+            </defs>
+            <path class="pf-gate__stub" d="M0 36H22"></path>
+            <path class="pf-gate__pass" d="M0 36H72"></path>
+            <rect
+              class="pf-gate__bar"
+              x="26"
+              y="15"
+              width="20"
+              height="42"
+              fill="url(#pf-hatch)"></rect>
+            <rect class="pf-gate__post" x="21" y="12" width="5" height="48"
+            ></rect>
+            <rect class="pf-gate__post" x="46" y="12" width="5" height="48"
+            ></rect>
+          </svg>
+        </span>
+        {
+          analytics ? (
+            <span class="pf-label">
+              <span class="pf-label__line">Your choice:</span>{' '}
+              <span class="pf-label__state">
+                <span data-when="open">On</span>
+                <span data-when="closed">Off</span>
+                <span data-when="pending">Not chosen yet</span>
+              </span>
+            </span>
+          ) : (
+            <span class="pf-label">This copy loads no analytics</span>
+          )
+        }
+      </a>
+
+      <span class="pf-wire pf-wire--out" aria-hidden="true"></span>
+
+      <ul
+        class="pf-chips pf-chips--sent"
+        aria-label="Sent once the gate is open"
+      >
+        {sent.map((item) => <li class="pf-chip">{item}</li>)}
+      </ul>
+
+      <ul class="pf-chips pf-chips--never" aria-label="Never sent or kept">
+        {never.map((item) => <li class="pf-chip">{item}</li>)}
+      </ul>
+
+      <div class="pf-node pf-node--ga">
+        <span class="pf-socket">
+          <svg viewBox="0 0 40 40" aria-hidden="true" focusable="false">
+            <path d="M6 33h28"></path>
+            <rect x="9" y="22" width="5" height="11"></rect>
+            <rect x="17.5" y="14" width="5" height="19"></rect>
+            <rect x="26" y="7" width="5" height="26"></rect>
+          </svg>
+        </span>
+        <span class="pf-label">Google Analytics 4</span>
+      </div>
+
+      <span class="pf-wire pf-wire--report" aria-hidden="true"></span>
+
+      <div class="pf-node pf-node--reports">
+        <span class="pf-socket">
+          <svg viewBox="0 0 40 40" aria-hidden="true" focusable="false">
+            <path d="M11 5h13l6 6v24H11z"></path>
+            <path d="M24 5v6h6"></path>
+            <path class="pf-soft" d="M15 18h11M15 22.5h11M15 27h7"></path>
+          </svg>
+        </span>
+        <span class="pf-label">Aggregate reports</span>
+      </div>
+    </div>
+  </div>
+
+  <p class="visually-hidden" id="privacy-flow-desc">
+    {
+      analytics ? (
+        <>
+          Your browser reaches Google Analytics 4 only through your choice,
+          which the cookie settings below control.
+          <span data-when="open">
+            It is on, so the gate is open: Google Analytics 4 receives the page
+            path, the linking page, an approximate location, the device,
+            browser, operating system, language and screen size, and three Atlas
+            actions.
+          </span>
+          <span data-when="closed">
+            It is off, so the gate is closed and nothing is sent.
+          </span>
+          <span data-when="pending">
+            You have not chosen yet, so the gate stays closed and nothing is
+            sent until you choose Accept.
+          </span>
+          The maintainers see only aggregate reports. IP addresses are never
+          stored, and no ads, Google signals, names or places you view are ever
+          sent. Map imagery loads from its providers on a separate path,
+          whatever your choice.
+        </>
+      ) : (
+        <>
+          This copy of the site loads no analytics, so nothing reaches Google
+          Analytics 4. On genome-os.org, the gate opens only when analytics is
+          on. Map imagery loads from its providers on a separate path.
+        </>
+      )
+    }
+  </p>
+
+  <span slot="caption" id="privacy-flow-title"
+    ><strong>What leaves your browser</strong></span
+  >
+</Plate>
+
+{analytics && <script is:inline set:html={gatePaintScript(id)} />}
+
+<script>
+  import { initPrivacyFlow } from './privacy-flow';
+
+  // A constant: a build without analytics drops the gate's code, as it drops the cookie control's.
+  if (import.meta.env.PUBLIC_GA_MEASUREMENT_ID) initPrivacyFlow();
+</script>
