@@ -56,7 +56,10 @@ h4 {
   max-width: 48rem;
 }
 
-.sl-markdown-content h2 {
+/* Starlight wraps each heading with its anchor link and sets the heading inline, so a rule on the
+   h2 itself spans only its first line: the wrapper carries the one full-width rule instead. */
+.sl-markdown-content h2:not(.sl-heading-wrapper > h2),
+.sl-markdown-content .sl-heading-wrapper.level-h2 {
   border-top: 1px solid var(--sl-color-hairline);
   padding-top: 1.5rem;
 }

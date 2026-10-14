@@ -161,6 +161,46 @@ test(
   },
 );
 
+test('a docs section heading draws one full-width rule, even when it wraps', async ({
+  page,
+}) => {
+  // Starlight sets a heading inline beside its anchor link, so a rule on the h2 itself spanned
+  // only the heading's first line (#454 design review).
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const route of ['/docs/', '/docs/scientific-safeguards/']) {
+      await page.goto(route);
+      const rules = await page.evaluate(() => {
+        const content = document
+          .querySelector('.sl-markdown-content')!
+          .getBoundingClientRect().width;
+        return [...document.querySelectorAll('.sl-markdown-content h2')].map(
+          (heading) => {
+            const host = heading.closest('.sl-heading-wrapper') ?? heading;
+            return {
+              heading: heading.textContent?.trim(),
+              rule: getComputedStyle(host).borderTopWidth,
+              widthMatches:
+                Math.abs(host.getBoundingClientRect().width - content) < 1,
+              innerRule:
+                host === heading
+                  ? '0px'
+                  : getComputedStyle(heading).borderTopWidth,
+            };
+          },
+        );
+      });
+      expect(rules.length, `${route} at ${width} px`).toBeGreaterThan(0);
+      for (const rule of rules)
+        expect(rule, `${route} at ${width} px`).toMatchObject({
+          rule: '1px',
+          widthMatches: true,
+          innerRule: '0px',
+        });
+    }
+  }
+});
+
 test('Atlas status replaces the launch action only on the Atlas page', async ({
   page,
 }) => {
