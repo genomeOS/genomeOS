@@ -1694,11 +1694,9 @@
    is the Modeled layer at rest, so a print carries that layer's legend and the callouts that
    describe it, never the last layer's legend or a readout from a turned view. */
 @media print {
-  .hg-canvas,
-  .hg-reticle,
-  .hg-layers,
-  .hg-reset,
-  .hg-readout {
+  /* As specific as the screen rules that show them (.hg .hg-layers, .hg[data-reticle] …). */
+  .hg :is(.hg-canvas, .hg-layers, .hg-reset, .hg-readout),
+  .hg[data-reticle] .hg-reticle {
     display: none;
   }
 

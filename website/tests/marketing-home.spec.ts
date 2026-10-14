@@ -644,7 +644,15 @@ test('printing after a layer switch and a turn shows the poster’s own legend a
   await expect(figure.locator('.hg-poster')).toBeVisible();
   await expect(figure.locator('[data-legend="modeled"]')).toBeVisible();
   await expect(figure.locator('[data-legend="evidence"]')).toBeHidden();
-  await expect(figure.locator('.hg-readout')).toBeHidden();
+  // Nothing interactive prints: not the layer control (still on Evidence), not the focused
+  // globe's reticle, not Reset view, not the readout.
+  for (const control of [
+    '.hg-layers',
+    '.hg-reticle',
+    '.hg-reset',
+    '.hg-readout',
+  ])
+    await expect(figure.locator(control), control).toBeHidden();
   await expect
     .poll(() => restMarks(page))
     .toEqual(['visible 1', 'visible 1', 'visible 1']);
