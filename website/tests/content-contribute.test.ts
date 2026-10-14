@@ -140,10 +140,29 @@ describe('contribute page content', () => {
     expect(panels!.match(/<li\b/g)).toHaveLength(5);
     expect(panels).not.toMatch(/\shidden(?:=|\s|>)/);
     expect(textOf(panels!)).toMatch(
-      /Discussion #76[\s\S]*mention the original issue author[\s\S]*Ready means[\s\S]*wants-expert-review[\s\S]*needs-human-decision[\s\S]*pull request/,
+      /Discussion #76[\s\S]*mention the original issue author[\s\S]*Filter Ready work[\s\S]*wants-expert-review[\s\S]*needs-human-decision[\s\S]*pull request/,
     );
     expect(main).toMatch(/class="wb"[^>]*data-step="3"/);
     expect(main).toMatch(/<div[^>]*role="tablist"[^>]*hidden/);
+  });
+
+  // Design review, round 3: step 3's panel said the board's Ready definition a second time. The
+  // definition line under the board says it once; the panel adds only the filters, with "Ready"
+  // (a pinned term) as its link to the board.
+  it('says what Ready means once, and links Ready to the board from step 3', () => {
+    const panel = main.match(
+      /<div class="wb-panel" id="wb-panel-3"[\s\S]*?<\/div>/,
+    )?.[0];
+    expect(panel).toBeDefined();
+    expect(textOf(panel!)).toBe(
+      'Filter Ready work by skill, type and priority labels.',
+    );
+    expect(panel).toMatch(
+      /<a href="https:\/\/github\.com\/orgs\/genomeOS\/projects\/1"[^>]*>Ready<\/a>/,
+    );
+    expect(textOf(main).match(/fully specified and unblocked/g)).toHaveLength(
+      1,
+    );
   });
 
   it('retires the community image, the old flow and its detail articles', () => {
