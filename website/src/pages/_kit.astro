@@ -1,0 +1,379 @@
+---
+/**
+ * The figure kit gallery (site redesign plan step 0.12, #454): every primitive in one place for
+ * review, at /kit/ under `astro dev` only. The underscore keeps Astro's router from building it;
+ * integrations/dev-kit.mjs injects the route in development, so a production build neither renders
+ * the page nor bundles its script, styles or data.
+ */
+import Figure from '../components/kit/Figure.astro';
+import Glyph from '../components/kit/Glyph.astro';
+import Icon from '../components/kit/Icon.astro';
+import Legend from '../components/kit/Legend.astro';
+import Pipeline from '../components/kit/Pipeline.astro';
+import Plate from '../components/kit/Plate.astro';
+import Readout from '../components/kit/Readout.astro';
+import Segmented from '../components/kit/Segmented.astro';
+import StatusTag from '../components/kit/StatusTag.astro';
+import Tablist from '../components/kit/Tablist.astro';
+import { GLYPHS, type GlyphName } from '../components/kit/glyphs';
+import { ICON_PATHS, type IconName } from '../components/kit/icons';
+import { jeffreys } from '../graphics/jeffreys';
+import SiteLayout from '../layouts/SiteLayout.astro';
+
+const glyphs = Object.keys(GLYPHS) as GlyphName[];
+const icons = Object.keys(ICON_PATHS) as IconName[];
+const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
+const zero = jeffreys(0, 20);
+const sixtyOne = jeffreys(61, 412);
+---
+
+<SiteLayout
+  title="Figure kit"
+  description="Development gallery of the site figure kit."
+  noindex
+>
+  <Glyph sprite />
+  <Icon sprite />
+
+  <section class="page-intro page-intro--split">
+    <div class="section-shell page-intro__inner">
+      <div class="page-intro__head">
+        <p class="page-intro__note">Development only</p>
+        <h1>Figure kit</h1>
+      </div>
+      <p class="page-intro__lede">
+        Every primitive the page tasks build from: glyphs, icons, status tags,
+        figure and plate anatomy, controls, the Pipeline and the hex field.
+      </p>
+    </div>
+  </section>
+
+  <section class="band" aria-labelledby="kit-glyphs">
+    <div class="section-shell devkit">
+      <h2 id="kit-glyphs">Glyphs and icons</h2>
+      <ul class="devkit-swatches">
+        {
+          glyphs.map((name) => (
+            <li>
+              <Glyph name={name} size={name.startsWith('scale-') ? 40 : 24} />
+              <span>{name}</span>
+            </li>
+          ))
+        }
+      </ul>
+      <ul class="devkit-swatches">
+        {
+          icons.map((name) => (
+            <li>
+              <Icon name={name} />
+              <span>{name}</span>
+            </li>
+          ))
+        }
+      </ul>
+      <p class="devkit-row">
+        <StatusTag kind="not-validated" />
+        <StatusTag kind="schematic" />
+        <StatusTag kind="worked-example" />
+      </p>
+    </div>
+  </section>
+
+  <section class="band band--orbit" aria-labelledby="kit-figure">
+    <div class="section-shell devkit">
+      <h2 id="kit-figure">Data figure: the hex field on real HbS data</h2>
+      <Figure
+        graphic="devkit-hexfield"
+        interactive
+        label="300 coarsened HbS areas nearest Central Africa, with the measured surveys among them"
+        aspect="4 / 3"
+        class="devkit-hexfield"
+      >
+        <Fragment slot="toolbar">
+          <StatusTag kind="not-validated" />
+          <Segmented
+            label="Layer"
+            items={[
+              { value: 'measured', label: 'Measured' },
+              { value: 'modeled', label: 'Modeled' },
+              { value: 'evidence', label: 'Evidence' },
+            ]}
+            selected="modeled"
+            data-devkit-layer=""
+          />
+        </Fragment>
+        <canvas data-devkit-canvas aria-hidden="true"></canvas>
+        <Readout slot="readout" idle="Point at an area or a survey." />
+        <Fragment slot="legend">
+          <strong>Survey and model, kept apart.</strong>
+          <Legend
+            items={[
+              { glyph: 'stud-sm', label: 'Survey, under 200 alleles' },
+              { glyph: 'stud-md', label: '200–1,999' },
+              { glyph: 'stud-lg', label: '2,000 or more' },
+              {
+                glyph: 'vsup-wedge',
+                label: 'Modeled frequency, fading from surveys',
+              },
+              { glyph: 'hatch', label: 'No estimate' },
+            ]}
+          />
+        </Fragment>
+        <Fragment slot="footnote">
+          HbS (rs334) · model v3 · data map-2026-08 · coarsened for display
+        </Fragment>
+        <table slot="table">
+          <thead>
+            <tr><th>Counts</th><th>Jeffreys 95%</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>0 of 20</td><td>{pct(zero.lo)}–{pct(zero.hi)}</td></tr>
+            <tr>
+              <td>61 of 412</td><td>{pct(sixtyOne.lo)}–{pct(sixtyOne.hi)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </Figure>
+    </div>
+  </section>
+
+  <section class="band" aria-labelledby="kit-plate">
+    <div class="section-shell devkit">
+      <h2 id="kit-plate">Mechanism plate and controls</h2>
+      <Plate graphic="devkit-plate" label="An empty plate" interactive>
+        <Fragment slot="top">
+          <Segmented
+            label="Example"
+            items={[
+              { value: 'a', label: 'First' },
+              { value: 'b', label: 'Second' },
+            ]}
+          />
+          <button class="kit-text-button" type="button" style="margin-left:auto"
+            >Replay</button
+          >
+        </Fragment>
+        <div class="devkit-plate-stage"></div>
+        <Fragment slot="caption"
+          >One caption line for the focused part.</Fragment
+        >
+      </Plate>
+      <Tablist
+        label="Example steps"
+        idPrefix="devkit-tabs"
+        tabs={[
+          { id: 'one', label: '1 Say hello' },
+          { id: 'two', label: '2 Read the record', sub: 'Backlog' },
+          { id: 'three', label: '3 Take Ready work' },
+        ]}
+      >
+        <p slot="panel-one">The first panel.</p>
+        <p slot="panel-two">The second panel.</p>
+        <p slot="panel-three">The third panel.</p>
+      </Tablist>
+    </div>
+  </section>
+
+  <section class="band band--orbit" aria-labelledby="kit-pipeline">
+    <div class="section-shell devkit">
+      <h2 id="kit-pipeline">Pipeline</h2>
+      <h3>Mode 3, no toggle (Home)</h3>
+      <Pipeline mode={3} modeToggle={false} idPrefix="kit-home" />
+      <h3>Mode 6 with the toggle, no brackets (Project)</h3>
+      <Pipeline mode={6} stageBrackets={false} idPrefix="kit-project" />
+      <h3>Links, mode 6 (Docs)</h3>
+      <Pipeline variant="links" idPrefix="kit-docs" />
+      <h3>Vertical form at any width</h3>
+      <div class="devkit-force-v">
+        <Pipeline mode={6} idPrefix="kit-vertical" />
+      </div>
+      <h3>Horizontal form at any width</h3>
+      <div class="devkit-force-h">
+        <Pipeline mode={3} variant="links" idPrefix="kit-horizontal" />
+      </div>
+    </div>
+  </section>
+</SiteLayout>
+
+<script>
+  import { decodeAreas, decodeSurveys } from '../graphics/figure-data';
+  import { FigureController, createAnnouncer } from '../graphics/figure';
+  import { HexField, type HexHit, type HexLayer } from '../graphics/hexfield';
+  import { haversineKm, orthographic } from '../graphics/projection';
+  import { tween, easeUi } from '../graphics/tween';
+  import provenance from '../data/figures/hbs.provenance.json';
+
+  const urls = import.meta.glob('../data/figures/hbs-*.bin', {
+    query: '?url',
+    import: 'default',
+    eager: true,
+  }) as Record<string, string>;
+  const url = (prefix: string) =>
+    Object.entries(urls).find(([path]) => path.includes(`/${prefix}.`))![1];
+
+  async function hexfieldDemo(
+    figure: HTMLElement,
+    canvas: HTMLCanvasElement,
+    readout: HTMLElement,
+  ) {
+    const [globe, surveys] = await Promise.all([
+      fetch(url('hbs-globe')).then((response) => response.arrayBuffer()),
+      fetch(url('hbs-surveys')).then((response) => response.arrayBuffer()),
+    ]);
+    const centre: [number, number] = [18, 8];
+    const areas = decodeAreas(globe)
+      .map((area) => ({ area, km: haversineKm(centre, area.center) }))
+      .sort((a, b) => a.km - b.km)
+      .slice(0, 300)
+      .map(({ area }) => area);
+    const reach = Math.max(
+      ...areas.map((area) => haversineKm(centre, area.center)),
+    );
+    const field = new HexField(canvas, {
+      areas,
+      surveys: decodeSurveys(surveys).filter(
+        (survey) => haversineKm(centre, [survey.lon, survey.lat]) <= reach,
+      ),
+      projection: orthographic({ center: centre, scale: 1, translate: [0, 0] }),
+      domain: provenance.metric_domain.post_mean as [number, number],
+      fit(width, height, projection) {
+        projection.scale = Math.min(width, height) * 1.25;
+        projection.translate = [width / 2, height / 2];
+      },
+    });
+    new ResizeObserver(() => field.resize()).observe(canvas);
+
+    const announce = createAnnouncer(readout);
+    const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
+    const describe = (hit: HexHit | null) => {
+      if (!hit) return 'Point at an area or a survey.';
+      if (hit.type === 'surveys') {
+        const [first] = hit.surveys;
+        return hit.surveys.length > 1
+          ? `${hit.surveys.length} surveys here · ${hit.surveys
+              .slice(0, 2)
+              .map((survey) => `${survey.ac} of ${survey.an}`)
+              .join(' · ')}`
+          : `Measured survey · ${first.ac} of ${first.an} alleles carry HbS · within ±${first.radiusKm} km`;
+      }
+      const { area } = hit;
+      if (area.mean === null) return 'No estimate · — · no survey in range';
+      return `Modeled estimate about ${pct(area.mean)} · 95% range ${pct(area.lo!)}–${pct(area.hi!)} · nearest survey about ${area.distanceKm} km`;
+    };
+    canvas.addEventListener('pointermove', (event) => {
+      const box = canvas.getBoundingClientRect();
+      field.hover = field.hit(
+        event.clientX - box.left,
+        event.clientY - box.top,
+      );
+      field.draw();
+      announce(describe(field.hover));
+    });
+
+    const controller = new FigureController(figure, {
+      duration: 2800,
+      arm() {
+        field.reveal = { land: 0, studs: 0, surface: 0, hatch: 0 };
+        field.draw();
+      },
+      render(t) {
+        const clamp = (value: number) => Math.min(1, Math.max(0, value));
+        field.reveal = {
+          land: clamp(t / 300),
+          studs: clamp((t - 300) / 700),
+          surface: clamp((t - 1000) / 1400),
+          hatch: clamp((t - 2400) / 400),
+        };
+        field.draw();
+      },
+      rest() {
+        field.reveal = { land: 1, studs: 1, surface: 1, hatch: 1 };
+        field.draw();
+      },
+    });
+    figure.addEventListener('segmented:change', (event) => {
+      const layer = (event as CustomEvent<{ value: HexLayer }>).detail.value;
+      if (controller.reduced) {
+        field.setLayer(layer);
+        return;
+      }
+      field.setLayer(layer, 0);
+      tween(240, (amount) => field.setLayer(layer, amount), easeUi);
+    });
+  }
+
+  const figure = document.querySelector<HTMLElement>('.devkit-hexfield');
+  const canvas = figure?.querySelector<HTMLCanvasElement>(
+    '[data-devkit-canvas]',
+  );
+  const readout = figure?.querySelector<HTMLElement>('[data-readout]');
+  if (figure && canvas && readout) void hexfieldDemo(figure, canvas, readout);
+</script>
+
+<style>
+  .devkit {
+    display: grid;
+    gap: 1.5rem;
+  }
+
+  .devkit h2 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--type-h2);
+    font-weight: 400;
+    letter-spacing: -0.035em;
+  }
+
+  .devkit h3 {
+    margin: 1rem 0 0;
+    font-family: var(--font-display);
+    font-size: var(--type-h3);
+    font-weight: 500;
+  }
+
+  .devkit-swatches {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+    gap: 0.75rem 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    color: var(--color-text-soft);
+    font-size: 0.86rem;
+  }
+
+  .devkit-swatches li {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-height: 2.75rem;
+    color: var(--color-starlight);
+  }
+
+  .devkit-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin: 0;
+  }
+
+  .devkit-plate-stage {
+    min-height: 8rem;
+  }
+
+  .devkit-force-v :global(.kit-pipeline__svg--h) {
+    display: none;
+  }
+
+  .devkit-force-v :global(.kit-pipeline__svg--v) {
+    display: block;
+  }
+
+  .devkit-force-h :global(.kit-pipeline__svg--h) {
+    display: block;
+  }
+
+  .devkit-force-h :global(.kit-pipeline__svg--v) {
+    display: none;
+  }
+</style>

@@ -4,6 +4,7 @@ import starlight from '@astrojs/starlight';
 import { defineConfig } from 'astro/config';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import atlasScenePreload from './integrations/atlas-scene-preload.mjs';
+import devKit from './integrations/dev-kit.mjs';
 import { gaHead, gaMeasurementId } from './src/lib/ga.mjs';
 
 import { FAVICON_SVG, rasterIconLinks } from './src/lib/favicons.ts';
@@ -26,6 +27,7 @@ export default defineConfig({
   integrations: [
     react(),
     atlasScenePreload(),
+    devKit(),
     starlight({
       title: 'genomeOS',
       description: 'An open atlas of human genetic variation across geography.',
