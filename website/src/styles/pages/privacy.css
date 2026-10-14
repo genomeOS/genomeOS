@@ -1,1 +1,758 @@
-/* privacy page styles (site redesign #454). Owned by the privacy page task; loaded after the shared CSS. */
+/* privacy page styles (site redesign #454, spec §4.5). Owned by the privacy page task; loaded after the shared CSS. */
+
+/* ---------- "What leaves your browser" (PrivacyFlow.astro) ---------- */
+
+/*
+ * One grid, two forms. Below a 48rem stage (about a 1,000 px viewport) the flow runs down a 72 px
+ * rail with the words beside it (phones, tablets); from 48rem it runs left to right with the sent
+ * chips above the wire and the struck ones below, in tighter columns and chip rows until 60rem.
+ * The gate's state is the figure's `data-gate`.
+ */
+.pf-frame {
+  container: privacy-flow / inline-size;
+}
+
+.pf {
+  --pf-socket: 4rem;
+  --pf-live: var(--color-aurora);
+
+  display: grid;
+  grid-template-columns: var(--pf-socket) minmax(0, 1fr);
+  column-gap: 1rem;
+}
+
+/* The rail, top to bottom: every part is placed, so the map wire can share the first wire's row. */
+.pf-node--browser {
+  grid-row: 1;
+}
+
+.pf-wire--in,
+.pf-lane {
+  grid-row: 2;
+}
+
+.pf-node--gate {
+  grid-row: 3;
+}
+
+.pf-wire--out {
+  grid-row: 4 / span 2;
+}
+
+.pf-chips--sent {
+  grid-row: 4;
+}
+
+.pf-chips--never {
+  grid-row: 5;
+}
+
+.pf-node--ga {
+  grid-row: 6;
+}
+
+.pf-wire--report {
+  grid-row: 7;
+}
+
+.pf-node--reports {
+  grid-row: 8;
+}
+
+/* Words for the states that are not drawn (CSS keeps exactly one), in the figure and in the
+   description that follows it. */
+.privacy-flow:not([data-gate='open']) [data-when='open'],
+.privacy-flow:not([data-gate='open']) ~ .pf-desc [data-when='open'],
+.privacy-flow:not([data-gate='closed']) [data-when='closed'],
+.privacy-flow:not([data-gate='closed']) ~ .pf-desc [data-when='closed'],
+.privacy-flow:not([data-gate='pending']) [data-when='pending'],
+.privacy-flow:not([data-gate='pending']) ~ .pf-desc [data-when='pending'] {
+  display: none;
+}
+
+/* ---- nodes: a 72 px socket and its label ---- */
+.pf-node {
+  display: grid;
+  grid-template-columns: var(--pf-socket) minmax(0, 1fr);
+  grid-column: 1 / -1;
+  column-gap: 1rem;
+  align-items: center;
+  color: var(--color-starlight);
+}
+
+.pf-socket {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--pf-socket);
+  height: var(--pf-socket);
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid var(--color-line-strong);
+  background: var(--color-plate-raised);
+  color: var(--color-text-soft);
+}
+
+.pf-socket svg {
+  display: block;
+  width: 2.2rem;
+  height: 2.2rem;
+  overflow: visible;
+}
+
+.pf-socket svg :is(rect, path, circle) {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.pf-socket svg .pf-soft {
+  stroke-opacity: 0.55;
+}
+
+.pf-socket svg .pf-dot {
+  fill: currentColor;
+  stroke: none;
+}
+
+.pf-label {
+  font-size: 0.9rem;
+  font-weight: 650;
+  line-height: 1.3;
+  text-wrap: balance;
+}
+
+.pf-label__line,
+.pf-label__state {
+  display: block;
+}
+
+/* ---- the gate: a link to the choice it reads ---- */
+.pf-node--gate {
+  text-decoration: none;
+}
+
+.pf-node--gate:hover {
+  color: var(--color-starlight);
+}
+
+.pf-node--gate .pf-label__state,
+.privacy-flow[data-gate='removed'] .pf-node--gate .pf-label {
+  text-decoration: underline;
+  text-decoration-color: var(--color-ion);
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.22em;
+}
+
+.pf-node--gate:hover .pf-socket,
+.pf-node--gate:focus-visible .pf-socket {
+  border-color: var(--color-ion);
+}
+
+.pf-socket--gate svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* On the rail the wire comes in at the top and leaves at the bottom: the gate turns with it. */
+.pf-socket--gate > svg {
+  transform: rotate(90deg);
+}
+
+.pf-socket--gate svg .pf-gate__stub {
+  stroke: var(--color-muted);
+}
+
+.pf-socket--gate svg .pf-gate__pass {
+  stroke: var(--pf-live);
+  opacity: 0;
+}
+
+.pf-socket--gate svg .pf-gate__post {
+  fill: var(--color-plate);
+  stroke: var(--color-muted);
+}
+
+.pf-socket--gate svg .pf-gate__bar {
+  fill: url(#pf-hatch);
+  stroke: rgb(165 185 211 / 45%);
+  stroke-width: 1;
+  transform-box: fill-box;
+}
+
+/* The hatch is the figures' own no-estimate hatch (spec §2.2): --enc-hatch at 0.72 over land. */
+.pf-socket svg .pf-hatch__ground {
+  fill: var(--enc-land);
+  stroke: none;
+}
+
+.pf-socket svg .pf-hatch__line {
+  stroke: var(--enc-hatch);
+  stroke-opacity: 0.72;
+  stroke-width: 1.4;
+}
+
+/* Open: the bar lifts away and the wire runs through in aurora. */
+.privacy-flow[data-gate='open'] .pf-socket--gate {
+  border-color: rgb(114 231 193 / 65%);
+}
+
+.privacy-flow[data-gate='open'] .pf-socket--gate svg .pf-gate__pass {
+  opacity: 1;
+}
+
+.privacy-flow[data-gate='open'] .pf-socket--gate svg .pf-gate__post {
+  stroke: var(--pf-live);
+}
+
+.privacy-flow[data-gate='open'] .pf-socket--gate svg .pf-gate__bar {
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(-115%);
+}
+
+/* Removed (a build without analytics): dashed posts and no bar; the wire past them stays held. */
+.privacy-flow[data-gate='removed'] .pf-socket--gate {
+  border-style: dashed;
+}
+
+.privacy-flow[data-gate='removed'] .pf-socket--gate svg .pf-gate__post {
+  fill: none;
+  stroke: var(--color-faint);
+  stroke-dasharray: 3 3;
+}
+
+.privacy-flow[data-gate='removed'] .pf-socket--gate svg .pf-gate__bar {
+  display: none;
+}
+
+/* Past a gate that is not open, the art dims; the words keep their contrast. */
+.privacy-flow:not([data-gate='open']) :is(.pf-node--ga, .pf-node--reports) svg {
+  opacity: 0.45;
+}
+
+/* ---- wires: a line (::before) and an arrowhead (::after) ---- */
+.pf-wire {
+  position: relative;
+  grid-column: 1;
+  min-height: 2.6rem;
+  color: var(--color-muted);
+}
+
+.pf-wire::before,
+.pf-wire::after {
+  content: '';
+  position: absolute;
+}
+
+.pf-wire::before {
+  top: 0;
+  bottom: 6px;
+  left: calc(50% - 0.75px);
+  width: 1.5px;
+  background: currentColor;
+}
+
+.pf-wire::after {
+  bottom: 0;
+  left: calc(50% - 4.5px);
+  border-top: 7px solid currentColor;
+  border-right: 4.5px solid transparent;
+  border-left: 4.5px solid transparent;
+}
+
+/* Past the gate the wire is held (dashed, faint) until it opens. */
+:is(.pf-wire--out, .pf-wire--report) {
+  color: var(--color-faint);
+}
+
+:is(.pf-wire--out, .pf-wire--report)::before {
+  background: repeating-linear-gradient(
+    to bottom,
+    currentColor 0 4px,
+    transparent 4px 8px
+  );
+}
+
+.privacy-flow[data-gate='open'] :is(.pf-wire--out, .pf-wire--report) {
+  color: var(--pf-live);
+}
+
+.privacy-flow[data-gate='open'] :is(.pf-wire--out, .pf-wire--report)::before {
+  background: currentColor;
+}
+
+/* ---- the map imagery wire: from the browser, around the gate, to a tile ---- */
+.pf-lane {
+  position: relative;
+  grid-column: 1 / -1;
+  align-self: start;
+  width: 4.5rem;
+  height: 1.15rem;
+  margin-left: calc(var(--pf-socket) * 0.78);
+  border-bottom: 1.5px solid var(--color-faint);
+  border-left: 1.5px solid var(--color-faint);
+  border-bottom-left-radius: 0.6rem;
+  color: var(--color-faint);
+}
+
+.pf-lane::after {
+  content: '';
+  position: absolute;
+  right: -2px;
+  bottom: -5.25px;
+  border-top: 4.5px solid transparent;
+  border-bottom: 4.5px solid transparent;
+  border-left: 7px solid currentColor;
+}
+
+.pf-tile {
+  position: absolute;
+  bottom: -16px;
+  left: calc(100% + 0.4rem);
+  width: 30px;
+  height: 30px;
+}
+
+.pf-tile path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+}
+
+.pf-tile .pf-tile__fold {
+  stroke-opacity: 0.5;
+  stroke-width: 1;
+}
+
+.pf-tile .pf-tile__road {
+  stroke-dasharray: 2 2;
+  stroke-linecap: round;
+}
+
+/* ---- chips: what is sent once the gate is open, and what never is ---- */
+.pf-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  grid-column: 2;
+  margin: 0;
+  padding: 0.6rem 0;
+  list-style: none;
+}
+
+.pf-chips--sent {
+  padding-top: 0.9rem;
+}
+
+.pf-chips--never {
+  padding-bottom: 0.9rem;
+}
+
+.pf-chip {
+  padding: 0.16rem 0.55rem 0.2rem;
+  border: 1px dashed var(--color-line-strong);
+  background: var(--color-plate-raised);
+  color: var(--color-starlight);
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.privacy-flow[data-gate='open'] .pf-chips--sent .pf-chip {
+  border-style: solid;
+  border-color: rgb(114 231 193 / 55%);
+}
+
+.pf-chips--never .pf-chip {
+  border-color: var(--color-deep-line);
+  background: transparent;
+  color: var(--color-muted);
+  text-decoration: line-through;
+  text-decoration-color: rgb(165 185 211 / 85%);
+  text-decoration-thickness: 1.5px;
+}
+
+/* Phones: a 64.8 px rail (the plate sockets' lower bound) leaves the chips more room. */
+@container privacy-flow (max-width: 22rem) {
+  .pf {
+    --pf-socket: 3.6rem;
+
+    column-gap: 0.75rem;
+  }
+
+  .pf-node {
+    column-gap: 0.75rem;
+  }
+}
+
+/* ---- left to right, once the stage has room ---- */
+@container privacy-flow (min-width: 48rem) {
+  .pf {
+    /* The node columns; each wire runs between the sockets' edges, half a column in. */
+    --pf-c1: 6.5rem;
+    --pf-c2: 8rem;
+    --pf-c4: 7.5rem;
+    --pf-c5: 7rem;
+
+    grid-template-columns:
+      var(--pf-c1) var(--pf-c2) minmax(0, 1fr) var(--pf-c4)
+      var(--pf-c5);
+    grid-template-rows: 2.4rem auto var(--pf-socket) auto;
+  }
+
+  .pf-socket--gate > svg {
+    transform: none;
+  }
+
+  .pf-node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .pf-node--browser,
+  .pf-node--gate,
+  .pf-node--ga,
+  .pf-node--reports {
+    grid-row: 3 / span 2;
+  }
+
+  .pf-wire--in,
+  .pf-wire--out,
+  .pf-wire--report {
+    grid-row: 3;
+  }
+
+  .pf-label {
+    margin-top: 0.65rem;
+  }
+
+  .pf-node--browser {
+    grid-column: 1;
+  }
+
+  .pf-node--gate {
+    grid-column: 2;
+  }
+
+  .pf-node--ga {
+    grid-column: 4;
+  }
+
+  .pf-node--reports {
+    grid-column: 5;
+  }
+
+  /* Each wire runs from one socket's edge to the next socket's edge. */
+  .pf-wire {
+    min-height: 0;
+  }
+
+  .pf-wire::before {
+    top: calc(50% - 0.75px);
+    right: 6px;
+    bottom: auto;
+    left: 0;
+    width: auto;
+    height: 1.5px;
+  }
+
+  .pf-wire::after {
+    top: calc(50% - 4.5px);
+    right: 0;
+    bottom: auto;
+    left: auto;
+    border-top: 4.5px solid transparent;
+    border-bottom: 4.5px solid transparent;
+    border-left: 7px solid currentColor;
+    border-right: 0;
+  }
+
+  :is(.pf-wire--out, .pf-wire--report)::before {
+    background: repeating-linear-gradient(
+      to right,
+      currentColor 0 4px,
+      transparent 4px 8px
+    );
+  }
+
+  /* Margins: half a column (the socket's centre) plus half a socket. */
+  .pf-wire--in {
+    grid-column: 1 / 3;
+    margin-inline: calc(var(--pf-c1) / 2 + var(--pf-socket) / 2)
+      calc(var(--pf-c2) / 2 + var(--pf-socket) / 2);
+  }
+
+  .pf-wire--out {
+    grid-column: 2 / 5;
+    margin-inline: calc(var(--pf-c2) / 2 + var(--pf-socket) / 2)
+      calc(var(--pf-c4) / 2 + var(--pf-socket) / 2);
+  }
+
+  .pf-wire--report {
+    grid-column: 4 / 6;
+    margin-inline: calc(var(--pf-c4) / 2 + var(--pf-socket) / 2)
+      calc(var(--pf-c5) / 2 + var(--pf-socket) / 2);
+  }
+
+  /*
+   * Fixed rows (two sent chips a row; three, then two, struck), so the web fonts replacing the fallback can
+   * only nudge a chip sideways, never move it to another row (CLS, spec §7). Each pair meets at
+   * the centre line.
+   */
+  .pf-chips {
+    display: grid;
+    grid-column: 3;
+    justify-content: center;
+  }
+
+  .pf-chips--sent {
+    grid-template-columns: repeat(2, auto);
+  }
+
+  .pf-chips--sent .pf-chip:nth-child(odd) {
+    justify-self: end;
+  }
+
+  .pf-chips--sent .pf-chip:nth-child(even) {
+    justify-self: start;
+  }
+
+  /* The struck chips: two centred lines, three then two (a zero-height break between them). */
+  .pf-chips--never {
+    display: flex;
+    flex-wrap: wrap;
+    row-gap: 0.2rem; /* twice over: once each side of the break */
+  }
+
+  .pf-chips--never::before {
+    content: '';
+    flex-basis: 100%;
+    order: 1;
+    height: 0;
+  }
+
+  .pf-chips--never .pf-chip:nth-child(n + 4) {
+    order: 2;
+  }
+
+  .pf-chips--sent {
+    grid-row: 2;
+    align-self: end;
+    padding: 0.5rem 0 0.85rem;
+  }
+
+  .pf-chips--never {
+    grid-row: 4;
+    align-self: start;
+    padding: 0.85rem 0 0.5rem;
+  }
+
+  /* Up from the browser, over the gate, down to nothing: a tile of its own. */
+  .pf-lane {
+    grid-row: 1 / 3;
+    grid-column: 1 / 3;
+    align-self: stretch;
+    width: auto;
+    height: auto;
+    margin-top: 1.2rem;
+    margin-left: calc(var(--pf-c1) / 2);
+    border-top: 1.5px solid var(--color-faint);
+    border-bottom: 0;
+    border-bottom-left-radius: 0;
+    border-top-left-radius: 0.75rem;
+  }
+
+  .pf-lane::after {
+    top: -5.25px;
+    bottom: auto;
+  }
+
+  .pf-tile {
+    top: -15.75px;
+    bottom: auto;
+  }
+}
+
+/*
+ * Narrow desktops and tablets in landscape (a 48–60rem stage): narrower node columns and gaps, and
+ * the sent chips in four fixed lines of two, one, one and two (the pairs meet at the centre line,
+ * the single chips span it), so the widest line needs about 20rem rather than 25.
+ */
+@container privacy-flow (min-width: 48rem) and (max-width: 59.99rem) {
+  .pf {
+    --pf-c1: 6rem;
+    --pf-c2: 7.5rem;
+    --pf-c4: 6rem;
+    --pf-c5: 6rem;
+
+    column-gap: 0.5rem;
+  }
+
+  .pf-chips--sent .pf-chip:nth-child(3),
+  .pf-chips--sent .pf-chip:nth-child(4) {
+    grid-column: 1 / -1;
+    justify-self: center;
+  }
+}
+
+/* ---- motion: a change of choice moves the gate in --dur-ui; nothing moves on load ---- */
+/* privacy-flow.ts sets data-live just before the first change the visitor makes. */
+@media (prefers-reduced-motion: no-preference) {
+  .privacy-flow[data-live]
+    .pf-socket--gate
+    svg
+    :is(.pf-gate__bar, .pf-gate__pass, .pf-gate__post) {
+    transition:
+      transform var(--dur-ui) var(--ease-ui),
+      opacity var(--dur-ui) var(--ease-ui),
+      visibility var(--dur-ui) var(--ease-ui),
+      stroke var(--dur-ui) var(--ease-ui);
+  }
+
+  .privacy-flow[data-live] :is(.pf-socket, .pf-wire, .pf-chip) {
+    transition:
+      border-color var(--dur-ui) var(--ease-ui),
+      color var(--dur-ui) var(--ease-ui);
+  }
+}
+
+/* Forced colours: the line art keeps its shapes in system colours (wires are drawn with
+   backgrounds, which forced colours would otherwise drop). */
+@media (forced-colors: active) {
+  .pf-socket,
+  .pf-chip {
+    border-color: CanvasText;
+  }
+
+  .pf-wire,
+  .pf-lane,
+  .pf-socket svg,
+  .pf-tile {
+    forced-color-adjust: none;
+    color: CanvasText;
+  }
+
+  .pf-lane {
+    border-color: CanvasText;
+  }
+
+  .pf-wire--in::before {
+    background: CanvasText;
+  }
+
+  .privacy-flow[data-gate='open'] :is(.pf-wire--out, .pf-wire--report) {
+    color: Highlight;
+  }
+
+  .pf-socket svg .pf-hatch__ground,
+  .pf-socket--gate svg .pf-gate__post {
+    fill: Canvas;
+  }
+
+  .pf-socket svg .pf-hatch__line,
+  .privacy-flow[data-gate]
+    .pf-socket--gate
+    svg
+    :is(.pf-gate__stub, .pf-gate__pass, .pf-gate__post, .pf-gate__bar) {
+    stroke: CanvasText;
+  }
+}
+
+/* ---------- the disclosure ledger ---------- */
+
+.disclosure {
+  padding-block: clamp(2.5rem, 5vw, 4rem) var(--band-pad);
+}
+
+.disclosure__list {
+  margin: 0;
+}
+
+.disclosure__row {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: var(--grid-gap);
+  padding-block: 1.4rem 1.5rem;
+  border-top: 1px solid var(--color-deep-line);
+}
+
+.disclosure__list > .disclosure__row:last-child {
+  border-bottom: 1px solid var(--color-deep-line);
+}
+
+.disclosure__term {
+  grid-column: 1 / span 4;
+  margin: 0;
+  color: var(--color-starlight);
+  font-family: var(--font-display);
+  font-size: var(--type-h3);
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+}
+
+.disclosure__detail {
+  grid-column: 5 / span 8;
+  max-width: 62ch;
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: var(--type-body);
+  line-height: 1.6;
+}
+
+.disclosure__detail p {
+  margin: 0;
+}
+
+.disclosure__detail strong,
+.disclosure__name {
+  color: var(--color-starlight);
+  font-weight: 650;
+}
+
+.disclosure__name {
+  white-space: nowrap;
+}
+
+.disclosure__detail .disclosure__action {
+  margin-top: 1.1rem;
+}
+
+/* The fallback note leads the ledger in a build without analytics. */
+.disclosure__row--notice .disclosure__term {
+  color: var(--color-ion);
+}
+
+@media (max-width: 52rem) {
+  .disclosure__term,
+  .disclosure__detail {
+    grid-column: 1 / -1;
+  }
+
+  .disclosure__detail {
+    margin-top: 0.55rem;
+  }
+}
+
+/* The page's Cookie settings button: a 44 px target (moved verbatim from the page's scoped style). */
+.privacy-cookie-settings {
+  min-height: 44px;
+  padding: 0.45rem 1rem;
+  border: 1px solid rgb(112 230 255 / 55%);
+  border-radius: 0.5rem;
+  background: rgb(112 230 255 / 10%);
+  color: var(--color-starlight);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.privacy-cookie-settings:hover {
+  background: rgb(112 230 255 / 20%);
+}
