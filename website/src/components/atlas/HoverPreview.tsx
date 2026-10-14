@@ -1,4 +1,8 @@
-/** Compact evidence preview for Atlas design §11. */
+/**
+ * Compact evidence preview for Atlas design §11. Surface values follow fast-load
+ * spec 2026-10-07 §B.2 (amended 2026-10-13): marked render-tier values until the
+ * detail tier loads, then the exact values.
+ */
 
 import type { CSSProperties } from 'react';
 
@@ -11,7 +15,9 @@ import {
 } from './InspectorPanel';
 import {
   CELL_VALUES_UNAVAILABLE,
-  LOADING_CELL_VALUES,
+  DETAIL_ONLY_TEXT,
+  percent,
+  provisionalPercent,
   surfaceCellView,
   type DetailStatus,
 } from './surface-cell-view';
@@ -23,10 +29,6 @@ interface HoverPreviewProps {
   position: { x: number; y: number };
   selection: InspectorSelection;
   surface?: SurfaceArtifact | null;
-}
-
-function percent(value: number): string {
-  return `${(value * 100).toFixed(2)}%`;
 }
 
 function encodedValue(encoding: ObservationColorEncoding): string {
@@ -78,12 +80,23 @@ export function HoverPreview({
           </dl>
         ) : (
           <>
-            <strong>
-              {view.state === 'loading'
-                ? LOADING_CELL_VALUES
-                : CELL_VALUES_UNAVAILABLE}
-            </strong>
-            <small>Cell {view.h3Index}</small>
+            <dl>
+              <div>
+                <dt>Posterior</dt>
+                <dd>{provisionalPercent(view.provisional.post_mean)}</dd>
+              </div>
+              <div>
+                <dt>95% credible range</dt>
+                <dd>{DETAIL_ONLY_TEXT[view.state]}</dd>
+              </div>
+              <div>
+                <dt>Uncertainty</dt>
+                <dd>{provisionalPercent(view.provisional.post_sd)}</dd>
+              </div>
+            </dl>
+            {view.state === 'unavailable' && (
+              <strong>{CELL_VALUES_UNAVAILABLE}</strong>
+            )}
           </>
         )}
         <small>{evidenceSupportLabel(view.support)}</small>

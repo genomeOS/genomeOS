@@ -11,7 +11,7 @@ export interface DecodedGrid {
   resolution: number;
 }
 
-/** Render tier: colour, height and bins only; never displayed as numbers. */
+/** Render tier: colour, height and bins; shown as numbers only when marked provisional (§B.2, amended 2026-10-13). */
 export interface DecodedRender {
   artifact: ArtifactIdentity;
   post_mean: Float32Array<ArrayBuffer>;
@@ -19,7 +19,7 @@ export interface DecodedRender {
   support: Uint8Array<ArrayBuffer>;
 }
 
-/** Detail tier: every displayed number, bit-identical to the published artifact. */
+/** Detail tier: every exact displayed number, bit-identical to the published artifact. */
 export interface DecodedDetail {
   dist_nearest_obs_km: Float64Array<ArrayBuffer>;
   post_mean: Float64Array<ArrayBuffer>;

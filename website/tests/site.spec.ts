@@ -3880,8 +3880,19 @@ const CANVAS_CENTRE_OFFSETS = [
 ] as const;
 const SUPPORT_LABEL = /observed|interpolated|Mostly model assumptions|unknown/;
 const DISPLAYED_VALUE = /\d+\.\d{2}%/;
-// Hex lookarounds, not \b: the hover preview's text is "Cell <id>" directly followed by the
-// support label ("…ffffobserved"), so there is no word boundary after the id.
+/** A readout with no "≈" in front of it; only the f64 detail tier may print one (spec §B.2). */
+const UNMARKED_VALUE = /(?<![≈\d.])\d+\.\d{2}%/;
+const EXACT_VALUE = /^\d+\.\d{2}%$/;
+const EXACT_INTERVAL = /^\d+\.\d{2}%–\d+\.\d{2}%$/;
+/** A render-tier readout in the hover: the "≈" marker, then the exact format (§B.2, amended 2026-10-13). */
+const PROVISIONAL_VALUE = /^≈\d+\.\d{2}%$/;
+/** The same in the inspector, followed by its visually hidden note for assistive technology. */
+function provisionalWithNote(state: 'loading' | 'unavailable'): RegExp {
+  return new RegExp(
+    `^≈\\d+\\.\\d{2}% \\(approximate; exact value ${state}\\)$`,
+  );
+}
+// Hex lookarounds, not \b: an id can abut neighbouring text with no word boundary between them.
 const CELL_ID = /(?<![0-9a-f])[0-9a-f]{15}(?![0-9a-f])/;
 /**
  * Every production build aborts a fetch that sends no data for this long (fast-load design §B.2).
@@ -3910,6 +3921,25 @@ async function pointNearCanvasCentre(
   }
 }
 
+/** The `<dd>` of the value row labelled exactly `label`. */
+function valueRow(container: Locator, label: string): Locator {
+  return container
+    .locator('dl > div')
+    .filter({
+      has: container.page().locator('dt', {
+        hasText: new RegExp(`^${label}$`),
+      }),
+    })
+    .locator('dd');
+}
+
+/** A readout's value in hundredths of a percent, e.g. "≈12.35% (…)" → 1235. */
+async function readoutHundredths(value: Locator): Promise<number> {
+  const match = (await value.textContent())?.match(/(\d+)\.(\d{2})%/);
+  expect(match, 'a percent readout').not.toBeNull();
+  return Number(match![1]) * 100 + Number(match![2]);
+}
+
 async function openSurfaceOnlyView(page: Page): Promise<void> {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto(`/app/?${INSPECTOR_CAMERA}`);
@@ -3927,7 +3957,7 @@ async function openSurfaceOnlyView(page: Page): Promise<void> {
     .not.toContain('observations');
 }
 
-test('surface hover and inspector wait for the detail tier without showing numbers', async ({
+test('surface hover and inspector show marked render values until the detail tier loads', async ({
   page,
   isMobile,
 }) => {
@@ -3952,20 +3982,46 @@ test('surface hover and inspector wait for the detail tier without showing numbe
 
   const hoverPreview = page.locator('.atlas-hover-preview');
   await pointNearCanvasCentre(page, 'move', hoverPreview);
-  await expect(hoverPreview).toContainText('Loading cell values…');
-  // innerText: `.atlas-hover-preview` is a grid, so its <small> rows are separated by line breaks.
-  await expect(hoverPreview).toContainText(CELL_ID, { useInnerText: true });
+  await expect(valueRow(hoverPreview, 'Posterior')).toHaveText(
+    PROVISIONAL_VALUE,
+  );
+  await expect(valueRow(hoverPreview, '95% credible range')).toHaveText(
+    'Loading…',
+  );
+  await expect(valueRow(hoverPreview, 'Uncertainty')).toHaveText(
+    PROVISIONAL_VALUE,
+  );
   await expect(hoverPreview).toContainText(SUPPORT_LABEL);
-  await expect(hoverPreview).not.toContainText(DISPLAYED_VALUE);
+  await expect(hoverPreview).not.toContainText(UNMARKED_VALUE);
 
   const inspector = page.getByRole('complementary', {
     name: 'Selected map cell',
   });
   await pointNearCanvasCentre(page, 'click', inspector);
   await expect(inspector).toBeVisible();
+  await expect(valueRow(inspector, 'Posterior estimate')).toHaveText(
+    provisionalWithNote('loading'),
+  );
+  await expect(valueRow(inspector, '95% credible interval')).toHaveText(
+    'Loading…',
+  );
+  await expect(valueRow(inspector, 'Uncertainty')).toHaveText(
+    provisionalWithNote('loading'),
+  );
+  await expect(valueRow(inspector, 'Nearest measurement')).toHaveText(
+    'Loading…',
+  );
+  // The marker is what sighted readers get; the note is for assistive technology only.
+  await expect(valueRow(inspector, 'Posterior estimate')).toMatchAriaSnapshot(
+    '- definition: /^≈\\d+\\.\\d{2}% \\(approximate; exact value loading\\)$/',
+  );
+  const note = await valueRow(inspector, 'Posterior estimate')
+    .locator('.visually-hidden')
+    .boundingBox();
+  expect(note!.width * note!.height).toBeLessThanOrEqual(1);
   await expect(inspector).toContainText('Loading cell values…');
   await expect(inspector).toContainText(SUPPORT_LABEL);
-  await expect(inspector).not.toContainText(DISPLAYED_VALUE);
+  await expect(inspector).not.toContainText(UNMARKED_VALUE);
   const cellId = (await inspector.innerText()).match(CELL_ID)?.[0];
   expect(cellId).toBeDefined();
   const inspectorNode = await inspector.elementHandle();
@@ -3992,16 +4048,46 @@ test('surface hover and inspector wait for the detail tier without showing numbe
     'Loading cell values…',
   );
   expect(detail.hits(), HELD_PAST_PRODUCTION_STALL).toBe(1);
+  // The pointer has not moved since the click, so the hover and the inspector keep their cells.
+  const provisional = {
+    hoverMean: await readoutHundredths(valueRow(hoverPreview, 'Posterior')),
+    hoverSd: await readoutHundredths(valueRow(hoverPreview, 'Uncertainty')),
+    mean: await readoutHundredths(valueRow(inspector, 'Posterior estimate')),
+    sd: await readoutHundredths(valueRow(inspector, 'Uncertainty')),
+  };
   detail.release();
   await expect(explorer).toHaveAttribute('data-atlas-values-ready', 'true', {
     timeout: 30_000,
   });
-  await expect(inspector).toContainText(DISPLAYED_VALUE);
-  await expect(inspector).not.toContainText('Loading cell values…');
+  await expect(valueRow(inspector, 'Posterior estimate')).toHaveText(
+    EXACT_VALUE,
+  );
+  await expect(valueRow(inspector, '95% credible interval')).toHaveText(
+    EXACT_INTERVAL,
+  );
+  await expect(valueRow(inspector, 'Uncertainty')).toHaveText(EXACT_VALUE);
+  await expect(valueRow(inspector, 'Nearest measurement')).toHaveText(
+    /^\d+ km$/,
+  );
+  await expect(inspector).not.toContainText('≈');
+  await expect(inspector).not.toContainText('Loading');
   await expect(inspector).toContainText(cellId!);
   expect(await inspectorNode!.evaluate((node) => node.isConnected)).toBe(true);
-  await expect(hoverPreview).toContainText('95% credible range');
-  await expect(hoverPreview).toContainText(DISPLAYED_VALUE);
+  await expect(valueRow(hoverPreview, 'Posterior')).toHaveText(EXACT_VALUE);
+  await expect(valueRow(hoverPreview, '95% credible range')).toHaveText(
+    EXACT_INTERVAL,
+  );
+  await expect(valueRow(hoverPreview, 'Uncertainty')).toHaveText(EXACT_VALUE);
+  await expect(hoverPreview).not.toContainText('≈');
+  // Each provisional readout was its cell's float32 value: at most one unit off in the last digit.
+  const exact = {
+    hoverMean: await readoutHundredths(valueRow(hoverPreview, 'Posterior')),
+    hoverSd: await readoutHundredths(valueRow(hoverPreview, 'Uncertainty')),
+    mean: await readoutHundredths(valueRow(inspector, 'Posterior estimate')),
+    sd: await readoutHundredths(valueRow(inspector, 'Uncertainty')),
+  };
+  for (const key of Object.keys(exact) as (keyof typeof exact)[])
+    expect(Math.abs(exact[key] - provisional[key]), key).toBeLessThanOrEqual(1);
   expect(detail.hits()).toBe(1);
   expect(pageErrors).toEqual([]);
 });
@@ -4030,7 +4116,19 @@ test('surface values report an unavailable detail tier and recover on retry', as
   await expect(inspector).toContainText('Cell values unavailable', {
     timeout: 20_000,
   });
-  await expect(inspector).not.toContainText(DISPLAYED_VALUE);
+  await expect(valueRow(inspector, 'Posterior estimate')).toHaveText(
+    provisionalWithNote('unavailable'),
+  );
+  await expect(valueRow(inspector, '95% credible interval')).toHaveText(
+    'Unavailable',
+  );
+  await expect(valueRow(inspector, 'Uncertainty')).toHaveText(
+    provisionalWithNote('unavailable'),
+  );
+  await expect(valueRow(inspector, 'Nearest measurement')).toHaveText(
+    'Unavailable',
+  );
+  await expect(inspector).not.toContainText(UNMARKED_VALUE);
   await expect(page.locator('.atlas-explorer')).toHaveAttribute(
     'data-atlas-ready',
     'true',
@@ -4047,7 +4145,14 @@ test('surface values report an unavailable detail tier and recover on retry', as
     'true',
     { timeout: 30_000 },
   );
+  await expect(valueRow(inspector, 'Posterior estimate')).toHaveText(
+    EXACT_VALUE,
+  );
+  await expect(valueRow(inspector, '95% credible interval')).toHaveText(
+    EXACT_INTERVAL,
+  );
   await expect(inspector).toContainText(DISPLAYED_VALUE);
+  await expect(inspector).not.toContainText('≈');
   expect(pageErrors).toEqual([]);
 });
 
