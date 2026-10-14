@@ -148,6 +148,13 @@
   margin-top: 1.5rem;
 }
 
+/* Too narrow for both on one line: two equal, full-width buttons rather than a ragged pair. */
+@media (max-width: 26rem) {
+  .home-hero__actions .button-link {
+    flex: 1 1 100%;
+  }
+}
+
 /* The split starts where its 7/12 column holds the figure's wide form (a 33rem container), so the
    hero never sets its text beside the tall phone form. The text starts level with the figure, so
    on a laptop's first view its calls to action are on screen (1366×768, 1280×720). */
@@ -197,8 +204,12 @@
   flex: 1 0 100%;
 }
 
+/* Three equal segments. At 320 px the kit's padding makes them wider than the row, so here they
+   may shrink and pad less; their labels still fit. */
 .hg .hg-layers button {
   flex: 1 1 0;
+  min-width: 0;
+  padding-inline: 0.5rem;
 }
 
 /* Reset view keeps its slot while hidden: showing it on the first drag never moves the globe. */
@@ -477,6 +488,8 @@
 
   .hg .hg-layers button {
     flex: 1 1 auto;
+    min-width: auto;
+    padding-inline: 0.85rem;
   }
 
   .hg .kit-figure__stage {

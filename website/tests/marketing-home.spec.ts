@@ -433,6 +433,50 @@ test('on a phone the layer row spans the figure and Reset view never moves the g
   expect(await stageTop()).toBeCloseTo(before, 0);
 });
 
+test('at 320 px the layer segments stay inside their row @mobile-chromium', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.goto('/');
+  const figure = await liveHero(page);
+  const group = figure.getByRole('group', { name: 'Layer' });
+  const row = (await group.boundingBox())!;
+  for (const button of await group.getByRole('button').all()) {
+    const box = (await button.boundingBox())!;
+    const name = await button.textContent();
+    expect(box.x, `${name} left`).toBeGreaterThanOrEqual(row.x - 0.5);
+    expect(box.x + box.width, `${name} right`).toBeLessThanOrEqual(
+      row.x + row.width + 0.5,
+    );
+    const clipped = await button.evaluate(
+      (element) => element.scrollWidth > element.clientWidth,
+    );
+    expect(clipped, `${name} label fits`).toBe(false);
+  }
+});
+
+test('on a phone the hero’s calls to action are two equal, full-width buttons @mobile-chromium', async ({
+  page,
+}) => {
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/');
+    const lede = (await page.locator('.home-hero__lede').boundingBox())!;
+    const [first, second] = await Promise.all(
+      [0, 1].map(
+        async (index) =>
+          (await page
+            .locator('.home-hero__actions .button-link')
+            .nth(index)
+            .boundingBox())!,
+      ),
+    );
+    expect(Math.abs(first.width - second.width), `${width}`).toBeLessThan(1);
+    expect(first.x, `${width}`).toBeCloseTo(lede.x, 0);
+    expect(second.y, `${width}`).toBeGreaterThan(first.y + first.height - 1);
+  }
+});
+
 test('on a phone the counts axis heads the bar it scales @mobile-chromium', async ({
   page,
 }) => {
