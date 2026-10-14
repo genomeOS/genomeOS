@@ -922,12 +922,14 @@ svg {
   }
 }
 
-/* A fixed header would repeat on every printed page; print it once, in flow. */
+/* A fixed header would repeat on every printed page; print it once, in flow. The skip link is
+ * for keyboards only: fixed, it printed at the foot of every page. */
 @media print {
   .site-header--lockup {
     position: static;
   }
-  .site-header-spacer {
+  .site-header-spacer,
+  .skip-link {
     display: none;
   }
 }
