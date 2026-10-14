@@ -4301,6 +4301,73 @@ test('hexagons the wave has not reached cannot be hovered (#453)', async ({
   await expect(preview).toBeVisible();
 });
 
+test('the cold wave runs once beside the post-reveal load order, which never waits for it (#450, #453)', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  // The load order (§B.6.9) starts the borders at surface-visible and the wave starts with the
+  // first chunk (§B.6.7); nothing waits for the wave, and neither later load restarts it. Cell
+  // outlines are built once it has passed.
+  const catalog = await readInlineCatalog(page);
+  const borders = contextSourceKey(
+    catalog as unknown as AtlasCatalog,
+    NATURAL_EARTH_BORDERS,
+  );
+  const detail = artifactTierKey(catalog, 'hbs-rs334', 'detail');
+  await page.goto('/app/');
+  const explorer = page.locator('.atlas-explorer');
+  for (const attribute of [
+    'data-atlas-values-ready',
+    'data-atlas-context-ready',
+    'data-atlas-edges-ready',
+  ])
+    await expect(explorer).toHaveAttribute(attribute, 'true', {
+      timeout: 45_000,
+    });
+  await expect(explorer).toHaveAttribute('data-atlas-wave', 'done');
+
+  const timing = await page.evaluate(
+    ({ borders, detail }) => {
+      const mark = (name: string) =>
+        performance.getEntriesByName(`atlas:${name}`)[0]?.startTime ?? null;
+      const resources = (key: string) =>
+        (
+          performance.getEntriesByType(
+            'resource',
+          ) as PerformanceResourceTiming[]
+        )
+          .filter((entry) => new URL(entry.name).pathname.endsWith(`/${key}`))
+          .map((entry) => ({ end: entry.responseEnd, start: entry.startTime }));
+      return {
+        borders: resources(borders),
+        detail: resources(detail),
+        edges: mark('edges-ready'),
+        firstChunk: mark('surface-first-chunk'),
+        waves: performance
+          .getEntriesByName('atlas:reveal-wave')
+          .map((entry) => ({
+            end: entry.startTime + entry.duration,
+            start: entry.startTime,
+          })),
+      };
+    },
+    { borders, detail },
+  );
+  expect(timing.waves).toHaveLength(1);
+  const [wave] = timing.waves;
+  expect(timing.borders).toHaveLength(1);
+  expect(timing.detail).toHaveLength(1);
+  expect(timing.firstChunk).not.toBeNull();
+  expect(timing.edges).not.toBeNull();
+  // The post-reveal loads follow the wave's first chunk, and the borders start without waiting
+  // for the wave to end (it runs at least REVEAL_WAVE_MS, 800 ms).
+  expect(timing.firstChunk!).toBeLessThanOrEqual(timing.borders[0].start);
+  expect(timing.borders[0].start).toBeLessThan(wave.end);
+  expect(timing.borders[0].end).toBeLessThanOrEqual(timing.detail[0].start);
+  // Outlines are built only once the wave has passed.
+  expect(timing.edges!).toBeGreaterThanOrEqual(wave.end);
+});
+
 test('style choices in the URL reach the scene that renders them', async ({
   page,
 }) => {
