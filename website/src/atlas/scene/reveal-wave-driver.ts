@@ -14,8 +14,10 @@
  *   (`waveStep`), so a stalled frame (a long task or texture upload elsewhere in the page) pauses
  *   the ring rather than popping it to the end.
  * - `data-atlas-wave` on the explorer reads `pending` until the scene's first wave, then `running`
- *   or `done`; the User Timing measure `atlas:reveal-wave` spans the end of the wave's first
- *   drawn frame (where its clock starts) to its last frame. Tests and the cold-load harness read both.
+ *   or `done` (a cold reveal with no chunk to grow runs no wave and goes straight to `done`,
+ *   amended 2026-10-14); the User Timing measure `atlas:reveal-wave` spans the end of the wave's
+ *   first drawn frame (where its clock starts) to its last frame. Tests and the cold-load harness
+ *   read both.
  * - E2E builds alone may hold the wave at a progress (`hold`), so a browser test can sample a
  *   frame mid-wave deterministically (`atlasRevealWaveHold`, boot.ts).
  */
@@ -87,7 +89,11 @@ export interface RevealWave {
   readonly uniforms: RevealWaveUniforms;
   /** Starts a wave from the centre of the view, or under reduced motion shows everything at once. */
   start(reducedMotion: boolean): void;
-  /** Ends a running wave with everything shown. */
+  /**
+   * Ends a running wave with everything shown. With none running it shows everything and reads
+   * `done` all the same: a cold reveal with no chunk to grow starts no wave, and nothing that
+   * waits for `done` may wait for ever.
+   */
   finish(): void;
   running(): boolean;
   /** How far the wave has grown the cell whose centre lies along `direction`, 0 to 1. */
@@ -164,6 +170,16 @@ export function createRevealWave(options: RevealWaveOptions): RevealWave {
     options.scene.requestRender();
     notify(false);
   };
+  // Everything shown and `done`: a running wave ends, and a scene that has run none settles.
+  const settle = () => {
+    if (timeline) {
+      end();
+      return;
+    }
+    uniforms.radius = WAVE_COMPLETE_RADIUS;
+    write('done');
+    options.scene.requestRender();
+  };
   const advance = (current: WaveTimeline, at: number): number => {
     const held = options.hold?.() ?? null;
     if (held !== null && Number.isFinite(held))
@@ -204,12 +220,7 @@ export function createRevealWave(options: RevealWaveOptions): RevealWave {
     start(reducedMotion) {
       if (destroyed) return;
       if (reducedMotion || visibility.isHidden()) {
-        if (timeline) end();
-        else {
-          uniforms.radius = WAVE_COMPLETE_RADIUS;
-          write('done');
-          options.scene.requestRender();
-        }
+        settle();
         return;
       }
       const wasRunning = timeline !== null;
@@ -234,7 +245,7 @@ export function createRevealWave(options: RevealWaveOptions): RevealWave {
       if (!wasRunning) notify(true);
     },
     finish() {
-      if (!destroyed) end();
+      if (!destroyed) settle();
     },
     running: () => timeline !== null,
     reveal: (direction) =>

@@ -245,6 +245,17 @@ describe('reveal wave driver', () => {
     expect(h.measure).toHaveBeenCalledTimes(1);
   });
 
+  it('reads done when finished with no wave run, so nothing waits on one that never starts', () => {
+    const h = harness();
+    h.wave.finish();
+    expect(h.wave.running()).toBe(false);
+    expect(h.wave.uniforms.radius).toBe(WAVE_COMPLETE_RADIUS);
+    expect(h.attributes).toEqual(['pending', 'done']);
+    expect(h.measure).not.toHaveBeenCalled();
+    expect(h.preUpdate.numberOfListeners).toBe(0);
+    expect(h.scene.requestRender).toHaveBeenCalled();
+  });
+
   it('answers how far it has grown a cell, as the shaders do', () => {
     const h = harness();
     expect(h.wave.reveal([1, 0, 0])).toBe(1);

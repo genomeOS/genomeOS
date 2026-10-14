@@ -111,7 +111,10 @@ export interface ScientificLayersOptions {
   frameBudgetMs: number;
   onCommit: (artifactKey: string) => void;
   /** The scene's reveal wave (#453): its uniforms are every chunk's, its runs our triggers'. */
-  wave: Pick<RevealWave, 'onChange' | 'running' | 'start' | 'uniforms'>;
+  wave: Pick<
+    RevealWave,
+    'finish' | 'onChange' | 'running' | 'start' | 'uniforms'
+  >;
   perf?: { mark(name: string, options?: PerformanceMarkOptions): unknown };
 }
 
@@ -762,6 +765,9 @@ export class ScientificLayers {
       signal,
     });
     await producer;
+    // A cold reveal with no chunk (no supported cell) started no wave; it reads `done` so that
+    // nothing waits on one (#453).
+    if (cold && added === 0 && !signal.aborted) this.#options.wave.finish();
     this.#options.marks.setAttribute(REVEAL_ATTRIBUTE, JSON.stringify(stats));
   }
 

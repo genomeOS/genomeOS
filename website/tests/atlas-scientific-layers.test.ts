@@ -972,6 +972,21 @@ describe('reveal wave triggers (#453)', () => {
     expect(h.attributes.get('data-atlas-wave')).toBe('done');
   });
 
+  it('reads done when a cold reveal ends with no chunk to grow', async () => {
+    // A surface with no supported cells streams no chunk, so no wave starts; a test or the
+    // harness waiting for `done` must not wait for ever.
+    const h = harness({ reducedMotion: false });
+    h.worker.buildChunks.mockImplementation(async (request) => {
+      h.requests.push(request);
+    });
+    await h.show('hbs-rs334');
+
+    expect(surfaceChunkCount()).toBe(0);
+    expect(h.waveStarts).not.toHaveBeenCalled();
+    expect(h.wave.running()).toBe(false);
+    expect(h.attributes.get('data-atlas-wave')).toBe('done');
+  });
+
   it('shows the surface at once under reduced motion', async () => {
     const h = harness({ reducedMotion: true });
     await h.show('hbs-rs334');
