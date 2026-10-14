@@ -16,6 +16,10 @@ interface Props {
   imageAlt?: string;
   viewportFit?: 'cover';
   htmlClass?: string;
+  /** Keep the page out of search results (the /working-groups/ redirect, spec §1.4). */
+  noindex?: boolean;
+  /** The canonical page when it is not this one, e.g. '/contribute/'. */
+  canonicalPath?: string;
 }
 
 const {
@@ -24,6 +28,8 @@ const {
   imageAlt = 'genomeOS, a worldwide atlas of human genetic variation',
   viewportFit,
   htmlClass,
+  noindex = false,
+  canonicalPath,
 } = Astro.props;
 const viewport = [
   'width=device-width',
@@ -31,7 +37,10 @@ const viewport = [
   ...(viewportFit ? [`viewport-fit=${viewportFit}`] : []),
 ].join(', ');
 const fullTitle = title === 'genomeOS' ? title : `${title} | genomeOS`;
-const canonical = new URL(Astro.url.pathname, Astro.site ?? Astro.url.origin);
+const canonical = new URL(
+  canonicalPath ? sitePath(canonicalPath) : Astro.url.pathname,
+  Astro.site ?? Astro.url.origin,
+);
 const socialImage = new URL(
   sitePath('/images/genomeos-banner.png'),
   Astro.site ?? Astro.url.origin,
@@ -46,6 +55,7 @@ const socialImage = new URL(
     <meta name="generator" content={Astro.generator} />
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
+    {noindex && <meta name="robots" content="noindex" />}
     <link rel="canonical" href={canonical} />
     <link rel="icon" type="image/svg+xml" href={sitePath(FAVICON_SVG)} />
     {rasterIconLinks().map((link) => <link {...link} />)}
@@ -61,6 +71,7 @@ const socialImage = new URL(
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={socialImage} />
     <meta name="twitter:image:alt" content={imageAlt} />
+    <EncodingStyle />
     <slot name="head" />
     <Analytics />
   </head>
@@ -71,7 +82,6 @@ const socialImage = new URL(
       <slot />
     </main>
     <SiteFooter />
-    <EncodingStyle />
     <MotionController />
     <CookieControl />
   </body>
