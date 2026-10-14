@@ -889,6 +889,101 @@ test('the counts grids span the figure, and row B’s room is alleles not yet te
     .toBeLessThan(1);
 });
 
+/**
+ * The share of a screenshot's pixels that stand out from `ground` at 3:1 or more (WCAG 1.4.11),
+ * decoded in a blank page so the page under test is untouched.
+ */
+async function standOutShare(
+  page: Page,
+  png: Buffer,
+  ground: string,
+): Promise<number> {
+  const scratch = await page.context().newPage();
+  try {
+    return await scratch.evaluate(
+      async ({ data, ground }) => {
+        const image = new Image();
+        image.src = `data:image/png;base64,${data}`;
+        await image.decode();
+        const canvas = document.createElement('canvas');
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext('2d')!;
+        context.drawImage(image, 0, 0);
+        const pixels = context.getImageData(0, 0, image.width, image.height);
+        const channel = (value: number) => {
+          const c = value / 255;
+          return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+        };
+        const luminance = (r: number, g: number, b: number) =>
+          0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+        const [r, g, b] = ground.match(/\d+/g)!.map(Number);
+        const base = luminance(r, g, b);
+        let marked = 0;
+        for (let i = 0; i < pixels.data.length; i += 4) {
+          const value = luminance(
+            pixels.data[i],
+            pixels.data[i + 1],
+            pixels.data[i + 2],
+          );
+          const ratio =
+            (Math.max(value, base) + 0.05) / (Math.min(value, base) + 0.05);
+          if (ratio >= 3) marked += 1;
+        }
+        return marked / (pixels.data.length / 4);
+      },
+      { data: png.toString('base64'), ground },
+    );
+  } finally {
+    await scratch.close();
+  }
+}
+
+// Design review, round 2: tested non-carriers drew at about 1.25:1 on the orbit band, the same as
+// the room for untested alleles, so row B read as one empty textured block and the slider visibly
+// moved only the 2 px bar. Tested squares now stand out at 3:1 or more; untested room does not.
+test('row B’s tested alleles stand out from the band, and the slider visibly grows them', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const why = page.locator('#why');
+  const figure = why.locator('figure[data-graphic="counts"]');
+  await figure.scrollIntoViewIfNeeded();
+  await expect(figure).toHaveAttribute('data-figure-state', 'rest');
+  const ground = await why.evaluate(
+    (band) => getComputedStyle(band).backgroundColor,
+  );
+  const grid = figure.locator('[data-grid="b"]:visible');
+  const { columns, pitch, size } = await grid.evaluate((svg) => ({
+    columns: Number((svg as SVGSVGElement).dataset.columns),
+    pitch: Number((svg as SVGSVGElement).dataset.pitch),
+    size: Number((svg as SVGSVGElement).dataset.size),
+  }));
+  const rows = Math.ceil(2000 / columns);
+
+  // 20 of 2,000: each tested square shows (at least a quarter of its cell stands out), and the
+  // untested room adds nothing.
+  const at20 = await standOutShare(page, await grid.screenshot(), ground);
+  const cells = columns * rows;
+  expect(at20, 'twenty tested squares').toBeGreaterThanOrEqual(
+    (20 * 0.25) / cells,
+  );
+  expect(at20, 'the untested room stays quiet').toBeLessThan(
+    (20 * 1.2) / cells,
+  );
+
+  await why.getByRole('slider', { name: 'Alleles tested in B' }).focus();
+  await page.keyboard.press('End');
+  await expect(why.locator('[data-count-n]')).toHaveText('2,000');
+  await page.waitForTimeout(400); // the 240 ms grid tween
+  const at2000 = await standOutShare(page, await grid.screenshot(), ground);
+  // All 2,000 tested: most of every square's area stands out (edges blend into the band).
+  expect(at2000, 'two thousand tested squares').toBeGreaterThan(
+    0.6 * (size / pitch) ** 2,
+  );
+  expect(at2000 / at20).toBeGreaterThan(40);
+});
+
 // A mouse drag; the phone's touch drag is tested on its own below.
 test('dragging turns the globe: the callouts step aside until Reset view @desktop-chromium', async ({
   page,

@@ -16,15 +16,25 @@ export const ROW_A = { ac: 61, an: 412 } as const;
 /** The shared axis runs from 0 to 25%. */
 export const AXIS_MAX = 0.25;
 /**
- * One square per allele, in grids that span the figure (each scales to its width): wide, 125
- * columns of 6 on a 7 pitch (about 6 px squares at 1440 px), so 2,000 alleles are sixteen rows;
- * narrow, 80 columns of 3 on a 4 pitch. The marks carry the comparison, not a corner of the figure
- * (spec §4.1 H2; design review, round 1).
+ * One square per allele, in grids that span the figure (each scales to its width): wide, 80
+ * columns of 8 on a 10 pitch (about 9 px squares at 1440 px, big enough to count one allele, not a
+ * barcode), so 2,000 alleles are 25 rows; narrow, 80 columns of 3 on a 4 pitch. The marks carry
+ * the comparison, not a corner of the figure (spec §4.1 H2; design review, rounds 1 and 2).
  */
 export const GRID = {
-  wide: { columns: 125, pitch: 7, size: 6 },
+  wide: { columns: 80, pitch: 10, size: 8 },
   narrow: { columns: 80, pitch: 4, size: 3 },
 } as const;
+/**
+ * A tested allele that does not carry the variant: muted mixed 55% toward the orbit band, 3.5:1 on
+ * that band (WCAG 1.4.11 asks 3:1 of a mark the comparison needs) and 4.7:1 under the starlight
+ * carriers. Not a data-ramp colour: it says "tested", never a frequency. The room for untested
+ * alleles stays well under 3:1 (a faint dot each), so the tested block visibly grows with the
+ * slider (design review, round 2).
+ */
+export const TESTED_FILL = '#5e718a';
+/** An untested allele's dot: centred in its square, at most an eighth of the pitch in radius. */
+export const ghostDot = (pitch: number) => Math.max(0.5, pitch / 10);
 /**
  * Row B reserves the height of the largest stop, so the slider never moves the page; the room is
  * drawn as a ghost grid of the alleles not yet tested, which the slider fills.

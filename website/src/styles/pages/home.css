@@ -944,8 +944,9 @@
   font-variant-numeric: lining-nums tabular-nums;
 }
 
-/* Wide: the same stacked rows, in larger grids of a hundred alleles per row, each grid and bar
-   spanning the figure (spec §4.1 H2; design review, round 1). */
+/* Wide: the same stacked rows, in larger grids of eighty alleles per row (about 9 px squares at
+   1440 px, so one allele reads as one square), each grid and bar spanning the figure (spec §4.1 H2;
+   design review, rounds 1 and 2). */
 @container cf (min-width: 36rem) {
   .cf-grid--wide {
     display: block;
@@ -967,7 +968,7 @@
   }
 
   .cf[data-figure-state='playing'] [data-row='a'] .cf-grid {
-    animation: home-unroll 600ms steps(5, end) both;
+    animation: home-unroll 600ms steps(6, end) both;
   }
 
   .cf[data-figure-state='playing'] [data-row='a'] .cf-grid__on {
