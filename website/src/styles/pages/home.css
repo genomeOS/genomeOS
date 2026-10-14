@@ -143,18 +143,22 @@
   padding-block: clamp(2.5rem, 8vh, 5rem) clamp(5rem, 12vh, 7rem);
 }
 
+/* As wide as its widest line (the H1 at 12ch keeps three lines from a phone to 1920 px), so the
+   scrim below ends where the text does. */
 .home-hero__text {
   position: relative;
-  max-width: 33rem;
+  width: fit-content;
+  max-width: 100%;
 }
 
 /*
  * The scrim follows the text, not the frame, so it covers the text however the text wraps: on a
- * wide screen a band from the left edge that stays dark under the text and clears 14rem past its
- * end; on a tall one (below) a fade from 7rem above the kicker down to the frame's bottom. Its
- * stops hold every line at 4.5:1 or more over the film's brightest frame (measured every 0.5 s of
- * the loop at nine sizes; see the redesign's hero build report). It sits behind the text and over
- * the film (z-index -1 in the hero's isolated stack, after the backdrop).
+ * wide screen a band from the left edge that stays dark under the text and 3rem past its end, then
+ * clears by 14rem; on a tall one (below) a fade from 7rem above the kicker down to the frame's
+ * bottom. Its stops hold every line at 4.5:1 or more against the brightest pixel behind it, in
+ * every frame of the loop (measured every 0.5 s at thirteen sizes from 320 to 2560 px; see the
+ * redesign's hero build report). It sits behind the text and over the film (z-index -1 in the
+ * hero's isolated stack, after the backdrop).
  */
 .home-hero__text::before {
   position: absolute;
@@ -163,9 +167,9 @@
   background: linear-gradient(
     90deg,
     rgb(2 7 18 / 80%) 0,
-    rgb(2 7 18 / 74%) calc(100% - 24rem),
-    rgb(2 7 18 / 52%) calc(100% - 14rem),
-    rgb(2 7 18 / 16%) calc(100% - 6rem),
+    rgb(2 7 18 / 74%) calc(100% - 17rem),
+    rgb(2 7 18 / 54%) calc(100% - 11rem),
+    rgb(2 7 18 / 16%) calc(100% - 5rem),
     rgb(2 7 18 / 0%) 100%
   );
   content: '';
