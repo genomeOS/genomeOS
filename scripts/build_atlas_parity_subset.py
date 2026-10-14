@@ -10,9 +10,13 @@ refuses unless the subset holds all four support states and at least one value o
 cells in grid order, values bit-for-bit), the artifact manifest, a one-artifact catalog with
 observations unavailable, and that tree's own grid, render and detail objects via
 ``encode_atlas_web.encode_export``, so the fixture survives the per-artifact files leaving git.
+The surface and manifest sit at the flat keys ``<id>.surface.json`` and ``<id>.manifest.json``
+whatever keys the source names them by. ``--from-dir`` reads catalog keys, so it takes the staging
+tree of ``encode_atlas_web.py --with-downloads`` (default ``data/atlas-web``) or a bucket download
+plus the repository catalog (``docs/data-store.md``).
 
     python scripts/build_atlas_parity_subset.py \\
-        --from-dir website/public/data/atlas --out website/tests/fixtures/atlas/parity
+        --from-dir data/atlas-web --out website/tests/fixtures/atlas/parity
 """
 
 from __future__ import annotations
@@ -50,7 +54,7 @@ PARITY_PARENTS: tuple[str, ...] = (
     "81177ffffffffff",
     "81273ffffffffff",
 )
-DEFAULT_FROM = ROOT / "website" / "public" / "data" / "atlas"
+DEFAULT_FROM = ROOT / "data" / "atlas-web"
 DEFAULT_OUT = ROOT / "website" / "tests" / "fixtures" / "atlas" / "parity"
 
 
@@ -94,17 +98,18 @@ def build_subset(from_dir: Path, out: Path) -> dict[str, Any]:
     payload = json.loads(encode_atlas_web.read_verified(from_dir, ref["surface_url"], ref["surface_sha256"]))
     cells = subset_cells(payload)
     manifest_ref = ref["downloads"]["manifest"]
-    manifest_key = manifest_ref["url"]
-    manifest = encode_atlas_web.read_verified(from_dir, manifest_key, manifest_ref["sha256"])
+    manifest = encode_atlas_web.read_verified(from_dir, manifest_ref["url"], manifest_ref["sha256"])
     prepare_out(out, source=from_dir)  # every source is read and verified first; ``out`` may not overlap
     surface = encode_atlas_web.canonical_bytes({**payload, "cells": cells})
     surface_key = f"{ARTIFACT_ID}.surface.json"
+    manifest_key = f"{ARTIFACT_ID}.manifest.json"  # a staging tree names it under downloads/
     (out / surface_key).write_bytes(surface)
     (out / manifest_key).write_bytes(manifest)
     digest = hashlib.sha256(surface).hexdigest()
     compact = {key: value for key, value in ref.items() if key not in encode_atlas_web.REF_FIELDS} | {
         "downloads": {
             **ref["downloads"],
+            "manifest": {**manifest_ref, "url": manifest_key},
             "observations": None,
             "surface": {**ref["downloads"]["surface"], "sha256": digest, "url": surface_key},
         },

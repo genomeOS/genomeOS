@@ -11,7 +11,7 @@ by cell: detail float64 bit-for-bit, render float32 equal to ``float32(JSON)``, 
 the support histogram exact. Byte-deterministic and idempotent; every file is written to a temporary
 sibling and renamed into place, so an interrupted run can simply be re-run. Needs only the ``read`` extra.
 
-    python scripts/encode_atlas_web.py [--in DIR] [--out DIR]
+    python scripts/encode_atlas_web.py --in DIR [--out DIR] [--with-downloads]
 """
 
 from __future__ import annotations
@@ -19,9 +19,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
-import secrets
 import struct
 import sys
 from collections.abc import Callable, Mapping
@@ -33,12 +31,27 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from genomeos.publication import surface_codec as codec  # noqa: E402
+from genomeos.publication.web_layout import WebLayoutError, apply_download_layout  # noqa: E402
+from scripts.atlas_web_staging import StagingError, write_atomic, write_download_copies  # noqa: E402
 
-DEFAULT_DIR = ROOT / "website" / "public" / "data" / "atlas"
 #: Catalog fields owned by this encoder, stripped and recomputed on every run (idempotence).
 CATALOG_FIELDS = ("grids",)
 REF_FIELDS = ("observations_bytes", "web")
 DATA_KEY = re.compile(r"^[a-z0-9][a-z0-9._/-]*$")
+
+
+def _refuse_unsafe_staging(in_dir: Path, out_dir: Path) -> None:
+    """--with-downloads writes the ~600 MB bucket staging tree: never into the export tree or Pages."""
+    resolved_in, resolved_out = in_dir.resolve(), out_dir.resolve()
+    public = (ROOT / "website" / "public").resolve()
+    if resolved_out == resolved_in or resolved_in in resolved_out.parents:
+        raise SystemExit(
+            "encode_atlas_web: --with-downloads writes the bucket staging tree; pass an --out outside --in"
+        )
+    if resolved_out == public or public in resolved_out.parents:
+        raise SystemExit(
+            "encode_atlas_web: --with-downloads must not stage into website/public (it would ship to Pages)"
+        )
 
 
 @dataclass(frozen=True)
@@ -89,25 +102,6 @@ def tier_key(ref: Mapping[str, Any], tier: str, container_sha: str) -> str:
     return data_key(f"{stem}/{tier}.{container_sha[:16]}.gosa")
 
 
-def _write_atomic(path: Path, data: bytes) -> None:
-    """Write ``data`` to a hidden sibling, fsync it, then rename it onto ``path``.
-
-    An interrupted run leaves either nothing or the complete bytes at ``path``, never a truncated
-    object at a content-addressed key (which every later run would refuse) or a truncated catalog.
-    """
-    temporary = path.with_name(f".{path.name}.{os.getpid()}-{secrets.token_hex(4)}.tmp")
-    stream = temporary.open("xb")  # exclusive: never truncates or later unlinks another writer's file
-    try:
-        with stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    except BaseException:
-        temporary.unlink(missing_ok=True)
-        raise
-
-
 def write_object(out_dir: Path, key: str, data: bytes) -> dict[str, Any]:
     """Write a content-addressed object, refusing to replace different bytes at its key."""
     path = out_dir / key
@@ -116,7 +110,7 @@ def write_object(out_dir: Path, key: str, data: bytes) -> dict[str, Any]:
             raise ValueError(f"{path}: a different object already exists at this content-addressed key")
     else:
         path.parent.mkdir(parents=True, exist_ok=True)
-        _write_atomic(path, data)
+        write_atomic(path, data)
     return {"bytes": len(data), "sha256": codec.container_sha256(data), "url": key}
 
 
@@ -220,7 +214,7 @@ def encode_catalog(
     return {**base, "artifacts": artifacts, "grids": {grid.sha256: grid.entry}}
 
 
-def encode_export(in_dir: Path, out_dir: Path) -> dict[str, Any]:
+def encode_export(in_dir: Path, out_dir: Path, *, with_downloads: bool = False) -> dict[str, Any]:
     """Encode the export tree in ``in_dir``; write objects and ``catalog.json`` under ``out_dir``."""
     in_dir, out_dir = Path(in_dir), Path(out_dir)
     catalog = json.loads((in_dir / "catalog.json").read_text(encoding="utf-8"))
@@ -238,7 +232,13 @@ def encode_export(in_dir: Path, out_dir: Path) -> dict[str, Any]:
         catalog, out_dir=out_dir, load_surface=load_surface, observations_size=observations_size
     )
     out_dir.mkdir(parents=True, exist_ok=True)
-    _write_atomic(out_dir / "catalog.json", canonical_bytes(encoded))
+    if with_downloads:
+        try:
+            encoded, copies = apply_download_layout(encoded)
+            write_download_copies(in_dir, out_dir, copies)
+        except (StagingError, WebLayoutError) as error:
+            raise SystemExit(f"encode_atlas_web: {error}") from error
+    write_atomic(out_dir / "catalog.json", canonical_bytes(encoded))
     return encoded
 
 
@@ -246,11 +246,22 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--in", dest="in_dir", type=Path, default=DEFAULT_DIR, help="export directory")
+    parser.add_argument("--in", dest="in_dir", type=Path, required=True, help="export directory")
     parser.add_argument("--out", dest="out_dir", type=Path, help="output directory (default: --in)")
+    parser.add_argument(
+        "--with-downloads",
+        action="store_true",
+        help=(
+            "also copy each canonical JSON to downloads/<id>/<model>/<data>/<id>.<kind>.<sha16>.json and "
+            "rewrite surface_url, observations_url and downloads.*.url to those keys (design 2026-10-07 "
+            "§C.2); --out must be outside --in and outside website/public"
+        ),
+    )
     args = parser.parse_args(argv)
     out_dir = args.out_dir or args.in_dir
-    catalog = encode_export(args.in_dir, out_dir)
+    if args.with_downloads:
+        _refuse_unsafe_staging(args.in_dir, out_dir)
+    catalog = encode_export(args.in_dir, out_dir, with_downloads=args.with_downloads)
     print(f"encoded {len(catalog['artifacts'])} artifacts on one shared grid into {out_dir}")
     return 0
 

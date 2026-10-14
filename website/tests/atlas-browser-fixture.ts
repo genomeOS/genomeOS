@@ -2,10 +2,13 @@
  * Browser-test fixture for the Atlas explorer (fast-load design §B.8).
  *
  * `npm run build:e2e` inlines the committed compact catalog
- * (`tests/fixtures/atlas/e2e/catalog.json`) into `/app/`. This fixture fulfils
- * exactly that catalog's fetched object keys (grid, render, detail,
- * observations) from the committed e2e tree. It never re-encodes, never
- * `route.fetch()`es production files and never touches the inline catalog.
+ * (`tests/fixtures/atlas/e2e/catalog.json`) into `/app/`. With a same-origin
+ * artifact base this fixture fulfils exactly that catalog's fetched object keys
+ * (grid, render, detail, observations) from the committed e2e tree. When the
+ * build bakes an absolute base (`npm run test:e2e`), that origin serves the
+ * tree itself and the fixture leaves those requests to the network (design
+ * 2026-10-07 §C.3). It never re-encodes, never `route.fetch()`es production
+ * files and never touches the inline catalog.
  *
  * It imports no app modules: `scripts/capture-*.mjs` load it under plain Node
  * type stripping, which cannot resolve the app's extensionless imports.
@@ -42,6 +45,7 @@ export interface FixtureCatalog {
       detail: { url: string };
     };
   }[];
+  context_sources: { id: string; url: string }[];
 }
 
 export interface AtlasBrowserFixtureOptions {
@@ -67,7 +71,7 @@ export const E2E_FIXTURE_DIR = path.resolve(
   'e2e',
 );
 export const E2E_CATALOG_PATH = path.join(E2E_FIXTURE_DIR, 'catalog.json');
-/** `artifactDataBase` of an e2e build (BASE_PATH `/`; same-origin data in Part B). */
+/** `artifactDataBase` of a plain `build:e2e` (BASE_PATH `/`, same-origin); `test:e2e` bakes http://127.0.0.1:4323/. */
 export const E2E_ARTIFACT_DATA_BASE = '/data/atlas/';
 
 const DEFAULT_APP_URL = '/app/';
@@ -83,6 +87,16 @@ export function extractInlineCatalog(html: string): FixtureCatalog {
       'The /app/ page has no inline <script id="atlas-catalog"> element.',
     );
   return JSON.parse(match[1]) as FixtureCatalog;
+}
+
+const INLINE_CATALOG_TAG = /<script\b[^>]*\bid="atlas-catalog"[^>]*>/;
+
+/** The artifact base baked into `#atlas-catalog`'s `data-artifact-data-base`, or null. */
+export function extractArtifactDataBase(html: string): string | null {
+  const tag = INLINE_CATALOG_TAG.exec(html)?.[0];
+  return tag
+    ? (/\bdata-artifact-data-base="([^"]*)"/.exec(tag)?.[1] ?? null)
+    : null;
 }
 
 export function artifactTierKey(
@@ -206,6 +220,11 @@ export async function installAtlasBrowserFixture(
       status: 200,
     }),
   );
+  const html = await (
+    await page.request.get(options.appUrl ?? DEFAULT_APP_URL)
+  ).text();
+  // design 2026-10-07 §C.3: an absolute artifact base is served by its own origin (webServer[1]).
+  if (/^https?:\/\//.test(extractArtifactDataBase(html) ?? '')) return;
   await page.route(
     (url) => keyFor(url) !== undefined,
     async (route) => {
@@ -214,6 +233,7 @@ export async function installAtlasBrowserFixture(
       await route.fulfill({
         body: objects.get(key),
         contentType: contentTypeFor(key),
+        headers: { 'access-control-allow-origin': '*' },
         status: 200,
       });
     },
@@ -300,9 +320,12 @@ export function corruptArtifactTier(
   return overrideArtifactTier(page, id, tier, options, async (route, key) => {
     const body = Buffer.from(readE2eObject(key));
     body[body.length - 1] ^= 0xff;
+    // A fulfilled cross-origin response still has to pass CORS; the bucket
+    // grants every listed origin, so only the bytes differ from a real one.
     await route.fulfill({
       body,
       contentType: contentTypeFor(key),
+      headers: { 'access-control-allow-origin': '*' },
       status: 200,
     });
   });

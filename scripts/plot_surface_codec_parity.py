@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Review figure for the GOSA web rendition (Atlas design §11; fast-load spec §B.1, §B.5).
 
-    python scripts/encode_atlas_web.py
-    python scripts/plot_surface_codec_parity.py --out docs/figures/surface-codec-parity.png
+    python scripts/encode_atlas_web.py --in <export-dir> --out data/atlas-web --with-downloads
+    python scripts/plot_surface_codec_parity.py --data-dir data/atlas-web \\
+        --out docs/figures/surface-codec-parity.png
 
 Reads the encoded objects back through the codec and compares them with the canonical JSON.
 (a) 32-bin palette quantisation from the float32 render tier versus float64, for 30 layers x 2
@@ -44,7 +45,7 @@ sys.path.insert(0, str(ROOT))
 from genomeos.publication import surface_codec as codec  # noqa: E402
 from genomeos.viz.basemap import draw_countries, h3_polygons  # noqa: E402
 
-DEFAULT_DIR = ROOT / "website" / "public" / "data" / "atlas"
+DEFAULT_DIR = ROOT / "data" / "atlas-web"
 BINS = 32
 #: ``PALETTES`` and ``defaultPalette`` in ``website/src/atlas/visual-encoding.ts``.
 PALETTES = {

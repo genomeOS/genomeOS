@@ -1,6 +1,6 @@
 /** Camera serialization and focus-scoped keyboard controls for Atlas design §11. */
 
-import { Cartesian3, Math as CesiumMath, type Viewer } from 'cesium';
+import { Cartesian3, Math as CesiumMath, type CesiumWidget } from 'cesium';
 
 import type { CameraState } from '../url-state';
 
@@ -66,13 +66,13 @@ export function keyboardCommandFor(
   );
 }
 
-export function cameraState(viewer: Viewer): CameraState | null {
-  const cartographic = viewer.camera.positionCartographic;
+export function cameraState(widget: CesiumWidget): CameraState | null {
+  const cartographic = widget.camera.positionCartographic;
   const radians = [
     cartographic?.latitude,
     cartographic?.longitude,
-    viewer.camera.heading,
-    viewer.camera.pitch,
+    widget.camera.heading,
+    widget.camera.pitch,
   ];
   if (
     !cartographic ||
@@ -82,16 +82,16 @@ export function cameraState(viewer: Viewer): CameraState | null {
     return null;
   }
   return {
-    heading: canonicalCameraNumber(CesiumMath.toDegrees(viewer.camera.heading)),
+    heading: canonicalCameraNumber(CesiumMath.toDegrees(widget.camera.heading)),
     height: canonicalCameraNumber(cartographic.height),
     lat: canonicalCameraNumber(CesiumMath.toDegrees(cartographic.latitude)),
     lon: canonicalCameraNumber(CesiumMath.toDegrees(cartographic.longitude)),
-    pitch: canonicalCameraNumber(CesiumMath.toDegrees(viewer.camera.pitch)),
+    pitch: canonicalCameraNumber(CesiumMath.toDegrees(widget.camera.pitch)),
   };
 }
 
 export function setCameraState(
-  viewer: Viewer,
+  widget: CesiumWidget,
   state: CameraState,
   animated: boolean,
 ): void {
@@ -106,31 +106,31 @@ export function setCameraState(
     roll: 0,
   };
   if (animated)
-    viewer.camera.flyTo({ destination, duration: 1.2, orientation });
-  else viewer.camera.setView({ destination, orientation });
+    widget.camera.flyTo({ destination, duration: 1.2, orientation });
+  else widget.camera.setView({ destination, orientation });
 }
 
-function runCommand(viewer: Viewer, command: KeyboardCommand): void {
+function runCommand(widget: CesiumWidget, command: KeyboardCommand): void {
   const distance = Math.max(
     20_000,
-    viewer.camera.positionCartographic.height * 0.06,
+    widget.camera.positionCartographic.height * 0.06,
   );
   const angle = CesiumMath.toRadians(3);
   const actions: Record<KeyboardCommand, () => void> = {
-    'pan-down': () => viewer.camera.moveDown(distance),
-    'pan-left': () => viewer.camera.moveLeft(distance),
-    'pan-right': () => viewer.camera.moveRight(distance),
-    'pan-up': () => viewer.camera.moveUp(distance),
-    'tilt-down': () => viewer.camera.lookDown(angle),
-    'tilt-up': () => viewer.camera.lookUp(angle),
-    'zoom-in': () => viewer.camera.zoomIn(distance),
-    'zoom-out': () => viewer.camera.zoomOut(distance),
+    'pan-down': () => widget.camera.moveDown(distance),
+    'pan-left': () => widget.camera.moveLeft(distance),
+    'pan-right': () => widget.camera.moveRight(distance),
+    'pan-up': () => widget.camera.moveUp(distance),
+    'tilt-down': () => widget.camera.lookDown(angle),
+    'tilt-up': () => widget.camera.lookUp(angle),
+    'zoom-in': () => widget.camera.zoomIn(distance),
+    'zoom-out': () => widget.camera.zoomOut(distance),
   };
   actions[command]();
 }
 
 export function bindKeyboardCamera(
-  viewer: Viewer,
+  widget: CesiumWidget,
   container: HTMLElement,
 ): () => void {
   if (!container.hasAttribute('tabindex')) container.tabIndex = 0;
@@ -138,7 +138,7 @@ export function bindKeyboardCamera(
     const command = keyboardCommandFor(event);
     if (command === null) return;
     event.preventDefault();
-    runCommand(viewer, command);
+    runCommand(widget, command);
   };
   container.addEventListener('keydown', listener);
   return () => container.removeEventListener('keydown', listener);

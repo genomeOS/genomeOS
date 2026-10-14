@@ -1,6 +1,6 @@
 /** Stable scene defaults and view policy for Atlas design §11. */
 
-import { Color, type Viewer } from 'cesium';
+import { Color, type CesiumWidget } from 'cesium';
 
 import type { CameraState, LayerVisibility } from '../url-state';
 import type { ObservationPresentation } from './types';
@@ -64,8 +64,8 @@ export const HOME_CAMERA: CameraState = {
   pitch: -90,
 };
 
-export function styleAtlasScene(viewer: Viewer): void {
-  const scene = viewer.scene;
+export function styleAtlasScene(widget: CesiumWidget): void {
+  const scene = widget.scene;
   scene.backgroundColor = Color.fromCssColorString('#020712');
   applyOceanColor(scene.globe, '#071b35');
   applyEarthOpacity(scene.globe, 1);
@@ -76,7 +76,7 @@ export function styleAtlasScene(viewer: Viewer): void {
   scene.highDynamicRange = true;
   scene.postProcessStages.fxaa.enabled = true;
   scene.postProcessStages.bloom.enabled = false;
-  viewer.resolutionScale = Math.min(window.devicePixelRatio || 1, 1.5);
+  widget.resolutionScale = Math.min(window.devicePixelRatio || 1, 1.5);
 }
 
 /** Defers the sky-box textures until the map is ready (spec 2026-10-07 §B.6.9). */
