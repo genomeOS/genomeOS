@@ -1,0 +1,91 @@
+---
+/**
+ * The genotype triad (site redesign spec §4.2, HbS, #454), the small left part of the HbS figure:
+ * AA, AS and SS as three pressable buttons with two allele dots each, and one shared frame that
+ * draws the red cell of the one pressed. AA and AS show the same round, biconcave disc; SS morphs
+ * into a sickle (genotype.ts, started by the page's island in project.astro). Sickling is drawn
+ * on the cell, never on the alleles.
+ *
+ * The visible protection claim lives in the section's lede ("can protect"); the AS button's
+ * description is the catalog's own wording.
+ */
+import { OUTLINE, pathOf, type Genotype } from './genotype';
+
+interface Props {
+  idPrefix: string;
+  selected?: Genotype;
+}
+
+const { idPrefix, selected = 'AS' } = Astro.props;
+const GENOTYPES: {
+  value: Genotype;
+  label: string;
+  alleles: ['A' | 'S', 'A' | 'S'];
+  description?: string;
+}[] = [
+  { value: 'AA', label: 'Usual haemoglobin', alleles: ['A', 'A'] },
+  {
+    value: 'AS',
+    label: 'Sickle-cell trait',
+    alleles: ['A', 'S'],
+    description:
+      'sickle-cell trait, associated with protection from severe malaria',
+  },
+  { value: 'SS', label: 'Sickle-cell disease', alleles: ['S', 'S'] },
+];
+---
+
+<div class="triad" data-genotype-root>
+  <div class="triad__frame" data-genotype={selected} aria-hidden="true">
+    <svg viewBox="0 0 120 120" class="triad__svg">
+      <defs>
+        <radialGradient id={`${idPrefix}-cell-fill`} cx="0.5" cy="0.5" r="0.55">
+          <stop offset="0" stop-color="rgb(242 248 255)" stop-opacity="0.03"
+          ></stop>
+          <stop offset="0.55" stop-color="rgb(242 248 255)" stop-opacity="0.07"
+          ></stop>
+          <stop offset="1" stop-color="rgb(242 248 255)" stop-opacity="0.22"
+          ></stop>
+        </radialGradient>
+      </defs>
+      <path
+        class="triad__cell"
+        data-cell-outline
+        d={pathOf(OUTLINE[selected])}
+        fill={`url(#${idPrefix}-cell-fill)`}></path>
+      <ellipse class="triad__pallor" cx="60" cy="60" rx="17" ry="15"></ellipse>
+    </svg>
+  </div>
+  <div class="triad__choices" role="group" aria-label="Genotype">
+    {
+      GENOTYPES.map((genotype) => (
+        <button
+          type="button"
+          class="triad__choice"
+          data-value={genotype.value}
+          aria-pressed={genotype.value === selected ? 'true' : 'false'}
+          aria-describedby={
+            genotype.description
+              ? `${idPrefix}-${genotype.value}-description`
+              : undefined
+          }
+        >
+          <span class="triad__alleles" aria-hidden="true">
+            {genotype.alleles.map((allele) => (
+              <i data-allele={allele} />
+            ))}
+          </span>
+          <strong>{genotype.value}</strong>
+          <span class="triad__label">{genotype.label}</span>
+        </button>
+      ))
+    }
+  </div>
+  {
+    GENOTYPES.filter((genotype) => genotype.description).map((genotype) => (
+      <span id={`${idPrefix}-${genotype.value}-description`} hidden>
+        {genotype.description}
+      </span>
+    ))
+  }
+</div>

@@ -1,0 +1,250 @@
+---
+/**
+ * The Project intro's lead figure (site redesign spec §4.2, the intro, §2.5, §6.1; #454): "From scattered
+ * tables to placed evidence", a mechanism plate tagged "Schematic".
+ *
+ *   records (left)  →  the six-field contract (the lit band)  →  the placement field (right)
+ *
+ * Each record is a row: its fields tick (aurora), stay hatched where missing, or flag and stop in
+ * gold. Placed records land as studs with dashed radius rings of two sizes; the continental group
+ * becomes a hollow "context only" tag; the frequency-only table is refused at AN; the unplaced
+ * label fails the build. The field is blank plate: no coastline, no real place, no number.
+ *
+ * Server-rendered in its final state. Wide stages read it as a table with the field to the right;
+ * mid stages turn the field names upright; on a phone each record's outcome sits under its row,
+ * and a field's reason shows in the corner beside the field names (the caption is far below).
+ * A visually hidden table carries the same content for screen readers.
+ */
+import Plate from '../kit/Plate.astro';
+import StatusTag from '../kit/StatusTag.astro';
+import { cssVarStyles, studSvg } from '../kit/svg';
+import {
+  CONTRACT,
+  HEADER_STEP,
+  RECORDS,
+  lastReached,
+  recordTiming,
+  type CellState,
+  type Outcome,
+} from './join-up';
+
+interface Props {
+  idPrefix?: string;
+}
+
+const { idPrefix = 'joinup' } = Astro.props;
+const id = (suffix: string) => `${idPrefix}-${suffix}`;
+const TITLE = 'From scattered tables to placed evidence';
+const CAPTION = 'Every observation needs a place, a radius and a count.';
+
+// Rows: the field header is row 1; on a phone each record takes two rows (fields, then outcome).
+const rows = RECORDS.map((record, index) => ({
+  record,
+  index,
+  timing: recordTiming(index),
+  reached: lastReached(record),
+  row: index + 2,
+  rowPhone: 2 + index * 2,
+}));
+
+/** The outcome mark: a stud with its stated radius, or the refusal glyphs. */
+const MARK: Record<Outcome, string> = {
+  placed:
+    `<circle class="joinup__ring" cx="24" cy="20" r="7" fill="none" stroke="var(--enc-obs-radius)" stroke-dasharray="2 2"/>` +
+    studSvg(24, 20, 3),
+  country:
+    `<circle class="joinup__ring" cx="24" cy="20" r="17" fill="none" stroke="var(--enc-obs-radius)" stroke-dasharray="2.5 2.5"/>` +
+    studSvg(24, 20, 3),
+  context: '',
+  refused:
+    '<path d="M18 14l12 12M30 14L18 26" stroke="var(--color-signal)" stroke-width="2" stroke-linecap="round"/>',
+  fails:
+    '<rect x="17" y="13" width="14" height="14" transform="rotate(45 24 20)" fill="none" stroke="var(--color-signal)" stroke-width="1.6"/><path d="M24 15.5v5.5M24 24v.6" stroke="var(--color-signal)" stroke-width="1.8" stroke-linecap="round"/>',
+};
+
+/** The cell marks, inside a 24 px socket. */
+const CELL: Record<CellState, string> = {
+  ok: '<path d="M6.5 12.5l3.6 3.6L17.5 8.5" fill="none" stroke="var(--color-aurora)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+  missing: '',
+  flag: '<rect x="7.5" y="7.5" width="9" height="9" transform="rotate(45 12 12)" fill="rgb(244 200 106 / 14%)" stroke="var(--color-signal)" stroke-width="1.5"/>',
+  refused:
+    '<path d="M7 7l10 10M17 7L7 17" stroke="var(--color-void)" stroke-width="5" stroke-linecap="round"/><path d="M7 7l10 10M17 7L7 17" stroke="var(--color-signal)" stroke-width="2.2" stroke-linecap="round"/>',
+  fail: '<path d="M7 7l10 10M17 7L7 17" stroke="var(--color-void)" stroke-width="5" stroke-linecap="round"/><path d="M7 7l10 10M17 7L7 17" stroke="var(--color-signal)" stroke-width="2.2" stroke-linecap="round"/>',
+  skip: '',
+};
+const FIELD_STATE_WORDS: Record<CellState, string> = {
+  ok: 'present',
+  missing: 'missing',
+  flag: 'not a place',
+  refused: 'missing: refused',
+  fail: 'missing: the build fails',
+  skip: 'not reached',
+};
+---
+
+<Plate
+  graphic="join-up"
+  label={TITLE}
+  interactive
+  class="joinup"
+  data-joinup=""
+>
+  <Fragment slot="top">
+    <StatusTag kind="schematic" />
+  </Fragment>
+
+  <div class="joinup__grid" data-joinup-grid>
+    <span class="joinup__band" aria-hidden="true"></span>
+    <span class="joinup__field" aria-hidden="true"></span>
+
+    {
+      CONTRACT.map((field, column) => (
+        <button
+          type="button"
+          class="joinup__head"
+          data-field={field.key}
+          style={`--col: ${column + 2}; --d: ${column * HEADER_STEP}`}
+          aria-describedby={id(`reason-${field.key}`)}
+        >
+          <span class="joinup__head-label">
+            {field.title ? (
+              <abbr title={field.title}>{field.label}</abbr>
+            ) : (
+              field.label
+            )}
+          </span>
+        </button>
+      ))
+    }
+    <!-- On a phone the caption is a long way down the plate: the reason shows beside the names. -->
+    <p class="joinup__reason" data-joinup-reason aria-hidden="true"></p>
+
+    {
+      rows.map(({ record, timing, reached, row, rowPhone }) => (
+        <div
+          class="joinup__row"
+          data-record={record.key}
+          data-outcome={record.outcome}
+          style={`--row: ${row}; --row-phone: ${rowPhone}; --row-out: ${rowPhone + 1}; --row-start: ${timing.start}`}
+        >
+          <div class="joinup__source" style={`--d: ${timing.start}`}>
+            <button
+              type="button"
+              class="joinup__record"
+              data-record-button={record.key}
+            >
+              {record.name}
+              <span class="visually-hidden">: replay its route</span>
+            </button>
+          </div>
+          {record.cells.map((state, field) => (
+            <span
+              class:list={[
+                'joinup__cell',
+                { 'is-stop': field === reached && reached < 5 },
+              ]}
+              data-state={state}
+              data-cell-field={CONTRACT[field].key}
+              style={`--col: ${field + 2}; --d: ${timing.cell(field)}`}
+              aria-hidden="true"
+            >
+              <svg
+                class="joinup__socket"
+                viewBox="0 0 24 24"
+                width="24"
+                height="24"
+              >
+                <Fragment set:html={cssVarStyles(CELL[state])} />
+              </svg>
+            </span>
+          ))}
+          <div
+            class="joinup__outcome"
+            data-outcome-kind={record.outcome}
+            style={`--d: ${timing.outcome}`}
+            aria-hidden="true"
+          >
+            {record.outcome === 'context' ? (
+              <span class="joinup__tag">{record.result}</span>
+            ) : (
+              <Fragment>
+                <svg
+                  class="joinup__mark"
+                  viewBox="0 0 48 40"
+                  width="48"
+                  height="40"
+                >
+                  <Fragment set:html={cssVarStyles(MARK[record.outcome])} />
+                </svg>
+                <span class="joinup__result">{record.result}</span>
+              </Fragment>
+            )}
+          </div>
+        </div>
+      ))
+    }
+  </div>
+
+  {
+    CONTRACT.map((field) => (
+      <span id={id(`reason-${field.key}`)} hidden>
+        {field.reason}
+      </span>
+    ))
+  }
+
+  <!-- A table ignores a 1 px box, so its wrapper does the hiding. -->
+  <div class="visually-hidden">
+    <table>
+      <caption>{TITLE}</caption>
+      <thead>
+        <tr>
+          <th scope="col">Source record</th>
+          {
+            CONTRACT.map((field) => (
+              <th scope="col">{field.title ?? field.label}</th>
+            ))
+          }
+          <th scope="col">Outcome</th>
+        </tr>
+      </thead>
+      <tbody>
+        {
+          RECORDS.map((record) => (
+            <tr>
+              <th scope="row">{record.name}</th>
+              {record.cells.map((state) => (
+                <td>{FIELD_STATE_WORDS[state]}</td>
+              ))}
+              <td>
+                {record.result}. {record.why}.
+              </td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <Fragment slot="caption">
+    <p class="joinup__caption" data-joinup-caption>{CAPTION}</p>
+  </Fragment>
+</Plate>
+
+<script is:inline>
+  // Arm the lead figure before the first paint, so it never shows its rest state and then hides it
+  // (spec §2.7 rule 5). FigureController takes over when the island loads; if it never does, the
+  // figure returns to rest after 3 s.
+  (function () {
+    var figure =
+      document.currentScript && document.currentScript.previousElementSibling;
+    if (!figure || !figure.matches('[data-joinup]')) return;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (performance.now() > 1200) return;
+    figure.classList.add('is-armed');
+    setTimeout(function () {
+      if (!figure.hasAttribute('data-figure-state'))
+        figure.classList.remove('is-armed');
+    }, 3000);
+  })();
+</script>

@@ -1,0 +1,193 @@
+---
+/**
+ * One of the six safeguards (site redesign spec §4.2, safeguards, #454): a 280 × 150 micro-diagram in the
+ * Atlas's own marks, then the rule's title and one line. The drawing is decorative (aria-hidden);
+ * the title and line carry the rule.
+ *
+ *   1 measured studs lift off the modeled hexes and stop with a visible gap
+ *   2 cells far from the survey arrive hatched: "No estimate"
+ *   3 a lens passes over a coarse cell, which grows but stays one cell
+ *   4 the raw bar stays beside the corrected one, behind a switch; no values
+ *   5 four kinds of claim meet the scope gate: two pass, two stop
+ *   6 a pointer over a hatched cell reads "Estimate —"
+ *
+ * Motion is CSS only, keyed by `--d` (ms after the tile starts) and the tile's `--i` stagger; the
+ * figure's island (project.astro) plays the six once and replays one on hover. At rest, and under
+ * reduced motion, each tile shows its end state. The hatch pattern `#sg-hatch` is defined once by
+ * the figure.
+ */
+import { cssVarStyles, studSvg } from '../kit/svg';
+
+interface Props {
+  rule: 1 | 2 | 3 | 4 | 5 | 6;
+  title: string;
+  line: string;
+}
+
+const { rule, title, line } = Astro.props;
+
+/** A flat-top hexagon of radius r centred on (cx, cy). */
+const hex = (cx: number, cy: number, r = 13) =>
+  Array.from({ length: 6 }, (_, k) => {
+    const a = (Math.PI / 3) * k;
+    return `${k ? 'L' : 'M'}${(cx + r * Math.cos(a)).toFixed(1)} ${(cy + r * Math.sin(a)).toFixed(1)}`;
+  }).join('') + 'Z';
+const cell = (cx: number, cy: number, tone: string, r = 13, extra = '') =>
+  `<path class="sg-cell sg-${tone}"${extra} d="${hex(cx, cy, r)}"/>`;
+// A staggered hex row: x steps 1.5r, every other cell half a row lower.
+const rowX = (start: number, index: number, r = 13) => start + index * 1.5 * r;
+const rowY = (y: number, index: number, r = 13) =>
+  y + (index % 2 ? (Math.sqrt(3) * r) / 2 : 0);
+// Chip width from its text: Figtree 600 at 15 units averages about 7.9 units a character.
+const chip = (text: string) => Math.round(text.length * 7.9 + 18);
+
+const DRAWINGS: Record<number, string> = {
+  1: (() => {
+    const tones = ['m2', 'm3', 'm4', 'm5', 'm4', 'p2', 'weak'];
+    const ribbon = tones
+      .map((tone, index) => cell(rowX(22, index), rowY(108, index), tone))
+      .join('');
+    const studs = [
+      [36, 44, 3],
+      [74, 50, 4.25],
+      [108, 42, 2],
+      [140, 48, 3],
+    ]
+      .map(([x, y, r]) => studSvg(x, y, r))
+      .join('');
+    return (
+      `<g class="sg-ribbon">${ribbon}</g>` +
+      `<g class="sg-anim sg-lift" style="--d: 0">${studs}</g>` +
+      `<path class="sg-gap" d="M14 76H178"/>` +
+      `<g class="sg-anim sg-fade" style="--d: 900">` +
+      `<text class="sg-label sg-label--strong" x="192" y="50">Measured</text>` +
+      `<text class="sg-label sg-label--strong" x="192" y="116">Modeled</text>` +
+      `</g>`
+    );
+  })(),
+  2: (() => {
+    const tones = [
+      'm5',
+      'm4',
+      'p2',
+      'weak',
+      'hatch',
+      'hatch',
+      'hatch',
+      'hatch',
+    ];
+    const cells = tones
+      .map((tone, index) =>
+        cell(
+          rowX(58, index),
+          rowY(84, index),
+          tone,
+          13,
+          ` style="--d: ${150 + index * 110}"`,
+        ),
+      )
+      .join('');
+    return (
+      `<circle class="sg-ring" cx="22" cy="90" r="14"/>` +
+      studSvg(22, 90, 4.25) +
+      `<g class="sg-pop">${cells}</g>` +
+      `<g class="sg-anim sg-fade" style="--d: 1100">` +
+      `<path class="sg-bracket" d="M108 54V48H224V54"/>` +
+      `<text class="sg-label sg-label--strong" x="166" y="38" text-anchor="middle">No estimate</text>` +
+      `</g>`
+    );
+  })(),
+  3: (() => {
+    const centre = [196, 74] as const;
+    const r = 16;
+    const around = Array.from({ length: 6 }, (_, k) => {
+      const a = (Math.PI / 3) * k + Math.PI / 6;
+      return [
+        centre[0] + Math.sqrt(3) * r * Math.cos(a),
+        centre[1] + Math.sqrt(3) * r * Math.sin(a),
+      ] as const;
+    });
+    const tones = ['m4', 'm5', 'm3', 'p2', 'm4', 'm2'];
+    const cluster =
+      cell(centre[0], centre[1], 'm3', r - 0.8) +
+      around.map(([x, y], k) => cell(x, y, tones[k], r - 0.8)).join('');
+    // The lens rests over the cluster's west cell: inside it, that one cell, larger, still one cell.
+    const target = around[3];
+    return (
+      cluster +
+      `<g class="sg-anim sg-lens" style="--d: 0">` +
+      `<circle class="sg-lens-glass" cx="${target[0].toFixed(1)}" cy="${target[1].toFixed(1)}" r="40"/>` +
+      `<clipPath id="sg-lens-clip"><circle cx="${target[0].toFixed(1)}" cy="${target[1].toFixed(1)}" r="39"/></clipPath>` +
+      `<g clip-path="url(#sg-lens-clip)"><g class="sg-anim sg-magnify" style="transform-origin: ${target[0].toFixed(1)}px ${target[1].toFixed(1)}px">${cell(target[0], target[1], 'p2', r - 0.8)}</g></g>` +
+      `<circle class="sg-lens-rim" cx="${target[0].toFixed(1)}" cy="${target[1].toFixed(1)}" r="40"/>` +
+      `<path class="sg-lens-handle" d="M${(target[0] - 29).toFixed(1)} ${(target[1] + 29).toFixed(1)}l-20 20"/>` +
+      `</g>` +
+      `<g class="sg-anim sg-fade" style="--d: 1150">` +
+      `<text class="sg-label sg-label--strong" x="${target[0].toFixed(1)}" y="140" text-anchor="middle">Still one cell</text>` +
+      `</g>`
+    );
+  })(),
+  4:
+    `<text class="sg-label" x="18" y="34">Raw</text>` +
+    `<rect class="sg-raw" x="18" y="44" width="186" height="16"/>` +
+    `<text class="sg-label" x="18" y="94">Corrected</text>` +
+    `<rect class="sg-anim sg-corrected" x="18" y="104" width="124" height="16" style="transform-origin: 18px 112px"/>` +
+    `<g class="sg-switch">` +
+    `<rect class="sg-switch-track" x="222" y="103" width="40" height="18"/>` +
+    `<rect class="sg-anim sg-switch-knob" x="245" y="106" width="14" height="12"/>` +
+    `</g>`,
+  5: (() => {
+    const claims = [
+      ['Single-variant conditions', true],
+      ['Drug response', true],
+      ['Behaviour', false],
+      ['Height', false],
+    ] as const;
+    const rows = claims
+      .map(([text, pass], index) => {
+        const y = 10 + index * 33;
+        return (
+          `<g class="sg-anim sg-chip${pass ? '' : ' sg-chip--stopped'}" style="--d: ${index * 120}">` +
+          `<rect x="12" y="${y}" width="${chip(text)}" height="26"/>` +
+          `<text class="sg-label" x="21" y="${y + 18}">${text}</text>` +
+          `</g>` +
+          `<g class="sg-anim sg-fade" style="--d: ${1000 + index * 80}">` +
+          (pass
+            ? `<path class="sg-pass" d="M242 ${y + 13}l5 5 10-11"/>`
+            : `<path class="sg-stop" d="M243 ${y + 7}l12 12M255 ${y + 7}l-12 12"/>`) +
+          `</g>`
+        );
+      })
+      .join('');
+    return (
+      `<path class="sg-gate" d="M232 4V144"/>` +
+      `<rect class="sg-gate-mark" x="227" y="-1" width="10" height="10" transform="rotate(45 232 4)"/>` +
+      rows
+    );
+  })(),
+  6:
+    cell(58, 72, 'm4') +
+    cell(78, 83.3, 'p2') +
+    cell(58, 94.5, 'hatch') +
+    cell(38, 83.3, 'weak') +
+    cell(78, 105.8, 'm3') +
+    cell(58, 117, 'weak') +
+    `<path class="sg-leader" d="M70 100L126 64"/>` +
+    `<g class="sg-anim sg-pointer" style="--d: 0"><path class="sg-cursor" d="M60 96l0 18 4.6-4.4 3.4 7.4 3.4-1.5-3.4-7.3 6.2-0.3z"/></g>` +
+    `<rect class="sg-readout" x="126" y="24" width="140" height="70"/>` +
+    `<text class="sg-label" x="140" y="50">Estimate</text>` +
+    `<g class="sg-anim sg-fade" style="--d: 700"><text class="sg-dash" x="140" y="80">—</text></g>`,
+};
+---
+
+<li class="sg-tile" data-rule={rule} style={`--i: ${rule - 1}`}>
+  <svg
+    class="sg-svg"
+    viewBox="0 0 280 150"
+    aria-hidden="true"
+    focusable="false"
+    set:html={cssVarStyles(DRAWINGS[rule])}
+  />
+  <h3>{title}</h3>
+  <p>{line}</p>
+</li>

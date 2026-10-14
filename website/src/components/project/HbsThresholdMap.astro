@@ -1,0 +1,211 @@
+---
+/**
+ * The HbS figure (site redesign spec §4.2, HbS, §5, §6; #454): the genotype triad beside the real
+ * HbS (rs334) v3 surface, coarsened to res 3 over West Africa to India in an equal-area projection,
+ * with every survey in the window as a white stud. A threshold slider outlines the areas whose
+ * estimate is above t (dashed) and, inside them, the areas whose whole 95% range is above t
+ * (solid); `unknown` areas stay hatched and are never counted. This is the only map on Project.
+ *
+ * The figure is tagged "Not yet validated" and cites its provenance. Everything a reader needs
+ * without the canvas is in the server HTML: the build-time description of the data, the count at
+ * the default threshold, and a table of the counts at 5, 10 and 15%. The page's island
+ * (project.astro) starts the map (hbs-map.ts) and loads its data once the figure is near view.
+ */
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
+import Figure from '../kit/Figure.astro';
+import Glyph from '../kit/Glyph.astro';
+import Readout from '../kit/Readout.astro';
+import StatusTag from '../kit/StatusTag.astro';
+import provenance from '../../data/figures/hbs.provenance.json';
+import { decodeAreas, decodeSurveys } from '../../graphics/figure-data';
+import { sitePath } from '../../lib/paths';
+import GenotypeTriad from './GenotypeTriad.astro';
+import {
+  DEFAULT_THRESHOLD,
+  countParts,
+  surveyWindow,
+  thresholdCounts,
+  valueText,
+} from './hbs-map';
+
+interface Props {
+  idPrefix?: string;
+}
+
+const { idPrefix = 'hbs' } = Astro.props;
+const id = (suffix: string) => `${idPrefix}-${suffix}`;
+
+// The pinned figure data, read at build time for the description and the no-JS count.
+const figures = path.resolve(process.cwd(), 'src/data/figures');
+const areas = decodeAreas(
+  readFileSync(path.join(figures, provenance.files.region.name)),
+);
+const surveys = decodeSurveys(
+  readFileSync(path.join(figures, provenance.files.surveys.name)),
+).filter(surveyWindow(areas));
+
+const known = areas.filter((area) => area.mean !== null);
+const top = known.reduce((best, area) =>
+  area.mean! > best.mean! ? area : best,
+);
+const unknown = areas.filter((area) => area.support === 'unknown').length;
+// A coarse name for where the highest estimate sits, from its centre (no new numbers).
+const REGIONS: [string, number, number, number, number][] = [
+  ['Central Africa', -15, 10, 8, 32],
+  ['West Africa', 0, 20, -20, 15],
+  ['East Africa', -12, 15, 28, 52],
+  ['southern Africa', -40, -15, 10, 45],
+  ['the Middle East', 12, 42, 34, 63],
+  ['South Asia', 5, 37, 63, 98],
+  ['the Mediterranean', 30, 46, -10, 36],
+];
+const [lon, lat] = top.center;
+const where =
+  REGIONS.find(
+    ([, south, north, west, east]) =>
+      lat >= south && lat <= north && lon >= west && lon <= east,
+  )?.[0] ?? 'Africa';
+const whole = (value: number) => value.toLocaleString('en-US');
+const alt = `Map of the sickle-cell variant HbS from West Africa to India, in an equal-area projection. White points are ${whole(surveys.length)} measured surveys. Modeled frequency is highest, about ${Math.round(top.mean! * 100)} percent, in ${where}, and fades with distance from surveys. ${whole(unknown)} areas have no estimate and are hatched.`;
+
+const atDefault = thresholdCounts(areas, DEFAULT_THRESHOLD / 100);
+const [confidentAtDefault, possibleAtDefault] = countParts(atDefault);
+const domain = provenance.metric_domain.post_mean;
+const domainLabel = `${Math.floor(domain[0] * 100)}–${Math.round(domain[1] * 100)}%`;
+const revision = provenance.hf_revision.slice(0, 7);
+const rows = provenance.table.region_thresholds;
+---
+
+<Figure
+  graphic="hbs-threshold"
+  interactive
+  label="Genotypes of haemoglobin S, and where its modeled frequency is above a threshold"
+  class="hbs"
+  id={id('figure')}
+>
+  <Fragment slot="toolbar">
+    <StatusTag kind="not-validated" />
+  </Fragment>
+
+  <GenotypeTriad idPrefix={id('genotype')} />
+  <div
+    class="hbs__map"
+    data-hbs-map
+    data-hbs-domain={JSON.stringify(domain)}
+    tabindex="0"
+    role="img"
+    aria-label={alt}
+    aria-describedby={id('keys')}
+  >
+    <canvas data-hbs-canvas="surface" aria-hidden="true"></canvas>
+    <canvas data-hbs-canvas="studs" aria-hidden="true"></canvas>
+    <span class="hbs__reticle" data-hbs-reticle hidden></span>
+    <noscript>
+      <p class="hbs__noscript">
+        The map draws with JavaScript. The table below lists the counts.
+      </p>
+    </noscript>
+  </div>
+  <p id={id('keys')} hidden>
+    Arrow keys move a reticle over the map, and the readout below describes the
+    area under it. Home returns to the centre; Escape clears it.
+  </p>
+
+  <Fragment slot="readout">
+    <div class="hbs__controls" data-figure-chrome>
+      <label class="hbs__slider-label" for={id('threshold')}>
+        Show areas above <output
+          data-hbs-threshold
+          for={id('threshold')}
+          aria-hidden="true">{DEFAULT_THRESHOLD}%</output
+        >
+      </label>
+      <input
+        id={id('threshold')}
+        class="hbs__slider"
+        type="range"
+        min="1"
+        max="15"
+        step="1"
+        value={String(DEFAULT_THRESHOLD)}
+        data-hbs-slider
+        aria-valuetext={valueText(DEFAULT_THRESHOLD, atDefault)}
+      />
+      <p class="hbs__count" data-hbs-count>
+        <span>{confidentAtDefault}</span> · <span>{possibleAtDefault}</span>
+      </p>
+    </div>
+    <Readout class="hbs__readout" idle="Tap to inspect." />
+  </Fragment>
+
+  <Fragment slot="legend">
+    <ul class="hbs__legend">
+      <li>
+        <svg class="hbs__swatch" viewBox="0 0 30 22" aria-hidden="true">
+          <path class="hbs__swatch-fill" d="M3 11l5-8h14l5 8-5 8H8z"></path>
+          <path class="hbs__swatch-casing" d="M3 11l5-8h14l5 8-5 8H8z"></path>
+          <path class="hbs__swatch-solid" d="M3 11l5-8h14l5 8-5 8H8z"></path>
+        </svg>
+        <span><strong>Confidently above</strong>: whole range above</span>
+      </li>
+      <li>
+        <svg class="hbs__swatch" viewBox="0 0 30 22" aria-hidden="true">
+          <path class="hbs__swatch-fill" d="M3 11l5-8h14l5 8-5 8H8z"></path>
+          <path class="hbs__swatch-casing" d="M3 11l5-8h14l5 8-5 8H8z"></path>
+          <path class="hbs__swatch-dashed" d="M3 11l5-8h14l5 8-5 8H8z"></path>
+        </svg>
+        <span><strong>Possibly above</strong>: estimate only</span>
+      </li>
+      <li>
+        <Glyph name="vsup-wedge" size={22} />
+        <span class="hbs__wedge-key">
+          <span>Modeled frequency, {domainLabel}</span>
+          <span>Fades away from surveys</span>
+        </span>
+      </li>
+      <li>
+        <Glyph name="hatch" />
+        <span>No estimate</span>
+      </li>
+      <li>
+        <Glyph name="stud-md" />
+        <span>Survey (AC of AN)</span>
+      </li>
+    </ul>
+  </Fragment>
+
+  <Fragment slot="footnote">
+    {provenance.label} · model {provenance.model_version} · data {
+      provenance.data_version
+    } · revision {revision} · coarsened for display ·{' '}
+    <a href={sitePath('/app/?entity=hbs-rs334&palette=genome')}
+      >Open in the Atlas</a
+    >
+  </Fragment>
+
+  <table slot="table">
+    <caption class="visually-hidden">
+      Areas whose estimate is above each threshold
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Threshold</th>
+        <th scope="col">Confidently above</th>
+        <th scope="col">Possibly above</th>
+      </tr>
+    </thead>
+    <tbody>
+      {
+        rows.map((row) => (
+          <tr>
+            <td>{Math.round(row.threshold * 100)}%</td>
+            <td>{whole(row.confidently_above)}</td>
+            <td>{whole(row.possibly_above)}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</Figure>

@@ -1,0 +1,331 @@
+---
+/**
+ * The multi-scale vision (site redesign spec §4.2, the vision, #454): the scale ladder, four frames joined
+ * by zoom wedges (a small region in one frame expands into the next), with the three levels of the
+ * vision as a tablist. It replaces the three generated vision images.
+ *
+ *   Earth            a value-free land footprint on a globe: no data, no coastline
+ *   Population       an abstract cluster of studs with their stated radius rings
+ *   Chromosome 11    an ideogram with the HBB gene marked at 11p15.4         (future, violet dashed)
+ *   Cell nucleus     an outline with chromatin and the folded locus           (future, violet dashed)
+ *   the bridge       from the HBB tick back to the population it was measured in (future)
+ *
+ * Its studs and footprint look like data but hold none, so the figure is tagged "Schematic" (spec
+ * §2.6). The selected tab lights its frames (1–2, 3–4, or the bridge); the art of the rest dims, the
+ * labels never do. Its one-line panel is the figure's caption. Server-rendered at rest in both
+ * layouts (ladder.ts); a container query picks the row or the 2 × 2 grid. The page's island
+ * (project.astro) calls `initLadder`.
+ */
+import StatusTag from '../kit/StatusTag.astro';
+import { cssVarStyles, studSvg } from '../kit/svg';
+import {
+  FRAME,
+  HBB_TICK,
+  LAYOUTS,
+  TARGET_STUD,
+  ZOOM,
+  wedge,
+  type FrameKey,
+  type Layout,
+  type Level,
+} from './ladder';
+
+interface Props {
+  idPrefix?: string;
+}
+
+const { idPrefix = 'ladder' } = Astro.props;
+const id = (suffix: string) => `${idPrefix}-${suffix}`;
+
+const TABS: {
+  level: Level;
+  title: string;
+  status: 'active' | 'future';
+  statusLabel: string;
+  panel: string;
+  stageLabel: string;
+}[] = [
+  {
+    level: 'earth',
+    title: 'Variation across Earth',
+    status: 'active',
+    statusLabel: 'In active development',
+    panel: 'Where variants and conditions are common, rare or unmeasured.',
+    stageLabel:
+      'Four scales, from Earth to a cell nucleus. Lit: Earth and a population, the two scales in active development.',
+  },
+  {
+    level: 'cell',
+    title: 'The genome inside the cell',
+    status: 'future',
+    statusLabel: 'Future exploration',
+    panel: 'From chromosome to the folded locus around a gene.',
+    stageLabel:
+      'Four scales, from Earth to a cell nucleus. Lit, as future exploration: chromosome 11 with the HBB gene at 11p15.4, and the folded locus inside a cell nucleus.',
+  },
+  {
+    level: 'bridge',
+    title: 'The bridge',
+    status: 'future',
+    statusLabel: 'Future exploration',
+    panel: 'Linking where a variant is found to what it does.',
+    stageLabel:
+      'Four scales, from Earth to a cell nucleus. Lit, as future exploration: a bridge from the HBB gene on chromosome 11 back to the population where its variant was measured.',
+  },
+];
+
+/* ---------- frame art, in one 170-unit square ---------- */
+const flatHex = (cx: number, cy: number, r: number) =>
+  Array.from({ length: 6 }, (_, k) => {
+    const a = (Math.PI / 3) * k;
+    return `${k ? 'L' : 'M'}${(cx + r * Math.cos(a)).toFixed(1)} ${(cy + r * Math.sin(a)).toFixed(1)}`;
+  }).join('') + 'Z';
+
+// A value-free land footprint: hexagons inside an abstract blob, inside the globe. No data.
+const landCells: string[] = [];
+{
+  const r = 6;
+  for (let col = -12; col <= 12; col += 1)
+    for (let row = -12; row <= 12; row += 1) {
+      const x = 85 + col * 1.5 * r;
+      const y =
+        85 + row * Math.sqrt(3) * r + (col % 2 ? (Math.sqrt(3) * r) / 2 : 0);
+      const inBlob =
+        Math.hypot(x - 104, y - 78) < 30 ||
+        Math.hypot(x - 80, y - 108) < 19 ||
+        Math.hypot(x - 58, y - 62) < 13;
+      if (inBlob && Math.hypot(x - 85, y - 85) < 58)
+        landCells.push(flatHex(x, y, r - 0.6));
+    }
+}
+
+const studs = [
+  { x: 44, y: 58, r: 3, ring: 16 },
+  { x: 84, y: 38, r: 2, ring: 10 },
+  { x: 64, y: 106, r: 4.25, ring: 24 },
+  { x: 106, y: 140, r: 2, ring: 9 },
+  TARGET_STUD,
+];
+
+const box = (frame: keyof typeof ZOOM) => {
+  const [x, y, w, h] = ZOOM[frame];
+  return `<rect class="ladder__zoom" x="${x}" y="${y}" width="${w}" height="${h}"/>`;
+};
+
+const ART: Record<FrameKey, string> = {
+  earth:
+    '<circle class="ladder__globe" cx="85" cy="85" r="66"/>' +
+    '<ellipse class="ladder__grat" cx="85" cy="85" rx="66" ry="22"/>' +
+    '<ellipse class="ladder__grat" cx="85" cy="85" rx="26" ry="66"/>' +
+    '<ellipse class="ladder__grat" cx="85" cy="85" rx="54" ry="66"/>' +
+    landCells.map((d) => `<path class="ladder__land" d="${d}"/>`).join('') +
+    box('earth'),
+  population:
+    studs
+      .map(
+        ({ x, y, ring }) =>
+          `<circle class="ladder__ring" cx="${x}" cy="${y}" r="${ring}"/>`,
+      )
+      .join('') +
+    studs.map(({ x, y, r }) => studSvg(x, y, r)).join('') +
+    box('population'),
+  chromosome:
+    '<clipPath id="CLIP"><path d="M74 27A11 11 0 0 1 96 27V64L91 70L96 76V143A11 11 0 0 1 74 143V76L79 70L74 64Z"/></clipPath>' +
+    '<g clip-path="url(#CLIP)">' +
+    [
+      [33, 6],
+      [48, 10],
+      [86, 9],
+      [104, 7],
+      [121, 13],
+      [141, 6],
+    ]
+      .map(
+        ([y, h]) =>
+          `<rect class="ladder__band" x="70" y="${y}" width="30" height="${h}"/>`,
+      )
+      .join('') +
+    '</g>' +
+    '<path class="ladder__future" d="M74 27A11 11 0 0 1 96 27V64L91 70L96 76V143A11 11 0 0 1 74 143V76L79 70L74 64Z"/>' +
+    `<path class="ladder__tick" d="M${HBB_TICK.x - 20} ${HBB_TICK.y}H${HBB_TICK.x + 20}"/>` +
+    box('chromosome'),
+  nucleus:
+    '<ellipse class="ladder__future" cx="85" cy="85" rx="70" ry="60"/>' +
+    '<circle class="ladder__future ladder__future--faint" cx="112" cy="62" r="11"/>' +
+    '<path class="ladder__chromatin" d="M30 78c8-16 22-2 30-12s16-16 26-4M40 112c10-6 14 8 26 2s12-14 24-8M98 120c8 6 18-4 24 4s12 2 16-6M104 88c6-10 18-6 22 2"/>' +
+    '<path class="ladder__locus" d="M62 92c-12 6-10 24 4 22s10-20 0-18-8 16 6 18 18-6 16-16"/>',
+};
+
+const FUTURE = new Set<FrameKey>(['chromosome', 'nucleus']);
+const LABEL: Record<FrameKey, string> = {
+  earth: 'Earth',
+  population: 'Population',
+  chromosome: 'Chromosome 11',
+  nucleus: 'Cell nucleus',
+};
+const WEDGES: [Exclude<FrameKey, 'nucleus'>, FrameKey][] = [
+  ['earth', 'population'],
+  ['population', 'chromosome'],
+  ['chromosome', 'nucleus'],
+];
+const ORDER: FrameKey[] = ['earth', 'population', 'chromosome', 'nucleus'];
+const layouts: Layout[] = ['row', 'grid'];
+const svgFor = (layout: Layout) => {
+  const geometry = LAYOUTS[layout];
+  // Unique ids per layout for the chromosome's clip path.
+  const art = (frame: FrameKey) =>
+    cssVarStyles(ART[frame].replaceAll('CLIP', id(`clip-${layout}`)));
+  return { geometry, art };
+};
+---
+
+<figure
+  class="ladder"
+  data-graphic="scale-ladder"
+  data-level="earth"
+  data-ladder
+>
+  <div class="ladder__tabs">
+    <div
+      class="ladder__tablist"
+      role="tablist"
+      aria-label="Levels of the vision"
+      data-figure-chrome
+    >
+      {
+        TABS.map((tab, index) => (
+          <button
+            type="button"
+            role="tab"
+            id={id(`tab-${tab.level}`)}
+            aria-controls={id(`panel-${tab.level}`)}
+            aria-selected={index === 0 ? 'true' : 'false'}
+            tabindex={index === 0 ? 0 : -1}
+            data-level={tab.level}
+            data-stage-label={tab.stageLabel}
+          >
+            <span class="ladder__tab-title">{tab.title}</span>
+            <span class="ladder__tab-status" data-status={tab.status}>
+              {tab.statusLabel}
+            </span>
+          </button>
+        ))
+      }
+    </div>
+  </div>
+
+  <div class="ladder__toolbar" data-figure-chrome>
+    <StatusTag kind="schematic" />
+  </div>
+
+  <div
+    class="ladder__stage"
+    data-figure-stage
+    role="img"
+    aria-label={TABS[0].stageLabel}
+  >
+    {
+      layouts.map((layout) => {
+        const { geometry, art } = svgFor(layout);
+        return (
+          <svg
+            class:list={['ladder__svg', `ladder__svg--${layout}`]}
+            viewBox={geometry.viewBox.join(' ')}
+            aria-hidden="true"
+          >
+            <g class="ladder__wedges">
+              {WEDGES.map(([from, to], index) => {
+                const lines = wedge(layout, from, to);
+                return (
+                  <g
+                    class:list={[
+                      'ladder__wedge',
+                      { 'ladder__wedge--future': FUTURE.has(to) },
+                    ]}
+                    data-wedge={index + 1}
+                    style={`--d: ${index * 300 + 220}`}
+                  >
+                    {lines.map(([x1, y1, x2, y2]) => (
+                      <line
+                        x1={x1.toFixed(1)}
+                        y1={y1.toFixed(1)}
+                        x2={x2.toFixed(1)}
+                        y2={y2.toFixed(1)}
+                        style={`transform-origin: ${x1.toFixed(1)}px ${y1.toFixed(1)}px`}
+                      />
+                    ))}
+                  </g>
+                );
+              })}
+            </g>
+            {ORDER.map((frame, index) => {
+              const { x, y, scale } = geometry.frames[frame];
+              return (
+                <g
+                  class:list={[
+                    'ladder__frame',
+                    { 'ladder__frame--future': FUTURE.has(frame) },
+                  ]}
+                  data-frame={frame}
+                  style={`--d: ${index * 300}`}
+                >
+                  <g
+                    class="ladder__art"
+                    transform={`translate(${x} ${y}) scale(${scale.toFixed(4)})`}
+                  >
+                    <rect
+                      class="ladder__border"
+                      x="0"
+                      y="0"
+                      width={FRAME}
+                      height={FRAME}
+                    />
+                    <g set:html={art(frame)} />
+                  </g>
+                </g>
+              );
+            })}
+            <path class="ladder__bridge" d={geometry.bridge} style="--d: 950" />
+            <g class="ladder__labels" font-size={geometry.font}>
+              {ORDER.map((frame, index) => (
+                <text
+                  class="ladder__label"
+                  x={geometry.labels[frame].x}
+                  y={geometry.labels[frame].y}
+                  text-anchor="middle"
+                  style={`--d: ${index * 300}`}
+                >
+                  {LABEL[frame]}
+                  {frame === 'chromosome' && (
+                    <tspan
+                      class="ladder__label-sub"
+                      x={geometry.labels[frame].x}
+                      dy={geometry.font * 1.2}
+                    >
+                      HBB, 11p15.4
+                    </tspan>
+                  )}
+                </text>
+              ))}
+            </g>
+          </svg>
+        );
+      })
+    }
+  </div>
+
+  <figcaption class="ladder__caption" data-figure-chrome>
+    {
+      TABS.map((tab, index) => (
+        <p
+          role="tabpanel"
+          id={id(`panel-${tab.level}`)}
+          aria-labelledby={id(`tab-${tab.level}`)}
+          hidden={index !== 0}
+        >
+          {tab.panel}
+        </p>
+      ))
+    }
+  </figcaption>
+</figure>
