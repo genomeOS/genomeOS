@@ -236,9 +236,10 @@ phones under 34rem tall use the same sheets with `peek` reduced to the handle ro
     every near plane Scene renders with and through the clones Scene and picking make
     (`PerspectiveFrustum.clone` drops `xOffset`); `Camera.getPickRay` is cast through the point
     drawn under the pointer; pick passes cull to the sub-frustum behind their own scissor rectangle
-    instead of a volume centred as if unshifted; the globe's per-fragment ground atmosphere rebuilds
-    its view ray from the frustum planes instead of assuming a centred frustum (unpatched, it
-    painted the far limb white); and `ScreenSpaceCameraController`, which takes the canvas centre
+    instead of a volume centred as if unshifted (offscreen ray picks, which render through their own
+    camera, keep Cesium's); the globe's per-fragment ground atmosphere rebuilds its view ray from
+    the frustum planes instead of assuming a centred frustum (unpatched, it painted the far limb
+    white); and `ScreenSpaceCameraController`, which takes the canvas centre
     for the view axis (its zoom to the cursor above 1,000 km drifted the ground under the cursor 25
     to 45 px per wheel notch towards the panel), runs each update in the frame of a centred view, so
     zoom, drag, tilt and its pivots behave exactly as on a centred globe (§B.7 "camera pivot
@@ -251,7 +252,8 @@ phones under 34rem tall use the same sheets with `peek` reduced to the handle ro
     centre with the panel hidden, following a resize) and on phones (unchanged), opens the inspector
     on the known cell under the camera by hovering and clicking where it is drawn (from 1,000 km,
     and from 8,000 km flat and elevated, where a pick culled as if unshifted misses the fixture's
-    cells), and wheel-zooms there without the cell leaving the cursor.)
+    cells), and wheel-zooms there without the cell leaving the cursor. The install refuses a Cesium
+    that lacks a method it overrides and leaves the scene as it was.)
 
 ### A.2 Code organisation
 
