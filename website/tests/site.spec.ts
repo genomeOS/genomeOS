@@ -4233,7 +4233,7 @@ test('reduced motion shows the whole surface at once, with no wave (#453)', asyn
 });
 
 /** Early enough that the ring is well inside "far" even when the wave runs to the horizon. */
-const UNREACHED_PROGRESS = 0.04;
+const UNREACHED_PROGRESS = 0.2;
 
 test('hexagons the wave has not reached cannot be hovered (#453)', async ({
   page,
@@ -4283,10 +4283,10 @@ test('hexagons the wave has not reached cannot be hovered (#453)', async ({
   const grown = await waveFrame(page);
   // On desktop the drawn view axis sits 234 px right of the canvas centre (#452). By the
   // camera's geometry, at 4,000 km the canvas's left edge, under the controls panel, then shows
-  // sky past the limb, so the wave runs to the horizon (about 53°) instead of the view's edge
-  // (about 30°). At EARLY_PROGRESS its ring would lie about 480 px out, past "far" (the run
-  // found 12 such pixels coloured); at 4% it lies about 7° (225 px) out, and the centre hexagon
-  // is already two-thirds grown.
+  // sky past the limb, so the wave runs to the horizon (about 53°, drawn about 860 px from the
+  // view axis) instead of the view's edge (about 30°). The wave is timed on screen (#453,
+  // 2026-10-14): at 20% its leading edge lies about 230 px out, well inside "far" (about 357 px),
+  // and the centre hexagon is fully grown.
   await holdRevealWave(page, UNREACHED_PROGRESS);
   const early = await waveFrame(page);
   const reading = await readWave(page, { before, done: grown, early }, view);
