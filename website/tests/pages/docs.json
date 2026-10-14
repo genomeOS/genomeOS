@@ -1,8 +1,8 @@
 {
   "route": "/docs/",
   "words": 200,
-  "wordsEnforced": false,
-  "conceptsEnforced": false,
+  "wordsEnforced": true,
+  "conceptsEnforced": true,
   "concepts": 1,
   "wordsExclude": "table",
   "jsKbGz": null,

@@ -1,0 +1,59 @@
+---
+title: Docs
+description: Start with the genomeOS scientific and engineering contracts, then follow the part of the system you want to understand or change.
+sidebar:
+  order: 1
+  label: Overview
+---
+
+import DocsMap from '../../../components/docs/DocsMap.astro';
+
+Reference for the science and the system: what each part does, how it is checked, and how to run it.
+
+<DocsMap />
+
+The repository labels the six parts P0 to P5. You only need them to match an issue to its part.
+
+## The system in six parts
+
+| Internal label | Plain-language part     | What it does                                                                  |
+| -------------- | ----------------------- | ----------------------------------------------------------------------------- |
+| **P0**         | Population locations    | Records where sampled populations were studied and how precise that place is. |
+| **P1**         | Measured evidence       | Preserves allele counts, study methods, and exact source references.          |
+| **P2**         | Frequency modeling      | Estimates geographic patterns and reports uncertainty and missing support.    |
+| **P3**         | Disease-burden modeling | Connects supported frequencies to carefully defined health estimates.         |
+| **P4**         | Data service            | Delivers prepared measurements and model results to applications.             |
+| **P5**         | Interactive map         | Makes the evidence, estimates, uncertainty, and gaps explorable.              |
+
+## Start with the authoritative sources
+
+- <a
+    href="https://github.com/genomeOS/genomeOS/blob/main/docs/overview.md"
+    target="_blank"
+    rel="noopener noreferrer"
+  >
+    Project overview
+  </a>
+- <a
+    href="https://github.com/genomeOS/genomeOS/blob/main/docs/scientific-engineering-objectives.md"
+    target="_blank"
+    rel="noopener noreferrer"
+  >
+    Scientific and engineering objectives
+  </a>
+- <a
+    href="https://github.com/genomeOS/genomeOS/blob/main/docs/superpowers/specs/2026-08-22-genome-os-atlas-v1-design.md"
+    target="_blank"
+    rel="noopener noreferrer"
+  >
+    Atlas v1 design
+  </a>
+- <a
+    href="https://github.com/genomeOS/genomeOS/blob/main/AGENTS.md"
+    target="_blank"
+    rel="noopener noreferrer"
+  >
+    Repository contributor contract
+  </a>
+
+These guides summarize. Frozen schemas, design documents, plans and issue decisions remain authoritative.
