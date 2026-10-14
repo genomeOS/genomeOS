@@ -12,6 +12,7 @@ import {
   draftText,
   isOffer,
   isTopic,
+  letterList,
   mailtoUrl,
   MAILTO_MAX_LENGTH,
   normalizeOffers,
@@ -135,6 +136,19 @@ describe('the opening line', () => {
       "I'd like to contribute to genomeOS by providing data and funding.",
     );
     expect(offerList(['expertise'])).toBe('expertise');
+  });
+
+  it('sets the list for the letter on the page with its words, and no break before a slash', () => {
+    // The draft keeps plain spaces; the letter on the page keeps each slash on the line before.
+    expect(opening({ topic: 'contribute', offers: [] })).toContain(
+      '[code / data / expertise / funding]',
+    );
+    expect(letterList([])).toBe(
+      '[code\u00a0/ data\u00a0/ expertise\u00a0/ funding]',
+    );
+    expect(letterList([]).replace(/\u00a0/g, ' ')).toBe(offerList([]));
+    for (const offers of [['code'], ['code', 'data'], [...OFFERS]] as const)
+      expect(letterList(offers)).toBe(offerList(offers));
   });
 
   it('opens each other purpose with its own sentence, whatever offers were pressed', () => {

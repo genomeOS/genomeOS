@@ -215,6 +215,11 @@ test.describe('the address is protected', () => {
     await expect(action(page, 'Show email address')).toBeHidden();
     await expect(composer(page).locator('[data-address]')).toHaveText(ADDRESS);
     await expect(status).toHaveText('Email address shown');
+    // Read, not shown: the address is in view, and focus is on its Copy (design critique 1, m-2).
+    await expect(status.locator('.visually-hidden')).toHaveText(
+      'Email address shown',
+    );
+    await expect(status.locator('.visually-hidden')).toHaveCSS('width', '1px');
     const copy = action(page, 'Copy');
     await expect(copy).toBeFocused();
     await expect(copy).toHaveAccessibleDescription(ADDRESS);
@@ -222,6 +227,8 @@ test.describe('the address is protected', () => {
     expect((await readLetter(page)).to).toBe(ADDRESS);
     await copy.click();
     await expect(status).toHaveText('Copied');
+    // A message that adds something is shown.
+    await expect(status.locator('.visually-hidden')).toHaveCount(0);
     expect(await clipboard(page)).toBe(ADDRESS);
     // Still no mailto: link: the address is text.
     await expect(page.locator('a[href^="mailto:" i]')).toHaveCount(0);
@@ -728,6 +735,298 @@ test('Show email address moves focus to Copy from the keyboard', async ({
   await expect(composer(page).locator('[data-address]')).toHaveText(ADDRESS);
 });
 
+// Design critique 1: the letter's typesetting at every width.
+test.describe('the letter is set like a letter', () => {
+  const ALL_OFFERS = '?topic=contribute&offer=code,data,expertise,funding';
+
+  test('each field’s leader runs on from the last word of its label, at 320 and 390 px', async ({
+    page,
+  }) => {
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(`/contact/${ALL_OFFERS}`);
+      await page.evaluate(() => document.fonts.ready);
+      const fields = await letter(page).evaluate((root) =>
+        [...root.querySelectorAll('.letter__field')]
+          .filter((field) =>
+            field.checkVisibility({ visibilityProperty: true }),
+          )
+          .map((field) => {
+            const label = field.querySelector('.letter__label')!;
+            const words = document.createRange();
+            words.selectNodeContents(label.firstChild!);
+            const lines = [...words.getClientRects()].filter(
+              (rect) => rect.width > 0,
+            );
+            const first = lines[0];
+            const last = lines[lines.length - 1];
+            const leader = field
+              .querySelector('.letter__leader')!
+              .getBoundingClientRect();
+            const dash = field
+              .querySelector('.letter__dash')!
+              .getBoundingClientRect();
+            return {
+              field: label.textContent!.trim(),
+              lines: new Set(lines.map((rect) => Math.round(rect.top))).size,
+              first: { top: first.top, bottom: first.bottom },
+              last: {
+                top: last.top,
+                bottom: last.bottom,
+                right: last.right,
+              },
+              leader: { left: leader.left, bottom: leader.bottom },
+              shown: label.getBoundingClientRect().right - leader.left,
+              dash: { top: dash.top, bottom: dash.bottom },
+            };
+          }),
+      );
+      expect(fields, `${width} px`).toHaveLength(16);
+      // The widths where labels wrap: the case this guards.
+      expect(
+        fields.filter(({ lines }) => lines > 1).length,
+        `${width} px`,
+      ).toBeGreaterThan(0);
+      for (const { field, first, last, leader, shown, dash } of fields) {
+        const where = `${width} px, ${field}`;
+        // On the label's last line, on its baseline: within the line's descent of its bottom.
+        expect(leader.bottom, where).toBeGreaterThan(
+          (last.top + last.bottom) / 2,
+        );
+        expect(leader.bottom, where).toBeLessThanOrEqual(last.bottom + 0.5);
+        expect(last.bottom - leader.bottom, where).toBeLessThanOrEqual(5);
+        // Straight after the last word, with at least 1.25rem of dots in view.
+        expect(leader.left, where).toBeGreaterThanOrEqual(last.right - 0.5);
+        expect(leader.left - last.right, where).toBeLessThanOrEqual(10);
+        expect(shown, where).toBeGreaterThanOrEqual(22);
+        // The dash stays on the first line.
+        expect(dash.bottom, where).toBeGreaterThan(first.top);
+        expect(dash.top, where).toBeLessThan(first.bottom);
+      }
+    }
+  });
+
+  test('no paragraph of the letter ends on one word alone', async ({
+    page,
+  }) => {
+    /** The tokens on the last line of a letter paragraph, found by their boxes' centres. */
+    const lastLine = (selector: string) =>
+      page.locator(selector).evaluate((line) => {
+        const words: { text: string; y: number }[] = [];
+        const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {
+          const node = walker.currentNode as Text;
+          for (const match of node.data.matchAll(/\S+/g)) {
+            const range = document.createRange();
+            range.setStart(node, match.index);
+            range.setEnd(node, match.index + match[0].length);
+            const box = range.getBoundingClientRect();
+            words.push({ text: match[0], y: (box.top + box.bottom) / 2 });
+          }
+        }
+        const bottom = Math.max(...words.map(({ y }) => y));
+        return words.filter(({ y }) => bottom - y < 8).map(({ text }) => text);
+      });
+    const opening = '.letter__line[data-for-topic="contribute"]';
+    const greeting = '.letter__body > .letter__para:first-child .letter__line';
+    for (const [width, query, selector] of [
+      [1440, ALL_OFFERS, opening],
+      [1024, '?topic=contribute&offer=code,data', opening],
+      [390, '', opening],
+      [320, '', opening],
+      [320, ALL_OFFERS, opening],
+      [320, '', greeting],
+    ] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/contact/${query}`);
+      await page.evaluate(() => document.fonts.ready);
+      const tokens = await lastLine(selector);
+      const where = `${width} px ${query || 'default'} ${selector}: ${tokens.join(' ')}`;
+      // Words, not the "/" between offers or the full stop after the list (a text of its own).
+      expect(
+        tokens.filter((token) => /\p{L}/u.test(token)).length,
+        where,
+      ).toBeGreaterThan(1);
+      // No line of the placeholder starts with its slash.
+      expect(tokens[0], where).not.toBe('/');
+    }
+  });
+
+  test('the caption starts on the letter’s own left edge, and one hairline rules the actions', async ({
+    page,
+  }) => {
+    for (const width of [1440, 1024, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/contact/');
+      const edges = await page.evaluate(() => {
+        const left = (element: Element) => {
+          const range = document.createRange();
+          range.selectNodeContents(element);
+          return range.getClientRects()[0].left;
+        };
+        return {
+          caption: left(document.querySelector('.contact-letter figcaption')!),
+          letter: left(
+            document.querySelector('.letter__body [data-letter-line]')!,
+          ),
+        };
+      });
+      expect(
+        Math.abs(edges.caption - edges.letter),
+        `${width} px`,
+      ).toBeLessThan(1);
+      // The problem link is set apart by space, not a second rule under the address row.
+      await expect(page.locator('.contact-problem')).toHaveCSS(
+        'border-top-style',
+        'none',
+      );
+    }
+  });
+
+  test('a narrow letter sets each label above its value; a wider one beside it', async ({
+    page,
+  }) => {
+    const rows = () =>
+      page.locator('.letter__row').evaluateAll((all) =>
+        all.map((row) => {
+          const dt = row.querySelector('dt')!.getBoundingClientRect();
+          const dd = row.querySelector('dd')!;
+          const value = dd.getBoundingClientRect();
+          return {
+            label: row.querySelector('dt')!.textContent!.trim(),
+            dt: { left: dt.left, top: dt.top, bottom: dt.bottom },
+            dd: { left: value.left, top: value.top, height: value.height },
+            line: Number.parseFloat(getComputedStyle(dd).lineHeight),
+          };
+        }),
+      );
+    await page.setViewportSize({ width: 320, height: 640 });
+    await page.goto('/contact/');
+    await page.evaluate(() => document.fonts.ready);
+    for (const { label, dt, dd, line } of await rows()) {
+      expect(dd.top, label).toBeGreaterThanOrEqual(dt.bottom - 1);
+      expect(Math.abs(dd.left - dt.left), label).toBeLessThan(1);
+      // "genomeOS Foundation" and "Contributing to genomeOS" each keep one line.
+      expect(dd.height, label).toBeLessThan(line * 1.5);
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    for (const { label, dt, dd } of await rows()) {
+      expect(Math.abs(dd.top - dt.top), label).toBeLessThan(1);
+      expect(dd.left, label).toBeGreaterThan(dt.left + 40);
+    }
+  });
+});
+
+test.describe('the phone dock @mobile-chromium', () => {
+  const dock = (page: Page) => page.locator('[data-dock]');
+  const CORNER = 81; // 4.5rem at the 18 px root: the cookie control's (spec §2.4)
+
+  test('holds the primary action while the letter is read, clear of the cookie corner, until the actions take over', async ({
+    page,
+  }) => {
+    const draft = buildDraft({ topic: 'contribute', offers: [...OFFERS] });
+    for (const [width, height] of [
+      [390, 844],
+      [320, 640],
+    ] as const) {
+      await page.setViewportSize({ width, height });
+      await page.goto(
+        '/contact/?topic=contribute&offer=code,data,expertise,funding',
+      );
+      // The first view is the controls': no dock over them.
+      await expect(dock(page)).toBeHidden();
+      await expect(dock(page)).toHaveAttribute('aria-hidden', 'true');
+      await expect(dock(page).locator('button')).toHaveAttribute(
+        'tabindex',
+        '-1',
+      );
+
+      // The letter's head in view: the dock comes in at the foot of the screen.
+      await page
+        .locator('.letter__head')
+        .evaluate((head) => head.scrollIntoView({ block: 'center' }));
+      await expect(dock(page)).toBeVisible();
+      const box = (await dock(page).locator('button').boundingBox())!;
+      expect(box.x + box.width, `${width} px`).toBeLessThanOrEqual(
+        width - CORNER + 0.5,
+      );
+      expect(box.y + box.height, `${width} px`).toBeLessThanOrEqual(height);
+      expect(box.height, `${width} px`).toBeGreaterThanOrEqual(44);
+      const cookie = await page
+        .locator('.cookie-control__toggle')
+        .boundingBox();
+      if (cookie) expect(box.x + box.width).toBeLessThanOrEqual(cookie.x);
+
+      // It opens the same draft as the button in the page.
+      expectMailto(
+        await mailtoFrom(page, () => dock(page).locator('button').click()),
+        mailtoUrl(ADDRESS, draft),
+      );
+
+      // The actions in view: they take over.
+      await page
+        .locator('.contact__actions')
+        .evaluate((actions) => actions.scrollIntoView({ block: 'center' }));
+      await expect(dock(page)).toBeHidden();
+      // And past them, it stays away.
+      await page.evaluate(() =>
+        window.scrollTo(0, document.documentElement.scrollHeight),
+      );
+      await expect(dock(page)).toBeHidden();
+    }
+  });
+
+  test('keyboards and screen readers keep to the one button in the page', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/contact/');
+    await page
+      .locator('.letter__head')
+      .evaluate((head) => head.scrollIntoView({ block: 'center' }));
+    await expect(dock(page)).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Open draft in your email app' }),
+    ).toHaveCount(1);
+    // Tab from Blank email goes to the address, then the problem link: never to the dock.
+    await action(page, 'Blank email').focus();
+    await page.keyboard.press('Tab');
+    await expect(action(page, 'Show email address')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(
+      page.locator('main').getByRole('link', { name: /Open a GitHub issue/ }),
+    ).toBeFocused();
+  });
+
+  test('a dock in view from the start lands without moving', async ({
+    page,
+  }) => {
+    // A tablet's first view holds the letter, with the actions just below it.
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await page.goto('/contact/');
+    await expect(dock(page)).toHaveAttribute('data-motion', '');
+    await expect(dock(page)).toBeVisible();
+    expect(
+      await dock(page).evaluate(
+        (element) => element.getAnimations({ subtree: true }).length,
+      ),
+    ).toBe(0);
+  });
+});
+
+test('beside the letter, from 60rem, there is no dock @desktop-chromium', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.goto(
+    '/contact/?topic=contribute&offer=code,data,expertise,funding',
+  );
+  for (const top of [0, 400, 800]) {
+    await page.evaluate((y) => window.scrollTo(0, y), top);
+    await expect(page.locator('[data-dock]')).toBeHidden();
+  }
+});
+
 test.describe('on a phone @mobile-chromium', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
@@ -982,6 +1281,22 @@ test.describe('Contact in the navigation', () => {
       'aria-current',
       'page',
     );
+    // Marked as the docs sidebar marks it: ion, with a square side rule (design critique 1, m-7).
+    await expect(menu.getByRole('link', { name: 'Contact' })).toHaveCSS(
+      'color',
+      'rgb(112, 230, 255)',
+    );
+    await expect(menu.getByRole('link', { name: 'Docs' })).toHaveCSS(
+      'color',
+      'rgb(242, 248, 255)',
+    );
+    const rule = (name: string) =>
+      menu.getByRole('link', { name, exact: true }).evaluate((link) => {
+        const style = getComputedStyle(link, '::before');
+        return `${style.content} ${style.borderLeftStyle} ${style.borderLeftWidth}`;
+      });
+    expect(await rule('Contact')).toBe('"" solid 3px');
+    expect(await rule('Docs')).toMatch(/^none /);
   });
 
   test('the docs header and the 404 list it too @desktop-chromium', async ({
@@ -997,6 +1312,18 @@ test.describe('Contact in the navigation', () => {
         route,
       ).toEqual(NAV);
     }
+  });
+
+  test('the docs overview has no previous page, so its pager never points back to Contact', async ({
+    page,
+  }) => {
+    await page.goto('/docs/');
+    await expect(page.locator('.pagination-links a[rel="prev"]')).toHaveCount(
+      0,
+    );
+    await expect(page.locator('.pagination-links a[rel="next"]')).toHaveCount(
+      1,
+    );
   });
 
   test('both footers link to it, beside Site policies', async ({ page }) => {

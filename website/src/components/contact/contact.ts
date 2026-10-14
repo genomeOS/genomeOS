@@ -12,11 +12,17 @@
  *   or any of the three draft actions, which also show it, so a visitor whose email app does not
  *   open still has it. No `<a href="mailto:…">` sits in the page: the draft buttons build the
  *   link when pressed and navigate to it.
- * - Feedback (shown, copied, how to carry on) goes through the one polite status line. Where the
- *   clipboard is blocked, the text to copy is selected instead: the address, or the letter. The
- *   letter as laid out is not the draft's text (To and Subject lose their colons, each dash breaks
- *   from its field, and hidden sections leave blank lines), so while that selection stands a copy
- *   carries `draftText`, exactly what Copy draft would have copied.
+ * - Feedback (shown, copied, how to carry on) goes through the one polite status line. "Email
+ *   address shown" is for screen readers only: the address is in view and focus is on its Copy
+ *   (design critique 1, m-2). Where the clipboard is blocked, the text to copy is selected
+ *   instead: the address, or the letter. The letter as laid out is not the draft's text (To and
+ *   Subject lose their colons, each dash breaks from its field, and hidden sections leave blank
+ *   lines), so while that selection stands a copy carries `draftText`, exactly what Copy draft
+ *   would have copied.
+ * - On a phone the letter runs on below the controls and the actions below the letter, so while
+ *   the letter is in view and the actions are still below it, a dock at the foot of the screen
+ *   holds the primary action (design critique 1, m-5; contact.css). It is a pointer shortcut to
+ *   the button in the page, which keyboards and screen readers use: hidden from both.
  * - The composer is marked `data-ready` once this has run; the pre-paint script falls back to the
  *   spelled-out address if it never does.
  * - Nothing is sent or stored: no request, no storage, no analytics event. (A browser test reads
@@ -30,7 +36,7 @@ import {
   isTopic,
   mailtoUrl,
   normalizeOffers,
-  offerList,
+  letterList,
   parseQuery,
   subjectSuffix,
   toQuery,
@@ -40,6 +46,9 @@ import { TOPIC_INPUT } from './contact-paint';
 
 /** How long a status message stays up. */
 const STATUS_MS = 6000;
+
+/** How much of the letter shows above the phone dock before it comes in: its To and Subject. */
+const LETTER_HEAD_PX = 108;
 
 export function initContact(root: HTMLElement): void {
   root.hidden = false;
@@ -60,6 +69,7 @@ export function initContact(root: HTMLElement): void {
   const letter = find('[data-letter]');
   const addressText = find('[data-address]');
   const copyAddress = find<HTMLButtonElement>('[data-action="copy-address"]');
+  const dock = find<HTMLElement>('[data-dock]');
 
   let { topic, offers } = parseQuery(location.search);
   const state = () => ({ topic, offers });
@@ -73,7 +83,7 @@ export function initContact(root: HTMLElement): void {
         'aria-pressed',
         String(offers.includes(toggle.dataset.offer as Offer)),
       );
-    if (offerListText) offerListText.textContent = offerList(offers);
+    if (offerListText) offerListText.textContent = letterList(offers);
     if (offerSubject) offerSubject.textContent = subjectSuffix(offers);
   };
 
@@ -105,13 +115,19 @@ export function initContact(root: HTMLElement): void {
     });
 
   // One polite status line for every piece of feedback. The same message twice is cleared first,
-  // so it is announced again.
+  // so it is announced again. A message that only repeats what is in view is read, not shown.
   let statusTimer = 0;
-  const say = (message: string) => {
+  const say = (message: string, { shown = true } = {}) => {
     if (!status) return;
     window.clearTimeout(statusTimer);
     const write = () => {
-      status.textContent = message;
+      if (shown) status.textContent = message;
+      else {
+        const line = document.createElement('span');
+        line.className = 'visually-hidden';
+        line.textContent = message;
+        status.replaceChildren(line);
+      }
       statusTimer = window.setTimeout(() => {
         status.textContent = '';
       }, STATUS_MS);
@@ -210,7 +226,7 @@ export function initContact(root: HTMLElement): void {
     reveal: () => {
       reveal();
       copyAddress?.focus();
-      say('Email address shown');
+      say('Email address shown', { shown: false });
     },
     'copy-address': () => void copy(reveal(), 'Copied', addressText, 'address'),
   };
@@ -221,6 +237,58 @@ export function initContact(root: HTMLElement): void {
     const action = button && actions[button.dataset.action ?? ''];
     if (action) action();
   });
+
+  // The phone dock (contact.css): shown once the letter's head is in view above it, until the
+  // actions reach it from below and take over. Its first state lands at once, so nothing moves on
+  // load; later changes move. Above 60rem contact.css never shows it.
+  const letterPlate = find('.contact-letter');
+  const actionBlock = find('.contact__actions');
+  if (dock && letterPlate && actionBlock && 'IntersectionObserver' in window) {
+    let letterInView = false;
+    let actionsBelow = false;
+    let reports = 0;
+    const update = () => {
+      reports += 1;
+      dock.toggleAttribute('data-shown', letterInView && actionsBelow);
+      if (reports < 2 || dock.hasAttribute('data-motion')) return;
+      // Both watchers have reported: commit that state as it stands, then let changes move.
+      void getComputedStyle(dock).opacity;
+      dock.toggleAttribute('data-motion', true);
+    };
+    let reach = -1;
+    let watchers: IntersectionObserver[] = [];
+    const watch = () => {
+      // How far up from the foot of the screen the dock reaches (offsetTop leaves out its rise).
+      const next = Math.max(0, Math.round(window.innerHeight - dock.offsetTop));
+      if (next === reach) return;
+      reach = next;
+      for (const watcher of watchers) watcher.disconnect();
+      watchers = [
+        new IntersectionObserver(
+          (entries) => {
+            letterInView = entries[entries.length - 1].isIntersecting;
+            update();
+          },
+          { rootMargin: `0px 0px -${reach + LETTER_HEAD_PX}px 0px` },
+        ),
+        new IntersectionObserver(
+          (entries) => {
+            const entry = entries[entries.length - 1];
+            actionsBelow =
+              !entry.isIntersecting &&
+              entry.boundingClientRect.top >=
+                (entry.rootBounds?.bottom ?? window.innerHeight - reach);
+            update();
+          },
+          { rootMargin: `0px 0px -${reach}px 0px` },
+        ),
+      ];
+      watchers[0].observe(letterPlate);
+      watchers[1].observe(actionBlock);
+    };
+    watch();
+    window.addEventListener('resize', watch, { passive: true });
+  }
 
   render();
   root.dataset.ready = '';

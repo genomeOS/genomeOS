@@ -17,6 +17,7 @@ import {
 import {
   OFFERS,
   TOPICS,
+  letterList,
   offerList,
   parseQuery,
   subjectSuffix,
@@ -161,14 +162,20 @@ describe('the pre-paint composer script', () => {
         OFFERS.map((offer) => [offer, String(state.offers.includes(offer))]),
       ),
     );
-    expect(painted.list).toBe(offerList(state.offers));
+    expect(painted.list).toBe(letterList(state.offers));
     expect(painted.suffix).toBe(subjectSuffix(state.offers));
   });
 
   it('carries the wording for every set of offers, from the draft builder', () => {
     const table = offerWording();
     expect(Object.keys(table)).toHaveLength(16);
-    expect(table['']).toEqual([offerList([]), '']);
+    // The placeholder as the letter sets it: no line starts with its slashes.
+    expect(table['']).toEqual([letterList([]), '']);
+    expect(table[''][0]).toBe(
+      '[code\u00a0/ data\u00a0/ expertise\u00a0/ funding]',
+    );
+    // Its words are still the builder's.
+    expect(table[''][0].replace(/\u00a0/g, ' ')).toBe(offerList([]));
     expect(table['code data expertise funding']).toEqual([
       'code, data, expertise and funding',
       ': code, data, expertise, funding',

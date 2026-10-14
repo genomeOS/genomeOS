@@ -160,6 +160,15 @@ export function offerList(offers: readonly Offer[]): string {
   return `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
 }
 
+/**
+ * The offer list as the letter on the page sets it: the space before each "/" of the placeholder
+ * does not break, so no line of the letter starts with a slash and "funding]." never ends it alone
+ * (design critique 1, m-4). The words are offerList's; the draft itself keeps plain spaces.
+ */
+export function letterList(offers: readonly Offer[]): string {
+  return offerList(offers).replace(/ \//g, '\u00a0/');
+}
+
 /** What a contribution's subject adds for its offers: ": code, data", or nothing. */
 export function subjectSuffix(offers: readonly Offer[]): string {
   const words = normalizeOffers(offers);

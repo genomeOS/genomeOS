@@ -6,7 +6,8 @@
  *   intro      the shared PageIntro, split: note, H1, lede
  *   composer   purpose (radios) and, for a contribution, what you'd offer (toggle buttons);
  *              the live letter (the lead figure, ContactLetter); the actions: open the draft in
- *              the visitor's email app, copy it, or start a blank email; show and copy the address
+ *              the visitor's email app, copy it, or start a blank email; show and copy the address;
+ *              on a phone, a dock that holds the primary action while the letter is read
  *   problem    a secondary link: problems go to GitHub Issues, not email
  *
  * The address is in no served file (src/lib/contact-address.ts): it is joined only on a visitor's
@@ -174,6 +175,32 @@ const SPELLED_OUT = 'info [at] genome-os [dot] org';
               </span>
             </div>
             <p class="contact-status" role="status" data-status></p>
+          </div>
+
+          {
+            /*
+             * The phone dock (contact.ts): the primary action at the foot of the screen while the
+             * letter is in view and the actions are still below it. A pointer shortcut to the
+             * button above, so keyboards and screen readers keep to that one.
+             */
+          }
+          <div class="contact-dock" data-dock aria-hidden="true">
+            <button
+              type="button"
+              class="contact-button contact-button--primary"
+              data-action="open"
+              tabindex="-1"
+            >
+              Open draft in your email app
+              <svg
+                class="contact-button__arrow"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path d="M4.5 12h14M13.5 6.5 19 12l-5.5 5.5"></path>
+              </svg>
+            </button>
           </div>
         </div>
         <script is:inline set:html={contactPaintScript(ROOT)} />

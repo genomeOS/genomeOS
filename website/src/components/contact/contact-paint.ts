@@ -6,7 +6,7 @@
  * then grows (a module script runs too late for that).
  *
  * It repeats `parseQuery`'s rule in plain ES5, with the purposes and offers from contact-draft.ts,
- * and carries the offer wording for every set of offers as a table built here from `offerList`
+ * and carries the offer wording for every set of offers as a table built here from `letterList`
  * and `subjectSuffix`, so it writes no grammar of its own. `tests/contact-paint.test.ts` runs it
  * against `parseQuery` for every case, so the two cannot drift. The island (contact.ts) then
  * takes over from the same state, and marks the composer `data-ready`.
@@ -19,7 +19,7 @@
 import {
   OFFERS,
   TOPICS,
-  offerList,
+  letterList,
   subjectSuffix,
   type Offer,
 } from '../../lib/contact-draft';
@@ -32,7 +32,7 @@ export function offerWording(): Record<string, [string, string]> {
   const table: Record<string, [string, string]> = {};
   for (let mask = 0; mask < 1 << OFFERS.length; mask += 1) {
     const offers: Offer[] = OFFERS.filter((_, index) => mask & (1 << index));
-    table[offers.join(' ')] = [offerList(offers), subjectSuffix(offers)];
+    table[offers.join(' ')] = [letterList(offers), subjectSuffix(offers)];
   }
   return table;
 }

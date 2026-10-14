@@ -13,7 +13,9 @@
  * - To reads "genomeOS Foundation" until the visitor asks for the address.
  * - The stage is a labelled region, read as text and never announced on a change.
  *
- * Offer sections carry the kit's hex, the mark the offer buttons fill when pressed.
+ * Offer sections carry the kit's hex, the mark the offer buttons fill when pressed. Each field is
+ * its dash, then its label with the dotted leader that ends the label's last line (contact.css),
+ * written as one expression so no space falls between the last word and the leader.
  *
  * Test hooks: each block of the letter is `[data-letter-block]` and each of its lines
  * `[data-letter-line]`; the subject is `[data-letter-subject]`; `[data-letter]` is the generated
@@ -23,8 +25,8 @@ import BrandName from '../BrandName.astro';
 import Plate from '../kit/Plate.astro';
 import {
   GREETING,
+  letterList,
   OFFERS,
-  OFFER_PLACEHOLDER,
   OPENINGS,
   SECTIONS,
   SIGN_OFF,
@@ -111,7 +113,7 @@ const sections: { id: SectionId; offer: boolean }[] = [
             <span class="letter__line" data-letter-line data-for-topic={topic}>
               {openingParts(topic).map((part) =>
                 part === LIST ? (
-                  <span data-offer-list>{OFFER_PLACEHOLDER}</span>
+                  <span data-offer-list>{letterList([])}</span>
                 ) : part === 'genomeOS' ? (
                   <BrandName />
                 ) : (
@@ -130,7 +132,9 @@ const sections: { id: SectionId; offer: boolean }[] = [
           SECTIONS.about.fields.map((field) => (
             <span class="letter__line letter__field" data-letter-line>
               <span class="letter__dash">-</span>
-              {` ${field}`}
+              <span class="letter__label">
+                {[` ${field}`, <span class="letter__leader" />]}
+              </span>
             </span>
           ))
         }
@@ -160,7 +164,9 @@ const sections: { id: SectionId; offer: boolean }[] = [
                 {SECTIONS[id].fields.map((field) => (
                   <span class="letter__line letter__field" data-letter-line>
                     <span class="letter__dash">-</span>
-                    {` ${field}`}
+                    <span class="letter__label">
+                      {[` ${field}`, <span class="letter__leader" />]}
+                    </span>
                   </span>
                 ))}
               </p>

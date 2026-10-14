@@ -784,6 +784,20 @@ svg {
   color: var(--color-starlight);
   text-decoration: none;
 }
+/* The current page, marked as the docs sidebar marks it: ion, with a square side rule at the
+ * panel's inner edge (the desktop nav brightens it instead). */
+.mobile-nav a[aria-current='page'] {
+  position: relative;
+  color: var(--color-ion);
+}
+.mobile-nav a[aria-current='page']::before {
+  content: '';
+  position: absolute;
+  top: -0.2rem;
+  bottom: -0.2rem;
+  left: -1.2rem;
+  border-left: 3px solid var(--color-ion);
+}
 
 /*
  * The Menu stands in for the desktop nav up to 72rem: 1152 px, since media

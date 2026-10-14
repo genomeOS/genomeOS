@@ -344,6 +344,50 @@
   translate: 0.15rem 0;
 }
 
+/* The phone dock (contact.ts; design critique 1, m-5): the primary action at the foot of the
+   screen while the letter is read and the actions are still below it. It stands on the cookie
+   control's bottom line, clear of its 4.5rem corner (spec §2.4), under the header and its Menu.
+   After its first state (`data-motion`) it rises in and fades out in --dur-ui; beside the letter,
+   above 60rem, it never shows. */
+.contact-dock {
+  display: none;
+}
+
+@media (width <= 60rem) {
+  .contact-dock {
+    position: fixed;
+    z-index: 30;
+    right: 4.5rem;
+    bottom: max(0.75rem, env(safe-area-inset-bottom));
+    left: var(--space-page);
+    display: grid;
+    opacity: 0;
+    visibility: hidden;
+    translate: 0 0.5rem;
+    /* Never in the way while it fades out. */
+    pointer-events: none;
+  }
+
+  .contact-dock[data-motion] {
+    transition:
+      opacity var(--dur-ui) var(--ease-ui),
+      translate var(--dur-ui) var(--ease-ui),
+      visibility 0s linear var(--dur-ui);
+  }
+
+  .contact-dock[data-shown] {
+    opacity: 1;
+    visibility: visible;
+    translate: none;
+    pointer-events: auto;
+    transition-delay: 0s;
+  }
+
+  .contact-dock .contact-button {
+    box-shadow: 0 0.5rem 1.5rem rgb(0 0 0 / 45%);
+  }
+}
+
 /* The address: a quiet text button that becomes the address and its Copy button. */
 .contact-address {
   display: flex;
@@ -397,10 +441,11 @@
   line-height: 1.5;
 }
 
+/* Set apart by space alone: a second hairline under the address row ruled off an empty band
+   around the reserved status line (design critique 1, m-3). */
 .contact-problem {
   margin: 0;
-  padding-top: 1rem;
-  border-top: 1px solid var(--color-deep-line);
+  padding-top: 0.5rem;
   color: var(--color-muted);
   font-size: 0.95rem;
   line-height: 1.5;
@@ -423,11 +468,21 @@
 
 /* ---------- the letter ---------- */
 
+/* The caption starts on the letter's own left edge (design critique 1, m-1). */
+.contact-letter {
+  --letter-inset: clamp(1rem, 3vw, 2.25rem);
+}
+
 .contact-letter .kit-plate__stage {
-  padding: clamp(1.1rem, 3vw, 2rem) clamp(1rem, 3vw, 2.25rem);
+  padding: clamp(1.1rem, 3vw, 2rem) var(--letter-inset);
+}
+
+.contact-letter .kit-plate__bar {
+  padding-inline: var(--letter-inset);
 }
 
 .letter {
+  container: letter / inline-size;
   color: var(--color-text-soft);
   font-size: 0.92rem;
   line-height: 1.55;
@@ -467,6 +522,19 @@
   overflow-wrap: anywhere;
 }
 
+/* A narrow letter (a 320 px phone) sets each label above its value, so "genomeOS Foundation" and
+   the subject keep the whole measure (design critique 1, m-8). */
+@container letter (width < 300px) {
+  .letter__head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .letter__row dt {
+    font-size: 0.8rem;
+    line-height: 1.4;
+  }
+}
+
 .letter__para {
   margin: 0;
   padding-top: 1.05em;
@@ -476,8 +544,15 @@
   padding-top: 0;
 }
 
+/* No line of the letter ends on one word alone (design critique 1, m-4); the greeting, a short
+   line that wraps only on the narrowest phones, splits evenly. */
 .letter__line {
   display: block;
+  text-wrap: pretty;
+}
+
+.letter__body > .letter__para:first-child .letter__line {
+  text-wrap: balance;
 }
 
 .letter__heading {
@@ -495,23 +570,34 @@
   fill: var(--color-ion);
 }
 
-/* A field to fill in: its label, then a dotted leader to the edge. */
+/* A field to fill in: its dash, its label, then a dotted leader to the edge. The dash keeps to the
+   label's first line; the leader runs on from the label's last word, so a label that wraps ends
+   in its leader (design critique 1, I-1). The leader is an inline block as wide as the label that
+   takes no room on its line (its margins cancel its width), clipped at the label's edge; the
+   label's end padding keeps at least 1.25rem of it in view. */
 .letter__field {
   display: flex;
   align-items: baseline;
   gap: 0.4rem;
 }
 
-.letter__field::after {
-  flex: 1 1 2.5rem;
-  min-width: 2.5rem;
-  border-bottom: 1px dotted var(--color-line-strong);
-  content: '';
-}
-
 .letter__dash {
   flex: none;
   color: var(--color-faint);
+}
+
+.letter__label {
+  flex: 1 1 0%;
+  min-width: 0;
+  padding-right: 1.65rem;
+  overflow: clip;
+}
+
+.letter__leader {
+  display: inline-block;
+  width: 100%;
+  margin: 0 calc(-100% - 0.4rem) 0 0.4rem;
+  border-bottom: 1px dotted var(--color-line-strong);
 }
 
 /* Sections: shown for their offer or purpose, collapsed otherwise. */
@@ -633,6 +719,7 @@
 
   .contact__controls,
   .contact__actions,
+  .contact-dock,
   .contact-problem {
     display: none;
   }
@@ -664,7 +751,7 @@
     display: var(--letter-print-display, grid);
   }
 
-  .letter__field::after {
+  .letter__leader {
     border-bottom-color: #999;
   }
 }
