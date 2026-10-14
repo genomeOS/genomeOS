@@ -4,6 +4,11 @@
  * tablist with exactly one selected tab. Each tab's panel comes from the slot named
  * `panel-<id>`; every panel is server-rendered, and all but the selected one are `hidden`
  * (without JS, the first-selected panel shows; print shows them all).
+ *
+ * Tabs wrap onto more rows when they do not fit (spec §4.3: a wrapping row on phones; labels never
+ * break mid-word). Each tab draws its own hairline, so every row keeps its rule and the selected
+ * tab's underline sits on its own row; a spacer carries the rule on to the end of the last row,
+ * and in a narrow container the tabs stretch to fill their rows.
  */
 
 interface Tab {
@@ -81,21 +86,31 @@ const panels = await Promise.all(
 </script>
 
 <style is:global>
+  .kit-tabs {
+    container: kit-tabs / inline-size;
+  }
+
   .kit-tabs__list {
     display: flex;
     flex-wrap: wrap;
     gap: 0;
+  }
+
+  .kit-tabs__list::after {
+    flex: 1 1 0;
     border-bottom: 1px solid var(--color-deep-line);
+    content: '';
   }
 
   .kit-tabs__list [role='tab'] {
     display: grid;
+    align-content: start;
     gap: 0.1rem;
     min-height: 2.75rem;
-    margin: 0 0 -1px;
-    padding: 0.55rem 1rem 0.6rem;
+    margin: 0;
+    padding: 0.55rem 1rem calc(0.6rem + 1px);
     border: 0;
-    border-bottom: 2px solid transparent;
+    border-bottom: 1px solid var(--color-deep-line);
     background: transparent;
     color: var(--color-muted);
     font: inherit;
@@ -110,9 +125,17 @@ const panels = await Promise.all(
     color: var(--color-starlight);
   }
 
+  /* A 2 px underline: the tab's own hairline turns ion, plus one more pixel above it. */
   .kit-tabs__list [role='tab'][aria-selected='true'] {
     border-bottom-color: var(--color-ion);
+    box-shadow: inset 0 -1px 0 var(--color-ion);
     color: var(--color-starlight);
+  }
+
+  @container kit-tabs (max-width: 40rem) {
+    .kit-tabs__list [role='tab'] {
+      flex: 1 1 auto;
+    }
   }
 
   .kit-tabs__label {

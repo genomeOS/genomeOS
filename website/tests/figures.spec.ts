@@ -138,6 +138,19 @@ function typeAndControls(): string[] {
       failures.push(
         `tablist "${list.getAttribute('aria-label')}" has ${selected.length} selected`,
       );
+    // Tabs may wrap onto more rows on a phone. Each tab draws its own rule, so every row keeps
+    // one and the selected underline sits on its own row (design review, fix round 2).
+    for (const tab of list.querySelectorAll<HTMLElement>('[role="tab"]')) {
+      if (!visible(tab)) continue;
+      const style = getComputedStyle(tab);
+      if (
+        style.borderBottomStyle === 'none' ||
+        parseFloat(style.borderBottomWidth) < 1
+      )
+        failures.push(
+          `tab "${tab.textContent?.trim()}" has no rule of its own`,
+        );
+    }
   }
   const pressedGroups = new Set(
     [...main.querySelectorAll('[aria-pressed]')].map(
