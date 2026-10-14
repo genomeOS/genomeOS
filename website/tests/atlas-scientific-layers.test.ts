@@ -165,7 +165,7 @@ function harness(overrides: Partial<ScientificStyle> = {}) {
     now: () => clock.now,
     scene,
     target: { setAttribute: (name, value) => attributes.set(name, value) },
-    view: () => ({ origin: [0, 0, 1], reach: 1 }),
+    view: () => ({ eye: 3, origin: [0, 0, 1], reach: 1 }),
     visibility: { isHidden: () => false, onChange: () => () => {} },
   });
   const realWaveStart = wave.start;

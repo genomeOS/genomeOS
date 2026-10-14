@@ -1,11 +1,13 @@
 /** The scene's reveal-wave driver (#453; fast-load design §B.6.7 and §B.6.9 item 8, amended
- * 2026-10-13).
+ * 2026-10-13 and 2026-10-14).
  *
  * Thin by design: the timeline lives in `reveal-wave.ts`. A wave starts from the centre of the
- * current view; on each frame (Cesium raises `preUpdate` on every tick of the render loop) the
- * driver moves the shared uniforms along the timeline and requests a render whenever the ring has
- * moved (the scene renders on request), and once the wave is done it stops requesting renders
- * and unsubscribes. It writes no buffer, so nothing is rebuilt or downloaded for it.
+ * current view, which also says how the view projects the globe (`eye`), so the ring can be timed
+ * on screen; on each frame (Cesium raises `preUpdate` on every tick of the render loop) the driver
+ * moves the shared uniforms (the ring's edge and width) along the timeline and requests a render
+ * whenever the ring has moved (the scene renders on request), and once the wave is done it stops
+ * requesting renders and unsubscribes. It writes no buffer, so nothing is rebuilt or downloaded
+ * for it.
  *
  * - `prefers-reduced-motion: reduce` runs no wave: everything shows at once, as before #453.
  * - A hidden tab renders no frames, so a wave hidden mid-way finishes at once (and one started in
@@ -26,9 +28,9 @@ import {
   Cartesian2,
   Ellipsoid,
   IntersectionTests,
+  Cartesian3,
   Ray,
   SceneMode,
-  type Cartesian3,
   type Scene,
 } from 'cesium';
 
@@ -39,8 +41,8 @@ import {
   restingWave,
   WAVE_COMPLETE_RADIUS,
   waveDone,
+  waveFront,
   waveOrigin,
-  waveRadius,
   waveReach,
   waveStep,
   waveTimeline,
@@ -56,6 +58,11 @@ export { REVEAL_WAVE_MEASURE, WAVE_ATTRIBUTE };
 export interface WaveView {
   origin: Vec3;
   reach: number;
+  /**
+   * The camera's distance from the globe's centre in globe radii, as if straight above the
+   * origin, so the ring can be timed on screen; null in the map frame (2D and Columbus view).
+   */
+  eye: number | null;
 }
 
 export interface RevealWaveScene {
@@ -165,6 +172,7 @@ export function createRevealWave(options: RevealWaveOptions): RevealWave {
     write('done');
     measure(REVEAL_WAVE_MEASURE, startedAt ?? at, at, {
       durationMs: ended.durationMs,
+      eye: ended.eye,
       reach: ended.reach,
     });
     options.scene.requestRender();
@@ -207,10 +215,12 @@ export function createRevealWave(options: RevealWaveOptions): RevealWave {
       end();
       return;
     }
-    const radius = waveRadius(current, time);
+    const front = waveFront(current, time);
     // The scene renders on request: a frame whose ring has not moved (a held wave) needs none.
-    if (radius === uniforms.radius) return;
-    uniforms.radius = radius;
+    if (front.radius === uniforms.radius && front.band === uniforms.band)
+      return;
+    uniforms.radius = front.radius;
+    uniforms.band = front.band;
     options.scene.requestRender();
   };
 
@@ -225,7 +235,8 @@ export function createRevealWave(options: RevealWaveOptions): RevealWave {
       }
       const wasRunning = timeline !== null;
       const view = options.view();
-      const next = waveTimeline(view.reach);
+      const next = waveTimeline(view.reach, view.eye);
+      const front = waveFront(next, 0);
       timeline = next;
       startedAt = null;
       uniforms.origin = {
@@ -233,8 +244,8 @@ export function createRevealWave(options: RevealWaveOptions): RevealWave {
         y: view.origin[1],
         z: view.origin[2],
       };
-      uniforms.band = next.band;
-      uniforms.radius = 0;
+      uniforms.band = front.band;
+      uniforms.radius = front.radius;
       removeFrame ??= options.scene.preUpdate.addEventListener(frame);
       removeDrawn ??= options.scene.postRender.addEventListener(drawn);
       removeVisibility ??= visibility.onChange(() => {
@@ -292,7 +303,10 @@ function vec(point: Cartesian3): Vec3 {
  * camera; 2D and Columbus view draw in the map frame, so they ask the camera's ellipsoid pick at
  * the canvas centre. The wave reaches the horizon (cells lifted `liftMetres` show past it), or
  * only the farthest point of the view's edge when the globe fills the view; in 2D and Columbus
- * view an edge that shows no globe sends it round the whole globe.
+ * view an edge that shows no globe sends it round the whole globe. On the globe, `eye` is the
+ * camera's distance from the origin, plus one globe radius, in globe radii: exact for a camera
+ * straight above the origin (the Atlas's views), close enough for a tilted one. The map frame has
+ * none.
  */
 export function waveViewOf(scene: WaveViewScene, liftMetres: number): WaveView {
   const { camera, canvas } = scene;
@@ -313,6 +327,13 @@ export function waveViewOf(scene: WaveViewScene, liftMetres: number): WaveView {
     );
   }
   const origin = waveOrigin(hit ? vec(hit) : null, vec(position));
+  let eye: number | null = null;
+  if (globe) {
+    const ground = hit ?? ellipsoid.scaleToGeodeticSurface(position);
+    const radius = ground ? Cartesian3.magnitude(ground) : 0;
+    if (ground && radius > 0)
+      eye = 1 + Cartesian3.distance(position, ground) / radius;
+  }
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
   const border = [
@@ -329,8 +350,9 @@ export function waveViewOf(scene: WaveViewScene, liftMetres: number): WaveView {
     return point ? vec(point) : null;
   });
   if (!globe && border.some((point) => point === null))
-    return { origin, reach: Math.PI };
+    return { eye, origin, reach: Math.PI };
   return {
+    eye,
     origin,
     reach: waveReach(
       origin,

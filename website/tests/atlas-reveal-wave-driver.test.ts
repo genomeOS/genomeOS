@@ -7,7 +7,7 @@ import {
   cellReveal,
   REVEAL_WAVE_MS,
   WAVE_COMPLETE_RADIUS,
-  waveRadius,
+  waveFront,
   waveTimeline,
   type Vec3,
 } from '../src/atlas/scene/reveal-wave';
@@ -22,6 +22,8 @@ import { FakeEvent } from './helpers/scene-fakes';
 
 const ORIGIN: Vec3 = [0, 0, 1];
 const REACH = 1.2;
+/** A camera 2 globe radii from the centre, straight above the origin: its horizon is 60° away. */
+const EYE = 2;
 
 function harness(
   options: { hold?: () => number | null; hidden?: boolean } = {},
@@ -34,7 +36,7 @@ function harness(
   const measure = vi.fn();
   const visibility = new FakeEvent();
   let hidden = options.hidden ?? false;
-  const view = vi.fn(() => ({ origin: ORIGIN, reach: REACH }));
+  const view = vi.fn(() => ({ eye: EYE, origin: ORIGIN, reach: REACH }));
   const wave = createRevealWave({
     hold: options.hold,
     measure,
@@ -90,13 +92,14 @@ describe('reveal wave driver', () => {
   it('starts from the view centre at nothing and follows the timeline on each frame', () => {
     const h = harness();
     h.wave.start(false);
-    const timeline = waveTimeline(REACH);
+    const timeline = waveTimeline(REACH, EYE);
 
     expect(h.view).toHaveBeenCalledTimes(1);
     expect(h.attributes.at(-1)).toBe('running');
     expect(h.wave.running()).toBe(true);
     expect(h.wave.uniforms.origin).toEqual({ x: 0, y: 0, z: 1 });
-    expect(h.wave.uniforms.band).toBeCloseTo(timeline.band);
+    expect(h.wave.uniforms.band).toBeCloseTo(waveFront(timeline, 0).band);
+    expect(h.wave.uniforms.band).toBeGreaterThan(0);
     expect(h.wave.uniforms.radius).toBe(0);
     expect(h.scene.requestRender).toHaveBeenCalled();
 
@@ -107,7 +110,11 @@ describe('reveal wave driver', () => {
     for (const step of [100, 200, 300]) {
       h.scene.requestRender.mockClear();
       h.frame(100);
-      expect(h.wave.uniforms.radius).toBeCloseTo(waveRadius(timeline, step));
+      // The ring's edge and its width both follow the timeline (timed on screen, #453).
+      expect(h.wave.uniforms.radius).toBeCloseTo(
+        waveFront(timeline, step).radius,
+      );
+      expect(h.wave.uniforms.band).toBeCloseTo(waveFront(timeline, step).band);
       expect(h.scene.requestRender).toHaveBeenCalledTimes(1);
     }
   });
@@ -121,7 +128,7 @@ describe('reveal wave driver', () => {
     expect(h.wave.uniforms.radius).toBe(0);
     h.frame(16);
     expect(h.wave.uniforms.radius).toBeCloseTo(
-      waveRadius(waveTimeline(REACH), 16),
+      waveFront(waveTimeline(REACH, EYE), 16).radius,
     );
   });
 
@@ -130,7 +137,7 @@ describe('reveal wave driver', () => {
     h.wave.start(false);
     h.frame();
     const started = h.clock.now;
-    for (let step = 0; step < 7; step += 1) h.frame(100);
+    for (let step = 0; step < REVEAL_WAVE_MS / 100 - 1; step += 1) h.frame(100);
     h.frame(99);
     expect(h.wave.running()).toBe(true);
     h.frame(1);
@@ -143,7 +150,7 @@ describe('reveal wave driver', () => {
       REVEAL_WAVE_MEASURE,
       started,
       started + REVEAL_WAVE_MS,
-      expect.objectContaining({ reach: REACH }),
+      expect.objectContaining({ eye: EYE, reach: REACH }),
     );
     expect(h.preUpdate.numberOfListeners).toBe(0);
     expect(h.postRender.numberOfListeners).toBe(0);
@@ -261,7 +268,7 @@ describe('reveal wave driver', () => {
     expect(h.wave.reveal([1, 0, 0])).toBe(1);
     h.wave.start(false);
     h.frame();
-    h.frame(150);
+    h.frame(200);
     const { band, radius } = h.wave.uniforms;
     for (const direction of [
       [0, 0, 1],
@@ -279,7 +286,7 @@ describe('reveal wave driver', () => {
   it('stands still at a held progress and runs on once released (e2e builds only)', () => {
     let hold: number | null = 0;
     const h = harness({ hold: () => hold });
-    const timeline = waveTimeline(REACH);
+    const timeline = waveTimeline(REACH, EYE);
     h.wave.start(false);
     h.frame();
     h.frame(5_000);
@@ -288,7 +295,7 @@ describe('reveal wave driver', () => {
     hold = 0.25;
     h.frame(16);
     expect(h.wave.uniforms.radius).toBeCloseTo(
-      waveRadius(timeline, 0.25 * REVEAL_WAVE_MS),
+      waveFront(timeline, 0.25 * REVEAL_WAVE_MS).radius,
     );
     // A held wave draws nothing new, so it requests no render until the hold moves.
     h.scene.requestRender.mockClear();
@@ -303,10 +310,11 @@ describe('reveal wave driver', () => {
     h.frame(16);
     expect(h.wave.running()).toBe(true);
     expect(h.wave.uniforms.radius).toBeCloseTo(
-      waveRadius(timeline, 0.5 * REVEAL_WAVE_MS + 16),
+      waveFront(timeline, 0.5 * REVEAL_WAVE_MS + 16).radius,
     );
-    h.frame(200);
-    h.frame(184);
+    // The rest of the wave, a frame at a time (one frame moves it a quarter at most).
+    for (let left = 0.5 * REVEAL_WAVE_MS - 16; left > 0; left -= 200)
+      h.frame(Math.min(200, left));
     expect(h.wave.running()).toBe(false);
     expect(h.attributes.at(-1)).toBe('done');
   });
@@ -315,17 +323,17 @@ describe('reveal wave driver', () => {
     // A long task or a texture upload can hold one frame for 0.6–0.8 s; the ring must then go
     // on spreading, not pop to the end.
     const h = harness();
-    const timeline = waveTimeline(REACH);
+    const timeline = waveTimeline(REACH, EYE);
     h.wave.start(false);
     h.frame();
     h.frame(700);
     expect(h.wave.running()).toBe(true);
     expect(h.wave.uniforms.radius).toBeCloseTo(
-      waveRadius(timeline, REVEAL_WAVE_MS / 4),
+      waveFront(timeline, REVEAL_WAVE_MS / 4).radius,
     );
     h.frame(16);
     expect(h.wave.uniforms.radius).toBeCloseTo(
-      waveRadius(timeline, REVEAL_WAVE_MS / 4 + 16),
+      waveFront(timeline, REVEAL_WAVE_MS / 4 + 16).radius,
     );
   });
 
@@ -395,6 +403,25 @@ describe('reveal wave view', () => {
     const skyward = Cartesian3.normalize(position, new Cartesian3());
     const view = waveViewOf(fakeViewScene({ direction: skyward, position }), 0);
     expect(angleBetween(view.origin, direction(position))).toBeLessThan(1e-9);
+  });
+
+  it('times the ring on screen from the camera’s height over the origin (#453, 2026-10-14)', () => {
+    // Straight above the origin, as the Atlas's views are: one plus the height in globe radii.
+    const position = Cartesian3.fromDegrees(20, 12, 16_500_000);
+    const view = waveViewOf(fakeViewScene({ position }), 0);
+    const ground = Cartesian3.magnitude(Cartesian3.fromDegrees(20, 12, 0));
+    expect(view.eye).toBeCloseTo(1 + 16_500_000 / ground, 3);
+    // The view ray's hit stands in for the ground when the camera looks elsewhere.
+    const target = Cartesian3.fromDegrees(30, 20, 0);
+    const look = Cartesian3.normalize(
+      Cartesian3.subtract(target, position, new Cartesian3()),
+      new Cartesian3(),
+    );
+    const tilted = waveViewOf(fakeViewScene({ direction: look, position }), 0);
+    expect(tilted.eye).toBeCloseTo(
+      1 + Cartesian3.distance(position, target) / Cartesian3.magnitude(target),
+      3,
+    );
   });
 
   it('runs to the horizon, lifted cells included, when the globe does not fill the view', () => {
@@ -470,6 +497,8 @@ describe('reveal wave view', () => {
       expect(angleBetween(view.origin, direction(centre))).toBeLessThan(1e-9);
       // Part of the map edge shows no globe: the whole globe is in reach.
       expect(view.reach).toBe(Math.PI);
+      // The map frame draws distance as the angle, so the ring is timed in angle.
+      expect(view.eye).toBeNull();
     }
   });
 });
