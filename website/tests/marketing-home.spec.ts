@@ -586,13 +586,20 @@ test('at 320 px the layer segments stay inside their row @mobile-chromium', asyn
   }
 });
 
-test('on a phone the hero’s calls to action are two equal, full-width buttons @mobile-chromium', async ({
+// Design review, round 2: where both fit (a 390 px phone) the two calls to action share one row of
+// equal halves, so the globe gets the room; where they do not (320 px) they stack full width.
+test('on a phone the hero’s calls to action are two equal buttons, side by side where they fit @mobile-chromium', async ({
   page,
 }) => {
-  for (const width of [320, 390]) {
+  for (const [width, sideBySide] of [
+    [320, false],
+    [390, true],
+    [412, true],
+  ] as const) {
     await page.setViewportSize({ width, height: 844 });
     await page.goto('/');
     const lede = (await page.locator('.home-hero__lede').boundingBox())!;
+    const row = (await page.locator('.home-hero__actions').boundingBox())!;
     const [first, second] = await Promise.all(
       [0, 1].map(
         async (index) =>
@@ -604,8 +611,32 @@ test('on a phone the hero’s calls to action are two equal, full-width buttons 
     );
     expect(Math.abs(first.width - second.width), `${width}`).toBeLessThan(1);
     expect(first.x, `${width}`).toBeCloseTo(lede.x, 0);
-    expect(second.y, `${width}`).toBeGreaterThan(first.y + first.height - 1);
+    if (sideBySide) {
+      expect(second.y, `${width}`).toBeCloseTo(first.y, 0);
+      expect(second.x + second.width, `${width}`).toBeCloseTo(
+        row.x + row.width,
+        0,
+      );
+    } else {
+      expect(second.y, `${width}`).toBeGreaterThan(first.y + first.height - 1);
+      expect(first.width, `${width}`).toBeCloseTo(row.width, 0);
+    }
+    // Labels never wrap inside a button.
+    for (const box of [first, second])
+      expect(box.height, `${width}`).toBeLessThan(70);
   }
+});
+
+// Design review, round 2: on a 390 × 844 phone only 40% of the disc showed in the first view, under
+// text and stacked controls. The page is visual-first: at least 60% of it shows.
+test('on a 390 × 844 phone most of the globe is in the first view @mobile-chromium', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  const globe = (await hero(page).locator('.hg-globe').boundingBox())!;
+  const shown = Math.min(844, globe.y + globe.height) - globe.y;
+  expect(shown / globe.height).toBeGreaterThanOrEqual(0.6);
 });
 
 test('on a phone the counts axis heads the bar it scales @mobile-chromium', async ({
@@ -639,9 +670,72 @@ test('on a phone the vision teaser reads heading, figure, then its link @mobile-
     ),
   );
   expect([...order].sort((a, b) => a - b)).toEqual(order);
-  // The 2×2 grid has no zoom wedges, so no frame marks a region for one.
-  for (const focus of await vision.locator('.vs-frame__focus').all())
-    await expect(focus).toBeHidden();
+});
+
+// Design review, round 2: each zoom square sits on the content it magnifies, inside its frame, and
+// its wedge opens from it to the next frame, as on Project's ladder; at every width.
+test('the vision teaser’s zoom squares sit on what they magnify, and its wedges open from them', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const figure = page.locator('figure[data-graphic="vision"]');
+  await figure.scrollIntoViewIfNeeded();
+  await expect(figure).toHaveAttribute('data-figure-state', 'rest');
+  const frames = await figure.evaluate((element) => {
+    const svg = [...element.querySelectorAll('svg.vs-svg')].find((candidate) =>
+      candidate.checkVisibility(),
+    )!;
+    const box = (node: Element | null) =>
+      node ? node.getBoundingClientRect().toJSON() : null;
+    // Where each wedge line starts, on screen.
+    const starts = (index: number) =>
+      [
+        ...svg.querySelectorAll<SVGLineElement>(
+          `[data-wedge="${index + 1}"] line`,
+        ),
+      ].map((line) => {
+        const point = new DOMPoint(
+          line.x1.baseVal.value,
+          line.y1.baseVal.value,
+        ).matrixTransform(line.getScreenCTM()!);
+        return [point.x, point.y];
+      });
+    return [...svg.querySelectorAll('[data-frame]')].map((frame, index) => ({
+      border: box(frame.querySelector('.ladder__border')),
+      zoom: box(frame.querySelector('.ladder__zoom')),
+      starts: starts(index),
+    }));
+  });
+  expect(frames).toHaveLength(4);
+  for (const [index, { border, zoom, starts }] of frames
+    .slice(0, 3)
+    .entries()) {
+    expect(zoom, `frame ${index + 1}`).not.toBeNull();
+    const centre =
+      (zoom!.left + zoom!.width / 2 - border!.left) / border!.width;
+    // On the content, not on the frame's edge.
+    expect(centre, `frame ${index + 1} zoom`).toBeGreaterThan(0.15);
+    expect(centre, `frame ${index + 1} zoom`).toBeLessThan(0.85);
+    expect(zoom!.right, `frame ${index + 1} zoom`).toBeLessThan(
+      border!.right - 4,
+    );
+    // Both wedge lines start at the zoom square, inside the frame.
+    expect(starts, `frame ${index + 1} wedge`).toHaveLength(2);
+    for (const [x, y] of starts) {
+      expect(x, `frame ${index + 1} wedge`).toBeGreaterThanOrEqual(
+        zoom!.left - 1.5,
+      );
+      expect(x, `frame ${index + 1} wedge`).toBeLessThanOrEqual(
+        zoom!.right + 1.5,
+      );
+      expect(y, `frame ${index + 1} wedge`).toBeGreaterThanOrEqual(
+        zoom!.top - 1.5,
+      );
+      expect(y, `frame ${index + 1} wedge`).toBeLessThanOrEqual(
+        zoom!.bottom + 1.5,
+      );
+    }
+  }
 });
 
 test('the layer control has one pressed layer and swaps the legend', async ({
@@ -1075,12 +1169,13 @@ test('the counts slider moves bar B and its sentence together, both in view on a
   }
 });
 
-// The closing band sits on the calls-to-action grid: the field spans the last two cards' columns
-// and the text the first two, so nothing ends on a ragged gap (design review, round 1).
+// The closing band sits on the calls-to-action grid: 2 × 2 cards (never 3 + 1) until there is room
+// for one row of four at 80rem, and the field ends where the last card ends, inside that card's
+// column (design review, rounds 1 and 2). The field is small: about half its round-1 size.
 test('the open field lines up with the calls to action below it @desktop-chromium', async ({
   page,
 }) => {
-  for (const width of [1280, 1440, 1920]) {
+  for (const width of [960, 1024, 1180, 1200, 1279, 1280, 1440, 1920]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto('/');
     const field = (await page.locator('.of-stage svg').boundingBox())!;
@@ -1090,11 +1185,15 @@ test('the open field lines up with the calls to action below it @desktop-chromiu
         links.map((link) => link.getBoundingClientRect().toJSON()),
       );
     expect(ctas, `${width}`).toHaveLength(4);
-    expect(Math.abs(field.x - ctas[2].left), `${width} left`).toBeLessThan(1.5);
+    const rows = new Set(ctas.map((cta) => Math.round(cta.top))).size;
+    expect(rows, `${width} rows`).toBe(width >= 1280 ? 1 : 2);
+    const last = ctas[3];
     expect(
-      Math.abs(field.x + field.width - ctas[3].right),
+      Math.abs(field.x + field.width - last.right),
       `${width} right`,
     ).toBeLessThan(1.5);
+    expect(field.x, `${width} left`).toBeGreaterThanOrEqual(last.left - 1.5);
+    expect(field.width, `${width} size`).toBeLessThanOrEqual(360);
   }
   // One range style on the site: Home's counts slider is Project's.
   await expect(

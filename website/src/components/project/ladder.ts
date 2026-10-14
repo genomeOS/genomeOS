@@ -7,38 +7,25 @@
  *   grid  (narrower)        a 2 × 2 "U": Earth → Population across the top, down to Chromosome 11,
  *                           back across the bottom to Cell nucleus, so no wedge crosses a label
  *
- * Each frame's art is drawn once in a 170-unit square and placed by a transform. Frames 3–4 and the
- * bridge (from the HBB tick back to the population it was measured in) are violet dashed: future
- * work. The island selects a level (frames 1–2, frames 3–4, or the bridge) and plays the entrance:
- * frames fade in left to right and each wedge draws from its zoom box, once, in 1.2 s.
+ * Each frame's art is drawn once in a 170-unit square (kit/scale-frames.ts, shared with Home's
+ * vision teaser) and placed by a transform. Frames 3–4 and the bridge (from the HBB tick back to
+ * the population it was measured in) are violet dashed: future work. The island selects a level
+ * (frames 1–2, frames 3–4, or the bridge) and plays the entrance: frames fade in left to right and
+ * each wedge draws from its zoom box, once, in 1.2 s.
  */
 
 import { FigureController } from '../../graphics/figure';
 import { initTabs, type TabsChangeDetail } from '../../graphics/tabs';
+import {
+  FRAME,
+  zoomWedge,
+  type FrameKey,
+  type Placement,
+  type ZoomFrame,
+} from '../kit/scale-frames';
 
 export type Level = 'earth' | 'cell' | 'bridge';
-export type FrameKey = 'earth' | 'population' | 'chromosome' | 'nucleus';
 export type Layout = 'row' | 'grid';
-
-export const FRAME = 170;
-type Box = readonly [x: number, y: number, w: number, h: number];
-
-/** The zoom box in each frame (local units): the small region the next frame expands. */
-export const ZOOM: Record<Exclude<FrameKey, 'nucleus'>, Box> = {
-  earth: [110, 74, 24, 24],
-  population: [118, 88, 24, 24],
-  chromosome: [73, 14, 24, 20],
-};
-/** The population whose genome the next frames look into, and where the bridge returns. */
-export const TARGET_STUD = { x: 130, y: 100, r: 4.25, ring: 20 } as const;
-/** The HBB tick on chromosome 11 (11p15.4, near the end of the short arm). */
-export const HBB_TICK = { x: 85, y: 24 } as const;
-
-export interface Placement {
-  x: number;
-  y: number;
-  scale: number;
-}
 
 export interface LayoutGeometry {
   viewBox: readonly [number, number, number, number];
@@ -87,40 +74,8 @@ export const LAYOUTS: Record<Layout, LayoutGeometry> = {
 };
 
 /** The wedge from frame `from`'s zoom box to the facing edge of the next frame, as two lines. */
-export function wedge(
-  layout: Layout,
-  from: Exclude<FrameKey, 'nucleus'>,
-  to: FrameKey,
-): [[number, number, number, number], [number, number, number, number]] {
-  const { frames } = LAYOUTS[layout];
-  const a = frames[from];
-  const b = frames[to];
-  const [bx, by, bw, bh] = ZOOM[from];
-  const box = {
-    left: a.x + bx * a.scale,
-    right: a.x + (bx + bw) * a.scale,
-    top: a.y + by * a.scale,
-    bottom: a.y + (by + bh) * a.scale,
-  };
-  const size = FRAME * b.scale;
-  if (b.x > a.x + 1)
-    // The next frame is to the right: box's right corners to its left edge.
-    return [
-      [box.right, box.top, b.x, b.y],
-      [box.right, box.bottom, b.x, b.y + size],
-    ];
-  if (b.x < a.x - 1)
-    // To the left: box's left corners to its right edge.
-    return [
-      [box.left, box.top, b.x + size, b.y],
-      [box.left, box.bottom, b.x + size, b.y + size],
-    ];
-  // Below: box's bottom corners to its top edge.
-  return [
-    [box.left, box.bottom, b.x, b.y],
-    [box.right, box.bottom, b.x + size, b.y],
-  ];
-}
+export const wedge = (layout: Layout, from: ZoomFrame, to: FrameKey) =>
+  zoomWedge(LAYOUTS[layout].frames, from, to);
 
 export const LEVELS: readonly Level[] = ['earth', 'cell', 'bridge'];
 export const ENTRANCE_MS = 1200;

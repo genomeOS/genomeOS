@@ -97,6 +97,59 @@ describe('homepage contract', () => {
     );
   });
 
+  // Design review, round 2: the teaser's zoom squares sat on each frame's right edge over 40 px
+  // icons, so its wedges read as connectors. It now draws Project's ladder frames at teaser scale:
+  // the same art, zoom boxes on the content they magnify, and the same wedge geometry.
+  it('draws the vision teaser with the Project ladder’s frame art and zoom boxes', () => {
+    const vision = section(/<section\b[^>]*\bid="vision"/);
+    const project = readFileSync(
+      path.resolve(import.meta.dirname, '../dist/project/index.html'),
+      'utf8',
+    );
+    const ladder = project.match(
+      /<figure\b[^>]*data-graphic="scale-ladder"[\s\S]*?<\/figure>/,
+    )![0];
+    const land = (markup: string) =>
+      new Set(
+        [...markup.matchAll(/<path class="ladder__land" d="([^"]+)"/g)].map(
+          ([, d]) => d,
+        ),
+      );
+    expect(land(vision).size).toBeGreaterThan(20);
+    expect(land(vision)).toEqual(land(ladder));
+    for (const svg of vision.match(/<svg\b[^>]*vs-svg[\s\S]*?<\/svg>/g)!) {
+      expect(svg.match(/class="ladder__zoom"/g)).toHaveLength(3);
+      expect(
+        svg.match(/<g class="vs-wedge [^"]*"[^>]*data-wedge="\d"/g),
+      ).toHaveLength(3);
+    }
+    expect(vision).not.toContain('vs-frame__focus');
+    // Its studs and footprint look like data but hold none (spec §2.6).
+    expect(vision).toMatch(/class="kit-status-tag" data-status="schematic"/);
+  });
+
+  // Design review, round 2: the closing field was a 650 × 290 px mass of saturated ramp hexes, a
+  // map with no data. It is small, mostly the grid's no-value footprint, and its focus is the
+  // hatched cell that a contribution fills.
+  it('keeps the closing field small and quiet, focused on the hatched cell', () => {
+    const open = section(/<section\b[^>]*\bid="open"/);
+    const svg = open.match(/<svg\b[^>]*>[\s\S]*?<\/svg>/)![0];
+    const cells = [
+      ...svg.matchAll(
+        /<path d="[^"]+" (?:fill="([^"]+)"|style="fill:([^"]+)")/g,
+      ),
+    ]
+      .map(([, fill, style]) => fill ?? style)
+      .filter((fill) => !fill.startsWith('url('));
+    const land = cells.filter((fill) => fill.includes('--enc-land')).length;
+    const ramp = cells.length - land;
+    expect(land / cells.length).toBeGreaterThanOrEqual(0.65);
+    expect(ramp).toBeGreaterThanOrEqual(3);
+    expect(ramp).toBeLessThanOrEqual(12);
+    expect(svg).toContain('url(#of-hatch)');
+    expect(open).toMatch(/class="kit-status-tag" data-status="schematic"/);
+  });
+
   it('leads into the larger vision with the scale strip, not images', () => {
     expect(html).not.toContain('/images/vision-earth.webp');
     expect(html).not.toContain(
