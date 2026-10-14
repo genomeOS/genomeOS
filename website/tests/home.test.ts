@@ -432,6 +432,24 @@ describe('hero globe logic', () => {
     expect(queue).toHaveLength(0);
   });
 
+  it('switches at once when asked, cancelling a running fade (the poster’s Modeled reset)', () => {
+    const queue: FrameRequestCallback[] = [];
+    let now = 0;
+    const calls: [string, number][] = [];
+    const fade = layerFader((layer, amount) => calls.push([layer, amount]), {
+      schedule: (callback) => queue.push(callback),
+    });
+    fade('evidence');
+    for (const callback of queue.splice(0)) callback((now += 16));
+    fade('modeled', true);
+    expect(calls.at(-1)).toEqual(['modeled', 1]);
+    // The cancelled fade never draws Evidence again.
+    const after = calls.length;
+    for (let index = 0; index < 30; index += 1)
+      for (const callback of queue.splice(0)) callback((now += 16));
+    expect(calls.slice(after)).toEqual([]);
+  });
+
   it('switches layers at once under reduced motion', () => {
     const calls: [string, number][] = [];
     const queue: FrameRequestCallback[] = [];

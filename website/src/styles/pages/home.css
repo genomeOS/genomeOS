@@ -212,9 +212,10 @@
   visibility: hidden;
 }
 
-/* The layer control only does something once the live canvas is up. */
+/* The layer control only does something once the live canvas is up; the poster (Modeled, at
+   rest) neither switches nor turns. */
 .hg:not([data-live]) .hg-layers,
-.hg[data-mode='poster'] .hg-layers {
+.hg[data-mode='poster'] :is(.hg-layers, .hg-reset) {
   visibility: hidden;
 }
 
@@ -275,6 +276,9 @@
 }
 
 .hg-reticle {
+  --hg-reticle-ink: var(--color-ion);
+  --hg-reticle-halo: var(--color-void);
+
   position: absolute;
   top: 50%;
   left: 50%;
@@ -284,15 +288,15 @@
   margin: -14px 0 0 -14px;
   pointer-events: none;
   background:
-    linear-gradient(var(--color-ion), var(--color-ion)) center top / 2px 9px
-      no-repeat,
-    linear-gradient(var(--color-ion), var(--color-ion)) center bottom / 2px 9px
-      no-repeat,
-    linear-gradient(var(--color-ion), var(--color-ion)) left center / 9px 2px
-      no-repeat,
-    linear-gradient(var(--color-ion), var(--color-ion)) right center / 9px 2px
-      no-repeat;
-  filter: drop-shadow(0 0 1px var(--color-void));
+    linear-gradient(var(--hg-reticle-ink), var(--hg-reticle-ink)) center top /
+      2px 9px no-repeat,
+    linear-gradient(var(--hg-reticle-ink), var(--hg-reticle-ink)) center
+      bottom / 2px 9px no-repeat,
+    linear-gradient(var(--hg-reticle-ink), var(--hg-reticle-ink)) left center /
+      9px 2px no-repeat,
+    linear-gradient(var(--hg-reticle-ink), var(--hg-reticle-ink)) right center /
+      9px 2px no-repeat;
+  filter: drop-shadow(0 0 1px var(--hg-reticle-halo));
 }
 
 .hg[data-reticle] .hg-reticle {
@@ -1662,23 +1666,46 @@
   }
 }
 
-/* The live canvas never prints or forces colours: the poster stands in (spec §2.2, §8). */
+/* The live canvas never prints or forces colours: the poster stands in (spec §2.2, §8). The poster
+   is the Modeled layer at rest, so a print carries that layer's legend and the callouts that
+   describe it, never the last layer's legend or a readout from a turned view. */
 @media print {
   .hg-canvas,
   .hg-reticle,
   .hg-layers,
-  .hg-reset {
+  .hg-reset,
+  .hg-readout {
     display: none;
   }
 
   .hg[data-live] .hg-poster {
     visibility: visible;
   }
+
+  .hg-legend__variant:not([data-legend='modeled']) {
+    visibility: hidden;
+  }
+
+  .hg-legend__variant[data-legend='modeled'],
+  .hg[data-view='moved'] :is(.hg-callout, .hg-leader, .hg-marker) {
+    opacity: 1;
+    visibility: visible;
+    transition: none;
+  }
 }
 
+/* The island also enters its poster mode here (hero-globe.ts), so nothing turns a hidden canvas.
+   Forced colours drop background images, so the reticle keeps its own, in system colours. */
 @media (forced-colors: active) {
   .hg-canvas {
     visibility: hidden;
+  }
+
+  .hg-reticle {
+    --hg-reticle-ink: CanvasText;
+    --hg-reticle-halo: Canvas;
+
+    forced-color-adjust: none;
   }
 
   .hg[data-live] .hg-poster {

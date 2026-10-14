@@ -16,7 +16,9 @@
  *              describe the view again. Reset view keeps its slot while hidden, so showing it
  *              never moves the globe mid-drag.
  *   fallback   slow frames cap the pixel ratio, then fall back to the poster (hit tests still
- *              work); Save-Data starts on the poster and loads data only on first use
+ *              work); Save-Data starts on the poster and loads data only on first use. Forced
+ *              colours show the poster (spec §2.2), so while they last the figure is its poster:
+ *              the Modeled rest view, with no layer control and nothing that turns
  *
  * Measured and modeled stay separate marks throughout (hexfield.ts); nothing here maps the width
  * of a range to colour (spec §6.3).
@@ -151,18 +153,18 @@ export function describeHit(hit: HexHit, layer: HexLayer): string {
 
 /**
  * Layer switches cross-fade over 240 ms (spec §4.1). A switch inside a running fade cancels it, so
- * two quick switches never draw alternate layers on alternate frames. Reduced motion switches at
- * once.
+ * two quick switches never draw alternate layers on alternate frames. Reduced motion, or an
+ * `instant` switch (the poster's return to Modeled), switches at once.
  */
 export function layerFader(
   apply: (layer: HexLayer, amount: number) => void,
   options: { reduced?: boolean; schedule?: FrameScheduler } = {},
-): (next: HexLayer) => void {
+): (next: HexLayer, instant?: boolean) => void {
   let running: Tween | null = null;
-  return (next) => {
+  return (next, instant = false) => {
     running?.cancel();
     running = null;
-    if (options.reduced) {
+    if (options.reduced || instant) {
       apply(next, 1);
       return;
     }
@@ -436,19 +438,72 @@ export function initHeroGlobe(figure: HTMLElement): void {
     );
   };
 
+  /* ---- layers ---- */
+
+  // Layers cross-fade; the legend swaps to the layer's own marks.
+  const fadeTo = layerFader((next, amount) => field?.setLayer(next, amount), {
+    reduced,
+  });
+  const layerButtons = [
+    ...figure.querySelectorAll<HTMLButtonElement>('.hg-layers button'),
+  ];
+  /** Show `next`: its pressed segment, its legend, its readouts, and (live) its marks. */
+  const selectLayer = (next: HexLayer, instant = false) => {
+    layer = next;
+    for (const button of layerButtons)
+      button.setAttribute(
+        'aria-pressed',
+        String(button.dataset.value === next),
+      );
+    for (const legend of figure.querySelectorAll<HTMLElement>('[data-legend]'))
+      legend.toggleAttribute('data-active', legend.dataset.legend === next);
+    if (field) fadeTo(next, instant);
+    const current = hovered ?? pinned;
+    if (current) show(current, false);
+  };
+
   /* ---- live canvas or poster ---- */
+
+  // Forced colours hide the canvas and show the poster (spec §2.2).
+  const forcedColours =
+    typeof matchMedia === 'function'
+      ? matchMedia('(forced-colors: active)')
+      : null;
+  /** Slow frames, Save-Data or missing data hold the poster for good; forced colours can end. */
+  let posterHeld = false;
 
   const goLive = () => {
     if (!posterOnly) figure.dataset.live = '';
   };
-  const usePoster = () => {
+  /** The poster is the Modeled layer at rest: the figure's legend, readouts and view match it. */
+  const usePoster = (hold = true) => {
+    posterHeld ||= hold;
     posterOnly = true;
     stopMotion();
     finishEntrance();
     figure.dataset.mode = 'poster';
     delete figure.dataset.live;
-    if (!atRest()) setView(REST_VIEW[0], REST_VIEW[1]);
+    if (drag) {
+      drag = null;
+      delete figure.dataset.dragging;
+    }
+    if (layer !== 'modeled') selectLayer('modeled', true);
+    const moved = !atRest();
+    if (moved) setView(REST_VIEW[0], REST_VIEW[1]);
     markRest();
+    // A reticle readout described the centre of the turned view; describe the poster's.
+    if (moved && 'reticle' in figure.dataset) describeCentre();
+  };
+  /** Forced colours ended: the live globe returns at rest, unless the poster is held. */
+  const leavePoster = () => {
+    if (!posterOnly || posterHeld) return;
+    posterOnly = false;
+    delete figure.dataset.mode;
+    void ensureData().then(() => {
+      if (posterOnly) return;
+      restState();
+      goLive();
+    });
   };
   /** The fallback ladder (spec §4.1): read once, after 10 frames of the entrance or a drag. */
   const probe = () => {
@@ -751,24 +806,24 @@ export function initHeroGlobe(figure: HTMLElement): void {
       });
     });
 
-  // Layers cross-fade; the legend swaps to the layer's own marks.
-  const fadeTo = layerFader((next, amount) => field?.setLayer(next, amount), {
-    reduced,
-  });
   figure.addEventListener('segmented:change', (event) => {
-    const next = (event as CustomEvent<{ value: HexLayer }>).detail.value;
-    layer = next;
-    for (const legend of figure.querySelectorAll<HTMLElement>('[data-legend]'))
-      legend.toggleAttribute('data-active', legend.dataset.legend === next);
-    if (field) fadeTo(next);
-    const current = hovered ?? pinned;
-    if (current) show(current, false);
+    selectLayer((event as CustomEvent<{ value: HexLayer }>).detail.value);
+  });
+
+  forcedColours?.addEventListener('change', () => {
+    if (forcedColours.matches) usePoster(false);
+    else leavePoster();
   });
 
   if (saveData()) {
     // Save-Data: the poster stays; data arrive only when someone inspects the globe.
     usePoster();
     globe.addEventListener('focus', () => void ensureData(), { once: true });
+    return;
+  }
+  if (forcedColours?.matches) {
+    // As with Save-Data, data arrive on first use (a tap, a key or a step reads the poster).
+    usePoster(false);
     return;
   }
   void start().catch(() => {

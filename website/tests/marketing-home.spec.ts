@@ -499,6 +499,117 @@ test('the layer control has one pressed layer and swaps the legend', async ({
   );
 });
 
+/** The callouts (wide form) or numbered markers (compact form) the current layout draws. */
+const restMarks = (page: Page) =>
+  hero(page).evaluate((figure) =>
+    [...figure.querySelectorAll<HTMLElement>('.hg-callout, .hg-marker')]
+      .filter((element) => getComputedStyle(element).display !== 'none')
+      .map((element) => {
+        const style = getComputedStyle(element);
+        return `${style.visibility} ${style.opacity}`;
+      }),
+  );
+
+// Forced colours hide the canvas and show the poster, the Modeled rest view (spec §2.2), so the
+// figure is its poster: nothing turns or switches a hidden canvas under a legend it no longer fits.
+test('in forced colours the hero is its poster: the modeled legend, and nothing turns it', async ({
+  page,
+}) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await page.goto('/');
+  const figure = hero(page);
+  await expect(figure).toHaveAttribute('data-mode', 'poster');
+  await expect(figure.locator('.hg-poster')).toBeVisible();
+  await expect(figure.locator('.hg-layers')).toBeHidden();
+  await expect(figure.locator('[data-legend="modeled"]')).toBeVisible();
+  for (const other of ['measured', 'evidence'])
+    await expect(figure.locator(`[data-legend="${other}"]`)).toBeHidden();
+
+  // Keys read the poster's centre and never turn the hidden canvas.
+  const globe = figure.locator('.hg-globe');
+  await globe.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(readout(page)).not.toHaveText('Drag to turn. Tap to inspect.');
+  const centre = await readout(page).textContent();
+  for (let press = 0; press < 5; press += 1)
+    await page.keyboard.press('ArrowRight');
+  await expect(readout(page)).toHaveText(centre!);
+  await expect(figure).toHaveAttribute('data-view', 'rest');
+  await expect(figure.locator('.hg-reset')).toBeHidden();
+  await expect
+    .poll(() => restMarks(page))
+    .toEqual(['visible 1', 'visible 1', 'visible 1']);
+  // The reticle is drawn in system colours, so forced colours keep it.
+  const reticle = figure.locator('.hg-reticle');
+  await expect(reticle).toBeVisible();
+  expect(
+    await reticle.evaluate(
+      (element) => getComputedStyle(element).backgroundImage,
+    ),
+  ).toContain('gradient');
+});
+
+test('turning forced colours on mid-visit returns the hero to its poster, and off to the live globe', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const figure = await liveHero(page);
+  // What the centre reticle reads at rest, which is the poster's view.
+  const globe = figure.locator('.hg-globe');
+  await globe.focus();
+  await page.keyboard.press('Home');
+  await expect(readout(page)).not.toHaveText('Drag to turn. Tap to inspect.');
+  const restCentre = await readout(page).textContent();
+
+  const layers = figure.locator('.hg-layers');
+  await layers.getByRole('button', { name: 'Evidence' }).click();
+  await globe.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(figure).toHaveAttribute('data-view', 'moved');
+  await expect(readout(page)).not.toHaveText(restCentre!);
+
+  await page.emulateMedia({ forcedColors: 'active' });
+  await expect(figure).toHaveAttribute('data-mode', 'poster');
+  await expect(figure).toHaveAttribute('data-view', 'rest');
+  await expect(layers).toBeHidden();
+  await expect(figure.locator('[data-legend="modeled"]')).toBeVisible();
+  await expect(figure.locator('[data-legend="evidence"]')).toBeHidden();
+  await expect(layers.locator('[aria-pressed="true"]')).toHaveText('Modeled');
+  // The reticle now reads the centre of the view the poster shows.
+  await expect(readout(page)).toHaveText(restCentre!);
+
+  await page.emulateMedia({ forcedColors: 'none' });
+  await expect(figure).not.toHaveAttribute('data-mode', 'poster');
+  await expect(figure).toHaveAttribute('data-live', '');
+  await expect(layers).toBeVisible();
+  await expect(figure.locator('[data-legend="modeled"]')).toBeVisible();
+});
+
+// The canvas never prints; the poster (Modeled, at rest) does, so the print carries its legend and
+// callouts, never the last layer's legend or a readout from a turned view.
+test('printing after a layer switch and a turn shows the poster’s own legend and callouts', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const figure = await liveHero(page);
+  await figure
+    .getByRole('group', { name: 'Layer' })
+    .getByRole('button', { name: 'Evidence' })
+    .click();
+  await figure.locator('.hg-globe').focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(figure).toHaveAttribute('data-view', 'moved');
+
+  await page.emulateMedia({ media: 'print' });
+  await expect(figure.locator('.hg-poster')).toBeVisible();
+  await expect(figure.locator('[data-legend="modeled"]')).toBeVisible();
+  await expect(figure.locator('[data-legend="evidence"]')).toBeHidden();
+  await expect(figure.locator('.hg-readout')).toBeHidden();
+  await expect
+    .poll(() => restMarks(page))
+    .toEqual(['visible 1', 'visible 1', 'visible 1']);
+});
+
 test('the steps pin a measured survey and a hatched area in the readout', async ({
   page,
 }) => {
