@@ -67,6 +67,38 @@ describe('contribute page content', () => {
     expect(main.match(/Group forming/g)).toHaveLength(3);
   });
 
+  // Design review, round 2: the lanes and the cards named the same groups two ways, in two cases,
+  // and the section the Working groups links land on never said "Working groups".
+  it('names its section, and names each lane as its card does', () => {
+    const section = main.match(
+      /<section[^>]*id="working-groups"[\s\S]*?<\/section>/,
+    )![0];
+    expect(section).toMatch(
+      /<p class="section-kicker[^"]*">\s*Working groups\s*<\/p>\s*<h2\b[^>]*>\s*Three groups are forming\./,
+    );
+    const titles = Object.fromEntries(
+      [
+        ...section.matchAll(
+          /<article[^>]*id="group-(\w+)"[\s\S]*?<\/article>/g,
+        ),
+      ].map(([card, lane]) => [
+        lane,
+        textOf(card.match(/<h3\b[\s\S]*?<\/h3>/)![0]),
+      ]),
+    );
+    expect(Object.keys(titles)).toEqual(['data', 'modeling', 'ui']);
+    const names = [
+      ...section.matchAll(
+        /<g class="wg-lane" data-lane="(\w+)">[\s\S]*?<text class="wg-lane__name"[^>]*>([\s\S]*?)<\/text>/g,
+      ),
+    ].map(([, lane, name]) => [lane, textOf(name)] as const);
+    // Both layouts: the wide two-line names and the phone's one-word brackets.
+    expect(names.length).toBeGreaterThanOrEqual(6);
+    for (const [lane, name] of names)
+      for (const word of name.split(' '))
+        expect(titles[lane].split(' '), `${lane}: ${name}`).toContain(word);
+  });
+
   it('keeps every group scope line to 25 words or fewer', () => {
     const scopes = [
       ...main.matchAll(/<p class="wg-card__scope"[^>]*>([\s\S]*?)<\/p>/g),

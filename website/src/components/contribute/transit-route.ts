@@ -177,7 +177,7 @@ const HORIZONTAL: TransitLayout = {
       width: 1000,
       height: 100,
       name: {
-        lines: ['Data &', 'infrastructure'],
+        lines: ['Data &', 'Infrastructure'],
         x: 14,
         y: 46,
         anchor: 'start',
@@ -190,7 +190,7 @@ const HORIZONTAL: TransitLayout = {
       width: 1000,
       height: 100,
       name: {
-        lines: ['Statistical &', 'AI modeling'],
+        lines: ['Statistical &', 'AI Modeling'],
         x: 14,
         y: 146,
         anchor: 'start',
@@ -202,7 +202,7 @@ const HORIZONTAL: TransitLayout = {
       y: 200,
       width: 1000,
       height: 100,
-      name: { lines: ['UI &', 'applications'], x: 14, y: 246, anchor: 'start' },
+      name: { lines: ['UI &', 'Applications'], x: 14, y: 246, anchor: 'start' },
     },
   ],
   stations: [
