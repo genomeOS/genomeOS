@@ -52,6 +52,64 @@ h4 {
   letter-spacing: -0.025em;
 }
 
+/* The site's display weights and tracking (spec §2.3; design review, round 1), not Starlight's
+   600: page H1 370, H2 400, H3 500. */
+h1 {
+  font-weight: 370;
+  letter-spacing: -0.045em;
+}
+
+.sl-markdown-content h2 {
+  font-weight: 400;
+  letter-spacing: -0.035em;
+}
+
+.sl-markdown-content h3 {
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+
+/* Square controls, as on the site (spec §2.4): the search field, its key hint and the phone's
+   menu button, which is an outlined square rather than a white disc. */
+button[data-open-modal],
+button[data-open-modal] > kbd {
+  border-radius: 0;
+}
+
+@media (min-width: 50rem) {
+  button[data-open-modal] {
+    border-color: rgb(112 230 255 / 24%);
+  }
+}
+
+.sl-menu-button {
+  border: 1px solid rgb(112 230 255 / 42%);
+  border-radius: 0;
+  background-color: var(--sl-color-black);
+  color: var(--sl-color-white);
+  box-shadow: none;
+}
+
+.sl-menu-button:has(~ :popover-open) {
+  border-color: var(--sl-color-accent);
+  background-color: var(--sl-color-gray-6);
+}
+
+/* The sidebar's current page: the site's square ion rule on a faint ion ground, never a filled
+   pale pill; every sidebar link is square. */
+.sidebar-content a {
+  border-radius: 0;
+}
+
+.sidebar-content a[aria-current='page'],
+.sidebar-content a[aria-current='page']:hover,
+.sidebar-content a[aria-current='page']:focus {
+  background-color: rgb(112 230 255 / 9%);
+  box-shadow: inset 2px 0 0 var(--sl-color-accent);
+  color: var(--sl-color-white);
+  font-weight: 620;
+}
+
 .sl-markdown-content {
   max-width: 48rem;
 }

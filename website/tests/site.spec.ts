@@ -161,6 +161,44 @@ test(
   },
 );
 
+// The docs shell speaks the site's visual language, not stock Starlight (design review, round 1):
+// Raleway at the site's weights and tracking, square controls, a square ion-ruled current item, and
+// the current page shown as the site shows it (starlight colour, no underline).
+test('the docs shell uses the site’s type, square controls and current-page mark', async ({
+  page,
+  isMobile,
+}) => {
+  await page.goto('/docs/system-overview/');
+  const h1 = page.getByRole('heading', { level: 1 });
+  await expect(h1).toHaveCSS('font-weight', '370');
+  await expect(h1).toHaveCSS('letter-spacing', /^-/);
+  const h2 = page.locator('.sl-markdown-content h2').first();
+  await expect(h2).toHaveCSS('font-weight', '400');
+  if (isMobile) {
+    const menu = page.locator('.sl-menu-button');
+    await expect(menu).toHaveCSS('border-radius', '0px');
+    await expect(menu).not.toHaveCSS('background-color', 'rgb(242, 248, 255)');
+    await menu.click();
+  } else {
+    await expect(page.locator('button[data-open-modal]')).toHaveCSS(
+      'border-radius',
+      '0px',
+    );
+  }
+  const current = page.locator('#starlight__sidebar a[aria-current="page"]');
+  await expect(current).toHaveCSS('border-radius', '0px');
+  await expect(current).toHaveCSS('color', 'rgb(242, 248, 255)');
+  if (!isMobile) {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const docs = page
+      .getByRole('navigation', { name: 'Primary navigation' })
+      .getByRole('link', { name: 'Docs' });
+    await expect(docs).toHaveCSS('color', 'rgb(242, 248, 255)');
+    await expect(docs).toHaveCSS('box-shadow', 'none');
+    await expect(docs).toHaveCSS('text-decoration-line', 'none');
+  }
+});
+
 test('a docs section heading draws one full-width rule, even when it wraps', async ({
   page,
 }) => {

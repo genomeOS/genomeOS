@@ -101,13 +101,10 @@ import { sitePath } from '../../lib/paths';
       white-space: nowrap;
     }
 
+    /* The current page reads as on the site's header: starlight, no underline. */
     .docs-header__nav :global(a:hover),
     .docs-header__nav a[aria-current='page'] {
       color: var(--sl-color-white);
-    }
-
-    .docs-header__nav a[aria-current='page'] {
-      box-shadow: inset 0 -2px 0 var(--sl-color-accent);
     }
 
     .docs-header__nav :global(.github-link) {
