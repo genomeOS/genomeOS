@@ -161,6 +161,39 @@ test('the HbS map describes the area under its keyboard reticle', async ({
   await expect(readout).not.toHaveText(idle!);
 });
 
+test('the HbS map plays its entrance after a jump scroll', async ({ page }) => {
+  await page.goto('/project/');
+  const figure = page.locator('figure[data-graphic="hbs-threshold"]');
+  // Near view but still below the fold: the data loads and the figure arms off screen.
+  await figure.evaluate((element) =>
+    window.scrollTo({
+      top: element.getBoundingClientRect().top + scrollY - innerHeight - 200,
+      behavior: 'instant',
+    }),
+  );
+  await expect(figure).toHaveAttribute('data-hbs-ready', '');
+  await expect(figure).toHaveAttribute('data-figure-state', 'armed');
+  // One jump brings it fully into view: it must play and rest, not hold its first frame.
+  await figure.evaluate((element) =>
+    element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+  );
+  await expect(figure).toHaveAttribute('data-figure-state', 'rest', {
+    timeout: 4_000,
+  });
+  const painted = await figure
+    .locator('[data-hbs-canvas="surface"]')
+    .evaluate((canvas: HTMLCanvasElement) => {
+      const { data } = canvas
+        .getContext('2d')!
+        .getImageData(0, 0, canvas.width, canvas.height);
+      let opaque = 0;
+      for (let index = 3; index < data.length; index += 4 * 97)
+        if (data[index] > 0) opaque += 1;
+      return opaque;
+    });
+  expect(painted).toBeGreaterThan(100);
+});
+
 test('the safeguard tiles play once, then rest', async ({ page }) => {
   await page.goto('/project/');
   const figure = page.locator('figure[data-graphic="safeguards"]');

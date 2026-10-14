@@ -27,6 +27,7 @@ import {
   type Survey,
 } from '../../graphics/figure-data';
 import { HexField, type HexHit } from '../../graphics/hexfield';
+import { linear, tween, type Tween } from '../../graphics/tween';
 import {
   lambertAzimuthal,
   spherePoint,
@@ -271,6 +272,14 @@ export function surveyWindow(
       y <= bounds.maxY + pad
     );
   };
+}
+
+/** Dev captures hold the entrance at `?t=<ms>` (FigureController's freeze hook). */
+function frozenAt(): number | null {
+  if (!import.meta.env.DEV) return null;
+  const value = new URLSearchParams(location.search).get('t');
+  const t = value === null ? NaN : Number(value);
+  return Number.isFinite(t) && t >= 0 ? t : null;
 }
 
 async function bytes(url: string): Promise<ArrayBuffer> {
@@ -554,11 +563,30 @@ export async function initHbsMap(
     contourAlpha = clamp01((time - 1000) / 200);
     redraw();
   };
+  // The entrance runs on its own tween, started by the controller and cancelled by its rest. The
+  // controller still ends it when the figure leaves the screen, the tab hides or the page prints;
+  // its `render` hook is not used, because the map is created late (near view) and a jump scroll
+  // can start play before the controller has seen the figure come on screen, which would hold the
+  // entrance at its first frame.
+  let entrance: Tween | null = null;
   new FigureController(figure, {
     duration: ENTRANCE,
     arm: () => reveal(0),
-    render: reveal,
-    rest: () => reveal(ENTRANCE),
+    start: () => {
+      const frozen = frozenAt();
+      if (frozen !== null) reveal(Math.min(frozen, ENTRANCE));
+      else
+        entrance = tween(
+          ENTRANCE,
+          (_eased, progress) => reveal(progress * ENTRANCE),
+          linear,
+        );
+    },
+    rest: () => {
+      entrance?.cancel();
+      entrance = null;
+      reveal(ENTRANCE);
+    },
   });
   figure.toggleAttribute('data-hbs-ready', true);
 }
