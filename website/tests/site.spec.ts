@@ -4232,6 +4232,9 @@ test('reduced motion shows the whole surface at once, with no wave (#453)', asyn
   ).toBe(0);
 });
 
+/** Early enough that the ring is well inside "far" even when the wave runs to the horizon. */
+const UNREACHED_PROGRESS = 0.04;
+
 test('hexagons the wave has not reached cannot be hovered (#453)', async ({
   page,
   isMobile,
@@ -4278,7 +4281,13 @@ test('hexagons the wave has not reached cannot be hovered (#453)', async ({
   // Nearly at its end the wave has grown every visible hexagon (stepping back is test-only).
   await holdRevealWave(page, 0.9999);
   const grown = await waveFrame(page);
-  await holdRevealWave(page, EARLY_PROGRESS);
+  // On desktop the drawn view axis sits 234 px right of the canvas centre (#452). By the
+  // camera's geometry, at 4,000 km the canvas's left edge, under the controls panel, then shows
+  // sky past the limb, so the wave runs to the horizon (about 53°) instead of the view's edge
+  // (about 30°). At EARLY_PROGRESS its ring would lie about 480 px out, past "far" (the run
+  // found 12 such pixels coloured); at 4% it lies about 7° (225 px) out, and the centre hexagon
+  // is already two-thirds grown.
+  await holdRevealWave(page, UNREACHED_PROGRESS);
   const early = await waveFrame(page);
   const reading = await readWave(page, { before, done: grown, early }, view);
   expect(reading.centreEarly).toBeGreaterThan(0);
@@ -4301,13 +4310,14 @@ test('hexagons the wave has not reached cannot be hovered (#453)', async ({
   await expect(preview).toBeVisible();
 });
 
-test('the cold wave runs once beside the post-reveal load order, which never waits for it (#450, #453)', async ({
+test('the cold wave runs once, and the post-reveal loads arrive during or after it (#450, #453)', async ({
   page,
 }) => {
   test.setTimeout(90_000);
-  // The load order (§B.6.9) starts the borders at surface-visible and the wave starts with the
-  // first chunk (§B.6.7); nothing waits for the wave, and neither later load restarts it. Cell
-  // outlines are built once it has passed.
+  // The wave starts with the first chunk (§B.6.7) and the load order starts the borders at
+  // surface-visible (§B.6.9). Whether they land during the wave or after it depends on how long
+  // the chunked reveal takes; either way none arrives before the wave has started, neither the
+  // borders nor the detail tier restarts it, and cell outlines are built once it has passed.
   const catalog = await readInlineCatalog(page);
   const borders = contextSourceKey(
     catalog as unknown as AtlasCatalog,
@@ -4328,8 +4338,6 @@ test('the cold wave runs once beside the post-reveal load order, which never wai
 
   const timing = await page.evaluate(
     ({ borders, detail }) => {
-      const mark = (name: string) =>
-        performance.getEntriesByName(`atlas:${name}`)[0]?.startTime ?? null;
       const resources = (key: string) =>
         (
           performance.getEntriesByType(
@@ -4341,8 +4349,9 @@ test('the cold wave runs once beside the post-reveal load order, which never wai
       return {
         borders: resources(borders),
         detail: resources(detail),
-        edges: mark('edges-ready'),
-        firstChunk: mark('surface-first-chunk'),
+        edges:
+          performance.getEntriesByName('atlas:edges-ready')[0]?.startTime ??
+          null,
         waves: performance
           .getEntriesByName('atlas:reveal-wave')
           .map((entry) => ({
@@ -4357,14 +4366,10 @@ test('the cold wave runs once beside the post-reveal load order, which never wai
   const [wave] = timing.waves;
   expect(timing.borders).toHaveLength(1);
   expect(timing.detail).toHaveLength(1);
-  expect(timing.firstChunk).not.toBeNull();
-  expect(timing.edges).not.toBeNull();
-  // The post-reveal loads follow the wave's first chunk, and the borders start without waiting
-  // for the wave to end (it runs at least REVEAL_WAVE_MS, 800 ms).
-  expect(timing.firstChunk!).toBeLessThanOrEqual(timing.borders[0].start);
-  expect(timing.borders[0].start).toBeLessThan(wave.end);
   expect(timing.borders[0].end).toBeLessThanOrEqual(timing.detail[0].start);
-  // Outlines are built only once the wave has passed.
+  expect(timing.borders[0].end).toBeGreaterThanOrEqual(wave.start);
+  expect(timing.detail[0].end).toBeGreaterThanOrEqual(wave.start);
+  expect(timing.edges).not.toBeNull();
   expect(timing.edges!).toBeGreaterThanOrEqual(wave.end);
 });
 
