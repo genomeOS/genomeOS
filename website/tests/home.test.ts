@@ -321,6 +321,20 @@ describe('homepage figures', () => {
     expect(picture).toMatch(
       /<source type="image\/webp" srcset="[^"]*\.webp 640w/,
     );
+    // A portrait screen crops the frame's middle: its poster is as wide as the film it will play
+    // (720p up to 640 px, 1080p wider), never an upscaled one the film's first frame would outsize.
+    for (const [media, width] of [
+      ['(orientation: portrait) and (max-width: 40em)', 1280],
+      ['(orientation: portrait)', 1920],
+    ] as const) {
+      const source = picture.match(
+        new RegExp(
+          `<source type="image/avif" media="${media.replace(/[()]/g, '\\$&')}" srcset="([^"]+)">`,
+        ),
+      );
+      expect(source?.[1], media).toMatch(/hero-poster[^ ,]*\.avif$/);
+      expect(picture, media).toContain(`${source![1]} ${width}w`);
+    }
     const img = picture.match(/<img\b[^>]*>/)![0];
     expect(img).toContain('class="hero-media__poster"');
     expect(img).toMatch(/\bwidth="2560"/);

@@ -40,9 +40,12 @@ const {
 } = Astro.props;
 
 /*
- * Widths for a full-bleed image: a 390–430 px phone at 2.6–3x takes 1280, a 1440 px desktop at 1x
- * takes 1440, a 2x laptop the 2560. On a phone the poster is cropped from the frame's middle, so
- * it is drawn a little soft there, like the 720p film that replaces it.
+ * Widths for a full-bleed image. A landscape screen draws the frame about as wide as itself, so the
+ * browser picks by width: a 1440 px desktop at 1x takes 1440, a 2x laptop the 2560. A portrait one
+ * (a phone, a tablet upright) crops the middle of a frame drawn at the hero's height, much wider
+ * than the screen; there the poster is as wide as the film that will replace it (720p up to 640 px,
+ * 1080p wider), whatever the pixel ratio. Never narrower than the film: an upscaled poster counts
+ * as a smaller paint than the film's first frame, which would then become the page's LCP.
  */
 const WIDTHS = [640, 960, 1280, 1440, 1920, 2560].filter(
   (width) => width <= poster.width,
@@ -54,14 +57,24 @@ const variant = async (format: 'avif' | 'webp') => {
       getImage({ src: poster, width, format, quality: QUALITY[format] }),
     ),
   );
+  const at = (width: number) =>
+    images[WIDTHS.indexOf(width)]?.src ?? images.at(-1)!.src;
   return {
     srcset: images
       .map((image, index) => `${image.src} ${WIDTHS[index]}w`)
       .join(', '),
+    phone: at(1280),
+    tall: at(1920),
     fallback: images.at(-1)!.src,
   };
 };
-const [avif, webp] = await Promise.all([variant('avif'), variant('webp')]);
+const formats = await Promise.all(
+  (['avif', 'webp'] as const).map(async (format) => ({
+    type: `image/${format}`,
+    ...(await variant(format)),
+  })),
+);
+const fallback = formats.find((format) => format.type === 'image/webp')!;
 const height = Math.round((WIDTHS.at(-1)! * poster.height) / poster.width);
 ---
 
@@ -73,11 +86,30 @@ const height = Math.round((WIDTHS.at(-1)! * poster.height) / poster.width);
 >
   <div class="hero-media__backdrop" data-hero-backdrop aria-hidden="true">
     <picture>
-      <source type="image/avif" srcset={avif.srcset} sizes="100vw" />
-      <source type="image/webp" srcset={webp.srcset} sizes="100vw" />
+      {
+        formats.map((format) => (
+          <Fragment>
+            <source
+              type={format.type}
+              media="(orientation: portrait) and (max-width: 40em)"
+              srcset={format.phone}
+            />
+            <source
+              type={format.type}
+              media="(orientation: portrait)"
+              srcset={format.tall}
+            />
+          </Fragment>
+        ))
+      }
+      {
+        formats.map((format) => (
+          <source type={format.type} srcset={format.srcset} sizes="100vw" />
+        ))
+      }
       <img
         class="hero-media__poster"
-        src={webp.fallback}
+        src={fallback.fallback}
         width={WIDTHS.at(-1)}
         height={height}
         alt=""
