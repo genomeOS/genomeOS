@@ -115,6 +115,57 @@ for (const [tag, width, height, fold] of [
     ).toBe('transit-line');
   });
 
+declare global {
+  interface Window {
+    __transitPaints?: { state: string | null; drawn: boolean }[];
+  }
+}
+
+// Spec §2.7 rule 5: above the fold never flashes. The line is server-rendered fully drawn; with
+// motion allowed it must arm before its first paint, never draw, undraw and redraw (design
+// review, round 1).
+test('the transit line never paints drawn and then undraws for its entrance', async ({
+  page,
+  isMobile,
+}) => {
+  // Where the line plays at load: 200 px of it in the first view (1440×900; a Pixel 7).
+  if (!isMobile) await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => {
+    const paints: NonNullable<Window['__transitPaints']> = [];
+    window.__transitPaints = paints;
+    const sample = () => {
+      const figure = document.querySelector('[data-graphic="transit-line"]');
+      const line = [
+        ...(figure?.querySelectorAll<SVGPathElement>('.wg-line--lit') ?? []),
+      ].find((path) => path.getClientRects().length > 0);
+      if (figure && line) {
+        const style = getComputedStyle(line);
+        paints.push({
+          state: figure.getAttribute('data-figure-state'),
+          drawn:
+            style.strokeDasharray === 'none' ||
+            Number.parseFloat(style.strokeDashoffset) < 0.02,
+        });
+      }
+      if (performance.now() < 5000) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+  await page.goto('/contribute/');
+  await expect(page.locator(TRANSIT)).toHaveAttribute(
+    'data-figure-state',
+    'rest',
+    { timeout: 8_000 },
+  );
+  await page.waitForTimeout(200);
+  const paints = await page.evaluate(() => window.__transitPaints ?? []);
+  expect(paints.length).toBeGreaterThan(5);
+  const drawn = paints.findIndex((paint) => paint.drawn);
+  expect(drawn).toBeGreaterThanOrEqual(0);
+  // Once the whole line has painted, it stays drawn.
+  expect(paints.slice(drawn).every((paint) => paint.drawn)).toBe(true);
+});
+
 test('a group card lights its own lane on the transit line', async ({
   page,
   isMobile,
@@ -215,6 +266,67 @@ test('the board keeps one tab, one column and one line in step', async ({
   await tabs.nth(4).press('ArrowLeft');
   await expect(tabs.nth(3)).toBeFocused();
   expect((await boardState(page)).at).toBe('in-progress');
+});
+
+// Board polish (design review, round 1): the card keeps clear of its column's frame, the reply
+// mark clears the station's name and the idea card, and each label chip carries its own colon.
+test('the board’s card, reply mark and label chips never collide @desktop-chromium', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/contribute/');
+  const board = page.locator(BOARD);
+  await board.scrollIntoViewIfNeeded();
+  const tabs = board.getByRole('tab');
+  for (let index = 0; index < 5; index += 1) {
+    await tabs.nth(index).click();
+    const gap = await board.evaluate((figure) => {
+      const card = [...figure.querySelectorAll<HTMLElement>('.wb-card')].find(
+        (element) => !element.hidden,
+      )!;
+      const place = figure.querySelector('.wb-place.is-here')!;
+      return (
+        place.getBoundingClientRect().bottom -
+        card.getBoundingClientRect().bottom
+      );
+    });
+    expect(gap, `step ${index + 1}`).toBeGreaterThanOrEqual(6);
+  }
+  await tabs.nth(0).click();
+  const overlaps = await board.evaluate((figure) => {
+    const box = (element: Element) => element.getBoundingClientRect();
+    const reply = box(figure.querySelector('.wb-station__reply')!);
+    const name = box(
+      figure.querySelector('.wb-station__head > span:last-child')!,
+    );
+    const card = box(figure.querySelector('.wb-card[data-at="discussion"]')!);
+    const hit = (a: DOMRect, b: DOMRect) =>
+      a.left < b.right &&
+      b.left < a.right &&
+      a.top < b.bottom &&
+      b.top < a.bottom;
+    return { name: hit(reply, name), card: hit(reply, card) };
+  });
+  expect(overlaps).toEqual({ name: false, card: false });
+  // Panel 4 reads "wants-expert-review build it…": no colon hanging off the chip's border.
+  await tabs.nth(3).click();
+  const after = await page
+    .locator('#wb-panel-4 .wb-label')
+    .evaluateAll((labels) =>
+      labels.map((label) => {
+        let node = label.nextSibling;
+        while (
+          node &&
+          node.nodeType === Node.ELEMENT_NODE &&
+          (node as Element).classList.contains('visually-hidden')
+        )
+          node = node.nextSibling;
+        return (node?.textContent ?? '').trimStart().charAt(0);
+      }),
+    );
+  expect(after).toHaveLength(2);
+  for (const first of after) expect(first).not.toBe(':');
 });
 
 test('the board tours once, agreeing at every moment, and rests on step 5', async ({

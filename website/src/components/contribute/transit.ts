@@ -112,6 +112,10 @@ function initTransit(figure: HTMLElement): void {
     },
   });
 
+  // The controller now holds the figure's state, which ends the head script's pre-paint arming
+  // (contribute.css keys it on a figure with no state yet).
+  document.documentElement.removeAttribute('data-arm-transit');
+
   // The page's lead figure starts in the first screen, but on a phone or a short laptop screen only
   // its top shows, short of the 35% the page's observer waits for, so it would sit undrawn until the
   // visitor scrolled. With LEAD_VISIBLE_PX of it showing it plays now; with less, it rests at once

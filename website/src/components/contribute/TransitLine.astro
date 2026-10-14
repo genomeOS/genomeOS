@@ -50,6 +50,8 @@ interface Drawn {
   stretches: { lane: string; d: string }[];
   spur: string;
   stud: { x: number; y: number };
+  /** Where the stud waits before the entrance: the head of the line (the pre-paint arm). */
+  start: { x: number; y: number };
   hex: { x: number; y: number };
   reached: Record<string, number>;
   /** What the island needs to replay the entrance (transit.ts). */
@@ -71,6 +73,7 @@ const drawn: Drawn[] = [TRANSIT_LAYOUTS.h, TRANSIT_LAYOUTS.v].map((layout) => {
     spur: `M${a.x} ${a.y}L${b.x} ${b.y}`,
     plan: JSON.stringify(plan),
     stud: rest.stud.point,
+    start: tokenAt(route, plan, 0).stud.point,
     hex: rest.hex!.point,
     // How far along the line each station sits, as a share: the entrance lights it on arrival.
     reached: Object.fromEntries(
@@ -95,7 +98,17 @@ const at = (point: { x: number; y: number }) =>
 <Plate graphic="transit-line" class="wg-transit" label={ALT}>
   {
     drawn.map(
-      ({ layout, d, stretches, spur, stud, hex: hexAt, reached, plan }) => (
+      ({
+        layout,
+        d,
+        stretches,
+        spur,
+        stud,
+        start,
+        hex: hexAt,
+        reached,
+        plan,
+      }) => (
         <svg
           class={`wg-transit__svg wg-transit__svg--${layout.id}`}
           viewBox={`0 0 ${layout.width} ${layout.height}`}
@@ -239,6 +252,7 @@ const at = (point: { x: number; y: number }) =>
             class="wg-token wg-token--stud"
             data-token="stud"
             transform={at(stud)}
+            style={`--wg-start: translate(${f(start.x)}px, ${f(start.y)}px)`}
           >
             <circle class="wg-stud__ring" r="6.5" />
             <circle class="wg-stud" r="5" />

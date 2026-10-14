@@ -30,7 +30,10 @@ const titleId = `${id}-title`;
   {
     future ? (
       <p class="wg-card__scope">
-        {future.before} <span class="wg-card__future">{future.lead}</span>{' '}
+        {future.before}{' '}
+        <span class="wg-card__future" data-status="future">
+          {future.lead}
+        </span>{' '}
         {future.after}
       </p>
     ) : (

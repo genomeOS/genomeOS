@@ -135,4 +135,21 @@ describe('contribute page content', () => {
     ])
       expect(start).toContain(`href="${href}"`);
   });
+
+  it('arms the transit line before its first paint, and only when motion is allowed', () => {
+    // Spec §2.7 rule 5: the server renders the line drawn; a head script marks it armed before any
+    // of it paints, and stands down at 1,200 ms if the island has not begun (design review, round 1).
+    const head = contribute.slice(0, contribute.indexOf('</head>'));
+    const script = head.match(
+      /<script>((?:(?!<\/script>)[\s\S])*data-arm-transit(?:(?!<\/script>)[\s\S])*)<\/script>/,
+    )?.[1];
+    expect(script).toBeDefined();
+    expect(script).toContain('prefers-reduced-motion: reduce');
+    expect(script).toContain('1200');
+  });
+
+  it('marks the UI group’s future work with the status dot, not a link-like underline', () => {
+    const ui = main.match(/<article[^>]*id="group-ui"[\s\S]*?<\/article>/)?.[0];
+    expect(ui).toMatch(/class="wg-card__future"[^>]*data-status="future"/);
+  });
 });

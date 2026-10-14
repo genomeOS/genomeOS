@@ -215,10 +215,12 @@ const cardStep = (at: BoardPlace) => BOARD_STEPS.find((step) => step.at === at);
       <div class="wb-panel" id="wb-panel-4">
         State the objective, evidence, assumptions and refusal conditions. <span
           class="wb-term"
-          ><span class="wb-label">wants-expert-review</span>:</span
+          ><span class="wb-label">wants-expert-review</span><span
+            class="visually-hidden">:</span
+          ></span
         > build it, then say what an expert should check. <span class="wb-term"
           ><span class="wb-label wb-label--decision">needs-human-decision</span
-          >:</span
+          ><span class="visually-hidden">:</span></span
         > stop at the choice and lay out the options.
       </div>
     </li>

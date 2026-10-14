@@ -102,6 +102,38 @@ const starts = [
   title="Contribute"
   description="Join a genomeOS working group, take Ready work from the project board, and open a reviewable contribution."
 >
+  {
+    /*
+     * Spec §2.7 rule 5, above the fold never flashes: before any of the page paints, mark the
+     * transit line armed (contribute.css draws it undrawn, its stud at the start), so it never
+     * paints drawn, undraws and redraws. Only with motion allowed and the page arriving within
+     * 1,200 ms; if the island has not taken the figure over by then, stand down to the drawn line.
+     */
+  }
+  <script is:inline slot="head">
+    (function (root) {
+      try {
+        if (
+          matchMedia('(prefers-reduced-motion: reduce)').matches ||
+          performance.now() > 1200
+        )
+          return;
+        root.setAttribute('data-arm-transit', '');
+        setTimeout(
+          function () {
+            var figure = document.querySelector(
+              '[data-graphic="transit-line"]',
+            );
+            if (!figure || !figure.hasAttribute('data-figure-state'))
+              root.removeAttribute('data-arm-transit');
+          },
+          Math.max(0, 1200 - performance.now()),
+        );
+      } catch (error) {
+        root.removeAttribute('data-arm-transit');
+      }
+    })(document.documentElement);
+  </script>
   <PageIntro
     layout="split"
     note="Open collaboration"

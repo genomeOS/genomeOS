@@ -254,6 +254,39 @@
     stroke-dasharray: 1 1;
   }
 
+  /* Armed before the first paint, until the island takes over (the head script in
+     contribute.astro, spec §2.7 rule 5): the entrance's first frame, drawn in CSS. The lit line is
+     undrawn, every station past the first waits dim, the stud waits at the head of the line and
+     the hex has not joined it yet (transit.ts draws the same frame as draw(0)). */
+  :root[data-arm-transit] .wg-transit:not([data-figure-state]) .wg-line--lit {
+    stroke-dasharray: 1 1;
+    stroke-dashoffset: 1;
+  }
+
+  :root[data-arm-transit]
+    .wg-transit:not([data-figure-state])
+    .wg-station:not([data-reach='0'])
+    .wg-station__ring {
+    stroke: var(--color-line-strong);
+  }
+
+  :root[data-arm-transit]
+    .wg-transit:not([data-figure-state])
+    .wg-station:not([data-reach='0'])
+    .wg-station__icon
+    path {
+    stroke: var(--color-muted);
+  }
+
+  :root[data-arm-transit] .wg-transit:not([data-figure-state]) .wg-token--hex {
+    opacity: 0;
+    transition: none;
+  }
+
+  :root[data-arm-transit] .wg-transit:not([data-figure-state]) .wg-token--stud {
+    transform: var(--wg-start);
+  }
+
   .wg-transit.is-armed .wg-station.is-ahead .wg-station__ring {
     stroke: var(--color-line-strong);
   }
@@ -429,10 +462,22 @@
   line-height: 1.55;
 }
 
-/* Future work wears violet only as a dashed outline (spec §6.1 rule 7). */
+/* Future work wears violet only as a dashed outline (spec §6.1 rule 7): the same dashed status
+   dot as Home's vision strip and Project's ladder, never an underline that reads as a link. */
 .wg-card__future {
-  border-bottom: 1.5px dashed var(--color-genome);
   color: var(--color-starlight);
+  white-space: nowrap;
+}
+
+.wg-card__future::before {
+  content: '';
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-right: 0.4em;
+  border: 1.5px dashed var(--color-genome);
+  border-radius: 50%;
+  vertical-align: 0.05em;
 }
 
 .wg-card__chips {
@@ -852,17 +897,19 @@
   content: '';
 }
 
+/* The margin is room for the reply mark beside the bubble, clear of the station's name. */
 .wb-station__bubble {
   position: relative;
   display: inline-flex;
+  margin-right: 0.6rem;
   color: var(--color-ion);
 }
 
-/* Step 1: the bubble replies. */
+/* Step 1: the bubble replies, a mark at its upper right, clear of the name and the idea card. */
 .wb-station__reply {
   position: absolute;
-  right: -0.5rem;
-  bottom: -0.4rem;
+  top: -0.45rem;
+  right: -0.85rem;
   display: inline-flex;
   gap: 2px;
   padding: 2px 3px;
@@ -1188,9 +1235,11 @@
     grid-column: 6;
   }
 
+  /* The card keeps a margin inside its column's frame, under it too (the tallest card, step 4's,
+     sets the row). */
   .wb-card {
     grid-row: 2;
-    margin: 0 0.45rem;
+    margin: 0 0.45rem 0.6rem;
     padding-inline: 0.5rem;
   }
 
