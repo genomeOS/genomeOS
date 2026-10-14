@@ -122,6 +122,11 @@ vi.mock('../src/atlas/scene/camera', async (importOriginal) => ({
   bindKeyboardCamera: () => () => {},
   setCameraState: () => {},
 }));
+// The desktop globe offset (#452) overrides the camera and scene this mocked globe leaves out.
+vi.mock('../src/atlas/scene/globe-offset', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/atlas/scene/globe-offset')>()),
+  installGlobeOffset: () => ({ destroy: () => {}, setCoveredLeft: () => {} }),
+}));
 vi.mock('../src/atlas/scene/picking', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/atlas/scene/picking')>()),
   bindAtlasPicking: () => () => {},

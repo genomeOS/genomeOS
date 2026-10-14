@@ -1,5 +1,7 @@
 import { cellToLatLng } from 'h3-js';
 import {
+  Cartesian2,
+  Cartesian3,
   Cartographic,
   Ellipsoid,
   Primitive,
@@ -11,6 +13,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ObservationArtifact } from '../src/atlas/contracts';
+import { ShiftedPerspectiveFrustum } from '../src/atlas/scene/globe-offset';
 import { LayerCache } from '../src/atlas/scene/layer-cache';
 import { REVEAL_WAVE_MS } from '../src/atlas/scene/reveal-wave';
 import { createRevealWave } from '../src/atlas/scene/reveal-wave-driver';
@@ -141,7 +144,10 @@ function markReady(collection: PrimitiveCollection): void {
   }
 }
 
-function harness(overrides: Partial<ScientificStyle> = {}) {
+function harness(
+  overrides: Partial<ScientificStyle> = {},
+  camera: Record<string, unknown> = {},
+) {
   stubCesiumBrowserImageTypes();
   const preUpdate = new FakeEvent();
   const postRender = new FakeEvent();
@@ -150,6 +156,7 @@ function harness(overrides: Partial<ScientificStyle> = {}) {
     camera: {
       pickEllipsoid: () => undefined,
       positionCartographic: Cartographic.fromDegrees(20, 12, 16_500_000),
+      ...camera,
     },
     canvas: { clientHeight: 600, clientWidth: 800 },
     postRender,
@@ -372,6 +379,24 @@ describe('cold progressive reveal', () => {
     expect(h.requests[0].lookAt.lat).toBeCloseTo(12);
     expect(h.requests[0].lookAt.lon).toBeCloseTo(20);
     expect(h.highlight.setArtifacts).toHaveBeenCalledTimes(1);
+  });
+
+  it('orders the reveal from the centre of the open area beside the controls panel (#452)', async () => {
+    // A projection shifted by half the 800 px canvas's half-width draws the view axis at x = 600.
+    const frustum = new ShiftedPerspectiveFrustum({
+      aspectRatio: 800 / 600,
+      fov: 1,
+    });
+    frustum.projectionShift = 0.5;
+    const pickEllipsoid = vi.fn(() => Cartesian3.fromDegrees(31, 4));
+    const h = harness({}, { frustum, pickEllipsoid });
+    await h.show('hbs-rs334');
+    expect(pickEllipsoid).toHaveBeenCalledWith(
+      new Cartesian2(600, 300),
+      Ellipsoid.WGS84,
+    );
+    expect(h.requests[0].lookAt.lon).toBeCloseTo(31);
+    expect(h.requests[0].lookAt.lat).toBeCloseTo(4);
   });
 
   it('applies worker anchors before the first chunk is added at elevation', async () => {

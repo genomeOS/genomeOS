@@ -2960,6 +2960,20 @@ body:has(.atlas-explorer) .skip-link {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* The duration below shortens the transitions the explorer declares, which
+   * all name their properties. transition-property defaults to all, so on
+   * every other element it would turn each state change into a transition
+   * that ends only on a later frame. The scene's lift under an open credit
+   * lightbox waited for one, with the top slot over the close button, for
+   * seconds on a busy main thread (#455). :where() keeps this default under
+   * every declared transition; pseudo-elements stay outside it, where they
+   * are valid. */
+  :where(.atlas-explorer *),
+  :where(.atlas-explorer *)::before,
+  :where(.atlas-explorer *)::after {
+    transition-property: none;
+  }
+
   .atlas-explorer *,
   .atlas-explorer *::before,
   .atlas-explorer *::after {

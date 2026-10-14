@@ -15,6 +15,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { installAtlasBrowserFixture } from './atlas-browser-fixture';
+import { globeViewCentre } from './atlas-globe-helpers';
 import {
   PHONE_PROFILES,
   controlsSheet,
@@ -1096,10 +1097,9 @@ test.describe('Atlas events', { tag: '@desktop-chromium' }, () => {
     await expect(page.locator('[data-atlas-values-ready="true"]')).toBeVisible({
       timeout: 45_000,
     });
-    const canvas = page.locator('.atlas-scene canvas').first();
+    // Near the camera target, which desktop draws in the open area beside the controls (#452).
     const clickNearCenter = async (inspector: Locator) => {
-      const box = await canvas.boundingBox();
-      expect(box).not.toBeNull();
+      const centre = await globeViewCentre(page);
       for (const [x, y] of [
         [0, 0],
         [-18, 0],
@@ -1111,10 +1111,7 @@ test.describe('Atlas events', { tag: '@desktop-chromium' }, () => {
         [-18, 18],
         [18, 18],
       ]) {
-        await page.mouse.click(
-          box!.x + box!.width / 2 + x!,
-          box!.y + box!.height / 2 + y!,
-        );
+        await page.mouse.click(centre.x + x!, centre.y + y!);
         if (await inspector.isVisible()) return;
       }
     };

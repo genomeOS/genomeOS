@@ -19,7 +19,6 @@
  */
 
 import {
-  Cartesian2,
   Ellipsoid,
   Math as CesiumMath,
   type PrimitiveCollection,
@@ -38,6 +37,7 @@ import type { Metric, PaletteId } from '../visual-encoding';
 import type { AtlasWorkerClient } from '../worker/client';
 import type { BuildChunksBody, ChunkMessage } from '../worker/protocol';
 import { createMessageQueue, scheduleChunks } from './chunk-scheduler';
+import { viewCentre } from './globe-offset';
 import { LayerCache } from './layer-cache';
 import {
   buildObservationLayer,
@@ -1020,10 +1020,11 @@ export class ScientificLayers {
     );
   }
 
+  /** The ground point at the centre of the open area, where the desktop globe is drawn (#452). */
   #lookAt(): { lat: number; lon: number } {
-    const { camera, canvas } = this.#options.scene;
+    const { camera } = this.#options.scene;
     const hit = camera.pickEllipsoid(
-      new Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2),
+      viewCentre(this.#options.scene),
       Ellipsoid.WGS84,
     );
     const point =
