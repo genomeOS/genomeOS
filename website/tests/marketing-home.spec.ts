@@ -294,6 +294,100 @@ interface Box {
 const overlaps = (a: Box, b: Box) =>
   a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
 
+/**
+ * Issue #419 (ruling R2-12): on a phone the old hero's floating labels covered its calls to action.
+ * Nothing laid over the hero (its film's control, the fixed header, the cookie control, any
+ * absolutely or fixed positioned element) may overlap the headline, the lede or a call to action.
+ */
+test('on a phone nothing over the hero overlaps its headline or calls to action (#419) @mobile-chromium', async ({
+  page,
+}) => {
+  for (const [width, height] of [
+    [320, 640],
+    [360, 740],
+    [390, 844],
+    [430, 932],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await page.goto('/');
+    await playingFilm(page);
+    await expect(filmToggle(page)).toBeVisible();
+    const { text, overlays } = await page.evaluate(() => {
+      const box = (element: Element) => {
+        const { left, top, right, bottom } = element.getBoundingClientRect();
+        return { left, top, right, bottom };
+      };
+      const shown = (element: Element) =>
+        element.checkVisibility({
+          opacityProperty: true,
+          visibilityProperty: true,
+        }) && element.getBoundingClientRect().width > 0;
+      const hero = document.querySelector('.home-hero')!;
+      const own = document.querySelector('.home-hero__text')!;
+      const backdrop = document.querySelector('[data-hero-backdrop]')!;
+      const text = [
+        ['headline', document.querySelector('.home-hero h1')!],
+        ['lede', document.querySelector('.home-hero__lede')!],
+        ...[...document.querySelectorAll('.home-hero__actions a')].map(
+          (link) => [`“${link.textContent?.trim()}”`, link] as const,
+        ),
+      ].map(([name, element]) => ({ name, ...box(element as Element) }));
+      const heroBox = hero.getBoundingClientRect();
+      const overlays = [...document.querySelectorAll('body *')]
+        .filter((element) => {
+          const position = getComputedStyle(element).position;
+          return position === 'fixed' || position === 'absolute';
+        })
+        .filter(
+          (element) =>
+            !own.contains(element) &&
+            !backdrop.contains(element) &&
+            !element.contains(hero) &&
+            shown(element),
+        )
+        .map((element) => ({
+          name:
+            (element.getAttribute('class') ?? element.localName).split(
+              ' ',
+            )[0] || element.localName,
+          ...box(element),
+        }))
+        .filter(
+          (entry) =>
+            entry.right > heroBox.left &&
+            entry.left < heroBox.right &&
+            entry.bottom > heroBox.top &&
+            entry.top < heroBox.bottom,
+        );
+      return { text, overlays };
+    });
+    expect(text.length, `${width}`).toBeGreaterThanOrEqual(4);
+    // The film's control is among the overlays checked.
+    expect(
+      overlays.some((overlay) => overlay.name === 'hero-media__toggle'),
+      `${width}`,
+    ).toBe(true);
+    for (const target of text)
+      for (const overlay of overlays)
+        expect(
+          overlaps(target, overlay),
+          `${overlay.name} over the ${target.name} at ${width} px`,
+        ).toBe(false);
+    // And everything is on the first screen, clear of the cookie control's corner (spec §2.4).
+    const rem = await page.evaluate(() =>
+      parseFloat(getComputedStyle(document.documentElement).fontSize),
+    );
+    for (const target of text) {
+      expect(target.bottom, `${target.name} at ${width}`).toBeLessThanOrEqual(
+        height - 4.5 * rem + 0.5,
+      );
+      expect(target.top, `${target.name} at ${width}`).toBeGreaterThanOrEqual(
+        0,
+      );
+    }
+  }
+});
+
 // WCAG 2.4.3: the calls to action are read and reached before any other control: the film's
 // Pause, then the Atlas preview's.
 test('the hero’s calls to action come right after its heading in the focus order', async ({
