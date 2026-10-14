@@ -328,6 +328,50 @@ test(
   },
 );
 
+// Design review, round 2: the map sat in a hard black well with empty corners, its bottom about
+// 140 px below the genotype column. It sits open on the band, like the hero globe, and the
+// genotypes, the map and the side panel share one top and one bottom.
+test(
+  'the HbS map sits open on its band, level with the genotypes and the side panel',
+  { tag: '@desktop-chromium' },
+  async ({ page }) => {
+    for (const width of [1440, 1100, 800]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/project/');
+      const figure = await hbsReady(page);
+      const map = figure.locator('.hbs__map');
+      await expect(map).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+      await expect(map).toHaveCSS('background-image', 'none');
+      const box = (selector: string) =>
+        figure
+          .locator(selector)
+          .first()
+          .evaluate((element) => element.getBoundingClientRect().toJSON());
+      const [stage, triad, choices] = await Promise.all(
+        ['.hbs__map', '.triad', '.triad__choices'].map(box),
+      );
+      expect(Math.abs(triad.top - stage.top), `${width} top`).toBeLessThan(1.5);
+      expect(
+        Math.abs(choices.bottom - stage.bottom),
+        `${width} bottom`,
+      ).toBeLessThan(1.5);
+      if (width > 1200) {
+        const [tool, legend] = await Promise.all(
+          [':scope > .kit-figure__toolbar', '.hbs__legend'].map(box),
+        );
+        expect(
+          Math.abs(tool.top - stage.top),
+          `${width} panel top`,
+        ).toBeLessThan(1.5);
+        expect(
+          Math.abs(legend.bottom - stage.bottom),
+          `${width} panel bottom`,
+        ).toBeLessThan(1.5);
+      }
+    }
+  },
+);
+
 test(
   'the link row sets in two to four columns',
   { tag: '@desktop-chromium' },
