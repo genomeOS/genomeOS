@@ -17,16 +17,72 @@ import {
   PIPELINE_TYPE,
   SOCKET,
   edgePath,
+  labelPlacement,
+  laneTagBox,
   pipelineLayout,
   tabStopAfterModeChange,
   type Orientation,
+  type PipelineLayout,
   type PipelineMode,
+  type PipelineNode,
 } from '../src/data/pipeline';
 
 const MODEL_KINDS = new Set(['model']);
 const LAYOUTS = (['h', 'v'] as const).flatMap((orient) =>
   [true, false].map((brackets) => ({ orient, brackets })),
 );
+
+/**
+ * Text width at `size` units, by character class: narrow 0.32 em, wide 0.77 em, others 0.6 em.
+ * Fitted to every Pipeline string measured in Figtree at its weights in Chromium; it overestimates
+ * each of them by 0–10% and underestimates none.
+ */
+const NARROW = new Set("iljtfr ,.-'():;!|");
+const WIDE = new Set('mwMWOQGDHNCU%');
+const textWidth = (text: string, size: number) =>
+  [...text].reduce(
+    (sum, character) =>
+      sum + (NARROW.has(character) ? 0.32 : WIDE.has(character) ? 0.77 : 0.6),
+    0,
+  ) * size;
+
+type Box = { left: number; right: number; top: number; bottom: number };
+
+/** A node's label as one box per line (its label lines, then its sub line), in layout units. */
+function labelBoxes(layout: PipelineLayout, node: PipelineNode): Box[] {
+  const T = PIPELINE_TYPE[layout.orient];
+  const [x, y] = layout.pos[node.key];
+  const place = labelPlacement(layout, node.key);
+  const rows = [
+    ...node.label.map((text) => ({ text, size: T.label })),
+    ...(node.sub ? [{ text: node.sub, size: T.sub }] : []),
+  ];
+  return rows.map(({ text, size }, index) => {
+    const width = textWidth(text, size);
+    const left =
+      place.anchor === 'middle'
+        ? place.x - width / 2
+        : place.anchor === 'end'
+          ? place.x - width
+          : place.x;
+    const baseline = y + place.y + index * T.line;
+    return {
+      left: x + left,
+      right: x + left + width,
+      top: baseline - size * 0.75,
+      bottom: baseline + size * 0.25,
+    };
+  });
+}
+
+/** The gap between two boxes (negative when they overlap). */
+const gap = (a: Box, b: Box) =>
+  Math.max(
+    a.left - b.right,
+    b.left - a.right,
+    a.top - b.bottom,
+    b.top - a.bottom,
+  );
 
 /** Points along an SVG path made of M, L and C commands (absolute), 24 per segment. */
 function samplePath(d: string): [number, number][] {
@@ -204,6 +260,84 @@ describe.each(PIPELINE_MODES)('Pipeline mode %s', (mode: PipelineMode) => {
             x > box.left && x < box.right && y > box.top && y < box.bottom,
             `${edge.id} crosses "${head.lines.join(' ')}" at ${x.toFixed(0)}, ${y.toFixed(0)}`,
           ).toBe(false);
+    }
+  });
+
+  it('keeps every label clear of every wire, socket and lane tag', () => {
+    // Labels sit under their sockets (or beside them in the vertical layout's modeled column);
+    // a wire through a label, or a label under a tag, is a collision (spec Appendix A fix n).
+    for (const { orient, brackets } of LAYOUTS) {
+      const layout = pipelineLayout(mode, orient, brackets);
+      const where = `${orient}${brackets ? '' : ' bare'}`;
+      const tags = (['measured', 'modeled'] as const).map((lane) =>
+        laneTagBox(data, layout, lane),
+      );
+      for (const node of data.nodes) {
+        const boxes = labelBoxes(layout, node);
+        for (const box of boxes)
+          for (const edge of data.edges)
+            for (const [x, y] of samplePath(edgePath(layout, edge)))
+              // The boxes already run 0–10% wide; the wire's own half-width is the margin.
+              expect(
+                x > box.left - 1 &&
+                  x < box.right + 1 &&
+                  y > box.top - 1 &&
+                  y < box.bottom + 1,
+                `${where}: ${edge.id} crosses the ${node.key} label at ${x.toFixed(0)}, ${y.toFixed(0)}`,
+              ).toBe(false);
+        const nearest = (others: Box[]) =>
+          Math.min(
+            ...boxes.flatMap((box) => others.map((other) => gap(box, other))),
+          );
+        for (const other of data.nodes) {
+          const [x, y] = layout.pos[other.key];
+          const socket = {
+            left: x - SOCKET,
+            right: x + SOCKET,
+            top: y - SOCKET,
+            bottom: y + SOCKET,
+          };
+          expect(
+            nearest([socket]),
+            `${where}: the ${node.key} label and the ${other.key} socket`,
+          ).toBeGreaterThanOrEqual(other.key === node.key ? 4 : 8);
+          if (other.key !== node.key)
+            expect(
+              nearest(labelBoxes(layout, other)),
+              `${where}: the ${node.key} and ${other.key} labels`,
+            ).toBeGreaterThanOrEqual(8);
+        }
+        expect(
+          nearest(tags),
+          `${where}: the ${node.key} label and a lane tag`,
+        ).toBeGreaterThanOrEqual(6);
+      }
+    }
+  });
+
+  it('gives each lane tag room on its wire, clear of every socket and arrowhead', () => {
+    // The mode-6 "Modeled" tag sat on a 98-unit wire with about 8 units to each socket
+    // (design review, fix round 2). 14 units leaves the 7-unit arrowhead a clear gap.
+    for (const { orient, brackets } of LAYOUTS) {
+      const layout = pipelineLayout(mode, orient, brackets);
+      for (const lane of ['measured', 'modeled'] as const) {
+        const tag = laneTagBox(data, layout, lane);
+        for (const node of data.nodes) {
+          const [x, y] = layout.pos[node.key];
+          const gapX = Math.max(
+            tag.left - (x + SOCKET),
+            x - SOCKET - tag.right,
+          );
+          const gapY = Math.max(
+            tag.top - (y + SOCKET),
+            y - SOCKET - tag.bottom,
+          );
+          expect(
+            Math.max(gapX, gapY),
+            `${orient}${brackets ? '' : ' bare'}: ${lane} tag to ${node.key}`,
+          ).toBeGreaterThanOrEqual(14);
+        }
+      }
     }
   });
 

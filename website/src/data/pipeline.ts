@@ -423,12 +423,13 @@ const HORIZONTAL: Record<
     surface: [850, 350],
     map: [1100, 235],
   },
+  // The models sit 195 apart so the "Modeled" tag has room on the wire between them.
   6: {
     source: [85, 235],
     observations: [255, 235],
-    model: [445, 350],
+    model: [420, 350],
     burden: [615, 350],
-    gate: [785, 350],
+    gate: [780, 350],
     service: [955, 235],
     map: [1115, 235],
   },
@@ -673,4 +674,61 @@ export function laneTagPosition(
   if (lane === 'measured')
     return { x: V.bypass, y: (ay + by) / 2, vertical: true };
   return { x: ax, y: (ay + by) / 2, vertical: false };
+}
+
+/** Where a node's label goes, relative to its centre: under the socket, or to its left in the
+ * vertical layout's modeled-only column. */
+export function labelPlacement(
+  layout: PipelineLayout,
+  key: string,
+): { x: number; y: number; anchor: 'middle' | 'end' } {
+  return layout.column[key] === 'lane'
+    ? { x: -SOCKET - 14, y: -12, anchor: 'end' }
+    : { x: 0, y: SOCKET + (layout.orient === 'h' ? 24 : 22), anchor: 'middle' };
+}
+
+/** A lane tag's words. */
+export const LANE_TAG_TEXT = {
+  measured: 'Measured',
+  modeled: 'Modeled',
+} as const;
+
+/**
+ * A lane tag's box on its wire: the rect Pipeline.astro draws (text width estimated at 0.56 em per
+ * character, plus 9 units of padding each side), in layout units, turned upright when the tag runs
+ * up the page.
+ */
+export function laneTagBox(
+  data: PipelineModeData,
+  layout: PipelineLayout,
+  lane: 'measured' | 'modeled',
+): {
+  x: number;
+  y: number;
+  vertical: boolean;
+  /** Along the tag's own text. */
+  length: number;
+  /** Across it. */
+  thickness: number;
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+} {
+  const { x, y, vertical } = laneTagPosition(data, layout, lane);
+  const size = PIPELINE_TYPE[layout.orient].lane;
+  const length = LANE_TAG_TEXT[lane].length * size * 0.56 + 18;
+  const thickness = size * 1.5;
+  const [w, h] = vertical ? [thickness, length] : [length, thickness];
+  return {
+    x,
+    y,
+    vertical,
+    length,
+    thickness,
+    left: x - w / 2,
+    right: x + w / 2,
+    top: y - h / 2,
+    bottom: y + h / 2,
+  };
 }

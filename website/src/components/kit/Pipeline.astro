@@ -20,7 +20,9 @@ import {
   PIPELINE_TYPE,
   SOCKET,
   edgePath,
-  laneTagPosition,
+  LANE_TAG_TEXT,
+  labelPlacement,
+  laneTagBox,
   pipelineLayout,
   viewBoxOf,
   type NodeGlyph,
@@ -180,12 +182,6 @@ const GLYPH: Record<NodeGlyph, () => string> = {
 };
 
 /* ---------- labels ---------- */
-// Under the socket, or to its left in the vertical layout's modeled-only column.
-function labelPlacement(layout: PipelineLayout, key: string) {
-  return layout.column[key] === 'lane'
-    ? { x: -R - 14, y: -12, anchor: 'end' }
-    : { x: 0, y: R + (layout.orient === 'h' ? 24 : 22), anchor: 'middle' };
-}
 const nodeName = (node: PipelineNode) =>
   `${node.label.join(' ')}${node.sub ? ` (${node.sub})` : ''}`;
 const ariaLabel = (node: PipelineNode) => `${nodeName(node)}. ${node.caption}`;
@@ -344,14 +340,12 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
           <g class="pl-lanes" aria-hidden="true">
             {modes.map((m) =>
               (['measured', 'modeled'] as const).map((lane) => {
-                const { x, y, vertical } = laneTagPosition(
+                const { x, y, vertical, length, thickness } = laneTagBox(
                   PIPELINE[m],
                   layoutOf(m, o),
                   lane,
                 );
-                const text = lane === 'measured' ? 'Measured' : 'Modeled';
                 const size = T.lane;
-                const width = text.length * size * 0.56 + 18;
                 return (
                   <g
                     class:list={['pl-lane', `pl-lane--${lane}`]}
@@ -359,14 +353,14 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
                     transform={`translate(${x} ${y})${vertical ? ' rotate(-90)' : ''}`}
                   >
                     <rect
-                      x={-width / 2}
-                      y={-size * 0.75}
-                      width={width}
-                      height={size * 1.5}
+                      x={-length / 2}
+                      y={-thickness / 2}
+                      width={length}
+                      height={thickness}
                       style={`stroke: ${LANE_COLOUR[lane]}`}
                     />
                     <text y={size * 0.33} text-anchor="middle" font-size={size}>
-                      {text}
+                      {LANE_TAG_TEXT[lane]}
                     </text>
                   </g>
                 );
