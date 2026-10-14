@@ -141,8 +141,10 @@ test('the lead figure opens above the fold', async ({ page }, info) => {
 
 test.describe('layout @desktop-chromium', () => {
   // The CLS budget (spec §7): when the web fonts replace the fallback, the chips must not jump
-  // between rows. 1280×720 is the performance profile's desktop; 1440×900 the review width.
+  // between rows. 1280×720 is the performance profile's desktop; 1440×900 the review width;
+  // 1024×768 the tighter left-to-right form of a narrow desktop.
   for (const viewport of [
+    { width: 1024, height: 768 },
     { width: 1280, height: 720 },
     { width: 1440, height: 900 },
   ])
@@ -174,6 +176,52 @@ test.describe('layout @desktop-chromium', () => {
       );
       expect(cls).toBeLessThanOrEqual(0.02);
     });
+
+  for (const width of [1024, 1440])
+    test(`at ${width} px the flow runs left to right, with no empty half beside a rail`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto('/privacy/');
+      await page.evaluate(() => document.fonts.ready);
+      const sockets = await figure(page)
+        .locator('.pf-node > .pf-socket')
+        .evaluateAll((nodes) =>
+          nodes.map((node) => {
+            const box = node.getBoundingClientRect();
+            return { top: Math.round(box.top), left: Math.round(box.left) };
+          }),
+        );
+      expect(sockets).toHaveLength(4);
+      expect(new Set(sockets.map(({ top }) => top)).size).toBe(1);
+      const lefts = sockets.map(({ left }) => left);
+      expect(lefts).toEqual([...lefts].sort((a, b) => a - b));
+    });
+});
+
+test("the gate's glyph turns with the wire: in from the side it comes from", async ({
+  page,
+}, info) => {
+  // The phone's rail runs top to bottom; the desktop's flow runs left to right.
+  const rail = info.project.name === 'mobile-chromium';
+  await storeChoice(page, 'denied');
+  await page.goto('/privacy/');
+  const [stub, wire] = await Promise.all([
+    figure(page).locator('.pf-gate__stub').boundingBox(),
+    figure(page).locator('.pf-wire--in').boundingBox(),
+  ]);
+  if (!stub || !wire) throw new Error('the gate or its wire is not drawn');
+  if (rail) {
+    expect(stub.height).toBeGreaterThan(stub.width);
+    expect(
+      Math.abs(stub.x + stub.width / 2 - (wire.x + wire.width / 2)),
+    ).toBeLessThan(2);
+  } else {
+    expect(stub.width).toBeGreaterThan(stub.height);
+    expect(
+      Math.abs(stub.y + stub.height / 2 - (wire.y + wire.height / 2)),
+    ).toBeLessThan(2);
+  }
 });
 
 for (const [choice, drawn, state] of [

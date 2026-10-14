@@ -3,9 +3,10 @@
 /* ---------- "What leaves your browser" (PrivacyFlow.astro) ---------- */
 
 /*
- * One grid, two forms. Below a 60rem stage the flow runs down a 72 px rail with the words beside
- * it (phones, tablets, narrow desktops); from 60rem it runs left to right with the sent chips
- * above the wire and the struck ones below. The gate's state is the figure's `data-gate`.
+ * One grid, two forms. Below a 48rem stage (about a 1,000 px viewport) the flow runs down a 72 px
+ * rail with the words beside it (phones, tablets); from 48rem it runs left to right with the sent
+ * chips above the wire and the struck ones below, in tighter columns and chip rows until 60rem.
+ * The gate's state is the figure's `data-gate`.
  */
 .pf-frame {
   container: privacy-flow / inline-size;
@@ -153,6 +154,11 @@
 .pf-socket--gate svg {
   width: 100%;
   height: 100%;
+}
+
+/* On the rail the wire comes in at the top and leaves at the bottom: the gate turns with it. */
+.pf-socket--gate > svg {
+  transform: rotate(90deg);
 }
 
 .pf-socket--gate svg .pf-gate__stub {
@@ -384,10 +390,22 @@
 }
 
 /* ---- left to right, once the stage has room ---- */
-@container privacy-flow (min-width: 60rem) {
+@container privacy-flow (min-width: 48rem) {
   .pf {
-    grid-template-columns: 6.5rem 8rem minmax(0, 1fr) 7.5rem 7rem;
+    /* The node columns; each wire runs between the sockets' edges, half a column in. */
+    --pf-c1: 6.5rem;
+    --pf-c2: 8rem;
+    --pf-c4: 7.5rem;
+    --pf-c5: 7rem;
+
+    grid-template-columns:
+      var(--pf-c1) var(--pf-c2) minmax(0, 1fr) var(--pf-c4)
+      var(--pf-c5);
     grid-template-rows: 2.4rem auto var(--pf-socket) auto;
+  }
+
+  .pf-socket--gate > svg {
+    transform: none;
   }
 
   .pf-node {
@@ -466,20 +484,20 @@
   /* Margins: half a column (the socket's centre) plus half a socket. */
   .pf-wire--in {
     grid-column: 1 / 3;
-    margin-inline: calc(3.25rem + var(--pf-socket) / 2)
-      calc(4rem + var(--pf-socket) / 2);
+    margin-inline: calc(var(--pf-c1) / 2 + var(--pf-socket) / 2)
+      calc(var(--pf-c2) / 2 + var(--pf-socket) / 2);
   }
 
   .pf-wire--out {
     grid-column: 2 / 5;
-    margin-inline: calc(4rem + var(--pf-socket) / 2)
-      calc(3.75rem + var(--pf-socket) / 2);
+    margin-inline: calc(var(--pf-c2) / 2 + var(--pf-socket) / 2)
+      calc(var(--pf-c4) / 2 + var(--pf-socket) / 2);
   }
 
   .pf-wire--report {
     grid-column: 4 / 6;
-    margin-inline: calc(3.75rem + var(--pf-socket) / 2)
-      calc(3.5rem + var(--pf-socket) / 2);
+    margin-inline: calc(var(--pf-c4) / 2 + var(--pf-socket) / 2)
+      calc(var(--pf-c5) / 2 + var(--pf-socket) / 2);
   }
 
   /*
@@ -543,7 +561,7 @@
     width: auto;
     height: auto;
     margin-top: 1.2rem;
-    margin-left: 3.25rem;
+    margin-left: calc(var(--pf-c1) / 2);
     border-top: 1.5px solid var(--color-faint);
     border-bottom: 0;
     border-bottom-left-radius: 0;
@@ -558,6 +576,28 @@
   .pf-tile {
     top: -15.75px;
     bottom: auto;
+  }
+}
+
+/*
+ * Narrow desktops and tablets in landscape (a 48–60rem stage): narrower node columns and gaps, and
+ * the sent chips in four fixed lines of two, one, one and two (the pairs meet at the centre line,
+ * the single chips span it), so the widest line needs about 20rem rather than 25.
+ */
+@container privacy-flow (min-width: 48rem) and (max-width: 59.99rem) {
+  .pf {
+    --pf-c1: 6rem;
+    --pf-c2: 7.5rem;
+    --pf-c4: 6rem;
+    --pf-c5: 6rem;
+
+    column-gap: 0.5rem;
+  }
+
+  .pf-chips--sent .pf-chip:nth-child(3),
+  .pf-chips--sent .pf-chip:nth-child(4) {
+    grid-column: 1 / -1;
+    justify-self: center;
   }
 }
 
@@ -680,8 +720,8 @@
   white-space: nowrap;
 }
 
-.disclosure__action {
-  margin-top: 1.1rem !important;
+.disclosure__detail .disclosure__action {
+  margin-top: 1.1rem;
 }
 
 /* The fallback note leads the ledger in a build without analytics. */
