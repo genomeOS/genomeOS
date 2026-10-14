@@ -1,5 +1,5 @@
 /** Browser-test helpers for the surface reveal wave (#453; fast-load design §B.6.7, amended
- * 2026-10-13): hold the wave at a progress, and read what a held frame shows.
+ * 2026-10-13 and 2026-10-14): hold the wave at a progress, and read what a held frame shows.
  *
  * The e2e build alone honours the hold (`src/atlas/e2e-hooks.ts`). Frames are page screenshots
  * compared in the browser (no PNG dependency in Node), pixel by pixel against a frame taken
@@ -48,8 +48,12 @@ export function cellCamera(height: number, extra: Record<string, string> = {}) {
   }).toString();
 }
 
-/** Early in the wave: the ring has reached about a quarter of the way to the horizon. */
-export const EARLY_PROGRESS = 0.1;
+/**
+ * Early in the wave: the ring's leading edge is a third of the way to the limb on screen (it is
+ * timed on screen, `waveFront`), so the cell nearest the centre is grown and nothing half way out
+ * has begun.
+ */
+export const EARLY_PROGRESS = 0.25;
 
 /** Holds every wave of the page from its first frame at `progress` (set before navigation). */
 export async function holdRevealWaveFromStart(
