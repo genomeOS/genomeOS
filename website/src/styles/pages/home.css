@@ -102,9 +102,10 @@
   grid-area: head;
 }
 
+/* Stacked, the figure shares the text's left edge (its tag under the kicker) up to 46rem wide. */
 .home-hero__figure {
   grid-area: figure;
-  justify-self: center;
+  justify-self: start;
   width: 100%;
   max-width: 46rem;
   min-width: 0;
@@ -140,11 +141,15 @@
   margin-top: 1.5rem;
 }
 
-@media (min-width: 64rem) {
+/* The split starts where its 7/12 column holds the figure's wide form (a 33rem container), so the
+   hero never sets its text beside the tall phone form. The text starts level with the figure, so
+   on a laptop's first view its calls to action are on screen (1366×768, 1280×720). */
+@media (min-width: 72rem) {
   .home-hero__grid {
     grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-    grid-template-rows: 1fr auto auto 1fr;
-    grid-template-areas: '. figure' 'head figure' 'body figure' '. figure';
+    grid-template-rows: auto auto 1fr;
+    grid-template-areas: 'head figure' 'body figure' '. figure';
+    align-items: start;
     column-gap: var(--grid-gap);
     row-gap: 0;
   }
@@ -168,13 +173,36 @@
   margin-bottom: 0.75rem;
 }
 
+/* Compact form: the status tag and Reset view share the first row; the layer control is a
+   full-width row of three equal segments under them (spec §4.1 phone). */
 .hg-toolbar__end {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.5rem 0.9rem;
+  display: contents;
+}
+
+.hg-reset {
+  order: 1;
   margin-left: auto;
+}
+
+.hg .hg-layers {
+  order: 2;
+  display: flex;
+  flex: 1 0 100%;
+}
+
+.hg .hg-layers button {
+  flex: 1 1 0;
+}
+
+/* Reset view keeps its slot while hidden: showing it on the first drag never moves the globe. */
+.hg:not([data-view='moved']) .hg-reset {
+  visibility: hidden;
+}
+
+/* Without JavaScript nothing turns or inspects, so the readout keeps its box but gives no hint
+   (data-view is set as soon as the island starts). */
+.hg:not([data-view]) [data-readout-text] {
+  visibility: hidden;
 }
 
 /* The layer control only does something once the live canvas is up. */
@@ -408,6 +436,10 @@
   margin-top: 0.75rem;
 }
 
+.hg-nowrap {
+  white-space: nowrap;
+}
+
 .hg-readout [data-readout-text] strong {
   font-weight: 640;
 }
@@ -416,6 +448,26 @@
    leader lines into the disc, the steps in a row under it. Units are cqw of the stage, as in
    HeroGlobe.astro: disc centre (50, 32.25), radius 30. */
 @container hg (min-width: 33rem) {
+  .hg-toolbar__end {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem 0.9rem;
+    margin-left: auto;
+  }
+
+  .hg-reset {
+    margin-left: 0;
+  }
+
+  .hg .hg-layers {
+    display: inline-flex;
+    flex: none;
+  }
+
+  .hg .hg-layers button {
+    flex: 1 1 auto;
+  }
+
   .hg .kit-figure__stage {
     aspect-ratio: 4 / 3;
   }
@@ -454,13 +506,11 @@
     stroke-width: 1.4;
   }
 
+  /* Each box hangs from its corner point (--cx, --cy, set in HeroGlobe.astro) and grows away from
+     the disc, out to the stage's edge: its text wraps to the room the corner leaves. */
   .hg .hg-callout {
     position: absolute;
-    top: calc(var(--ay) * 1cqw);
-    display: flex;
-    align-items: flex-start;
-    gap: 0.45rem;
-    max-width: 26.5cqw;
+    display: block;
     margin: 0;
     padding: 0.45rem 0.6rem 0.5rem;
     border: 1px solid var(--color-line);
@@ -469,25 +519,34 @@
     font-size: 0.8rem;
     line-height: 1.35;
     font-variant-numeric: lining-nums tabular-nums;
-    transform: translateY(-50%);
   }
 
-  .hg-callout .kit-glyph {
-    margin-top: 0.12rem;
-  }
-
-  .hg-callout strong {
-    display: block;
+  .hg-callout__label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
     color: var(--color-muted);
     font-weight: 620;
   }
 
+  .hg-callout__value {
+    display: block;
+  }
+
   .hg-callout--left {
-    right: calc((100 - var(--ax)) * 1cqw);
+    right: calc((100 - var(--cx)) * 1cqw);
   }
 
   .hg-callout--right {
-    left: calc(var(--ax) * 1cqw);
+    left: calc(var(--cx) * 1cqw);
+  }
+
+  .hg-callout--up {
+    bottom: calc((75 - var(--cy)) * 1cqw);
+  }
+
+  .hg-callout--down {
+    top: calc(var(--cy) * 1cqw);
   }
 
   .hg-steps {

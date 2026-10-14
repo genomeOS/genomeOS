@@ -8,9 +8,10 @@
  * all placed from the provenance sidecar's disc coordinates. hero-globe.ts swaps in the live canvas.
  *
  * Two forms by the figure's own width (container query): from 33rem a 4:3 stage with the callouts
- * in its margins and the steps under the disc; below, a square globe with numbered markers and a
- * three-row key that pins each object in the readout. The readout docks under the stage, never over
- * the globe. Status ("Not yet validated") sits inside the figure.
+ * in its corners, off the disc, and the steps under it; below, a full-width layer row, a square
+ * globe with numbered markers and a three-row key that pins each object in the readout. The readout
+ * docks under the stage, never over the globe. Status ("Not yet validated") sits inside the figure.
+ * Without JavaScript the readout keeps its box but offers no hint, since nothing turns or inspects.
  */
 import Figure from '../kit/Figure.astro';
 import Glyph from '../kit/Glyph.astro';
@@ -51,19 +52,23 @@ const CX = 50;
 const CY = 32.25;
 const sx = (d: number) => +(CX + d * R).toFixed(2);
 const sy = (d: number) => +(CY + d * R).toFixed(2);
-const clamp = (value: number, lo: number, hi: number) =>
-  Math.min(hi, Math.max(lo, value));
 
-// Where each callout box sits: its side, the x of its inner edge and its vertical offset from the
-// target, in disc radii. Chosen so every box keeps to ocean or margin at rest.
-const PLACEMENT: Record<
-  Kind,
-  { side: 'left' | 'right'; ax: number; dy: number }
-> = {
-  survey: { side: 'left', ax: -0.78, dy: -0.22 },
-  modeled: { side: 'right', ax: 0.72, dy: 0.34 },
-  unknown: { side: 'right', ax: 0.8, dy: -0.24 },
-};
+/*
+ * Callouts sit in the stage's corners, off the disc (spec §2.5: "callouts in the stage margins"),
+ * so no box ever covers a stud, a cell or the limb. Each box hangs from one corner point, in disc
+ * radii from the centre, and grows away from the disc: up and out above it, down and out below.
+ * The points lie 1.07 radii out, clear of the globe box (1.04, DISC_PAD), so the box's nearest
+ * point to the disc is that corner. At the narrowest wide form (a 33rem stage) the corners leave
+ * each box 23.6cqw by 13.9cqw: three lines of callout text. The leader runs from the corner to
+ * the callout's object. marketing-home.spec checks the boxes against the disc at eight widths.
+ */
+const CORNER = { x: 0.88, y: 0.613 };
+const PLACEMENT: Record<Kind, { side: 'left' | 'right'; grow: 'up' | 'down' }> =
+  {
+    survey: { side: 'left', grow: 'up' },
+    unknown: { side: 'right', grow: 'up' },
+    modeled: { side: 'right', grow: 'down' },
+  };
 
 const pct = (value: number) => `${(50 + (value * 50) / DISC_PAD).toFixed(3)}%`;
 const items = (
@@ -74,6 +79,7 @@ const items = (
       'stud-md',
       'Measured:',
       `${survey.ac!.toLocaleString('en-US')} of ${survey.an!.toLocaleString('en-US')} alleles`,
+      '',
       'Surveys counted',
     ],
     [
@@ -81,7 +87,9 @@ const items = (
       modeled,
       'hex',
       'Modeled:',
-      `about ${formatShare(modeled.mean!)} (95%: ${formatRange(modeled.lo!, modeled.hi!)})`,
+      `about ${formatShare(modeled.mean!)}`,
+      // The range never breaks inside itself ("7.2–" | "28%)").
+      `(95%: ${formatRange(modeled.lo!, modeled.hi!)})`,
       'Model fitted offline',
     ],
     [
@@ -90,31 +98,36 @@ const items = (
       'hatch',
       'No estimate:',
       'no survey in range',
+      '',
       'Gaps stay hatched',
     ],
   ] as const
-).map(([kind, entry, glyph, label, value, step], index) => {
+).map(([kind, entry, glyph, label, value, range, step], index) => {
   const [tx, ty] = entry.disc;
   const place = PLACEMENT[kind];
-  const ay = clamp(ty + place.dy, -0.92, 0.86);
+  const corner = [
+    sx(place.side === 'left' ? -CORNER.x : CORNER.x),
+    sy(place.grow === 'up' ? -CORNER.y : CORNER.y),
+  ] as const;
   return {
     kind,
     order: index + 1,
     glyph,
     label,
     value,
+    range,
     step,
     tx,
     ty,
     side: place.side,
-    anchor: [sx(place.ax), sy(ay)] as const,
+    grow: place.grow,
+    anchor: corner,
     target: [sx(tx), sy(ty)] as const,
   };
 });
 
 const config = JSON.stringify({
   domain: provenance.metric_domain.post_mean,
-  tiers,
   survey: survey.survey_index,
   modeled: modeled.area_index,
   unknown: unknown.area_index,
@@ -157,9 +170,8 @@ const hexPath =
   <Fragment slot="toolbar">
     <StatusTag kind="not-validated" />
     <div class="hg-toolbar__end">
-      <button class="kit-text-button hg-reset" type="button" hidden
-        >Reset view</button
-      >
+      <!-- Shown once the view moves; its slot is always kept, so it never shifts the globe. -->
+      <button class="kit-text-button hg-reset" type="button">Reset view</button>
       <Segmented
         label="Layer"
         class="hg-layers"
@@ -248,17 +260,30 @@ const hexPath =
   {
     items.map((item) => (
       <p
-        class:list={['hg-callout', `hg-callout--${item.side}`]}
+        class:list={[
+          'hg-callout',
+          `hg-callout--${item.side}`,
+          `hg-callout--${item.grow}`,
+        ]}
         data-callout={item.kind}
         data-callout-order={item.order}
         data-target={item.kind}
         data-disc-x={item.tx}
         data-disc-y={item.ty}
-        style={`--ax: ${item.anchor[0]}; --ay: ${item.anchor[1]}`}
+        style={`--cx: ${item.anchor[0]}; --cy: ${item.anchor[1]}`}
       >
-        <Glyph name={item.glyph} size={14} />
-        <span>
-          <strong>{item.label}</strong> {item.value}
+        <strong class="hg-callout__label">
+          <Glyph name={item.glyph} size={14} />
+          {item.label}
+        </strong>{' '}
+        <span class="hg-callout__value">
+          {item.value}
+          {item.range && (
+            <Fragment>
+              {' '}
+              <span class="hg-nowrap">{item.range}</span>
+            </Fragment>
+          )}
         </span>
       </p>
     ))
@@ -275,6 +300,12 @@ const hexPath =
             <span class="hg-step__name">{item.step}</span>
             <span class="hg-step__detail">
               <strong>{item.label}</strong> {item.value}
+              {item.range && (
+                <Fragment>
+                  {' '}
+                  <span class="hg-nowrap">{item.range}</span>
+                </Fragment>
+              )}
             </span>
           </button>
         </li>
@@ -298,8 +329,9 @@ const hexPath =
             <Glyph name="stud-lg" />
           </span>
           <span
-            >Survey (<abbr title="allele count: alleles carrying HbS">AC</abbr> of
-            <abbr title="allele number: alleles tested">AN</abbr>)</span
+            >Survey (<abbr title="allele count: alleles carrying HbS">AC</abbr>{
+              ' of '
+            }<abbr title="allele number: alleles tested">AN</abbr>)</span
           >
         </span>
         <span class="hg-key hg-key--wedge">

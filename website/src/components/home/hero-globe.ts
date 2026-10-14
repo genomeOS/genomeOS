@@ -7,12 +7,14 @@
  *   entrance   2.8 s in evidence order (land, studs west to east, modeled cells outward from the
  *              surveys, then the hatch), the globe turning 20° east to rest; steps and callouts
  *              light as their marks arrive. Plays once (FigureController), or not at all.
- *   layers     Measured / Modeled / Evidence, a 240 ms cross-fade
+ *   layers     Measured / Modeled / Evidence, a 240 ms cross-fade (a new switch cancels the last)
  *   readouts   hover, tap, keys and the step buttons write one docked strip (never over the globe);
- *              a stud reads AC of AN, a modeled area its 95% range, an `unknown` area no number
+ *              a stud reads AC of AN, a modeled area its 95% range, an `unknown` area no value,
+ *              only its distance to the nearest survey
  *   drag/keys  drag turns (pointer capture, inertia ≤ 1 s, latitude −60…70°); arrow keys turn 8°
  *              with a centre reticle; Home or "Reset view" returns to rest, where the callouts
- *              describe the view again
+ *              describe the view again. Reset view keeps its slot while hidden, so showing it
+ *              never moves the globe mid-drag.
  *   fallback   slow frames cap the pixel ratio, then fall back to the poster (hit tests still
  *              work); Save-Data starts on the poster and loads data only on first use
  *
@@ -38,7 +40,13 @@ import {
   type Reveal,
 } from '../../graphics/hexfield';
 import { normalizeLon, orthographic } from '../../graphics/projection';
-import { easeCamera, easeUi, tween, type Tween } from '../../graphics/tween';
+import {
+  easeCamera,
+  easeUi,
+  tween,
+  type FrameScheduler,
+  type Tween,
+} from '../../graphics/tween';
 import { steadyEntrance } from './count-up';
 
 /** Entrance length (spec §4.1 motion table). */
@@ -117,11 +125,7 @@ const counts = (survey: Survey) =>
   `${survey.ac.toLocaleString('en-US')} of ${survey.an.toLocaleString('en-US')}`;
 
 /** The readout for what is under the pointer, reticle or a step (spec §4.1 readouts). */
-export function describeHit(
-  hit: HexHit,
-  layer: HexLayer,
-  tiers: { weak: number },
-): string {
+export function describeHit(hit: HexHit, layer: HexLayer): string {
   if (hit.type === 'surveys') {
     const [first] = hit.surveys;
     if (hit.surveys.length === 1)
@@ -134,13 +138,42 @@ export function describeHit(
     return `${hit.surveys.length} surveys here · ${pairs.join(' · ')}${hit.surveys.length > 3 ? ' · …' : ''}`;
   }
   const { area } = hit;
+  // No value, only the area's own distance: a coarsened area can be mostly unsupported while its
+  // median distance sits just inside the weak tier, so a fixed "no survey within 2ρ" could be false.
   if (area.support === 'unknown' || area.mean === null)
-    return `No estimate · — · No survey within ${formatKm(tiers.weak)}`;
+    return `No estimate · — · Nearest survey about ${formatKm(area.distanceKm)}`;
   if (layer === 'measured') return 'Model grid · No values drawn on this layer';
   const text = `Modeled estimate about ${formatShare(area.mean)} · 95% credible range across this area ${formatRange(area.lo!, area.hi!)} · Nearest survey about ${formatKm(area.distanceKm)}`;
   return area.tier === 'weak' || area.tier === 'none'
     ? `${text}. Far from surveys: this range leans on the model’s assumptions.`
     : text;
+}
+
+/**
+ * Layer switches cross-fade over 240 ms (spec §4.1). A switch inside a running fade cancels it, so
+ * two quick switches never draw alternate layers on alternate frames. Reduced motion switches at
+ * once.
+ */
+export function layerFader(
+  apply: (layer: HexLayer, amount: number) => void,
+  options: { reduced?: boolean; schedule?: FrameScheduler } = {},
+): (next: HexLayer) => void {
+  let running: Tween | null = null;
+  return (next) => {
+    running?.cancel();
+    running = null;
+    if (options.reduced) {
+      apply(next, 1);
+      return;
+    }
+    apply(next, 0);
+    running = tween(
+      LAYER_FADE_MS,
+      (amount) => apply(next, amount),
+      easeUi,
+      options.schedule,
+    );
+  };
 }
 
 /* ------------------------------------------------------------------ the island */
@@ -149,7 +182,6 @@ type CalloutKind = 'survey' | 'modeled' | 'unknown';
 
 interface HeroConfig {
   domain: [number, number];
-  tiers: { strong: number; partial: number; weak: number };
   /** The callout objects, by index into the decoded surveys and areas. */
   survey: number;
   modeled: number;
@@ -334,7 +366,7 @@ export function initHeroGlobe(figure: HTMLElement): void {
       visual.textContent = idleText;
       return;
     }
-    const text = describeHit(hit, layer, config.tiers);
+    const text = describeHit(hit, layer);
     visual.innerHTML = readoutHtml(text);
     if (speak) announce(text);
   };
@@ -363,13 +395,12 @@ export function initHeroGlobe(figure: HTMLElement): void {
     if (field?.pinned?.type === 'surveys') field.pinned = null;
     draw();
   };
+  // Reset view shows only while the view is moved (CSS keys on data-view).
   const markMoved = () => {
     figure.dataset.view = 'moved';
-    reset.hidden = false;
   };
   const markRest = () => {
     figure.dataset.view = 'rest';
-    reset.hidden = true;
   };
   const stopMotion = () => {
     motion?.cancel();
@@ -721,18 +752,15 @@ export function initHeroGlobe(figure: HTMLElement): void {
     });
 
   // Layers cross-fade; the legend swaps to the layer's own marks.
+  const fadeTo = layerFader((next, amount) => field?.setLayer(next, amount), {
+    reduced,
+  });
   figure.addEventListener('segmented:change', (event) => {
     const next = (event as CustomEvent<{ value: HexLayer }>).detail.value;
     layer = next;
     for (const legend of figure.querySelectorAll<HTMLElement>('[data-legend]'))
       legend.toggleAttribute('data-active', legend.dataset.legend === next);
-    if (field) {
-      if (reduced) field.setLayer(next);
-      else {
-        field.setLayer(next, 0);
-        tween(LAYER_FADE_MS, (amount) => field?.setLayer(next, amount), easeUi);
-      }
-    }
+    if (field) fadeTo(next);
     const current = hovered ?? pinned;
     if (current) show(current, false);
   });

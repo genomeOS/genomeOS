@@ -15,6 +15,7 @@ import {
   formatKm,
   formatRange,
   formatShare,
+  layerFader,
 } from '../src/components/home/hero-globe';
 import { COUNT_STOPS, buildCountsTable } from '../src/components/home/counts';
 import provenance from '../src/data/figures/hbs.provenance.json';
@@ -217,6 +218,32 @@ describe('homepage figures', () => {
     expect(main).not.toMatch(/\bP[0-5]\b/);
   });
 
+  it('never runs a word into the inline element after it', () => {
+    // copy-spacing.test checks the closing side ("</span>word"); this is the opening side, where
+    // a formatter's line break can vanish: "Survey (AC of AN)" once rendered "ofAN".
+    const glued = [
+      ...main.matchAll(/\p{L}<(?:abbr|a|b|em|strong|span)\b/gu),
+    ].map((match) =>
+      main.slice(Math.max(0, match.index - 30), match.index + 20),
+    );
+    expect(glued).toEqual([]);
+    const hero = section(/<section\b[^>]*\bid="hero"/);
+    expect(hero.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ')).toContain(
+      'Survey (AC of AN)',
+    );
+  });
+
+  it('keeps the modeled range on one line in its callout and its step', () => {
+    const modeled = provenance.callouts.find(
+      (callout) => callout.kind === 'modeled',
+    )!;
+    const range = `(95%: ${formatRange(modeled.lo!, modeled.hi!)})`;
+    const hero = section(/<section\b[^>]*\bid="hero"/);
+    expect(
+      hero.split(`<span class="hg-nowrap">${range}</span>`).length - 1,
+    ).toBe(2);
+  });
+
   it('gives assistive technology each corpus total, whatever the count-up shows', () => {
     const metrics = section(/<section\b[^>]*\bid="metrics"/);
     const totals = [
@@ -259,8 +286,6 @@ describe('homepage figures', () => {
 });
 
 describe('hero globe logic', () => {
-  const tiers = provenance.tier_limits_km;
-
   it('plays in evidence order over 2.8 s and turns 20° east to rest', () => {
     expect(ENTRANCE_MS).toBe(2800);
     expect(REST_VIEW).toEqual([18, 8]);
@@ -305,7 +330,6 @@ describe('hero globe logic', () => {
     const text = describeHit(
       { type: 'surveys', surveys: [survey], x: 0, y: 0 },
       'modeled',
-      tiers,
     );
     expect(text).toBe(
       'Measured survey · 3,028 of 19,012 alleles carry HbS · Location within ±6 km',
@@ -318,7 +342,6 @@ describe('hero globe logic', () => {
         y: 0,
       },
       'modeled',
-      tiers,
     );
     expect(many).toBe(
       '4 surveys here · 3,028 of 19,012 alleles · 0 of 40 · 3,028 of 19,012 · …',
@@ -336,9 +359,7 @@ describe('hero globe logic', () => {
       support: 'interpolated' as const,
       tier: 'strong' as const,
     };
-    expect(
-      describeHit({ type: 'area', area, x: 0, y: 0 }, 'modeled', tiers),
-    ).toBe(
+    expect(describeHit({ type: 'area', area, x: 0, y: 0 }, 'modeled')).toBe(
       'Modeled estimate about 16% · 95% credible range across this area 7.2–28% · Nearest survey about 95 km',
     );
     expect(
@@ -350,7 +371,6 @@ describe('hero globe logic', () => {
           y: 0,
         },
         'modeled',
-        tiers,
       ),
     ).toContain(
       'Far from surveys: this range leans on the model’s assumptions.',
@@ -366,12 +386,62 @@ describe('hero globe logic', () => {
     };
     for (const layer of ['measured', 'modeled', 'evidence'] as const)
       expect(
-        describeHit({ type: 'area', area: unknown, x: 0, y: 0 }, layer, tiers),
-      ).toBe('No estimate · — · No survey within 1,361 km');
+        describeHit({ type: 'area', area: unknown, x: 0, y: 0 }, layer),
+      ).toBe('No estimate · — · Nearest survey about 1,555 km');
+    // A coarsened area can be mostly unsupported while its median distance is just inside the
+    // weak tier (3 of the globe’s 649, at 1,312–1,349 km): its readout states its own distance, never a rule
+    // it does not meet.
+    const edge = { ...unknown, tier: 'weak' as const, distanceKm: 1312 };
+    expect(
+      describeHit({ type: 'area', area: edge, x: 0, y: 0 }, 'modeled'),
+    ).toBe('No estimate · — · Nearest survey about 1,312 km');
     // The measured layer draws no values, so its readout gives none.
     expect(
-      describeHit({ type: 'area', area, x: 0, y: 0 }, 'measured', tiers),
+      describeHit({ type: 'area', area, x: 0, y: 0 }, 'measured'),
     ).not.toMatch(/\d%/);
+  });
+
+  it('cancels a running layer cross-fade when the layer changes again', () => {
+    const queue: FrameRequestCallback[] = [];
+    const schedule = (callback: FrameRequestCallback) => queue.push(callback);
+    let now = 0;
+    const frame = () => {
+      now += 16;
+      for (const callback of queue.splice(0)) callback(now);
+    };
+    const calls: [string, number][] = [];
+    const fade = layerFader((layer, amount) => calls.push([layer, amount]), {
+      schedule,
+    });
+
+    fade('evidence');
+    frame();
+    frame();
+    expect(calls.at(-1)?.[0]).toBe('evidence');
+    // A second switch inside the 240 ms fade: from here on only the new layer is drawn.
+    fade('measured');
+    const after = calls.length;
+    for (let index = 0; index < 30; index += 1) frame();
+    const later = calls.slice(after - 1);
+    expect(new Set(later.map(([layer]) => layer))).toEqual(
+      new Set(['measured']),
+    );
+    expect(later[0]).toEqual(['measured', 0]);
+    expect(calls.at(-1)).toEqual(['measured', 1]);
+    // Then it rests: nothing left scheduled.
+    expect(queue).toHaveLength(0);
+  });
+
+  it('switches layers at once under reduced motion', () => {
+    const calls: [string, number][] = [];
+    const queue: FrameRequestCallback[] = [];
+    const fade = layerFader((layer, amount) => calls.push([layer, amount]), {
+      reduced: true,
+      schedule: (callback) => queue.push(callback),
+    });
+    fade('evidence');
+    expect(calls).toEqual([['evidence', 1]]);
+    expect(queue).toHaveLength(0);
   });
 });
 

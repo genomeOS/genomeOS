@@ -201,11 +201,10 @@ test('metric digits use a common height and baseline', async ({ page }) => {
   ]);
 });
 
-test('application cards reveal on scroll and respond to hover', async ({
+// Hover is a pointer interaction.
+test('application cards reveal on scroll and respond to hover @desktop-chromium', async ({
   page,
-  isMobile,
 }) => {
-  test.skip(isMobile, 'hover movement is a pointer interaction');
   await page.goto('/');
 
   const card = page.locator('.application-card').first();
@@ -251,11 +250,196 @@ test('the hero stage opens in the first phone viewport @mobile-chromium', async 
   expect([...order].sort((a, b) => a - b)).toEqual(order);
 });
 
+interface Box {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+const overlaps = (a: Box, b: Box) =>
+  a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+
+/** The hero at rest: its disc (the globe box), stage, step buttons and visible callout boxes. */
+function heroGeometry(page: Page) {
+  return page.evaluate(() => {
+    const figure = document.querySelector('[data-graphic="hero-globe"]')!;
+    const box = (element: Element) => {
+      const { left, top, right, bottom } = element.getBoundingClientRect();
+      return { left, top, right, bottom };
+    };
+    const globe = figure.querySelector('.hg-globe')!.getBoundingClientRect();
+    return {
+      // The globe box is the disc plus 4%, room for the limb studs' rings.
+      disc: {
+        x: globe.left + globe.width / 2,
+        y: globe.top + globe.height / 2,
+        r: globe.width / 2,
+      },
+      stage: box(figure.querySelector('[data-figure-stage]')!),
+      steps: [...figure.querySelectorAll('.hg-step button')].map(box),
+      callouts: [...figure.querySelectorAll<HTMLElement>('.hg-callout')]
+        .filter((element) => getComputedStyle(element).display !== 'none')
+        .map((element) => ({
+          kind: element.dataset.callout!,
+          ...box(element),
+        })),
+    };
+  });
+}
+
+test('the callouts sit in the stage margins, clear of the disc and its studs @desktop-chromium', async ({
+  page,
+}) => {
+  await page.goto('/');
+  // From the narrowest wide form (one column, the figure just over 33rem) through the split.
+  for (const [width, height] of [
+    [650, 900],
+    [768, 1024],
+    [1100, 900],
+    [1152, 768],
+    [1280, 720],
+    [1366, 768],
+    [1440, 900],
+    [1920, 1080],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    const { disc, stage, steps, callouts } = await heroGeometry(page);
+    expect(callouts, `${width}×${height}`).toHaveLength(3);
+    for (const callout of callouts) {
+      const where = `${callout.kind} callout at ${width}×${height}`;
+      // The box's nearest point to the disc's centre is outside the globe box: no stud, cell or
+      // limb is ever under a callout.
+      const x = Math.max(callout.left, Math.min(disc.x, callout.right));
+      const y = Math.max(callout.top, Math.min(disc.y, callout.bottom));
+      expect(Math.hypot(x - disc.x, y - disc.y), where).toBeGreaterThanOrEqual(
+        disc.r,
+      );
+      expect(callout.left, where).toBeGreaterThanOrEqual(stage.left - 0.5);
+      expect(callout.right, where).toBeLessThanOrEqual(stage.right + 0.5);
+      expect(callout.top, where).toBeGreaterThanOrEqual(stage.top - 0.5);
+      expect(callout.bottom, where).toBeLessThanOrEqual(stage.bottom + 0.5);
+      for (const other of [
+        ...steps,
+        ...callouts.filter((entry) => entry !== callout),
+      ])
+        expect(overlaps(callout, other), where).toBe(false);
+    }
+  }
+});
+
+test('the hero shows its calls to action in the first view on laptops @desktop-chromium', async ({
+  page,
+}) => {
+  await page.goto('/');
+  // The split: the text starts level with the figure, so it never sinks below the fold.
+  for (const [width, height] of [
+    [1152, 768],
+    [1280, 720],
+    [1366, 768],
+    [1440, 900],
+    [1920, 1080],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    const where = `${width}×${height}`;
+    const kicker = (await page.locator('.home-hero__kicker').boundingBox())!;
+    const figure = (await hero(page).boundingBox())!;
+    const actions = (await page.locator('.home-hero__actions').boundingBox())!;
+    expect(kicker.x + kicker.width, where).toBeLessThan(figure.x);
+    expect(Math.abs(kicker.y - figure.y), where).toBeLessThan(2);
+    expect(actions.y + actions.height, where).toBeLessThanOrEqual(height);
+  }
+  // At 1440×900 the stage, its callouts and its step row are above the fold too (spec §4.1).
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const stage = (await hero(page)
+    .locator('[data-figure-stage]')
+    .boundingBox())!;
+  expect(stage.y + stage.height).toBeLessThanOrEqual(900);
+
+  // Narrower screens stack as on a tablet: kicker, H1, the figure (in its first view), the lede.
+  for (const [width, height] of [
+    [1024, 768],
+    [1100, 900],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    const order = await page.evaluate(() =>
+      [
+        '.home-hero__kicker',
+        'h1',
+        '[data-graphic="hero-globe"]',
+        '.home-hero__lede',
+      ].map(
+        (selector) =>
+          document.querySelector(selector)!.getBoundingClientRect().top,
+      ),
+    );
+    expect(
+      [...order].sort((a, b) => a - b),
+      `${width}×${height}`,
+    ).toEqual(order);
+    const top = await hero(page)
+      .locator('[data-figure-stage]')
+      .evaluate((element) => element.getBoundingClientRect().top);
+    expect(top, `${width}×${height}`).toBeLessThan(height);
+  }
+});
+
+test('on a phone the layer row spans the figure and Reset view never moves the globe @mobile-chromium', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const figure = await liveHero(page);
+  const toolbar = (await figure.locator('.kit-figure__toolbar').boundingBox())!;
+  const layers = (await figure
+    .getByRole('group', { name: 'Layer' })
+    .boundingBox())!;
+  expect(layers.width).toBeGreaterThanOrEqual(toolbar.width - 1);
+
+  const globe = figure.locator('.hg-globe');
+  await globe.scrollIntoViewIfNeeded();
+  const stageTop = () =>
+    figure
+      .locator('[data-figure-stage]')
+      .evaluate((stage) => stage.getBoundingClientRect().top + window.scrollY);
+  const before = await stageTop();
+  // A real touch drag, sideways across the globe (vertical drags scroll the page: pan-y).
+  const box = (await globe.boundingBox())!;
+  const y = box.y + box.height / 2;
+  const x = box.x + box.width * 0.25;
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x, y }],
+  });
+  for (let step = 1; step <= 8; step += 1)
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: x + step * 16, y }],
+    });
+  const reset = figure.getByRole('button', { name: 'Reset view' });
+  // Mid-gesture: Reset view is offered, and the globe under the finger has not moved down.
+  await expect(reset).toBeVisible();
+  expect(await stageTop()).toBeCloseTo(before, 0);
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  });
+  await expect(figure).toHaveAttribute('data-view', 'moved');
+  expect(await stageTop()).toBeCloseTo(before, 0);
+
+  await reset.click();
+  await expect(figure).toHaveAttribute('data-view', 'rest');
+  await expect(reset).toBeHidden();
+  expect(await stageTop()).toBeCloseTo(before, 0);
+});
+
 test('the layer control has one pressed layer and swaps the legend', async ({
   page,
 }) => {
   await page.goto('/');
   const figure = await liveHero(page);
+  await expect(readout(page)).toBeVisible();
+  await expect(readout(page)).toHaveText('Drag to turn. Tap to inspect.');
   const layers = figure.getByRole('group', { name: 'Layer' });
   const pressed = layers.locator('[aria-pressed="true"]');
   await expect(pressed).toHaveCount(1);
@@ -297,11 +481,10 @@ test('the steps pin a measured survey and a hatched area in the readout', async 
   await expect(readout(page)).toContainText('No estimate');
 });
 
-test('pointing at a stud reads counts; pointing at a hatched area reads no estimate', async ({
+// Hover is a pointer interaction; taps are covered below.
+test('pointing at a stud reads counts; pointing at a hatched area reads no estimate @desktop-chromium', async ({
   page,
-  isMobile,
 }) => {
-  test.skip(isMobile, 'hover is a pointer interaction; taps are covered below');
   await page.goto('/');
   await liveHero(page);
   const survey = await calloutTarget(page, 'survey');
@@ -322,11 +505,10 @@ test('a tap pins what is under it @mobile-chromium', async ({ page }) => {
   await expect(readout(page)).toContainText('No estimate');
 });
 
-test('dragging turns the globe: the callouts step aside until Reset view', async ({
+// A mouse drag; the phone's touch drag is tested on its own below.
+test('dragging turns the globe: the callouts step aside until Reset view @desktop-chromium', async ({
   page,
-  isMobile,
 }) => {
-  test.skip(isMobile, 'a mouse drag; touch drags pan the page vertically');
   await page.goto('/');
   const figure = await liveHero(page);
   const globe = figure.locator('.hg-globe');
@@ -436,6 +618,8 @@ test('without JavaScript every figure shows its final state', async ({
   await expect(figure.locator('.hg-step')).toHaveCount(3);
   for (const step of await figure.locator('.hg-step').all())
     await expect(step).toBeVisible();
+  // Nothing turns or inspects without JavaScript, so the readout offers no hint.
+  await expect(figure.locator('[data-readout-text]')).toBeHidden();
   if (!isMobile)
     for (const callout of await figure.locator('.hg-callout').all())
       await expect(callout).toBeVisible();
