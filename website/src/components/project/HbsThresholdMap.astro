@@ -24,7 +24,7 @@ import { sitePath } from '../../lib/paths';
 import GenotypeTriad from './GenotypeTriad.astro';
 import {
   DEFAULT_THRESHOLD,
-  countText,
+  countParts,
   surveyWindow,
   thresholdCounts,
   valueText,
@@ -71,6 +71,7 @@ const whole = (value: number) => value.toLocaleString('en-US');
 const alt = `Map of the sickle-cell variant HbS from West Africa to India, in an equal-area projection. White points are ${whole(surveys.length)} measured surveys. Modeled frequency is highest, about ${Math.round(top.mean! * 100)} percent, in ${where}, and fades with distance from surveys. ${whole(unknown)} areas have no estimate and are hatched.`;
 
 const atDefault = thresholdCounts(areas, DEFAULT_THRESHOLD / 100);
+const [confidentAtDefault, possibleAtDefault] = countParts(atDefault);
 const domain = provenance.metric_domain.post_mean;
 const domainLabel = `${Math.floor(domain[0] * 100)}–${Math.round(domain[1] * 100)}%`;
 const revision = provenance.hf_revision.slice(0, 7);
@@ -93,7 +94,6 @@ const rows = provenance.table.region_thresholds;
     class="hbs__map"
     data-hbs-map
     data-hbs-domain={JSON.stringify(domain)}
-    data-hbs-no-estimate-km={String(provenance.tier_limits_km.weak)}
     tabindex="0"
     role="img"
     aria-label={alt}
@@ -133,7 +133,9 @@ const rows = provenance.table.region_thresholds;
         data-hbs-slider
         aria-valuetext={valueText(DEFAULT_THRESHOLD, atDefault)}
       />
-      <p class="hbs__count" data-hbs-count>{countText(atDefault)}</p>
+      <p class="hbs__count" data-hbs-count>
+        <span>{confidentAtDefault}</span> · <span>{possibleAtDefault}</span>
+      </p>
     </div>
     <Readout class="hbs__readout" idle="Tap to inspect." />
   </Fragment>

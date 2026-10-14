@@ -16,9 +16,14 @@ import {
   THRESHOLD_STOPS,
   classifyArea,
   describeHit,
+  sameHit,
   thresholdCounts,
 } from '../src/components/project/hbs-map';
-import { decodeAreas, type Area } from '../src/graphics/figure-data';
+import {
+  decodeAreas,
+  type Area,
+  type Survey,
+} from '../src/graphics/figure-data';
 import { builtHtml } from './helpers/dist';
 
 const project = builtHtml('project');
@@ -63,6 +68,7 @@ const text = (html: string) =>
       String.fromCodePoint(Number.parseInt(code, 16)),
     )
     .replace(/&amp;/g, '&')
+    .replace(/&nbsp;/g, ' ')
     .replace(/\s+/g, ' ');
 
 describe('project page content', () => {
@@ -78,7 +84,13 @@ describe('project page content', () => {
 
   it('states the scientific publication bar', () => {
     expect(project).toMatch(/HbS[\s\S]*G6PD[\s\S]*screening/);
-    expect(project).toContain('Why haemoglobin S makes the mission tangible');
+    expect(text(project)).toContain(
+      'Why haemoglobin S makes the mission tangible',
+    );
+    // "haemoglobin S" is one name: a no-break space keeps the S off the start of a line.
+    expect(project).toMatch(
+      /Why haemoglobin(?:&nbsp;|&#160;| )S makes the mission tangible/,
+    );
     expect(project).toMatch(/population-location registry/i);
     expect(project).toMatch(/interactive public map/i);
     expect(text(project)).toContain(
@@ -138,6 +150,10 @@ describe('project page content', () => {
     );
     expect(hbs).toMatch(/type="range"[^>]*min="1"[^>]*max="15"/);
     expect(hbs).toContain('aria-valuetext="10 percent:');
+    // Each clause of the count is its own span, so a line breaks only at the " · ".
+    expect(hbs).toMatch(
+      /data-hbs-count[^>]*>\s*<span[^>]*>[\d,]+ confidently above<\/span> · <span[^>]*>[\d,]+ possibly above<\/span>\s*<\/p>/,
+    );
   });
 
   it('keys the HbS fill by value and by distance from surveys, in the deck’s words', () => {
@@ -215,9 +231,7 @@ describe('HbS readouts', () => {
   const areas = decodeAreas(
     readFileSync(path.join(figures, provenance.files.region.name)),
   );
-  const noEstimateKm = provenance.tier_limits_km.weak;
-  const read = (area: Area) =>
-    describeHit({ type: 'area', area, x: 0, y: 0 }, { noEstimateKm });
+  const read = (area: Area) => describeHit({ type: 'area', area, x: 0, y: 0 });
   const unknown = (distanceKm: number): Area => ({
     boundary: [],
     center: [0, 0],
@@ -228,20 +242,127 @@ describe('HbS readouts', () => {
     support: 'unknown',
     tier: 'none',
   });
+  const modeled = (
+    mean: number,
+    lo: number,
+    hi: number,
+    distanceKm: number,
+    tier: Area['tier'],
+  ): Area => ({
+    boundary: [],
+    center: [0, 0],
+    mean,
+    lo,
+    hi,
+    distanceKm,
+    support: 'interpolated',
+    tier,
+  });
+  const survey = (ac: number, an: number, radiusKm = 25): Survey => ({
+    lat: 0,
+    lon: 0,
+    ac,
+    an,
+    radiusKm,
+  });
 
-  it('never claims a wider survey-free radius than an area’s own distance', () => {
-    // Majority coarsening can leave an unknown area nearer a survey than the no-estimate limit.
+  it('gives an area with no estimate its own distance, never a survey-free radius', () => {
+    // A coarsened area takes its children's majority support and their median distance, so a
+    // minority child can sit nearer a survey: only "about" the area's own distance is safe
+    // (copy deck, readout-unknown).
     expect(read(unknown(1352))).toBe(
-      'No estimate · — · No survey within 1,350 km',
-    );
-    expect(read(unknown(2400))).toBe(
-      'No estimate · — · No survey within 1,360 km',
+      'No estimate · — · Nearest survey about 1,352 km',
     );
     for (const area of areas.filter((entry) => entry.support === 'unknown')) {
-      const [, within] = /within ([\d,]+) km/.exec(read(area)!)!;
-      expect(Number(within.replace(/,/g, ''))).toBeLessThanOrEqual(
-        Math.min(area.distanceKm, noEstimateKm),
+      expect(read(area)).toBe(
+        `No estimate · — · Nearest survey about ${Math.round(area.distanceKm).toLocaleString('en-US')} km`,
       );
     }
+  });
+
+  it('writes shares, ranges and distances as the Home hero readouts do', () => {
+    expect(read(modeled(0.064, 0.018, 0.2, 1234.4, 'strong'))).toBe(
+      'Modeled estimate about 6.4% · 95% credible range across this area 1.8–20% · Nearest survey about 1,234 km',
+    );
+    expect(read(modeled(0.004, 0.0004, 0.012, 88, 'partial'))).toBe(
+      'Modeled estimate about 0.40% · 95% credible range across this area 0.04–1.2% · Nearest survey about 88 km',
+    );
+    expect(read(modeled(0.12, 0, 0.31, 2500, 'weak'))).toBe(
+      'Modeled estimate about 12% · 95% credible range across this area 0–31% · Nearest survey about 2,500 km. Far from surveys: this range leans on the model’s assumptions.',
+    );
+    for (const area of areas.filter((entry) => entry.mean !== null)) {
+      const line = read(area)!;
+      // One percent sign closes the range, and nothing below 1% rounds to "0.0".
+      expect(line).toMatch(/range across this area [\d.]+–[\d.]+% · /);
+      expect(line).not.toMatch(/\b0\.0(?!\d)/);
+    }
+  });
+
+  it('reads out surveys as the Home hero readouts do', () => {
+    expect(
+      describeHit({ type: 'surveys', surveys: [survey(3, 100)], x: 0, y: 0 }),
+    ).toBe(
+      'Measured survey · 3 of 100 alleles carry HbS · Location within ±25 km',
+    );
+    expect(
+      describeHit({
+        type: 'surveys',
+        surveys: [survey(3, 100), survey(5, 2000)],
+        x: 0,
+        y: 0,
+      }),
+    ).toBe('2 surveys here · 3 of 100 alleles · 5 of 2,000');
+    expect(
+      describeHit({
+        type: 'surveys',
+        surveys: [1, 2, 3, 4].map((ac) => survey(ac, 50)),
+        x: 0,
+        y: 0,
+      }),
+    ).toBe('4 surveys here · 1 of 50 alleles · 2 of 50 · 3 of 50 · …');
+  });
+
+  it('treats the pointer as unmoved while it stays over the same area or studs', () => {
+    const [a, b] = areas;
+    const one = [survey(3, 100), survey(5, 200)];
+    expect(sameHit(null, null)).toBe(true);
+    expect(
+      sameHit(
+        { type: 'area', area: a, x: 1, y: 1 },
+        { type: 'area', area: a, x: 9, y: 4 },
+      ),
+    ).toBe(true);
+    expect(
+      sameHit(
+        { type: 'area', area: a, x: 1, y: 1 },
+        { type: 'area', area: b, x: 1, y: 1 },
+      ),
+    ).toBe(false);
+    expect(sameHit({ type: 'area', area: a, x: 1, y: 1 }, null)).toBe(false);
+    expect(
+      sameHit(
+        { type: 'surveys', surveys: one, x: 5, y: 5 },
+        { type: 'surveys', surveys: [...one], x: 5, y: 5 },
+      ),
+    ).toBe(true);
+    // A different nearest stud, or another stud joining it, is a new readout.
+    expect(
+      sameHit(
+        { type: 'surveys', surveys: one, x: 5, y: 5 },
+        { type: 'surveys', surveys: [one[1], one[0]], x: 6, y: 5 },
+      ),
+    ).toBe(false);
+    expect(
+      sameHit(
+        { type: 'surveys', surveys: one, x: 5, y: 5 },
+        { type: 'surveys', surveys: [one[0]], x: 5, y: 5 },
+      ),
+    ).toBe(false);
+    expect(
+      sameHit(
+        { type: 'surveys', surveys: one, x: 5, y: 5 },
+        { type: 'area', area: a, x: 5, y: 5 },
+      ),
+    ).toBe(false);
   });
 });

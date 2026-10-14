@@ -354,3 +354,150 @@ test('the join-up gives each contract field its reason, and replays a record', a
     /\d+/,
   );
 });
+
+test(
+  'on a phone, a contract field’s reason shows beside the field names',
+  {
+    tag: '@mobile-chromium',
+  },
+  async ({ page }) => {
+    await page.goto('/project/');
+    const figure = page.locator('figure[data-graphic="join-up"]');
+    const head = figure.locator('button[data-field="an"]');
+    await head.scrollIntoViewIfNeeded();
+    await head.tap();
+    await expect(head).toHaveClass(/\bis-lit\b/);
+    // The plate is long on a phone: the reason belongs next to the name that was tapped, not in the
+    // caption under the last record.
+    const gap = await figure.evaluate((element) => {
+      const reason = 'AN turns a zero into weak evidence, not absence.';
+      const name = element
+        .querySelector('button[data-field="an"]')!
+        .getBoundingClientRect();
+      const shown = [...element.querySelectorAll<HTMLElement>('*')]
+        .filter(
+          (node) =>
+            node.childElementCount === 0 &&
+            node.textContent?.trim() === reason &&
+            node.checkVisibility({ opacityProperty: true }),
+        )
+        .map((node) => node.getBoundingClientRect())
+        .filter((box) => box.top >= 0 && box.bottom <= innerHeight);
+      return Math.min(
+        ...shown.map((box) =>
+          Math.max(0, box.top - name.bottom, name.top - box.bottom),
+        ),
+      );
+    });
+    expect(gap).toBeLessThanOrEqual(48);
+  },
+);
+
+test('the HbS map lets go of its readout when focus leaves it', async ({
+  page,
+}) => {
+  await page.goto('/project/');
+  const figure = await hbsReady(page);
+  const map = figure.locator('[data-hbs-map]');
+  const reticle = figure.locator('[data-hbs-reticle]');
+  const readout = figure.locator('[data-readout]');
+  const idle = await readout.textContent();
+  await map.focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(reticle).toBeVisible();
+  await expect(readout).not.toHaveText(idle!);
+  await page.keyboard.press('Tab');
+  await expect(map).not.toBeFocused();
+  await expect(reticle).toBeHidden();
+  await expect(readout).toHaveText(idle!);
+});
+
+test(
+  'the HbS map redraws only when the pointer reaches something new',
+  { tag: '@desktop-chromium' },
+  async ({ page }) => {
+    await page.addInitScript(() => {
+      const clear = CanvasRenderingContext2D.prototype.clearRect;
+      const counter = window as unknown as { __clears: number };
+      counter.__clears = 0;
+      CanvasRenderingContext2D.prototype.clearRect = function (...args) {
+        counter.__clears += 1;
+        return clear.apply(this, args);
+      };
+    });
+    await page.goto('/project/');
+    const figure = await hbsReady(page);
+    await expect(figure).toHaveAttribute('data-figure-state', 'rest', {
+      timeout: 4_000,
+    });
+    // Fifteen spots over sea, areas and studs. Arriving at a spot may redraw; further pointer moves
+    // that land on the same spot (a slow hand, a high-rate mouse) must not. Before the fix every
+    // move redrew both canvases.
+    const { arrivals, repeats } = await figure
+      .locator('[data-hbs-map]')
+      .evaluate((map) => {
+        const counter = window as unknown as { __clears: number };
+        const box = map.getBoundingClientRect();
+        let arrivals = 0;
+        const repeats: number[] = [];
+        for (const fy of [0.35, 0.5, 0.65])
+          for (const fx of [0.3, 0.4, 0.5, 0.6, 0.7]) {
+            const move = () =>
+              map.dispatchEvent(
+                new PointerEvent('pointermove', {
+                  bubbles: true,
+                  pointerType: 'mouse',
+                  clientX: box.left + box.width * fx,
+                  clientY: box.top + box.height * fy,
+                }),
+              );
+            const before = counter.__clears;
+            move();
+            const arrived = counter.__clears;
+            arrivals += arrived - before;
+            for (let again = 0; again < 4; again += 1) move();
+            repeats.push(counter.__clears - arrived);
+          }
+        return { arrivals, repeats };
+      });
+    // The counter sees redraws (moving between spots changes what is under the pointer)…
+    expect(arrivals).toBeGreaterThan(0);
+    // …and staying put draws nothing.
+    expect(repeats).toEqual(Array.from({ length: 15 }, () => 0));
+  },
+);
+
+test('“haemoglobin S” never breaks across two lines', async ({ page }) => {
+  await page.goto('/project/');
+  const title = page.locator('#hbs-title');
+  for (const width of [390, 360, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    const lines = await title.evaluate((heading) => {
+      const node = heading.firstChild as Text;
+      const at = node.data.indexOf('haemoglobin');
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + 'haemoglobin S'.length);
+      return new Set(
+        [...range.getClientRects()].map((rect) => Math.round(rect.top)),
+      ).size;
+    });
+    expect(lines, `${width} px`).toBe(1);
+  }
+});
+
+test('the HbS count breaks only between its two clauses', async ({ page }) => {
+  await page.goto('/project/');
+  const figure = await hbsReady(page);
+  const slider = figure.getByRole('slider');
+  const clauses = figure.locator('[data-hbs-count] > span');
+  for (const stop of ['5', '1', '10', '15']) {
+    await slider.fill(stop);
+    await expect(figure.locator('[data-hbs-threshold]')).toHaveText(`${stop}%`);
+    await expect(clauses).toHaveCount(2);
+    const lines = await clauses.evaluateAll((spans) =>
+      spans.map((span) => span.getClientRects().length),
+    );
+    expect(lines, `${stop}%`).toEqual([1, 1]);
+  }
+});

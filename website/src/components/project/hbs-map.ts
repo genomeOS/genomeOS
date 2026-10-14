@@ -76,9 +76,17 @@ export function thresholdCounts(
 
 const whole = (value: number) => Math.round(value).toLocaleString('en-US');
 
-/** The live count beside the slider (copy deck: "{n} confidently above · {m} possibly above"). */
-export const countText = ({ confident, possible }: ThresholdCounts) =>
-  `${whole(confident)} confidently above · ${whole(possible)} possibly above`;
+/**
+ * The live count's two clauses (copy deck: "{n} confidently above · {m} possibly above"). Each is
+ * set unbroken, so the count wraps only at the " · ".
+ */
+export const countParts = ({
+  confident,
+  possible,
+}: ThresholdCounts): [string, string] => [
+  `${whole(confident)} confidently above`,
+  `${whole(possible)} possibly above`,
+];
 
 /** The slider's spoken value (spec §4.2). */
 export const valueText = (
@@ -87,29 +95,33 @@ export const valueText = (
 ) =>
   `${stop} percent: ${whole(confident)} areas confidently above, ${whole(possible)} possibly above`;
 
-const percent = (share: number) => {
+/** A share as a number of percent, as the Home hero writes it: whole from 10%, one decimal from 1%,
+ * two below. */
+export function formatPercent(share: number): string {
   const value = share * 100;
-  return `${value < 10 ? value.toFixed(1) : value.toFixed(0)}%`;
-};
-const km = (value: number) =>
-  whole(value < 100 ? value : Math.round(value / 10) * 10);
+  if (value === 0) return '0';
+  if (value >= 10) return String(Math.round(value));
+  return value.toFixed(value >= 1 ? 1 : 2);
+}
+
+const km = (value: number) => `${whole(value)} km`;
+const counts = (survey: Survey) => `${whole(survey.ac)} of ${whole(survey.an)}`;
 
 /**
- * The readout for what is under the pointer or reticle (copy deck, Home hero readouts): an area's
- * estimate with its 95% range and evidence distance, a survey's counts, or "No estimate".
+ * The readout for what is under the pointer or reticle, word for word as the Home hero's (copy
+ * deck): an area's estimate with its 95% range and its distance from surveys, a survey's counts,
+ * or "No estimate". A coarsened area carries its children's median distance, so every distance
+ * is "about": a minority child can sit nearer a survey.
  */
-export function describeHit(
-  hit: HexHit | null,
-  { noEstimateKm }: { noEstimateKm: number },
-): string | null {
+export function describeHit(hit: HexHit | null): string | null {
   if (!hit) return null;
   if (hit.type === 'surveys') {
     const [first] = hit.surveys;
     if (hit.surveys.length === 1)
-      return `Measured survey · ${whole(first.ac)} of ${whole(first.an)} alleles carry HbS · Location within ±${whole(first.radiusKm)} km`;
+      return `Measured survey · ${counts(first)} alleles carry HbS · Location within ±${km(first.radiusKm)}`;
     const listed = hit.surveys
       .slice(0, 3)
-      .map((survey) => `${whole(survey.ac)} of ${whole(survey.an)}`);
+      .map((survey, index) => counts(survey) + (index ? '' : ' alleles'));
     return [
       `${hit.surveys.length} surveys here`,
       ...listed,
@@ -117,14 +129,23 @@ export function describeHit(
     ].join(' · ');
   }
   const { area } = hit;
-  // Majority coarsening can leave an unknown area a little nearer a survey than the no-estimate
-  // limit, so the claim uses whichever is smaller, rounded down: it never overstates the gap.
   if (area.support === 'unknown' || area.mean === null)
-    return `No estimate · — · No survey within ${whole(Math.floor(Math.min(noEstimateKm, area.distanceKm) / 10) * 10)} km`;
-  const line = `Modeled estimate about ${percent(area.mean)} · 95% credible range across this area ${percent(area.lo!)}–${percent(area.hi!)} · Nearest survey about ${km(area.distanceKm)} km`;
+    return `No estimate · — · Nearest survey about ${km(area.distanceKm)}`;
+  const line = `Modeled estimate about ${formatPercent(area.mean)}% · 95% credible range across this area ${formatPercent(area.lo!)}–${formatPercent(area.hi!)}% · Nearest survey about ${km(area.distanceKm)}`;
   return area.tier === 'weak' || area.tier === 'none'
-    ? `${line}\nFar from surveys: this range leans on the model’s assumptions.`
+    ? `${line}. Far from surveys: this range leans on the model’s assumptions.`
     : line;
+}
+
+/** Whether two hits read out the same: one area, or the same studs, nearest first. */
+export function sameHit(a: HexHit | null, b: HexHit | null): boolean {
+  if (!a || !b) return a === b;
+  if (a.type === 'area') return b.type === 'area' && a.area === b.area;
+  return (
+    b.type === 'surveys' &&
+    a.surveys.length === b.surveys.length &&
+    a.surveys.every((survey, index) => survey === b.surveys[index])
+  );
 }
 
 /* ---------- contours ---------- */
@@ -221,19 +242,10 @@ export function chains(edges: readonly GridEdge[]): SpherePoint[][] {
 
 /* ---------- the island ---------- */
 
-interface MapConfig {
-  domain: [number, number];
-  noEstimateKm: number;
-}
-
-/** The surface's metric domain and the no-estimate distance, from the server-rendered map. */
-function readConfig(map: HTMLElement): MapConfig | null {
-  const { hbsDomain, hbsNoEstimateKm } = map.dataset;
-  if (!hbsDomain || !hbsNoEstimateKm) return null;
-  return {
-    domain: JSON.parse(hbsDomain) as [number, number],
-    noEstimateKm: Number(hbsNoEstimateKm),
-  };
+/** The surface's metric domain (`metric_domains.post_mean`), from the server-rendered map. */
+function readDomain(map: HTMLElement): [number, number] | null {
+  const { hbsDomain } = map.dataset;
+  return hbsDomain ? (JSON.parse(hbsDomain) as [number, number]) : null;
 }
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
@@ -314,7 +326,7 @@ export async function initHbsMap(
   urls: { region: string; surveys: string },
 ): Promise<void> {
   const stage = figure.querySelector<HTMLElement>('[data-hbs-map]');
-  const config = stage ? readConfig(stage) : null;
+  const domain = stage ? readDomain(stage) : null;
   const surfaceCanvas = figure.querySelector<HTMLCanvasElement>(
     '[data-hbs-canvas="surface"]',
   );
@@ -327,7 +339,7 @@ export async function initHbsMap(
   const count = figure.querySelector<HTMLElement>('[data-hbs-count]');
   const readout = figure.querySelector<HTMLElement>('[data-readout]');
   if (
-    !config ||
+    !domain ||
     !stage ||
     !surfaceCanvas ||
     !studCanvas ||
@@ -405,7 +417,7 @@ export async function initHbsMap(
     areas,
     surveys: [],
     projection,
-    domain: config.domain,
+    domain,
     layer: 'modeled',
     fit,
   });
@@ -413,7 +425,7 @@ export async function initHbsMap(
     areas: [],
     surveys,
     projection: studProjection,
-    domain: config.domain,
+    domain,
     fit,
   });
 
@@ -466,11 +478,16 @@ export async function initHbsMap(
   const idle = readout.textContent ?? '';
   const announce = createAnnouncer(readout);
   let reticleAt: [number, number] | null = null;
+  // A pointer moving inside one area or stud cluster changes nothing: skip the redraw and the
+  // announcement (a full redraw costs several ms, and a phone runs it four times slower).
+  let shown: HexHit | null = null;
   const show = (hit: HexHit | null) => {
+    if (sameHit(hit, shown)) return;
+    shown = hit;
     surface.hover = hit?.type === 'area' ? hit : null;
     studs.hover = hit?.type === 'surveys' ? hit : null;
     redraw();
-    announce(describeHit(hit, config) ?? idle);
+    announce(describeHit(hit) ?? idle);
   };
   const hitAt = (x: number, y: number): HexHit | null =>
     studs.hit(x / scale, y / scale) ?? surface.hit(x, y);
@@ -529,9 +546,11 @@ export async function initHbsMap(
       show(null);
     }
   });
+  // Focus leaving the map lets go of the reticle and its readout, as Escape does.
   stage.addEventListener('blur', () => {
     reticleAt = null;
     placeReticle();
+    show(null);
   });
 
   /* ----- threshold slider ----- */
@@ -540,7 +559,10 @@ export async function initHbsMap(
     t = stop / 100;
     const counts = thresholdCounts(areas, t);
     threshold.textContent = `${stop}%`;
-    count.textContent = countText(counts);
+    countParts(counts).forEach((part, index) => {
+      const clause = count.children[index];
+      if (clause) clause.textContent = part;
+    });
     slider.setAttribute('aria-valuetext', valueText(stop, counts));
     outline();
     redraw();

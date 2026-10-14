@@ -410,6 +410,11 @@
   margin: 0;
 }
 
+/* A field's reason beside the field names: phones only (below), where the caption is far down. */
+.joinup__grid > .joinup__reason {
+  display: none;
+}
+
 /* Mid widths: the field names stand upright. */
 @container joinup (max-width: 1079px) {
   .joinup__grid {
@@ -475,6 +480,22 @@
   .joinup__tag {
     margin: 0.2rem 0 0.35rem;
   }
+
+  /* The empty corner above the record names, level with the upright field names. Out of flow, so
+     a reason appearing never moves the plate. */
+  .joinup__grid > .joinup__reason {
+    display: block;
+    position: absolute;
+    /* Both lines named: an absolute item's auto end line is the grid's far edge. */
+    grid-row: 1 / 2;
+    grid-column: 1 / 2;
+    inset: auto 0.75rem 0.8rem 0;
+    margin: 0;
+    color: var(--color-starlight);
+    font-size: 0.85rem;
+    line-height: 1.35;
+    text-wrap: pretty;
+  }
 }
 
 @container joinup (max-width: 300px) {
@@ -486,6 +507,14 @@
 
   .joinup__record {
     padding-inline: 0.45rem;
+  }
+
+  /* The corner is narrowest here: the reason sets tighter to stay level with the names. */
+  .joinup__grid > .joinup__reason {
+    right: 0.35rem;
+    bottom: 0.7rem;
+    font-size: 0.8125rem;
+    line-height: 1.2;
   }
 }
 
@@ -666,10 +695,6 @@
   grid-area: table;
 }
 
-.hbs .kit-readout {
-  white-space: pre-line;
-}
-
 .hbs__map {
   position: relative;
   min-width: 0;
@@ -797,6 +822,11 @@
   font-size: 0.9rem;
   font-variant-numeric: lining-nums tabular-nums;
   line-height: 1.45;
+}
+
+/* Each clause stays whole, so the count breaks only at its " · ". */
+.hbs__count > span {
+  white-space: nowrap;
 }
 
 .hbs__legend {

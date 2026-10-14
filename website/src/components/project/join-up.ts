@@ -168,6 +168,7 @@ const REPLAY_MS = 1100;
 export function initJoinUp(figure: HTMLElement): void {
   const grid = figure.querySelector<HTMLElement>('[data-joinup-grid]');
   const caption = figure.querySelector<HTMLElement>('[data-joinup-caption]');
+  const corner = figure.querySelector<HTMLElement>('[data-joinup-reason]');
   if (!grid || !caption) return;
   const resting = caption.textContent ?? '';
 
@@ -181,7 +182,8 @@ export function initJoinUp(figure: HTMLElement): void {
     rest: () => figure.classList.remove('is-armed', 'is-playing'),
   });
 
-  /* Field reasons in the bottom bar (read from each field's description), its column lit. */
+  /* Field reasons in the bottom bar (read from each field's description), its column lit. On a
+     phone the bar is far below the names, so the reason also shows in the corner beside them. */
   let fieldFocus: string | null = null;
   const showField = (key: string | null) => {
     fieldFocus = key;
@@ -197,6 +199,7 @@ export function initJoinUp(figure: HTMLElement): void {
       }
     }
     caption.textContent = reason.trim() || resting;
+    if (corner) corner.textContent = reason.trim();
   };
   for (const button of grid.querySelectorAll<HTMLElement>(
     'button[data-field]',
