@@ -433,6 +433,42 @@ test('on a phone the layer row spans the figure and Reset view never moves the g
   expect(await stageTop()).toBeCloseTo(before, 0);
 });
 
+test('on a phone the counts axis heads the bar it scales @mobile-chromium', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const why = page.locator('#why');
+  const grid = (await why
+    .locator('[data-row="a"] .cf-row__grid')
+    .boundingBox())!;
+  const axis = (await why.locator('.cf-axis').boundingBox())!;
+  const bar = (await why.locator('[data-bar="a"]').boundingBox())!;
+  // Label A, grid A, then the axis directly over bar A.
+  expect(axis.y).toBeGreaterThanOrEqual(grid.y + grid.height);
+  const gap = bar.y - (axis.y + axis.height);
+  expect(gap).toBeGreaterThanOrEqual(0);
+  expect(gap).toBeLessThan(16);
+});
+
+test('on a phone the vision teaser reads heading, figure, then its link @mobile-chromium', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const vision = page.locator('#vision');
+  const order = await Promise.all(
+    ['h2', 'figure[data-graphic="vision"]', '.home-vision__link'].map(
+      (selector) =>
+        vision
+          .locator(selector)
+          .evaluate((element) => element.getBoundingClientRect().top),
+    ),
+  );
+  expect([...order].sort((a, b) => a - b)).toEqual(order);
+  // The 2×2 grid has no zoom wedges, so no frame marks a region for one.
+  for (const focus of await vision.locator('.vs-frame__focus').all())
+    await expect(focus).toBeHidden();
+});
+
 test('the layer control has one pressed layer and swaps the legend', async ({
   page,
 }) => {

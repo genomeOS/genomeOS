@@ -71,9 +71,16 @@
 
 /* ------------------------------------------------------------------------------ hero layout */
 
+/* Home's six bands sit at the band token's own minimum (4rem) at every width. At its full desktop
+   value (7rem) their padding alone costs 1.6 screens at 1440×900 against Home's ≤ 6-screen target
+   (spec §4.1); the alternating band colours and hairlines still part the sections. */
+#main-content > .band {
+  --band-pad: 4rem;
+}
+
 .home-hero {
   position: relative;
-  padding-block: clamp(1.25rem, 3vw, 2.25rem) clamp(3rem, 6vw, 4.5rem);
+  padding-block: clamp(1.25rem, 3vw, 2.25rem) clamp(3rem, 6vw, 4rem);
   overflow-x: clip;
 }
 
@@ -648,13 +655,52 @@
   container: cf / inline-size;
 }
 
+/* Narrow: the rows stack (label, grid, bar), and the shared axis heads bar A, directly under
+   grid A; bar B, its sentence and the slider follow grid B (spec §4.1 H2 phone). */
 .cf-stage {
   display: grid;
-  gap: 1.4rem;
+  gap: 0.6rem;
+}
+
+.cf-row {
+  display: contents;
+}
+
+[data-row='a'] .cf-row__label {
+  order: 1;
+}
+
+[data-row='a'] .cf-row__grid {
+  order: 2;
 }
 
 .cf-axis {
-  margin: 0 6.25rem 0 0;
+  order: 3;
+}
+
+[data-row='a'] .cf-row__bar {
+  order: 4;
+}
+
+[data-row='b'] .cf-row__label {
+  order: 5;
+  margin-top: 1.4rem;
+}
+
+[data-row='b'] .cf-row__grid {
+  order: 6;
+}
+
+[data-row='b'] .cf-row__bar {
+  order: 7;
+}
+
+.cf-slider {
+  order: 8;
+}
+
+.cf-axis {
+  margin: 0.4rem 6.25rem 0 0;
   display: grid;
   gap: 0.15rem;
   color: var(--color-faint);
@@ -670,11 +716,6 @@
 .cf-axis__ends {
   display: flex;
   justify-content: space-between;
-}
-
-.cf-row {
-  display: grid;
-  gap: 0.6rem;
 }
 
 .cf-row__label {
@@ -822,13 +863,10 @@
     align-items: center;
   }
 
-  .cf-row {
-    display: contents;
-  }
-
   .cf-axis {
     grid-area: 1 / 2;
     align-self: end;
+    margin-top: 0;
   }
 
   [data-row='a'] .cf-row__label {
@@ -1457,6 +1495,22 @@
   font-weight: 650;
 }
 
+/* Stacked, the figure-led split reads heading, figure (with its legend), then the link on. */
+@media (max-width: 52rem) {
+  .home-vision .layout-figure-split__text {
+    display: contents;
+  }
+
+  .home-vision .layout-figure-split__text > * {
+    grid-column: 1 / -1;
+  }
+
+  .home-vision__link {
+    order: 1;
+    justify-self: start;
+  }
+}
+
 @media (max-width: 40rem) {
   .vs-stage {
     display: grid;
@@ -1464,7 +1518,9 @@
     gap: 1.25rem 1rem;
   }
 
-  .vs-wedge {
+  /* The 2×2 grid has no zoom wedges, so no frame marks a region for one. */
+  .vs-wedge,
+  .vs-frame__focus {
     display: none;
   }
 
