@@ -3808,8 +3808,15 @@ test('after the reveal, the borders load first, then the detail tier, then the s
   expect(timing.detail[0].end).toBeLessThanOrEqual(
     Math.min(...timing.skyStarts),
   );
-  await expect(explorer).toHaveAttribute('data-atlas-context-ready', 'true');
-  await expect(explorer).toHaveAttribute('data-atlas-values-ready', 'true');
+  // The order releases the next load at the borders' last byte, while their time-sliced drawing
+  // carries on (§B.6.9), so context-ready has no fixed bound relative to the sky box. At 6× CPU it
+  // lands ~6 s after the first face starts, so wait for it like every other milestone.
+  await expect(explorer).toHaveAttribute('data-atlas-context-ready', 'true', {
+    timeout: 45_000,
+  });
+  await expect(explorer).toHaveAttribute('data-atlas-values-ready', 'true', {
+    timeout: 45_000,
+  });
 });
 
 test('style choices in the URL reach the scene that renders them', async ({
