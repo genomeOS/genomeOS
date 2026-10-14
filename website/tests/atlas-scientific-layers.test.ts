@@ -387,6 +387,34 @@ describe('cold progressive reveal', () => {
     expect(checked).toBe(true);
   });
 
+  it('leaves the sampling rings where the first chunk placed them at the cold commit (#443)', async () => {
+    // Re-placing every ring at the commit rewrote the ring buffer one ring at a time and, on
+    // ANGLE Metal, held the GPU and every frame for ~0.6 s right after the reveal.
+    const h = harness({ elevationFactor: 2 });
+    const done = h.layers.setArtifact(h.load('hbs-rs334'));
+    let placed: unknown = null;
+    for (let index = 0; index < 12 && placed === null; index += 1) {
+      await flushTasks();
+      h.frame();
+      const chunkGroup = h
+        .childCollections()
+        .find((child) => child.length === 3);
+      if (chunkGroup && (chunkGroup.get(0) as PrimitiveCollection).length > 0)
+        placed = (
+          built.observations[0].collection.get(0) as PolylineCollection
+        ).get(0).positions;
+    }
+    expect(placed).not.toBeNull();
+    await h.pump();
+    await done;
+    await h.pump(1);
+    expect(h.commits).toEqual([keyOf('hbs-rs334')]);
+    expect(
+      (built.observations[0].collection.get(0) as PolylineCollection).get(0)
+        .positions,
+    ).toBe(placed);
+  });
+
   it('raises chunks during a cold reveal of an artifact without observations', async () => {
     // No markers means no anchors to wait for (§B.6.8): the group is raised before its first
     // chunk is added, and an elevation change during the reveal applies, instead of the surface

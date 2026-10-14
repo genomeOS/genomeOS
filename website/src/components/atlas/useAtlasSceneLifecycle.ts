@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type RefObject } from 'react';
 
-import { loadAtlasSceneModule } from '../../atlas/boot';
+import { atlasRequestStallMs, loadAtlasSceneModule } from '../../atlas/boot';
 import { supportsWebGL } from '../../atlas/explorer-runtime';
 import type { AtlasSceneController } from '../../atlas/scene/types';
 import type { AtlasWorkerClient } from '../../atlas/worker/client';
@@ -66,6 +66,8 @@ export function useAtlasSceneLifecycle(
         try {
           const controller = createAtlasScene(container, {
             cesiumToken,
+            // The post-reveal load order shares the provider's stall window (§B.6.9).
+            loadStallMs: atlasRequestStallMs(),
             markTarget: latest.current.markTarget,
             naturalEarthUrl,
             reducedMotion,

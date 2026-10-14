@@ -2,6 +2,11 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { cellToLatLng, latLngToCell } from 'h3-js';
 
+import {
+  contextSourceKey,
+  NATURAL_EARTH_BORDERS,
+} from '../src/atlas/context-sources';
+import type { AtlasCatalog } from '../src/atlas/contracts';
 import { StaticAtlasDataProvider } from '../src/atlas/static-provider';
 import { dataHref } from '../src/lib/data-url';
 import {
@@ -3733,8 +3738,8 @@ test('explorer recovers from a render-loop error through Retry globe', async ({
   // panel, and rendering stopped for good. The fast-load scene builds no Cesium PolygonGeometry,
   // so it never requests that module, and a failed terrain worker fetch fails only its tile. The
   // sky box is the same failure class: its cube-map faces are fetched from inside Scene.render once
-  // the map is ready (fast-load design §B.6.9), and Cesium rethrows a failed face load on the next
-  // frame. Aborting only the first request for one face reproduces the raw panel without the
+  // the map is ready and the borders and detail-tier steps of the post-reveal load order have
+  // settled (fast-load design §B.6.9), and Cesium rethrows a failed face load on the next frame. Aborting only the first request for one face reproduces the raw panel without the
   // Atlas render loop, and the sky box draws only in the 3-D globe view.
   let skyFaceRequests = 0;
   await context.route(
@@ -3948,6 +3953,108 @@ test('cold load shows observations, then the surface, then outlines and borders'
   expect(
     responses.filter(({ url }) => url.pathname.endsWith('.geojson')),
   ).toEqual([]);
+});
+
+test('after the reveal, the borders load first, then the detail tier, then the starfield', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  // Fast-load design §B.6.9 (#443): each post-reveal load starts once the one before it has
+  // settled, so none shares the connection. The borders settle at their last byte, the detail tier
+  // once it is decoded.
+  const catalog = await readInlineCatalog(page);
+  const borders = contextSourceKey(
+    catalog as unknown as AtlasCatalog,
+    NATURAL_EARTH_BORDERS,
+  );
+  const detail = artifactTierKey(catalog, 'hbs-rs334', 'detail');
+  const SKY_BOX = '/cesium/Assets/Textures/SkyBox/';
+  const starts: string[] = [];
+  const failures: string[] = [];
+  const loadOf = (raw: string): string | null => {
+    const url = new URL(raw);
+    if (urlMatchesKey(url, borders)) return 'borders';
+    if (urlMatchesKey(url, detail)) return 'detail';
+    if (url.pathname.includes(SKY_BOX)) return 'starfield';
+    return null;
+  };
+  page.on('request', (request) => {
+    const load = loadOf(request.url());
+    if (load) starts.push(load);
+  });
+  page.on('requestfailed', (request) => {
+    const load = loadOf(request.url());
+    if (load) failures.push(load);
+  });
+
+  await page.goto('/app/');
+  const explorer = page.locator('.atlas-explorer');
+  await expect(explorer).toHaveAttribute('data-atlas-displayed', 'hbs-rs334', {
+    timeout: 45_000,
+  });
+  await expect
+    .poll(() => starts.includes('starfield'), { timeout: 45_000 })
+    .toBe(true);
+
+  // Request start order.
+  expect(failures).toEqual([]);
+  expect(starts.slice(0, 2)).toEqual(['borders', 'detail']);
+  expect(starts.filter((load) => load === 'borders')).toHaveLength(1);
+  expect(starts.filter((load) => load === 'detail')).toHaveLength(1);
+  expect(starts.slice(2).every((load) => load === 'starfield')).toBe(true);
+
+  // Each settles before the next starts, on the page's own clock. A resource entry appears once
+  // its response has ended.
+  const readTiming = () =>
+    page.evaluate(
+      ({ borders, detail, skyBox }) => {
+        const entries = performance.getEntriesByType(
+          'resource',
+        ) as PerformanceResourceTiming[];
+        const of = (match: (path: string) => boolean) =>
+          entries
+            .filter((entry) => match(new URL(entry.name).pathname))
+            .map((entry) => ({
+              end: entry.responseEnd,
+              start: entry.startTime,
+            }));
+        return {
+          borders: of((path) => path.endsWith(`/${borders}`)),
+          detail: of((path) => path.endsWith(`/${detail}`)),
+          skyStarts: of((path) => path.includes(skyBox)).map(
+            (entry) => entry.start,
+          ),
+          surfaceVisible:
+            performance.getEntriesByName('atlas:surface-visible')[0]
+              ?.startTime ?? null,
+        };
+      },
+      { borders, detail, skyBox: SKY_BOX },
+    );
+  // Cesium's sky box has six faces.
+  await expect
+    .poll(async () => (await readTiming()).skyStarts.length, {
+      timeout: 45_000,
+    })
+    .toBe(6);
+  const timing = await readTiming();
+  expect(timing.borders).toHaveLength(1);
+  expect(timing.detail).toHaveLength(1);
+  expect(timing.surfaceVisible).not.toBeNull();
+  expect(timing.surfaceVisible!).toBeLessThanOrEqual(timing.borders[0].start);
+  expect(timing.borders[0].end).toBeLessThanOrEqual(timing.detail[0].start);
+  expect(timing.detail[0].end).toBeLessThanOrEqual(
+    Math.min(...timing.skyStarts),
+  );
+  // The order releases the next load at the borders' last byte, while their time-sliced drawing
+  // carries on (§B.6.9), so context-ready has no fixed bound relative to the sky box. At 6× CPU it
+  // lands ~6 s after the first face starts, so wait for it like every other milestone.
+  await expect(explorer).toHaveAttribute('data-atlas-context-ready', 'true', {
+    timeout: 45_000,
+  });
+  await expect(explorer).toHaveAttribute('data-atlas-values-ready', 'true', {
+    timeout: 45_000,
+  });
 });
 
 test('style choices in the URL reach the scene that renders them', async ({
