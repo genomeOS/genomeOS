@@ -357,6 +357,58 @@ test('application cards reveal on scroll and respond to hover @desktop-chromium'
   expect(hoverTransform).not.toBe(restingTransform);
 });
 
+// Design review, round 3: the glyphs' drawings filled about 60% of their 96 × 64 box, each at its
+// own place in it. They are now drawn at one scale, at least 96 × 64 and about 128 × 80 a glyph,
+// each drawing on its card's text edge, with the title a spacing step under the glyph.
+test('the application glyphs read at card scale, on each card’s text edge', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const first = page.locator('.application-card').first();
+  await first.scrollIntoViewIfNeeded();
+  await expect(first).toHaveClass(/is-visible/);
+  const cards = await page.locator('.application-card').evaluateAll((list) =>
+    list.map((card) => {
+      const svg = card.querySelector<SVGSVGElement>('svg.ag')!;
+      const title = card.querySelector('h3')!.getBoundingClientRect();
+      const glyph = svg.getBoundingClientRect();
+      let left = Infinity;
+      let top = Infinity;
+      let bottom = -Infinity;
+      for (const mark of svg.querySelectorAll<SVGGraphicsElement>(
+        'path, circle, ellipse, rect, line',
+      )) {
+        if (mark.closest('defs, pattern, clipPath')) continue;
+        const rect = mark.getBoundingClientRect();
+        left = Math.min(left, rect.left);
+        top = Math.min(top, rect.top);
+        bottom = Math.max(bottom, rect.bottom);
+      }
+      return {
+        width: glyph.width,
+        height: glyph.height,
+        scale: svg.getScreenCTM()!.a,
+        markLeft: left - title.left,
+        markTop: top - glyph.top,
+        markBottom: glyph.bottom - bottom,
+        titleGap: title.top - glyph.bottom,
+      };
+    }),
+  );
+  expect(cards).toHaveLength(6);
+  for (const [index, card] of cards.entries()) {
+    const at = `glyph ${index + 1}`;
+    expect(card.width, at).toBeGreaterThanOrEqual(120);
+    expect(card.height, at).toBeGreaterThanOrEqual(80);
+    expect(card.scale, at).toBeCloseTo(cards[0]!.scale, 3);
+    // The drawing starts on the text edge (its stroke may sit a pixel either side).
+    expect(Math.abs(card.markLeft), at).toBeLessThan(2);
+    expect(card.markTop, at).toBeGreaterThanOrEqual(-0.5);
+    expect(card.markBottom, at).toBeGreaterThanOrEqual(-0.5);
+    expect(card.titleGap, at).toBeGreaterThanOrEqual(8);
+  }
+});
+
 test('the hero stage opens in the first phone viewport @mobile-chromium', async ({
   page,
 }) => {

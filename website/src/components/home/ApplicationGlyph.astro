@@ -4,6 +4,12 @@
  * marks, with no numbers. Each one's resting drawing is its end state; home.css plays its
  * mechanism once on hover (≤ 1.2 s) and draws it in on reveal.
  *
+ * Design review, round 3: the drawings filled about 60% of their 96 × 64 box and read small. Each
+ * viewBox is now the 84 × 48 band every drawing fits in (y 8–56), starting at its own drawing's
+ * left edge, and home.css draws them all at one scale (×1.69, 4.5rem tall: a step of the spacing
+ * scale), so a drawing stands on the card's text edge at about 128 × 80 and every glyph's marks and
+ * strokes keep one size.
+ *
  *   1 screening    a hex cluster; a threshold line sweeps down and the cells above it are outlined
  *   2 diagnostic   one survey stud and a range bar with its tick
  *   3 trial        count dots gather until a target ring closes
@@ -21,6 +27,18 @@ interface Props {
 }
 
 const { variant } = Astro.props;
+
+/** The band of the 96 × 64 box that every drawing fits in, strokes included. */
+const BAND = { top: 8, width: 84, height: 48 };
+/** Each drawing's left edge in its 96-unit box (strokes included); the viewBox starts there. */
+const LEFT: Record<Props['variant'], number> = {
+  1: 7,
+  2: 10,
+  3: 30,
+  4: 14,
+  5: 22,
+  6: 15,
+};
 
 // Pointy-top hexagon of radius r centred on (cx, cy).
 const hex = (cx: number, cy: number, r: number) =>
@@ -151,9 +169,9 @@ if (variant === 1) {
 
 <svg
   class:list={['ag', `ag--${variant}`]}
-  viewBox="0 0 96 64"
-  width="96"
-  height="64"
+  viewBox={`${LEFT[variant]} ${BAND.top} ${BAND.width} ${BAND.height}`}
+  width={BAND.width}
+  height={BAND.height}
   aria-hidden="true"
   focusable="false"
   set:html={cssVarStyles(body)}

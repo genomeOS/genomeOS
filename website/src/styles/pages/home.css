@@ -1254,10 +1254,12 @@
   transform: translateY(-2px);
 }
 
+/* At least the spec's 96 × 64 (design review, round 3): the 84 × 48 band at 4.5rem tall (141.75 ×
+   81 px), so each drawing reads at about 128 × 80 and the title starts a spacing step below it. */
 .application-card .ag {
-  width: 96px;
-  height: 64px;
-  margin-bottom: 0.35rem;
+  width: 7.875rem;
+  height: 4.5rem;
+  margin-bottom: 0.45rem;
   overflow: visible;
 }
 
@@ -1377,8 +1379,9 @@
   }
 
   .application-card:hover .ag-range {
-    transform-box: view-box;
-    transform-origin: 63px 32px;
+    /* The bar grows from its tick (x 63 of the bar's 52–78), whatever the glyph's viewBox. */
+    transform-box: fill-box;
+    transform-origin: 42.3077% 50%;
     animation: home-grow 700ms var(--ease-figure) both;
   }
 
