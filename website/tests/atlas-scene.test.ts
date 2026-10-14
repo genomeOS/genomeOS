@@ -19,7 +19,11 @@ import type {
   AtlasPick,
   SurfacePick,
 } from '../src/atlas/scene/types';
-import { cameraState, keyboardCommandFor } from '../src/atlas/scene/camera';
+import {
+  cameraState,
+  keyboardCommandFor,
+  setCameraState,
+} from '../src/atlas/scene/camera';
 import {
   applyBasemapAppearance,
   availableBasemaps,
@@ -1009,5 +1013,35 @@ describe('Cesium scene policy', () => {
       lon: 9,
       pitch: -55,
     });
+  });
+
+  it('reports a camera move settled when it ends or its flight is cancelled (#453)', () => {
+    const flyTo = vi.fn();
+    const setView = vi.fn();
+    const widget = { camera: { flyTo, setView } } as never;
+    const state = {
+      heading: 0,
+      height: 18_000_000,
+      lat: 12,
+      lon: 20,
+      pitch: -90,
+    };
+    const settled = vi.fn();
+    setCameraState(widget, state, true, settled);
+    const flight = flyTo.mock.calls[0][0] as Record<string, unknown>;
+    expect(flight.duration).toBe(1.2);
+    expect(flight.complete).toBe(settled);
+    expect(flight.cancel).toBe(settled);
+    expect(settled).not.toHaveBeenCalled();
+    setCameraState(widget, state, false, settled);
+    expect(setView).toHaveBeenCalledTimes(1);
+    expect(settled).toHaveBeenCalledTimes(1);
+    // Without a listener the flight is the one production always made.
+    setCameraState(widget, state, true);
+    expect(Object.keys(flyTo.mock.calls[1][0] as object).sort()).toEqual([
+      'destination',
+      'duration',
+      'orientation',
+    ]);
   });
 });

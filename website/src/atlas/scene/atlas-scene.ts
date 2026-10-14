@@ -8,7 +8,11 @@
 
 import { SceneMode, type CesiumWidget } from 'cesium';
 
-import { revealWaveTestHold } from '../e2e-hooks';
+import {
+  cameraMotionTestHook,
+  revealWaveTestHold,
+  type CameraMotionHook,
+} from '../e2e-hooks';
 import { createLoadOrder, type LoadOrder, type LoadTask } from '../load-order';
 import type {
   BasemapId,
@@ -117,6 +121,8 @@ class CesiumAtlasScene implements AtlasSceneController {
   readonly #highlightLayer: HighlightLayer;
   readonly #marks: MarkTracker;
   readonly #wave: RevealWave;
+  /** The e2e build's camera motion hook; undefined elsewhere. */
+  readonly #cameraMotion: CameraMotionHook | undefined;
   readonly #layers: ScientificLayers;
   readonly #revealSky: () => void;
   readonly #loadOrder: LoadOrder;
@@ -206,6 +212,7 @@ class CesiumAtlasScene implements AtlasSceneController {
       if (mark === 'surface-visible') this.#startContext();
     });
     this.#unbindKeyboard = bindKeyboardCamera(this.#widget, container);
+    this.#cameraMotion = cameraMotionTestHook(this.#widget.camera);
     this.#removeMoveEnd = this.#widget.camera.moveEnd.addEventListener(() => {
       const state = cameraState(this.#widget);
       if (!state) return;
@@ -483,7 +490,12 @@ class CesiumAtlasScene implements AtlasSceneController {
   }
 
   setCamera(camera: CameraState, animated: boolean): void {
-    setCameraState(this.#widget, camera, animated);
+    setCameraState(
+      this.#widget,
+      camera,
+      animated,
+      this.#cameraMotion?.flight(),
+    );
   }
 
   setSelection(pick: AtlasPick | null): void {
@@ -491,7 +503,12 @@ class CesiumAtlasScene implements AtlasSceneController {
   }
 
   home(animated: boolean): void {
-    setCameraState(this.#widget, HOME_CAMERA, animated);
+    setCameraState(
+      this.#widget,
+      HOME_CAMERA,
+      animated,
+      this.#cameraMotion?.flight(),
+    );
   }
 
   zoom(direction: 'in' | 'out'): void {
@@ -574,6 +591,7 @@ class CesiumAtlasScene implements AtlasSceneController {
     this.#unbindKeyboard();
     this.#unbindPicking();
     this.#removeMoveEnd();
+    this.#cameraMotion?.destroy();
     this.#removeRenderError();
     this.#globe.destroy();
   }

@@ -1,16 +1,19 @@
 /** Browser-test helpers for the surface reveal wave (#453; fast-load design §B.6.7, amended
  * 2026-10-13 and 2026-10-14): hold the wave at a progress, and read what a held frame shows.
  *
- * The e2e build alone honours the hold (`src/atlas/e2e-hooks.ts`). Frames are page screenshots
- * compared in the browser (no PNG dependency in Node), pixel by pixel against a frame taken
- * before any surface showed.
+ * The e2e build alone honours the hold and reports the camera's motion (`src/atlas/e2e-hooks.ts`).
+ * Frames are page screenshots compared in the browser (no PNG dependency in Node), pixel by pixel
+ * against a frame taken before any surface showed.
  */
 
 import { expect, type Page } from '@playwright/test';
 
+import type { CameraMotion } from '../src/atlas/e2e-hooks';
+
 declare global {
   interface Window {
     __atlasRevealWaveHold?: number | null;
+    __atlasCameraMotion?: () => CameraMotion;
   }
 }
 
@@ -93,21 +96,23 @@ export async function waveFrame(page: Page): Promise<string> {
   return (await page.screenshot({ animations: 'disabled' })).toString('base64');
 }
 
-/** Two frames of the globe 150 ms apart are identical: any camera flight has ended. */
+/**
+ * Any camera flight has ended: no flight the scene started is under way, and Cesium reports the
+ * camera unchanged for half a second (`window.__atlasCameraMotion`, e2e build only). It reads the
+ * camera, not the canvas, so it waits for nothing else still loading, and each read is one quick
+ * call. A screenshot waits for several frames, and under CI's software WebGL the page drew a
+ * frame only every 1–1.5 s here, so not one pair of screenshots fit in a 5 s poll.
+ */
 export async function cameraAtRest(page: Page): Promise<void> {
-  const box = await page.locator('.atlas-scene canvas').first().boundingBox();
-  if (!box) throw new Error('The Atlas canvas is not laid out.');
-  const frame = async () =>
-    (await page.screenshot({ animations: 'disabled', clip: box })).toString(
-      'base64',
-    );
   await expect
-    .poll(async () => {
-      const first = await frame();
-      await page.waitForTimeout(150);
-      return first === (await frame());
-    })
-    .toBe(true);
+    .poll(() =>
+      page.evaluate(() => {
+        const read = window.__atlasCameraMotion;
+        if (!read) throw new Error('The e2e build publishes no camera motion.');
+        return read();
+      }),
+    )
+    .toEqual({ flying: false, moving: false });
 }
 
 export interface Point {

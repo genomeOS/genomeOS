@@ -802,7 +802,12 @@ scene (when import resolves) ── observations → chunk scheduler (B.6.7) →
      in a hidden tab never runs, so the page comes back to the whole surface.
    - **Tests.** E2E builds alone may hold the wave at a progress (`window.__atlasRevealWaveHold`,
      enabled by `PUBLIC_ATLAS_E2E_HOOKS=1`, which only `npm run build:e2e` may set), so browser
-     tests can sample a frame mid-wave.)
+     tests can sample a frame mid-wave. They also report the camera's motion
+     (`window.__atlasCameraMotion`: a flight the scene started is under way, or Cesium has raised
+     `moveStart` and no `moveEnd` since), so a test that compares frames of one view waits out the
+     flight to a linked camera on the camera's own state (amended 2026-10-14). Two screenshots
+     cannot stand in for it: each waits for several frames, and on CI's software WebGL the page
+     then drew a frame only every 1–1.5 s.)
 
    (Amended 2026-10-14 for #453, after review: the timing in **Shape** and the zero-chunk rule in
    **Clock**. Before, the leading edge eased out (cubic) in angle over 800 ms. The globe's
