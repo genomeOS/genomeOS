@@ -401,7 +401,25 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
                       width={2 * R}
                       height={2 * R}
                     />
-                    <g set:html={cssVarStyles(GLYPH[node.glyph]())} />
+                    {/* A part keeps its key across modes but may change its glyph (Published
+                        samples are a stack of papers, the registry a pin): one glyph per mode. */}
+                    {[
+                      ...new Set(present.map((m) => nodeIn(key, m)!.glyph)),
+                    ].map((glyph) => {
+                      const withGlyph = present.filter(
+                        (m) => nodeIn(key, m)!.glyph === glyph,
+                      );
+                      return (
+                        <g
+                          data-modes={
+                            withGlyph.length < present.length
+                              ? withGlyph.join(' ')
+                              : undefined
+                          }
+                          set:html={cssVarStyles(GLYPH[glyph]())}
+                        />
+                      );
+                    })}
                   </g>
                   {present.map((m) => {
                     const variantNode = nodeIn(key, m)!;
