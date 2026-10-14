@@ -3,10 +3,11 @@
  * The shared evidence Pipeline (site redesign spec §3.1, #454): Home shows 3 stages, Project 6 parts
  * with a morph between them, the Docs landing a static map of links to the guides.
  *
- * Rendered on the server in its final state, in both layouts: CSS shows the horizontal one when the
- * plate's stage is at least PIPELINE_STAGE_WIDTH.h.min wide (a container query, so a narrow column
- * gets the vertical one at any viewport) and the vertical one below that. Each layout is about
- * 1 unit per CSS px at its narrowest width, so labels stay 13 px or more. The island
+ * Rendered on the server in its final state, in all three layouts: CSS shows the horizontal one when
+ * the plate's stage is at least PIPELINE_STAGE_WIDTH.h.min wide, stage columns from m.min, and the
+ * vertical one below that (container queries, so a column narrower than the page gets the layout
+ * that fits it at any viewport). Each layout is about 1 unit per CSS px at its narrowest width, so
+ * labels stay 13 px or more. The island
  * (pipeline.ts) adds packets, focus, the 3 ↔ 6 morph and Replay; `variant="links"` ships no
  * script at all, and its caption is the page's figure legend (the `caption` slot).
  *
@@ -66,7 +67,7 @@ const {
 const links = variant === 'links';
 const mode: PipelineMode = links ? 6 : initial;
 const modes: PipelineMode[] = !links && modeToggle ? [3, 6] : [mode];
-const orientations: Orientation[] = ['h', 'v'];
+const orientations: Orientation[] = ['h', 'm', 'v'];
 const R = SOCKET;
 const id = (suffix: string) => `${idPrefix}-${suffix}`;
 const inModes = (key: string) =>
@@ -293,21 +294,23 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
                       </g>
                     );
                   }
-                  // A title block with a short rule under it, clear of both lanes' wires.
+                  // A title block with a rule under it, clear of both lanes' wires.
                   const head = L.heads![index];
                   return (
                     <g class="pl-bracket">
-                      <text x={head.x} y={head.y} font-size={T.stage}>
+                      <text
+                        x={head.x}
+                        y={head.y}
+                        font-size={T.stage}
+                        text-anchor={head.anchor}
+                      >
                         {head.lines.map((line, row) => (
-                          <tspan
-                            x={head.x}
-                            dy={row ? PIPELINE_TYPE.v.stageLine : 0}
-                          >
+                          <tspan x={head.x} dy={row ? T.stageLine : 0}>
                             {row < head.lines.length - 1 ? `${line} ` : line}
                           </tspan>
                         ))}
                       </text>
-                      <path d={`M${head.x} ${head.ruleY}h${head.rule}`} />
+                      <path d={`M${head.ruleX} ${head.ruleY}h${head.rule}`} />
                     </g>
                   );
                 })}
@@ -498,7 +501,8 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
 
 <style is:global>
   /* The layout follows the plate's own width (PIPELINE_STAGE_WIDTH in data/pipeline.ts), so a
-     Pipeline in a narrow column is vertical at any viewport and its labels stay 13 px or more. */
+     Pipeline in a narrow column gets the layout that fits it at any viewport, and its labels stay
+     13 px or more: vertical, then stage columns from 520 px, then horizontal from 1,000 px. */
   .kit-pipeline > .kit-plate__stage {
     container: kit-pipeline / inline-size;
   }
@@ -511,7 +515,8 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
     font-family: var(--font-body);
   }
 
-  .kit-pipeline__svg--h {
+  .kit-pipeline__svg--h,
+  .kit-pipeline__svg--m {
     display: none;
   }
 
@@ -520,12 +525,27 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
     margin-inline: auto;
   }
 
+  .kit-pipeline__svg--m {
+    max-width: 744px;
+    margin-inline: auto;
+  }
+
+  @container kit-pipeline (min-width: 520px) {
+    .kit-pipeline__svg--m {
+      display: block;
+    }
+
+    .kit-pipeline__svg--v {
+      display: none;
+    }
+  }
+
   @container kit-pipeline (min-width: 1000px) {
     .kit-pipeline__svg--h {
       display: block;
     }
 
-    .kit-pipeline__svg--v {
+    .kit-pipeline__svg--m {
       display: none;
     }
   }

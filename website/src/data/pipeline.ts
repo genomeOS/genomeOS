@@ -7,14 +7,16 @@
  * and the service and enters at the lower port. A stud becomes a teal hex only on an edge leaving
  * a model node. No numbers are invented here, and no repository part codes appear.
  *
- * Geometry is in viewBox units: horizontal 1200 × 470, vertical 272 wide (spec §2.3: one layout per
- * breakpoint, about 1 unit per CSS px at that breakpoint's narrowest width). The breakpoint is the
+ * Geometry is in viewBox units, in three layouts: horizontal (1200 × 470), stage columns for mid
+ * widths (620 wide: one column per stage) and vertical (272 wide). Spec §2.3: one layout per
+ * breakpoint, about 1 unit per CSS px at that breakpoint's narrowest width. The breakpoint is the
  * plate's own width, not the viewport's (PIPELINE_STAGE_WIDTH).
  */
 
 export const PIPELINE_MODES = [3, 6] as const;
 export type PipelineMode = (typeof PIPELINE_MODES)[number];
-export type Orientation = 'h' | 'v';
+/** Horizontal, stage columns (mid widths) or vertical. */
+export type Orientation = 'h' | 'm' | 'v';
 
 export type NodeKind =
   'source' | 'observations' | 'model' | 'surface' | 'gate' | 'service' | 'map';
@@ -67,14 +69,17 @@ export interface PipelineStage {
   lines?: string[];
 }
 
-/** A stage title in the vertical layout: text lines, then a short rule under them. */
+/** A stage title in the vertical and stage-column layouts: text lines, then a rule under them. */
 export interface PipelineHead {
   lines: string[];
+  /** Where the text is anchored: its start (vertical) or its middle (stage columns). */
   x: number;
+  anchor: 'start' | 'middle';
   /** Baseline of the first line. */
   y: number;
+  /** The rule: from `ruleX`, `rule` units long, at `ruleY`. It stops short of every wire. */
+  ruleX: number;
   ruleY: number;
-  /** Length of the rule from `x`. It stops short of the modeled lane's column. */
   rule: number;
 }
 
@@ -87,7 +92,7 @@ export interface PipelineLayout {
   pos: Record<string, readonly [number, number]>;
   /** Vertical layout: the measured lane's column, or the modeled-only column on the right. */
   column: Record<string, 'centre' | 'lane'>;
-  /** Vertical stage titles, when brackets are drawn. */
+  /** Vertical and stage-column titles, when brackets are drawn. */
   heads: PipelineHead[] | null;
 }
 
@@ -106,19 +111,22 @@ export const SOCKET = 36;
 
 /** Type sizes in viewBox units, per layout. `line` and `stageLine` are line steps. */
 export const PIPELINE_TYPE = {
-  h: { label: 17, sub: 16, line: 19, stage: 16, lane: 16 },
+  h: { label: 17, sub: 16, line: 19, stage: 16, stageLine: 19, lane: 16 },
+  m: { label: 16, sub: 16, line: 18.5, stage: 16, stageLine: 18.5, lane: 16 },
   v: { label: 15.5, sub: 15, line: 17.5, stage: 15, stageLine: 18, lane: 15 },
 } as const;
 
 /**
  * The stage widths (CSS px) each layout is drawn at (spec §2.3: a 13-unit label renders at 13 px or
- * more, and one unit is about one px at the narrowest width). Pipeline.astro draws the horizontal
- * layout when its plate's stage is at least `h.min` wide (a container query, so a narrow column
- * such as the Docs content gets the vertical one at any viewport), and the vertical one below it,
- * up to `v.max` wide. `v.min` is the stage of a 320 px phone with the site's gutters.
+ * more, and one unit is about one px at the narrowest width). Pipeline.astro picks by its plate's
+ * stage width (a container query, so a column narrower than the page, such as the Docs content,
+ * gets the layout that fits it at any viewport): horizontal from `h.min`, stage columns from
+ * `m.min` (drawn up to `m.max` wide and centred beyond that), vertical below (up to `v.max`).
+ * `v.min` is the stage of a 320 px phone with the site's gutters.
  */
 export const PIPELINE_STAGE_WIDTH = {
   h: { min: 1000 },
+  m: { min: 520, max: 744 },
   v: { min: 240, max: 352 },
 } as const;
 
@@ -520,7 +528,15 @@ function verticalLayout(
             : GAP.startHead);
       const y = top + T.stage;
       const ruleY = y + (lines.length - 1) * T.stageLine + 9;
-      heads.push({ lines, x: V.headX, y, ruleY, rule: V.rule });
+      heads.push({
+        lines,
+        x: V.headX,
+        anchor: 'start',
+        y,
+        ruleX: V.headX,
+        ruleY,
+        rule: V.rule,
+      });
       bottom = ruleY;
       previous = 'head';
     }
@@ -578,6 +594,74 @@ function horizontalLayout(
   };
 }
 
+/**
+ * Stage columns, for mid widths (a tablet, the Docs content column): one column per stage under its
+ * title, each stage's parts stacked top to bottom, labels under the sockets. Wires between columns
+ * turn on rounded right angles in the gutters, the modeled lane `split` units right of a gutter's
+ * middle and the measured lane `split` units left, so the two never cross; the measured lane runs
+ * over the models' column on its own row (as it runs over the model row in the horizontal layout).
+ */
+const M = {
+  width: 620,
+  column: [100, 310, 520],
+  split: 8,
+  /** Stage titles share the last line's baseline; the rule sits under it, `halfRule` each side. */
+  titleBase: 50,
+  ruleY: 62,
+  halfRule: 92,
+  /** The measured lane's row over the models (its tag sits on it). */
+  bypass: 100,
+  firstRow: 168,
+  rowPitch: 160,
+  /** Wires leave a part this far below its centre, under a two-line label. */
+  below: 89,
+  corner: 12,
+  /** Without stage titles the viewBox starts here, just above the measured lane's tag. */
+  bareTop: 74,
+} as const;
+
+function mediumLayout(
+  data: PipelineModeData,
+  brackets: boolean,
+): PipelineLayout {
+  const T = PIPELINE_TYPE.m;
+  const pos: Record<string, readonly [number, number]> = {};
+  const column: PipelineLayout['column'] = {};
+  let bottom = 0;
+  data.stages.forEach((stage, index) =>
+    stage.keys.forEach((key, row) => {
+      const y = M.firstRow + row * M.rowPitch;
+      pos[key] = [M.column[index], y];
+      column[key] = 'centre';
+      const node = data.nodes.find((candidate) => candidate.key === key)!;
+      const rows = node.label.length + (node.sub ? 1 : 0);
+      bottom = Math.max(bottom, y + SOCKET + 22 + (rows - 1) * T.line + 6);
+    }),
+  );
+  const heads = data.stages.map((stage, index): PipelineHead => {
+    const lines = stage.lines ?? [stage.label];
+    return {
+      lines,
+      x: M.column[index],
+      anchor: 'middle',
+      y: M.titleBase - (lines.length - 1) * T.stageLine,
+      ruleX: M.column[index] - M.halfRule,
+      ruleY: M.ruleY,
+      rule: 2 * M.halfRule,
+    };
+  });
+  const top = brackets ? 0 : M.bareTop;
+  return {
+    orient: 'm',
+    width: M.width,
+    top,
+    height: Math.ceil(bottom + 8 - top),
+    pos,
+    column,
+    heads: brackets ? heads : null,
+  };
+}
+
 const layouts = new Map<string, PipelineLayout>();
 
 /** A mode's layout in one orientation, with or without its stage brackets. */
@@ -592,7 +676,9 @@ export function pipelineLayout(
     layout =
       orient === 'h'
         ? horizontalLayout(PIPELINE[mode], brackets)
-        : verticalLayout(PIPELINE[mode], brackets);
+        : orient === 'm'
+          ? mediumLayout(PIPELINE[mode], brackets)
+          : verticalLayout(PIPELINE[mode], brackets);
     layouts.set(id, layout);
   }
   return layout;
@@ -602,14 +688,80 @@ export function pipelineLayout(
 export const viewBoxOf = (layout: PipelineLayout): string =>
   `0 ${layout.top} ${layout.width} ${layout.height}`;
 
+const n = (value: number) => String(Math.round(value * 10) / 10);
+const pt = (x: number, y: number) => `${n(x)} ${n(y)}`;
+
+/** A polyline of right angles as path data, each corner rounded to radius `r` (M, L and C only). */
+function rounded(points: (readonly [number, number])[], r: number): string {
+  const unit = (dx: number, dy: number) => {
+    const length = Math.hypot(dx, dy) || 1;
+    return [dx / length, dy / length] as const;
+  };
+  const k = 0.5523 * r; // a quarter circle's cubic handle
+  let d = `M${pt(...points[0])}`;
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const [px, py] = points[index - 1];
+    const [cx, cy] = points[index];
+    const [nx, ny] = points[index + 1];
+    const [ix, iy] = unit(cx - px, cy - py);
+    const [ox, oy] = unit(nx - cx, ny - cy);
+    const [ax, ay] = [cx - ix * r, cy - iy * r];
+    const [bx, by] = [cx + ox * r, cy + oy * r];
+    d += `L${pt(ax, ay)}C${pt(ax + ix * k, ay + iy * k)} ${pt(bx - ox * k, by - oy * k)} ${pt(bx, by)}`;
+  }
+  return `${d}L${pt(...points[points.length - 1])}`;
+}
+
+/** Stage columns: within a column straight down; between columns along a gutter. */
+function mediumEdge(layout: PipelineLayout, edge: PipelineEdge): string {
+  const [ax, ay] = layout.pos[edge.from];
+  const [bx, by] = layout.pos[edge.to];
+  const R = SOCKET;
+  const from = M.column.indexOf(ax as (typeof M.column)[number]);
+  const to = M.column.indexOf(bx as (typeof M.column)[number]);
+  const gutter = (index: number) => (M.column[index] + M.column[index + 1]) / 2;
+  if (from === to) {
+    // Down the column from under the label; two lanes into one part keep their ports' sides.
+    const dx = edge.port === 'upper' ? -10 : edge.port === 'lower' ? 10 : 0;
+    return `M${pt(ax + dx, ay + M.below)}L${pt(bx + dx, by - R)}`;
+  }
+  if (edge.route === 'bypass') {
+    const [up, down] = [gutter(from) - M.split, gutter(to - 1) - M.split];
+    return rounded(
+      [
+        [ax + R, ay - PORT],
+        [up, ay - PORT],
+        [up, M.bypass],
+        [down, M.bypass],
+        [down, by - PORT],
+        [bx - R, by - PORT],
+      ],
+      M.corner,
+    );
+  }
+  // The modeled lane climbs the gutter right of its middle. Out of the first column it leaves the
+  // observations' lower port, since the measured lane has the upper one.
+  const x = gutter(from) + M.split;
+  const sy = from === 0 ? ay + PORT : ay;
+  const ey = edge.port === 'lower' ? by + PORT : by;
+  return rounded(
+    [
+      [ax + R, sy],
+      [x, sy],
+      [x, ey],
+      [bx - R, ey],
+    ],
+    M.corner,
+  );
+}
+
 /** SVG path data for an edge in a layout. */
 export function edgePath(layout: PipelineLayout, edge: PipelineEdge): string {
+  if (layout.orient === 'm') return mediumEdge(layout, edge);
   const [ax, ay] = layout.pos[edge.from];
   const [bx, by] = layout.pos[edge.to];
   const R = SOCKET;
   const port = edge.port === 'upper' ? -PORT : edge.port === 'lower' ? PORT : 0;
-  const n = (value: number) => String(Math.round(value * 10) / 10);
-  const pt = (x: number, y: number) => `${n(x)} ${n(y)}`;
 
   if (layout.orient === 'h') {
     if (edge.route === 'bypass') {
@@ -662,6 +814,25 @@ export function laneTagPosition(
   layout: PipelineLayout,
   lane: 'measured' | 'modeled',
 ): { x: number; y: number; vertical: boolean } {
+  if (layout.orient === 'm') {
+    if (lane === 'measured')
+      return { x: M.column[1], y: M.bypass, vertical: false };
+    // Up the gutter out of the models' column, where only the modeled lane runs.
+    const climb = data.edges.find(
+      (edge) =>
+        edge.lane === 'modeled' &&
+        layout.pos[edge.from][0] === M.column[1] &&
+        layout.pos[edge.to][0] === M.column[2],
+    )!;
+    const [, ay] = layout.pos[climb.from];
+    const [, by] = layout.pos[climb.to];
+    const ey = climb.port === 'lower' ? by + PORT : by;
+    return {
+      x: (M.column[1] + M.column[2]) / 2 + M.split,
+      y: (ay + ey) / 2,
+      vertical: true,
+    };
+  }
   const [a, b] = data.laneTags[lane];
   const [ax, ay] = layout.pos[a];
   const [bx, by] = layout.pos[b];

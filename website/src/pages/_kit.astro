@@ -187,7 +187,7 @@ const revision = provenance.hf_revision.slice(0, 7);
       <h2 id="kit-pipeline">Pipeline</h2>
       <p class="devkit-note">
         The layout follows the plate's width: horizontal from a 1,000 px stage,
-        vertical below.
+        stage columns from 520 px, vertical below.
       </p>
       <h3>Mode 3, no toggle (Home)</h3>
       <Pipeline mode={3} modeToggle={false} idPrefix="kit-home" />
@@ -201,6 +201,10 @@ const revision = provenance.hf_revision.slice(0, 7);
             apply to every part.
           </span>
         </Pipeline>
+      </div>
+      <h3>Stage columns with the toggle, in a tablet-width column</h3>
+      <div class="devkit-tablet">
+        <Pipeline mode={6} idPrefix="kit-columns" />
       </div>
       <h3>Vertical form in a narrow column</h3>
       <div class="devkit-narrow">
@@ -395,9 +399,14 @@ const revision = provenance.hf_revision.slice(0, 7);
     max-width: 711px;
   }
 
+  .devkit-tablet {
+    width: 100%;
+    max-width: 740px;
+  }
+
   .devkit-narrow {
     width: 100%;
-    max-width: 34rem;
+    max-width: 480px;
   }
 
   /* A stage of at least 1,000 px, scrolled sideways on narrow screens. */

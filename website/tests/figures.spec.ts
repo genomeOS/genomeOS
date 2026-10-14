@@ -8,8 +8,9 @@
  * - figure chrome (controls, legends, readouts) overlaps neither other chrome, nor the stage it
  *   describes, nor the fixed header, nor the cookie control corner;
  * - every figure label renders at 13 px or more, at the project's width and at the other widths a
- *   layout can switch at (320–375 px phones; 1024–1920 px desktops, where a figure in a narrower
- *   column than the page, such as the Docs content, must still pick a layout that fits it);
+ *   layout can switch at (320–375 px phones; 768 px tablets and 1024–1920 px desktops, where a
+ *   figure in a narrower column than the page, such as the Docs content, must still pick a layout
+ *   that fits it);
  *   nothing in <main> is set in a monospace face;
  * - no wordmark inside a call to action; one selected tab and one pressed segment per group;
  * - chip and step rows keep inside the 16 px phone gutters, and control labels never overflow;
@@ -32,7 +33,7 @@ const VIEWPORTS = [
     width: 1440,
     height: 900,
     fold: 640,
-    otherWidths: [1024, 1280, 1920],
+    otherWidths: [768, 1024, 1280, 1920],
   },
   {
     name: 'phone',

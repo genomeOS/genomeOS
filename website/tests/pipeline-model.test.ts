@@ -28,7 +28,8 @@ import {
 } from '../src/data/pipeline';
 
 const MODEL_KINDS = new Set(['model']);
-const LAYOUTS = (['h', 'v'] as const).flatMap((orient) =>
+const ORIENTS = ['h', 'm', 'v'] as const;
+const LAYOUTS = ORIENTS.flatMap((orient) =>
   [true, false].map((brackets) => ({ orient, brackets })),
 );
 
@@ -218,7 +219,7 @@ describe.each(PIPELINE_MODES)('Pipeline mode %s', (mode: PipelineMode) => {
     );
   });
 
-  it('routes every edge in both orientations', () => {
+  it('routes every edge in every layout', () => {
     for (const { orient, brackets } of LAYOUTS)
       for (const edge of data.edges)
         expect(edgePath(pipelineLayout(mode, orient, brackets), edge)).toMatch(
@@ -242,26 +243,34 @@ describe.each(PIPELINE_MODES)('Pipeline mode %s', (mode: PipelineMode) => {
     }
   });
 
-  it('keeps the vertical stage heads clear of every wire', () => {
-    // Each head is a block of text with a short hairline under it (design review, fix round 1:
-    // the hairline used to run the full width and cross both lanes).
-    const layout = pipelineLayout(mode, 'v', true);
-    expect(layout.heads).toHaveLength(data.stages.length);
-    for (const head of layout.heads!) {
-      const box = {
-        left: head.x - 4,
-        right: head.x + head.rule + 4,
-        top: head.y - PIPELINE_TYPE.v.stage,
-        bottom: head.ruleY + 4,
-      };
-      for (const edge of data.edges)
-        for (const [x, y] of samplePath(edgePath(layout, edge)))
-          expect(
-            x > box.left && x < box.right && y > box.top && y < box.bottom,
-            `${edge.id} crosses "${head.lines.join(' ')}" at ${x.toFixed(0)}, ${y.toFixed(0)}`,
-          ).toBe(false);
-    }
-  });
+  it.each(['v', 'm'] as const)(
+    'keeps the %s stage heads clear of every wire',
+    (orient) => {
+      // Each head is a block of text with a short hairline under it (design review, fix round 1:
+      // the hairline used to run the full width and cross both lanes).
+      const layout = pipelineLayout(mode, orient, true);
+      expect(layout.heads).toHaveLength(data.stages.length);
+      const T = PIPELINE_TYPE[orient];
+      for (const head of layout.heads!) {
+        const width = Math.max(
+          ...head.lines.map((line) => textWidth(line, T.stage)),
+        );
+        const textLeft = head.anchor === 'middle' ? head.x - width / 2 : head.x;
+        const box = {
+          left: Math.min(head.ruleX, textLeft) - 4,
+          right: Math.max(head.ruleX + head.rule, textLeft + width) + 4,
+          top: head.y - T.stage,
+          bottom: head.ruleY + 4,
+        };
+        for (const edge of data.edges)
+          for (const [x, y] of samplePath(edgePath(layout, edge)))
+            expect(
+              x > box.left && x < box.right && y > box.top && y < box.bottom,
+              `${edge.id} crosses "${head.lines.join(' ')}" at ${x.toFixed(0)}, ${y.toFixed(0)}`,
+            ).toBe(false);
+      }
+    },
+  );
 
   it('keeps every label clear of every wire, socket and lane tag', () => {
     // Labels sit under their sockets (or beside them in the vertical layout's modeled column);
@@ -342,7 +351,7 @@ describe.each(PIPELINE_MODES)('Pipeline mode %s', (mode: PipelineMode) => {
   });
 
   it('drops the bracket band when it draws no stage brackets', () => {
-    for (const orient of ['h', 'v'] as const) {
+    for (const orient of ORIENTS) {
       const bare = pipelineLayout(mode, orient, false);
       const full = pipelineLayout(mode, orient, true);
       expect(bare.heads).toBeNull();
@@ -368,7 +377,7 @@ describe('Pipeline labels stay 13 px or more (spec §2.3)', () => {
       PIPELINE_TYPE[orient].lane,
     );
 
-  it.each(['h', 'v'] as const)(
+  it.each(ORIENTS)(
     'the %s layout at the narrowest stage it is drawn in',
     (orient) => {
       for (const { brackets } of LAYOUTS)
@@ -395,20 +404,47 @@ describe('Pipeline labels stay 13 px or more (spec §2.3)', () => {
       'utf8',
     );
     expect(source).toMatch(/container:\s*kit-pipeline\s*\/\s*inline-size/);
-    expect(source).toContain(
-      `@container kit-pipeline (min-width: ${PIPELINE_STAGE_WIDTH.h.min}px)`,
-    );
+    for (const orient of ['h', 'm'] as const)
+      expect(source).toContain(
+        `@container kit-pipeline (min-width: ${PIPELINE_STAGE_WIDTH[orient].min}px)`,
+      );
     expect(source).not.toMatch(/@media \((max|min)-width: [\d.]+rem\)/);
-    // The vertical layout stops growing before its labels get coarse.
-    expect(source).toContain(`max-width: ${PIPELINE_STAGE_WIDTH.v.max}px`);
-    expect(
-      PIPELINE_STAGE_WIDTH.v.max / pipelineLayout(6, 'v', true).width,
-    ).toBeLessThanOrEqual(1.35);
+    // The narrower layouts stop growing before their labels get coarse.
+    for (const orient of ['m', 'v'] as const) {
+      expect(source).toContain(
+        `max-width: ${PIPELINE_STAGE_WIDTH[orient].max}px`,
+      );
+      expect(
+        PIPELINE_STAGE_WIDTH[orient].max /
+          pipelineLayout(6, orient, true).width,
+      ).toBeLessThanOrEqual(1.35);
+    }
+    // Each layout takes over where the next wider one stops: no stage width is left without one.
+    expect(PIPELINE_STAGE_WIDTH.m.min).toBeLessThanOrEqual(
+      PIPELINE_STAGE_WIDTH.h.min,
+    );
+    expect(PIPELINE_STAGE_WIDTH.v.min).toBeLessThan(PIPELINE_STAGE_WIDTH.m.min);
   });
 
-  it('wraps a stage title in the vertical layout without changing its words', () => {
+  it('gives a mid-width plate the stage-column layout, not a strip', () => {
+    // Between a phone and a 1,000 px stage (the Docs column, tablets) the vertical layout was a
+    // 352 px strip 1,400 px tall in a 700 px plate (design review, fix round 2).
+    expect(PIPELINE_STAGE_WIDTH.m.min).toBeLessThanOrEqual(560);
+    for (const mode of PIPELINE_MODES) {
+      const medium = pipelineLayout(mode, 'm', true);
+      expect(medium.height / medium.width).toBeLessThan(1);
+      expect(medium.height).toBeLessThan(
+        pipelineLayout(mode, 'v', true).height / 1.6,
+      );
+    }
+  });
+
+  it('wraps a stage title in the vertical layouts without changing its words', () => {
     for (const mode of PIPELINE_MODES)
-      for (const head of pipelineLayout(mode, 'v', true).heads!)
+      for (const head of [
+        ...pipelineLayout(mode, 'v', true).heads!,
+        ...pipelineLayout(mode, 'm', true).heads!,
+      ])
         expect(PIPELINE[mode].stages.map((stage) => stage.label)).toContain(
           head.lines.join(' '),
         );
