@@ -94,6 +94,7 @@
       "rule": "the survey with the largest AN within 600 km of 9°N 8°E",
       "ac": 3028,
       "an": 19012,
+      "people": 9506,
       "radius_km": 6,
       "survey_index": 903,
       "lon": 3.9,
@@ -109,22 +110,23 @@
     },
     {
       "kind": "modeled",
-      "rule": "the highest-mean area visible at rest",
-      "mean": 0.1603,
-      "lo": 0.0716,
-      "hi": 0.2804,
-      "distance_km": 95,
-      "tier": "strong",
-      "area_index": 1764,
-      "lon": 17.51,
-      "lat": -8.38,
+      "rule": "the area within 25° of the view centre at rest, drawn with a value (strong or partial tier), with every neighbour estimated, at least 24 poster units from every stud and 0.35 disc radii from the other callouts, farthest from any survey",
+      "clearance_units": 27.6,
+      "mean": 0.0283,
+      "lo": 0.0134,
+      "hi": 0.0612,
+      "distance_km": 601,
+      "tier": "partial",
+      "area_index": 1115,
+      "lon": 20.91,
+      "lat": 23.13,
       "poster": [
-        317.4,
-        404.6
+        334,
+        241.7
       ],
       "disc": [
-        -0.0085,
-        0.282
+        0.0466,
+        -0.2611
       ]
     },
     {

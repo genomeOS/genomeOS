@@ -42,6 +42,7 @@ import {
   cellToLatLng,
   cellToParent,
   cellToVertexes,
+  gridDisk,
   vertexToLatLng,
 } from 'h3-js';
 import { runnerImport } from 'vite';
@@ -62,6 +63,16 @@ const REST = { lon: 18, lat: 8 };
 const VISIBLE_COSC = 0.35;
 const CALLOUT_SURVEY = { lon: 8, lat: 9, withinKm: 600 };
 const CALLOUT_UNKNOWN = { lon: 70, lat: 45 };
+/**
+ * The Modeled callout shows modeling, so it points where no survey is (owner review, round 2: the
+ * highest-mean area sat among the Central African studs). Its area faces the viewer at rest (within
+ * `withinDeg` of the view centre, so it stays legible as the globe turns), is drawn with a value
+ * (strong or partial tier, not the faded weak tier), sits inside the modeled surface (its six
+ * neighbours all carry an estimate: no coast, no gap), stands `clearUnits` from every stud at rest
+ * (poster units, 1 unit ≈ 1 CSS px on a desktop disc: 8% of the radius) and `apartRadii` disc radii
+ * from the other two anchors. Of those, the one farthest from any survey.
+ */
+const CALLOUT_MODELED = { withinDeg: 25, clearUnits: 24, apartRadii: 0.35 };
 /** Poster geometry: a square disc image, 1 unit ≈ 1 CSS px on a desktop hero. */
 const POSTER = { size: 640, radius: 300 };
 const SUPPORT_RANK = {
@@ -327,12 +338,13 @@ const surveyCallout = decodedSurveys
   .sort((a, b) => b.survey.an - a.survey.an || a.index - b.index)[0];
 if (!surveyCallout) fail('no survey within 600 km of 9°N 8°E');
 
+// HBB is autosomal: every person tested adds two alleles, so AN / 2 is the people tested.
+if (surveyCallout.survey.an % 2)
+  fail('the survey callout has an odd AN, so no whole number of people');
+
 const visibleGlobe = decodedGlobe
   .map((area, index) => ({ area, index, rest: atRest(...area.center) }))
   .filter(({ rest }) => rest.cosc >= VISIBLE_COSC);
-const meanCallout = visibleGlobe
-  .filter(({ area }) => area.mean !== null)
-  .sort((a, b) => b.area.mean - a.area.mean || a.index - b.index)[0];
 const unknownCallout = visibleGlobe
   .filter(({ area }) => area.support === 'unknown')
   .map((candidate) => ({
@@ -343,7 +355,50 @@ const unknownCallout = visibleGlobe
     ),
   }))
   .sort((a, b) => a.km - b.km || a.index - b.index)[0];
-if (!meanCallout || !unknownCallout) fail('a callout has no visible candidate');
+if (!unknownCallout) fail('the unknown callout has no visible candidate');
+
+const restStuds = decodedSurveys
+  .map((survey) => atRest(survey.lon, survey.lat))
+  .filter((point) => point.cosc > 0);
+const anchors = [
+  atRest(surveyCallout.survey.lon, surveyCallout.survey.lat),
+  unknownCallout.rest,
+];
+const estimated = new Set(
+  globe.filter((area) => area.mean !== null).map((area) => area.h3),
+);
+const faceOn = Math.cos((CALLOUT_MODELED.withinDeg * Math.PI) / 180);
+const meanCallout = visibleGlobe
+  .filter(
+    ({ area, index, rest }) =>
+      rest.cosc >= faceOn &&
+      area.mean !== null &&
+      (area.tier === 'strong' || area.tier === 'partial') &&
+      gridDisk(globe[index].h3, 1).every((cell) => estimated.has(cell)),
+  )
+  .map((candidate) => ({
+    ...candidate,
+    clear: Math.min(
+      ...restStuds.map((stud) =>
+        Math.hypot(stud.x - candidate.rest.x, stud.y - candidate.rest.y),
+      ),
+    ),
+  }))
+  .filter(({ clear }) => clear >= CALLOUT_MODELED.clearUnits)
+  .filter(({ rest }) =>
+    anchors.every(
+      (anchor) =>
+        Math.hypot(anchor.nx - rest.nx, anchor.ny - rest.ny) >=
+        CALLOUT_MODELED.apartRadii,
+    ),
+  )
+  .sort(
+    (a, b) =>
+      b.area.distanceKm - a.area.distanceKm ||
+      b.clear - a.clear ||
+      a.index - b.index,
+  )[0];
+if (!meanCallout) fail('the modeled callout has no visible candidate');
 
 const round = (value, digits = 6) =>
   value === null ? null : Math.round(value * 10 ** digits) / 10 ** digits;
@@ -363,13 +418,19 @@ const callouts = [
     rule: 'the survey with the largest AN within 600 km of 9°N 8°E',
     ac: surveyCallout.survey.ac,
     an: surveyCallout.survey.an,
+    people: surveyCallout.survey.an / 2,
     radius_km: surveyCallout.survey.radiusKm,
     survey_index: surveyCallout.index,
     ...restPoint(surveyCallout.survey.lon, surveyCallout.survey.lat),
   },
   {
     kind: 'modeled',
-    rule: 'the highest-mean area visible at rest',
+    rule:
+      `the area within ${CALLOUT_MODELED.withinDeg}° of the view centre at rest, drawn with a ` +
+      'value (strong or partial tier), with every neighbour estimated, at least ' +
+      `${CALLOUT_MODELED.clearUnits} poster units from every stud and ` +
+      `${CALLOUT_MODELED.apartRadii} disc radii from the other callouts, farthest from any survey`,
+    clearance_units: Math.round(meanCallout.clear * 10) / 10,
     mean: round(meanCallout.area.mean),
     lo: round(meanCallout.area.lo),
     hi: round(meanCallout.area.hi),

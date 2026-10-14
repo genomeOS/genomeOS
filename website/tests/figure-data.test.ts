@@ -21,6 +21,7 @@ import {
   STUD_RING,
   vsupColor,
 } from '../src/graphics/encoding';
+import { orthographic } from '../src/graphics/projection';
 
 const website = path.resolve(import.meta.dirname, '..');
 const figures = path.join(website, 'src/data/figures');
@@ -216,7 +217,7 @@ describe('committed figure data', () => {
     expect(kb(file('poster'))).toBeLessThanOrEqual(25);
   });
 
-  it('picks the hero callouts by their stated rules, with real counts', () => {
+  it('picks the callouts by their stated rules, with real counts', () => {
     const [survey, modeled, unknown] = provenance.callouts as Record<
       string,
       unknown
@@ -225,6 +226,9 @@ describe('committed figure data', () => {
     const surveys = decodeSurveys(file('surveys'));
     const chosen = surveys[survey.survey_index as number];
     expect([chosen.ac, chosen.an]).toEqual([survey.ac, survey.an]);
+    // Counted in people (owner review, round 2): HBB is autosomal, two alleles a person.
+    expect(chosen.an % 2).toBe(0);
+    expect(survey.people).toBe(chosen.an / 2);
     expect(modeled.kind).toBe('modeled');
     expect(modeled.lo as number).toBeLessThanOrEqual(modeled.mean as number);
     expect(modeled.mean as number).toBeLessThanOrEqual(modeled.hi as number);
@@ -235,6 +239,42 @@ describe('committed figure data', () => {
       const [x, y] = callout.disc as [number, number];
       expect(Math.hypot(x, y)).toBeLessThan(1);
     }
+  });
+
+  // Owner review, round 2: the Modeled callout pointed at a Central African area among the studs,
+  // so it showed measuring, not modeling. Its area is now clear of every stud at rest, far from
+  // any survey, drawn with a value, and its text is that area's own estimate and range.
+  it('points the Modeled callout at an estimated area clear of every stud', () => {
+    const modeled = (provenance.callouts as Record<string, unknown>[]).find(
+      (callout) => callout.kind === 'modeled',
+    )!;
+    const area = decodeAreas(file('globe'))[modeled.area_index as number];
+    expect(area.mean).not.toBeNull();
+    expect(['strong', 'partial']).toContain(area.tier);
+    expect(modeled.mean).toBeCloseTo(area.mean!, 6);
+    expect(modeled.lo).toBeCloseTo(area.lo!, 6);
+    expect(modeled.hi).toBeCloseTo(area.hi!, 6);
+    expect(area.distanceKm).toBeGreaterThanOrEqual(400);
+    const rest = provenance.rest as { lon: number; lat: number };
+    const { size, radius } = provenance.poster as {
+      size: number;
+      radius: number;
+    };
+    const atRest = orthographic({
+      center: [rest.lon, rest.lat],
+      scale: radius,
+      translate: [size / 2, size / 2],
+    });
+    const [ax, ay, cosc] = atRest.project(...area.center);
+    // Facing the viewer at rest, and at least 24 poster units (≈ px on a desktop disc) from every
+    // stud drawn there.
+    expect(cosc).toBeGreaterThanOrEqual(Math.cos((25 * Math.PI) / 180));
+    let nearest = Infinity;
+    for (const survey of decodeSurveys(file('surveys'))) {
+      const [x, y, c] = atRest.project(survey.lon, survey.lat);
+      if (c > 0) nearest = Math.min(nearest, Math.hypot(x - ax, y - ay));
+    }
+    expect(nearest).toBeGreaterThanOrEqual(24);
   });
 
   it('writes the hero alt text from the data', () => {
