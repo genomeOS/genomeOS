@@ -740,12 +740,12 @@
   }
 }
 
-/* The page's Cookie settings button: a 44 px target (moved verbatim from the page's scoped style). */
+/* The page's Cookie settings button: a 44 px target, square like every control (spec §2.4). */
 .privacy-cookie-settings {
   min-height: 44px;
   padding: 0.45rem 1rem;
   border: 1px solid rgb(112 230 255 / 55%);
-  border-radius: 0.5rem;
+  border-radius: 0;
   background: rgb(112 230 255 / 10%);
   color: var(--color-starlight);
   font: inherit;
