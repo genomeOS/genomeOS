@@ -141,15 +141,19 @@ describe('project page content', () => {
     expect(hbs).toContain(provenance.hf_revision.slice(0, 7));
     expect(hbs).toContain('/app/?entity=hbs-rs334&amp;palette=genome');
     expect(text(hbs)).toContain('coarsened for display');
-    // The no-JS count and the table come from the pinned data.
-    const at10 = provenance.table.region_thresholds.find(
-      (row) => row.threshold === 0.1,
+    // The no-JS count and the table come from the pinned data. The default threshold is 5%: at
+    // 10% no area's whole conservative range clears it, so the solid outline and its legend key
+    // would show nothing at rest.
+    const atDefault = provenance.table.region_thresholds.find(
+      (row) => row.threshold === 0.05,
     )!;
+    expect(atDefault.confidently_above).toBeGreaterThan(0);
     expect(text(hbs)).toContain(
-      `${at10.confidently_above} confidently above · ${at10.possibly_above} possibly above`,
+      `${atDefault.confidently_above} confidently above · ${atDefault.possibly_above} possibly above`,
     );
     expect(hbs).toMatch(/type="range"[^>]*min="1"[^>]*max="15"/);
-    expect(hbs).toContain('aria-valuetext="10 percent:');
+    expect(hbs).toMatch(/type="range"[^>]*value="5"/);
+    expect(hbs).toContain('aria-valuetext="5 percent:');
     // Each clause of the count is its own span, so a line breaks only at the " · ".
     expect(hbs).toMatch(
       /data-hbs-count[^>]*>\s*<span[^>]*>[\d,]+ confidently above<\/span> · <span[^>]*>[\d,]+ possibly above<\/span>\s*<\/p>/,

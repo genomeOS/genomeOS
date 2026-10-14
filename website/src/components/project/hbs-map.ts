@@ -42,7 +42,13 @@ export const THRESHOLD_STOPS: readonly number[] = Array.from(
   { length: 15 },
   (_, index) => index + 1,
 );
-export const DEFAULT_THRESHOLD = 10;
+/**
+ * The resting threshold. Spec §4.2 first set 10%, but with the conservative coarsening (an area's
+ * range runs from its lowest child q025) no area clears 10% with its whole range, so the solid
+ * "confidently above" outline and its legend key showed nothing at rest. At 5% both outlines show
+ * real areas: 274 confidently above, 648 possibly (site redesign integration, 2026-10-14).
+ */
+export const DEFAULT_THRESHOLD = 5;
 /** The projection centre (spec §4.2: 35°E, 10°N). */
 export const MAP_CENTER: LonLat = [35, 10];
 

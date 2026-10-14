@@ -95,28 +95,29 @@ test('the threshold slider changes the count and its spoken value', async ({
   const figure = await hbsReady(page);
   const slider = figure.getByRole('slider');
   const count = figure.locator('[data-hbs-count]');
-  await expect(slider).toHaveValue('10');
+  // The default is 5%, where some areas are confidently above, so both outlines show at rest.
+  await expect(slider).toHaveValue('5');
+  await expect(slider).toHaveAttribute(
+    'aria-valuetext',
+    /^5 percent: [1-9]\d* areas confidently above, \d+ possibly above$/,
+  );
+  const atDefault = await count.textContent();
+
+  await slider.fill('10');
   await expect(slider).toHaveAttribute(
     'aria-valuetext',
     /^10 percent: \d+ areas confidently above, \d+ possibly above$/,
   );
-  const at10 = await count.textContent();
-
-  await slider.fill('5');
-  await expect(slider).toHaveAttribute(
-    'aria-valuetext',
-    /^5 percent: \d+ areas confidently above, \d+ possibly above$/,
-  );
-  await expect(count).not.toHaveText(at10!);
+  await expect(count).not.toHaveText(atDefault!);
   await expect(count).toHaveText(
     /^\d+ confidently above · \d+ possibly above$/,
   );
-  await expect(figure.locator('[data-hbs-threshold]')).toHaveText('5%');
+  await expect(figure.locator('[data-hbs-threshold]')).toHaveText('10%');
 
   await slider.focus();
   await page.keyboard.press('ArrowRight');
-  await expect(slider).toHaveValue('6');
-  await expect(slider).toHaveAttribute('aria-valuetext', /^6 percent:/);
+  await expect(slider).toHaveValue('11');
+  await expect(slider).toHaveAttribute('aria-valuetext', /^11 percent:/);
 });
 
 test('selecting SS draws the sickled cell', async ({ page }) => {
