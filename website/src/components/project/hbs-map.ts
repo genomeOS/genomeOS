@@ -1,4 +1,4 @@
-/** The Project HbS threshold map (site redesign spec §4.2 P2, §6; #454).
+/** The Project HbS threshold map (site redesign spec §4.2, HbS, §6; #454).
  *
  * The real HbS (rs334) v3 surface, coarsened to res 3 for a window from West Africa to India, in a
  * Lambert azimuthal equal-area projection (so an area's share of the map is its share of the

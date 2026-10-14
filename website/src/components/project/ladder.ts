@@ -1,4 +1,4 @@
-/** The scale ladder (site redesign spec §4.2 P3, #454): four frames from Earth to a cell nucleus,
+/** The scale ladder (site redesign spec §4.2, the vision, #454): four frames from Earth to a cell nucleus,
  * joined by zoom wedges, and a tablist of the three levels of the vision.
  *
  * Geometry for both layouts lives here, so the server render and any test read one source:

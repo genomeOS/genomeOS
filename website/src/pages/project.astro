@@ -300,7 +300,7 @@ const LINKS: {
     near.observe(figure);
   });
 
-  // The six safeguards (spec §4.2 P4): CSS plays them once, 120 ms apart; hovering one replays it.
+  // The six safeguards (spec §4.2, safeguards): CSS plays them once, 120 ms apart; hovering one replays it.
   const TILE_MS = 1600;
   once('[data-safeguards]', (figure) => {
     const tiles = [...figure.querySelectorAll<HTMLElement>('.sg-tile')];
@@ -322,7 +322,7 @@ const LINKS: {
     }
   });
 
-  // The status rail (spec §4.2 P6): it draws once; an item and its node light each other.
+  // The status rail (spec §4.2, status): it draws once; an item and its node light each other.
   once('[data-rail]', (figure) => {
     for (const item of figure.querySelectorAll<HTMLElement>('[data-item]')) {
       const node = figure.querySelector<HTMLElement>(

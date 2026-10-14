@@ -112,7 +112,7 @@
   animation-play-state: paused !important;
 }
 
-/* ---------- intro: the join-up plate (P1) ---------- */
+/* ---------- intro: the join-up plate (the intro) ---------- */
 
 .proj-intro .page-intro__figure {
   margin-top: var(--head-gap);
@@ -609,7 +609,7 @@
   animation-delay: calc((var(--d-own) + 120) * 1ms);
 }
 
-/* ---------- HbS: genotypes and the threshold map (P2) ---------- */
+/* ---------- HbS: genotypes and the threshold map (HbS) ---------- */
 
 .hbs {
   display: grid;
@@ -1017,7 +1017,7 @@
   }
 }
 
-/* ---------- the scale ladder (P3) ---------- */
+/* ---------- the scale ladder (the vision) ---------- */
 
 .ladder {
   margin: 0;
@@ -1323,7 +1323,7 @@
   animation-delay: calc(var(--d) * 1ms + var(--figure-freeze, 0ms));
 }
 
-/* ---------- safeguards (P4) ---------- */
+/* ---------- safeguards (safeguards) ---------- */
 
 .sg {
   margin: 0;
@@ -1691,9 +1691,9 @@
   font-weight: 650;
 }
 
-/* ---------- the pipeline (P5) uses the kit as it is ---------- */
+/* ---------- the pipeline (the pipeline) uses the kit as it is ---------- */
 
-/* ---------- status rail (P6) ---------- */
+/* ---------- status rail (status) ---------- */
 
 .rail {
   margin: 0;

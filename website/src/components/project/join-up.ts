@@ -1,4 +1,4 @@
-/** The join-up plate (site redesign spec §4.2 P1, #454): five source records run through the
+/** The join-up plate (site redesign spec §4.2, the intro, #454): five source records run through the
  * six-field observation contract, and only what the contract supports reaches the placement field.
  *
  * These are the registry invariants of AGENTS.md drawn as a schematic, with no numbers and no real

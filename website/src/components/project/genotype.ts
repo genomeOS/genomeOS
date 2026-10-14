@@ -1,4 +1,4 @@
-/** The genotype triad (site redesign spec §4.2 P2, #454): AA, AS and SS, two allele dots each,
+/** The genotype triad (site redesign spec §4.2, HbS, #454): AA, AS and SS, two allele dots each,
  * and one shared frame that draws the red cell of the selected genotype.
  *
  * Sickling is drawn on the cell (the phenotype), never on the alleles. AA and AS cells are the same
