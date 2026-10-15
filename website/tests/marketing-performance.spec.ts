@@ -117,8 +117,8 @@ async function measure(
     window.scrollTo({ top: 0, behavior: 'instant' });
   });
   await page.waitForLoadState('networkidle');
-  // A hero film that started is measured whole: its timing entry lands when its download ends
-  // (about 9 s for the 720p film on Slow 4G). One kept on its poster (its reason says why) loads
+  // A hero film that started is measured whole: its timing entry lands when its download ends,
+  // which streaming paces to playback (tens of seconds for the minute-long film). One kept on its poster (its reason says why) loads
   // nothing.
   const film = await page.evaluate(() => {
     const root = document.querySelector<HTMLElement>('[data-hero-media]');
@@ -270,7 +270,8 @@ function expectBudgets(
 for (const manifest of fullyEnforced.filter((page) => !page.redirect))
   for (const profile of ['desktop', 'phone'] as const)
     test(`${manifest.route} meets its ${profile} budgets`, async ({ page }) => {
-      // A hero film on Slow 4G takes about 9 s to arrive whole.
+      // The hero film streams as it plays (about a minute at a quarter speed), so it arrives whole
+      // well after the load event; measure() waits for it.
       test.setTimeout(90_000);
       const measured = await measure(page, manifest.route, profile);
       console.log(
@@ -283,6 +284,8 @@ for (const route of marketingRoutes)
   test(`${route} requests no Cesium, no React and nothing third-party`, async ({
     page,
   }) => {
+    // The same measurement as the budgets, which waits for a streaming hero film to arrive whole.
+    test.setTimeout(90_000);
     const requests: string[] = [];
     page.on('request', (request) => requests.push(request.url()));
     await measure(page, route, 'desktop');

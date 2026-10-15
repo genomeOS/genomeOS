@@ -5,7 +5,13 @@
  * preview (the toy globe) and its rotation, the counts slider, the corpus numerals and the
  * application cards. Rotation timing runs on Playwright's fake clock, never on wall-clock sleeps.
  */
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import {
+  expect,
+  test,
+  type Locator,
+  type Page,
+  type Request,
+} from '@playwright/test';
 
 import { useSiteFixtures } from './helpers/marketing';
 
@@ -55,47 +61,36 @@ test('the film’s poster is the LCP, and the film loads only after the load eve
   });
   // A 1440 px desktop at 1x takes the 1080p film; the phone profile (412 px at 2.625x) the 720p.
   if (!isMobile) await page.setViewportSize({ width: 1440, height: 900 });
+  // The film streams as it plays, so its resource timing entry lands only when the whole minute has
+  // arrived. Its requests (often several ranges of one file) are read as they start instead.
+  const filmRequests: Request[] = [];
+  page.on('request', (request) => {
+    if (request.url().includes('/media/hero/')) filmRequests.push(request);
+  });
   await page.goto('/');
   await playingFilm(page);
-  // A media resource's timing entry lands when its download ends.
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          performance
-            .getEntriesByType('resource')
-            .filter((entry) => entry.name.includes('/media/hero/')).length,
-      ),
-    )
-    .toBeGreaterThan(0);
   const timing = await page.evaluate(() => {
     const [navigation] = performance.getEntriesByType(
       'navigation',
     ) as PerformanceNavigationTiming[];
     return {
-      load: navigation.loadEventEnd,
+      load: performance.timeOrigin + navigation.loadEventEnd,
       lcp: window.__lcp ?? [],
-      film: (
-        performance.getEntriesByType('resource') as PerformanceResourceTiming[]
-      )
-        .filter((entry) => entry.name.includes('/media/hero/'))
-        .map((entry) => ({
-          name: entry.name.split('/').pop(),
-          start: entry.startTime,
-          type: entry.initiatorType,
-        })),
     };
   });
+  expect(filmRequests.length).toBeGreaterThan(0);
   // The poster paints first and stays the largest paint: the film is the same size, so its first
   // frame never becomes a new candidate.
   expect(timing.lcp.at(-1)?.element).toBe('hero-media__poster');
   // One rendition, AV1 first: 720p on the phone profile, 1080p on the desktop one.
-  expect(timing.film.map((entry) => entry.name)).toEqual([
-    isMobile ? 'hero-720.av1.mp4' : 'hero-1080.av1.mp4',
-  ]);
-  for (const entry of timing.film) {
-    expect(entry.type).toBe('video');
-    expect(entry.start).toBeGreaterThanOrEqual(timing.load);
+  expect([
+    ...new Set(filmRequests.map((request) => request.url().split('/').pop())),
+  ]).toEqual([isMobile ? 'hero-720.av1.mp4' : 'hero-1080.av1.mp4']);
+  for (const request of filmRequests) {
+    expect(request.resourceType()).toBe('media');
+    // The browser's own start time for the request (epoch ms), known once its response has begun.
+    await request.response();
+    expect(request.timing().startTime).toBeGreaterThanOrEqual(timing.load);
   }
   // The poster's own attributes.
   const poster = page.locator('.hero-media__poster');
@@ -601,8 +596,11 @@ async function previewOnClock(page: Page): Promise<Locator> {
   await page.goto('/');
   const figure = preview(page);
   await figure.scrollIntoViewIfNeeded();
+  // fastForward fires one frame per step, where runFor would draw every frame of the entrance:
+  // the rest state is what these tests need, and software WebGL on CI draws a phone-sized globe
+  // too slowly for ~180 frames to fit the wait.
   await expect(async () => {
-    await page.clock.runFor(250);
+    await page.clock.fastForward(250);
     await expect(figure).toHaveAttribute('data-figure-state', 'rest', {
       timeout: 100,
     });
