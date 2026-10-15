@@ -2638,6 +2638,60 @@ test('set in the fallback fonts, the intro takes the lines the web fonts give it
   await context.close();
 });
 
+// The address spelled out is wider than the address: in the fallback font, before the web font
+// arrives, it once pushed Copy onto a line of its own at 390 px, and the web font's arrival lifted
+// the page by a line (CLS 0.14). In every font the address and Copy share a line, and the address,
+// joined, fits the box its spelled-out form keeps.
+test('in the web font and the fallbacks, the address shares a line with Copy, before and after it is joined @desktop-chromium', async ({
+  browser,
+}) => {
+  for (const font of ['Figtree', 'Avenir Next', 'Figtree Fallback']) {
+    const context = await (browser as Browser).newContext();
+    const page = await context.newPage();
+    if (font !== 'Figtree')
+      await page.route(/\.woff2(\?|$)/, (route) => route.abort());
+    if (font === 'Figtree Fallback')
+      await page.route(/\/contact\/$|\.css(\?|$)/, async (route) => {
+        const response = await route.fetch();
+        const body = (await response.text()).replaceAll(
+          'Avenir Next',
+          'No Such Font',
+        );
+        await route.fulfill({ response, body });
+      });
+    for (const width of [320, 390, 412, 1440]) {
+      const label = `${font}, ${width} px`;
+      await page.setViewportSize({ width, height: 840 });
+      await page.goto('/contact/');
+      await page.evaluate(() => document.fonts.ready);
+      await expect(composer(page)).toHaveAttribute('data-ready', '');
+      const row = () =>
+        page.evaluate(() => {
+          const box = (selector: string) =>
+            document.querySelector(selector)!.getBoundingClientRect();
+          const text = document.createRange();
+          text.selectNodeContents(document.querySelector('[data-address]')!);
+          return {
+            slot: box('.contact-address__value').toJSON(),
+            copy: box('.contact-copy').toJSON(),
+            text: text.getBoundingClientRect().width,
+          };
+        });
+      const before = await row();
+      // One line: Copy beside the address, not under it.
+      expect(before.copy.top, label).toBeLessThan(before.slot.bottom);
+      expect(before.copy.left, label).toBeGreaterThanOrEqual(before.slot.right);
+      await arrive(page);
+      await expect(shownAddress(page), label).toHaveText(ADDRESS);
+      const after = await row();
+      expect(after.slot, label).toEqual(before.slot);
+      expect(after.copy, label).toEqual(before.copy);
+      expect(after.text, label).toBeLessThanOrEqual(after.slot.width);
+    }
+    await context.close();
+  }
+});
+
 test('no sideways scroll at 320, 390, 640, 1024 or 1440 px', async ({
   page,
 }) => {
