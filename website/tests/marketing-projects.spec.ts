@@ -14,8 +14,19 @@
  * figures, motion) cover the rest.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
+import {
+  DEFAULT_STOP,
+  THRESHOLD_STOPS,
+  genotypeShare,
+  thresholdLabel,
+  type Genotype,
+} from '../src/components/project/hbs-genotypes';
+import { decodeAreas, type Area } from '../src/graphics/figure-data';
 import { visibleWords } from './helpers/manifest-page';
 import { useSiteFixtures } from './helpers/marketing';
 
@@ -103,29 +114,31 @@ test('the threshold slider changes the count and its spoken value', async ({
   const figure = await hbsReady(page);
   const slider = figure.getByRole('slider');
   const count = figure.locator('[data-hbs-count]');
-  // The default is 5%, where some areas are confidently above, so both outlines show at rest.
-  await expect(slider).toHaveValue('5');
+  // AS is pressed by default, and its slider starts at 10% of births (stop 9 of 0–19).
+  await expect(slider).toHaveValue('9');
   await expect(slider).toHaveAttribute(
     'aria-valuetext',
-    /^5 percent: [1-9]\d* areas confidently above, \d+ possibly above$/,
+    /^10 percent: [1-9]\d* areas confidently above, \d+ possibly above$/,
   );
   const atDefault = await count.textContent();
 
-  await slider.fill('10');
+  await slider.fill('14');
   await expect(slider).toHaveAttribute(
     'aria-valuetext',
-    /^10 percent: \d+ areas confidently above, \d+ possibly above$/,
+    /^15 percent: \d+ areas confidently above, \d+ possibly above$/,
   );
   await expect(count).not.toHaveText(atDefault!);
   await expect(count).toHaveText(
-    /^\d+ confidently above · \d+ possibly above$/,
+    /^[\d,]+ confidently above, [\d,]+ possibly above$/,
   );
-  await expect(figure.locator('[data-hbs-threshold]')).toHaveText('10%');
+  await expect(figure.locator('.hbs__slider-label')).toHaveText(
+    'Show areas where 15% or more of births are AS',
+  );
 
   await slider.focus();
   await page.keyboard.press('ArrowRight');
-  await expect(slider).toHaveValue('11');
-  await expect(slider).toHaveAttribute('aria-valuetext', /^11 percent:/);
+  await expect(slider).toHaveValue('15');
+  await expect(slider).toHaveAttribute('aria-valuetext', /^16 percent:/);
 });
 
 test('selecting SS draws the sickled cell', async ({ page }) => {
@@ -212,7 +225,7 @@ test('the HbS map describes the area under its keyboard reticle', async ({
   await page.keyboard.press('ArrowLeft');
   await expect(readout).not.toHaveText(idle!);
   await expect(readout).toHaveText(
-    /Modeled estimate about [\d.]+%|No estimate|[\d,]+ people tested/,
+    /Modeled: AS in about [<>\d.]+% of births|No estimate|[\d,]+ people tested/,
   );
   await page.keyboard.press('Home');
   await expect(readout).not.toHaveText(idle!);
@@ -296,10 +309,10 @@ test(
     const legend = figure.locator('.hbs__legend');
     const tops = new Set<number>();
     // Every stop's count, one line or two, sits in the same reserved box (spec §2.4).
-    for (const stop of ['10', '5', '1', '15']) {
-      await slider.fill(stop);
+    for (const index of [9, 4, 0, 19]) {
+      await slider.fill(String(index));
       await expect(figure.locator('[data-hbs-threshold]')).toHaveText(
-        `${stop}%`,
+        `${THRESHOLD_STOPS.AS[index]}%`,
       );
       tops.add(Math.round((await legend.boundingBox())!.y));
     }
@@ -577,19 +590,31 @@ test('“hemoglobin S” never breaks across two lines', async ({ page }) => {
   }
 });
 
-test('the HbS count breaks only between its two clauses', async ({ page }) => {
+// The count sets its two clauses one per line, each whole, numbers right-aligned in one column, so
+// a new number never moves the words after it (ruling 36: no layout shift).
+test('the HbS count sets each clause whole, on a line of its own', async ({
+  page,
+}) => {
   await page.goto('/projects/');
   const figure = await hbsReady(page);
   const slider = figure.getByRole('slider');
-  const clauses = figure.locator('[data-hbs-count] > span');
-  for (const stop of ['5', '1', '10', '15']) {
-    await slider.fill(stop);
+  const clauses = figure.locator('[data-hbs-count] > .hbs__clause');
+  for (const index of [4, 0, 9, 19]) {
+    const stop = THRESHOLD_STOPS.AS[index];
+    await slider.fill(String(index));
     await expect(figure.locator('[data-hbs-threshold]')).toHaveText(`${stop}%`);
     await expect(clauses).toHaveCount(2);
     const lines = await clauses.evaluateAll((spans) =>
-      spans.map((span) => span.getClientRects().length),
+      spans.map((span) => [
+        span.getClientRects().length,
+        Math.round(span.getBoundingClientRect().top),
+        Math.round(span.querySelector('b')!.getBoundingClientRect().right),
+      ]),
     );
-    expect(lines, `${stop}%`).toEqual([1, 1]);
+    expect(lines[0][0], `${stop}%`).toBe(1);
+    expect(lines[1][0], `${stop}%`).toBe(1);
+    expect(lines[1][1], `${stop}%`).toBeGreaterThan(lines[0][1]);
+    expect(lines[1][2], `${stop}%`).toBe(lines[0][2]);
   }
 });
 
@@ -1253,5 +1278,446 @@ test(
       await page.waitForTimeout(400);
       expect(await overflow(), `${width} px open`).toBe(0);
     }
+  },
+);
+
+// ---------------------------------------------------------------------------------------------
+// Ruling 36 and the owner's threshold request (2026-10-15): the genotype triad drives the map, and
+// areas below the threshold recede to a muted grey.
+
+const region = (() => {
+  const figures = path.resolve(import.meta.dirname, '../src/data/figures');
+  const provenance = JSON.parse(
+    readFileSync(path.join(figures, 'hbs.provenance.json'), 'utf8'),
+  ) as { files: { region: { name: string } } };
+  return decodeAreas(
+    readFileSync(path.join(figures, provenance.files.region.name)),
+  );
+})();
+/**
+ * Areas whose every neighbour is like them, so no threshold outline runs near their centre: one
+ * evidence tier (strong by default), all six edges shared, and every neighbour kept by `keep`.
+ */
+const interior = (() => {
+  // Neighbouring H3 cells share exact vertices, so an edge's two vertex keys name it.
+  const key = ([lon, lat]: [number, number]) =>
+    `${Math.round(lon * 100)},${Math.round(lat * 100)}`;
+  const sides = new Map<string, number[]>();
+  region.forEach((area, index) =>
+    area.boundary.forEach((point, k) => {
+      const [a, b] = [
+        key(point),
+        key(area.boundary[(k + 1) % area.boundary.length]),
+      ];
+      if (a === b) return;
+      const edge = a < b ? `${a}|${b}` : `${b}|${a}`;
+      sides.set(edge, [...(sides.get(edge) ?? []), index]);
+    }),
+  );
+  const neighbours = region.map(() => [] as number[]);
+  const open = new Set<number>();
+  for (const pair of sides.values())
+    if (pair.length === 1) open.add(pair[0]);
+    else {
+      neighbours[pair[0]].push(pair[1]);
+      neighbours[pair[1]].push(pair[0]);
+    }
+  return (keep: (q: number) => boolean, tier: Area['tier'] = 'strong') =>
+    region
+      .map((area, index) => ({ area, index }))
+      .filter(
+        ({ area, index }) =>
+          area.tier === tier &&
+          area.mean !== null &&
+          keep(area.mean) &&
+          !open.has(index) &&
+          neighbours[index].length >= 6 &&
+          neighbours[index].every((other) => {
+            const q = region[other].mean;
+            return q !== null && keep(q);
+          }),
+      )
+      .map(({ area }) => area as Area & { mean: number })
+      .sort((a, b) => b.mean - a.mean);
+})();
+/** Deep in the high-frequency region (AS above 21%, AA below 77%), highest first. */
+const highAreas = interior((q) => q > 0.12);
+/** Deep in the low-frequency region (AS below 2%, AA above 98%). */
+const lowAreas = interior((q) => q < 0.01);
+const highest = highAreas[0];
+const lowest = lowAreas[lowAreas.length - 1];
+
+const genotypeButton = (page: Page, genotype: Genotype) =>
+  page.locator(
+    `figure[data-graphic="hbs-threshold"] button[data-value="${genotype}"]`,
+  );
+
+/** The map at rest and on screen, its data drawn. */
+async function mapAtRest(page: Page) {
+  const figure = await hbsReady(page);
+  await figure.evaluate((element) =>
+    element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+  );
+  await expect(figure).toHaveAttribute('data-figure-state', 'rest', {
+    timeout: 4_000,
+  });
+  return figure;
+}
+
+/** The surface pixel at a place's projected position (the e2e build's map hook). */
+const pixelAt = (page: Page, [lon, lat]: [number, number]) =>
+  page.locator('figure[data-graphic="hbs-threshold"]').evaluate(
+    (figure, [x0, y0]) => {
+      const canvas = figure.querySelector<HTMLCanvasElement>(
+        '[data-hbs-canvas="surface"]',
+      )!;
+      const [x, y] = (
+        figure as unknown as {
+          __hbsPoint(lon: number, lat: number): [number, number];
+        }
+      ).__hbsPoint(x0, y0);
+      const scale = canvas.width / canvas.clientWidth;
+      const [r, g, b] = canvas
+        .getContext('2d')!
+        .getImageData(Math.round(x * scale), Math.round(y * scale), 1, 1).data;
+      return { r, g, b, spread: Math.max(r, g, b) - Math.min(r, g, b) };
+    },
+    [lon, lat] as [number, number],
+  );
+
+/** A coarse fingerprint of the surface canvas: a grid of sampled colours. */
+const surfacePrint = (page: Page) =>
+  page
+    .locator('figure[data-graphic="hbs-threshold"] [data-hbs-canvas="surface"]')
+    .evaluate((canvas: HTMLCanvasElement) => {
+      const { data } = canvas
+        .getContext('2d')!
+        .getImageData(0, 0, canvas.width, canvas.height);
+      const samples: number[] = [];
+      for (let index = 0; index < data.length; index += 4 * 211)
+        samples.push(data[index], data[index + 1], data[index + 2]);
+      return samples.join(',');
+    });
+
+/**
+ * A point on the map, on screen, over a modeled area and clear of every stud (partial-evidence
+ * areas, deep in their region: strong evidence means a survey within 170 km, a stud's width away).
+ */
+function modeledPoint(figure: Locator) {
+  return figure.evaluate(
+    (element, centres) => {
+      const hook = element as unknown as {
+        __hbsPoint(lon: number, lat: number): [number, number];
+      };
+      const box = element
+        .querySelector('[data-hbs-canvas="surface"]')!
+        .getBoundingClientRect();
+      const studs = element.querySelector<HTMLCanvasElement>(
+        '[data-hbs-canvas="studs"]',
+      )!;
+      const studBox = studs.getBoundingClientRect();
+      const { data, width } = studs
+        .getContext('2d')!
+        .getImageData(0, 0, studs.width, studs.height);
+      // No stud's pixels within 10 CSS px of the point (the studs' hit radius is 9 or less).
+      const clear = (x: number, y: number) => {
+        const sx = studs.width / studBox.width;
+        const sy = studs.height / studBox.height;
+        for (let dy = -10; dy <= 10; dy += 2)
+          for (let dx = -10; dx <= 10; dx += 2) {
+            const px = Math.round((x + dx - (studBox.left - box.left)) * sx);
+            const py = Math.round((y + dy - (studBox.top - box.top)) * sy);
+            if (px < 0 || py < 0 || px >= studs.width || py >= studs.height)
+              continue;
+            if (data[(py * width + px) * 4 + 3] > 0) return false;
+          }
+        return true;
+      };
+      const onScreen = (x: number, y: number) =>
+        box.top + y > 8 && box.top + y < innerHeight - 8;
+      for (const [lon, lat] of centres) {
+        const [x, y] = hook.__hbsPoint(lon, lat);
+        if (onScreen(x, y) && clear(x, y))
+          return { x: box.left + x, y: box.top + y };
+      }
+      return null;
+    },
+    interior(() => true, 'partial').map((area) => area.center),
+  );
+}
+
+test('pressing AA, AS or SS redraws the map as that genotype’s expected share of births', async ({
+  page,
+}) => {
+  await page.goto('/projects/');
+  const figure = await mapAtRest(page);
+  const map = figure.locator('[data-hbs-map]');
+  const prints = new Map<Genotype, string>();
+  for (const genotype of ['AA', 'SS', 'AS'] as const) {
+    const stop = DEFAULT_STOP[genotype];
+    await genotypeButton(page, genotype).click();
+    await expect(figure).toHaveAttribute(
+      'data-hbs-shown',
+      `${genotype} ${stop}`,
+    );
+    // One control, one state: the triad's pressed button is the genotype the map shows.
+    await expect(genotypeButton(page, genotype)).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expect(figure.locator('[aria-pressed="true"]')).toHaveCount(1);
+    prints.set(genotype, await surfacePrint(page));
+    await expect(figure.locator('.hbs__slider-label')).toHaveText(
+      thresholdLabel(genotype, stop),
+    );
+    await expect(figure.getByRole('slider')).toHaveAttribute(
+      'aria-valuetext',
+      new RegExp(
+        `^${stop} percent: [\\d,]+ areas confidently above, [\\d,]+ possibly above$`,
+      ),
+    );
+    // The text alternative says what is shown, and how it was derived.
+    await expect(map).toHaveAttribute(
+      'aria-label',
+      new RegExp(`\\(${genotype}\\)`),
+    );
+    await expect(map).toHaveAttribute('aria-label', /assuming random mating/);
+    // The legend's ramp names the genotype and its own range.
+    for (const other of ['AA', 'AS', 'SS'] as const)
+      if (other === genotype)
+        await expect(
+          figure.locator(`.hbs__ramp-key [data-variant="${other}"]`),
+        ).toBeVisible();
+      else
+        await expect(
+          figure.locator(`.hbs__ramp-key [data-variant="${other}"]`),
+        ).toBeHidden();
+  }
+  expect(new Set(prints.values()).size).toBe(3);
+  await expect(figure.locator('.hbs__caption')).toHaveText(
+    'Expected share of births, from the modeled frequency',
+  );
+});
+
+test('below the threshold an area recedes to grey; at or above it keeps its colour', async ({
+  page,
+}) => {
+  await page.goto('/projects/');
+  await mapAtRest(page);
+  // AS at 10%: the high-frequency area is far above it, the low one far below.
+  expect(highest, 'a high-frequency interior area').toBeTruthy();
+  expect(lowest, 'a low-frequency interior area').toBeTruthy();
+  expect(genotypeShare('AS', highest.mean)).toBeGreaterThan(0.2);
+  expect(genotypeShare('AS', lowest.mean)).toBeLessThan(0.02);
+  const colour = await pixelAt(page, highest.center);
+  const grey = await pixelAt(page, lowest.center);
+  expect(colour.spread, JSON.stringify(colour)).toBeGreaterThanOrEqual(40);
+  expect(grey.spread, JSON.stringify(grey)).toBeLessThanOrEqual(14);
+  // AA at 90%: the same two places trade places.
+  await genotypeButton(page, 'AA').click();
+  await expect(
+    page.locator('figure[data-graphic="hbs-threshold"]'),
+  ).toHaveAttribute('data-hbs-shown', 'AA 90');
+  expect((await pixelAt(page, highest.center)).spread).toBeLessThanOrEqual(14);
+  expect((await pixelAt(page, lowest.center)).spread).toBeGreaterThanOrEqual(
+    40,
+  );
+});
+
+test('the legend names the muted state in words, for the threshold shown', async ({
+  page,
+}) => {
+  await page.goto('/projects/');
+  const figure = await mapAtRest(page);
+  const key = figure.locator('[data-hbs-muted-key]');
+  await expect(key).toHaveText('Below 10%');
+  await expect(key.locator('xpath=..').locator('svg')).toBeVisible();
+  await figure.getByRole('slider').fill('14');
+  await expect(key).toHaveText('Below 15%');
+  await genotypeButton(page, 'SS').click();
+  await expect(key).toHaveText('Below 0.5%');
+  // Back on AS, its own threshold is where the reader left it.
+  await genotypeButton(page, 'AS').click();
+  await expect(key).toHaveText('Below 15%');
+  await expect(figure.getByRole('slider')).toHaveValue('14');
+});
+
+test('the recolour takes at most 300 ms and moves nothing on the page', async ({
+  page,
+}) => {
+  await page.goto('/projects/');
+  const figure = await mapAtRest(page);
+  await page.evaluate(() => {
+    const state = window as unknown as { __shifts: number };
+    state.__shifts = 0;
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries() as (PerformanceEntry & {
+        value: number;
+      })[])
+        state.__shifts += entry.value;
+    }).observe({ type: 'layout-shift' });
+  });
+  const boxes = () =>
+    figure.evaluate((element) =>
+      [
+        '.triad',
+        '[data-hbs-map]',
+        '.hbs__controls',
+        '.kit-readout',
+        '.hbs__legend',
+        '.kit-figure__footnote',
+      ].map((selector) =>
+        JSON.stringify(
+          element.querySelector(selector)!.getBoundingClientRect(),
+        ),
+      ),
+    );
+  const before = await boxes();
+  for (const genotype of ['SS', 'AA', 'AS'] as const) {
+    const elapsed = await figure.evaluate(
+      (element, value) =>
+        new Promise<number>((resolve) => {
+          const started = performance.now();
+          new MutationObserver((_, observer) => {
+            observer.disconnect();
+            resolve(performance.now() - started);
+          }).observe(element, { attributeFilter: ['data-hbs-shown'] });
+          element
+            .querySelector<HTMLButtonElement>(`button[data-value="${value}"]`)!
+            .click();
+        }),
+      genotype,
+    );
+    expect(elapsed, genotype).toBeLessThanOrEqual(300);
+    expect(await boxes(), genotype).toEqual(before);
+  }
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { __shifts: number }).__shifts,
+    ),
+  ).toBe(0);
+});
+
+test('under reduced motion the recolour is instant', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/projects/');
+  const figure = await mapAtRest(page);
+  const shown = await figure.evaluate((element) => {
+    element
+      .querySelector<HTMLButtonElement>('button[data-value="SS"]')!
+      .click();
+    return element.getAttribute('data-hbs-shown');
+  });
+  expect(shown).toBe('SS 0.5');
+  expect(
+    await figure
+      .locator('[data-hbs-canvas="previous"]')
+      .evaluate((canvas) => getComputedStyle(canvas).opacity),
+  ).toBe('0');
+});
+
+test('readouts and the table follow the genotype; survey readouts stay as measured', async ({
+  page,
+}) => {
+  await page.goto('/projects/');
+  const figure = await mapAtRest(page);
+  // The map itself in view (on a phone the figure is taller than the screen).
+  await figure
+    .locator('[data-hbs-map]')
+    .evaluate((map) =>
+      map.scrollIntoView({ block: 'center', behavior: 'instant' }),
+    );
+  const readout = figure.locator('[data-readout]');
+  const press = (genotype: Genotype) =>
+    figure.evaluate(
+      (element, value) =>
+        element
+          .querySelector<HTMLButtonElement>(`button[data-value="${value}"]`)!
+          .click(),
+      genotype,
+    );
+  // An area: the pointer rests on a modeled place, clear of any stud, while the genotype changes.
+  const onArea = await modeledPoint(figure);
+  expect(onArea).not.toBeNull();
+  await page.mouse.move(onArea!.x, onArea!.y);
+  await expect(readout).toHaveText(/^Modeled: AS in about [\d.]+% of births/);
+  await press('SS');
+  await expect(readout).toHaveText(/^Modeled: SS in about [\d.]+% of births/);
+  await press('AA');
+  await expect(readout).toHaveText(/^Modeled: AA in about [\d.]+% of births/);
+  // A survey: allele counts, never genotypes, so its readout is the same for every genotype.
+  const stud = await figure
+    .locator('[data-hbs-canvas="studs"]')
+    .evaluate((canvas: HTMLCanvasElement) => {
+      const { width, height } = canvas;
+      const { data } = canvas
+        .getContext('2d')!
+        .getImageData(0, 0, width, height);
+      const white = (x: number, y: number) => {
+        const at = (y * width + x) * 4;
+        return (
+          data[at] > 235 &&
+          data[at + 1] > 235 &&
+          data[at + 2] > 235 &&
+          data[at + 3] > 250
+        );
+      };
+      const rect = canvas.getBoundingClientRect();
+      for (let y = 3; y < height - 3; y += 2)
+        for (let x = 3; x < width - 3; x += 2) {
+          const at = {
+            x: rect.left + ((x + 0.5) / width) * rect.width,
+            y: rect.top + ((y + 0.5) / height) * rect.height,
+          };
+          if (at.y < 8 || at.y > innerHeight - 8) continue;
+          if (
+            [-2, 0, 2].every((dy) =>
+              [-2, 0, 2].every((dx) => white(x + dx, y + dy)),
+            )
+          )
+            return at;
+        }
+      return null;
+    });
+  expect(stud).not.toBeNull();
+  await page.mouse.move(stud!.x, stud!.y);
+  await expect(readout).toHaveText(/people tested/);
+  const measured = await readout.textContent();
+  await press('SS');
+  await expect(figure).toHaveAttribute('data-hbs-shown', 'SS 0.5');
+  await expect(readout).toHaveText(measured!);
+  // The table lists the genotype shown, and says how its shares were derived.
+  await figure.locator('.kit-figure__table summary').click();
+  const table = figure.locator('.kit-figure__table table:visible');
+  await expect(table).toHaveCount(1);
+  await expect(table.locator('caption')).toContainText('(SS)');
+  await expect(table.locator('caption')).toContainText('random mating');
+  await press('AS');
+  await expect(table.locator('caption')).toContainText('(AS)');
+});
+
+test(
+  'the HbS readout keeps its box when an area’s four lines arrive',
+  { tag: '@desktop-chromium' },
+  async ({ page }) => {
+    await page.goto('/projects/');
+    const figure = await mapAtRest(page);
+    await figure
+      .locator('[data-hbs-map]')
+      .evaluate((map) =>
+        map.scrollIntoView({ block: 'center', behavior: 'instant' }),
+      );
+    const readout = figure.locator('[data-readout]');
+    const idle = (await readout.boundingBox())!.height;
+    const legend = (await figure.locator('.hbs__legend').boundingBox())!.y;
+    // A modeled place clear of studs: the readout gives its share, range, frequency and distance.
+    const point = await modeledPoint(figure);
+    expect(point).not.toBeNull();
+    await page.mouse.move(point!.x, point!.y);
+    await expect(readout).toHaveText(/^Modeled: AS in about/);
+    expect((await readout.boundingBox())!.height).toBe(idle);
+    expect((await figure.locator('.hbs__legend').boundingBox())!.y).toBe(
+      legend,
+    );
   },
 );

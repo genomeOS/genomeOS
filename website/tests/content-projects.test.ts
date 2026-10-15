@@ -16,12 +16,29 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
-  THRESHOLD_STOPS,
   classifyArea,
   describeHit,
+  formatPercent,
   sameHit,
   thresholdCounts,
+  valueText,
 } from '../src/components/project/hbs-map';
+import {
+  DEFAULT_STOP,
+  GENOTYPE_ORDER,
+  RECOLOUR_MS,
+  THRESHOLD_STOPS,
+  areaFill,
+  genotypeArea,
+  genotypeDomain,
+  genotypeShare,
+  muteColor,
+  rangeLabel,
+  shareInterval,
+  stopText,
+  thresholdLabel,
+} from '../src/components/project/hbs-genotypes';
+import { ENC, vsupColor } from '../src/graphics/encoding';
 import {
   decodeAreas,
   decodeSurveys,
@@ -40,6 +57,7 @@ const provenance = JSON.parse(
 ) as {
   hf_revision: string;
   tier_limits_km: { weak: number };
+  metric_domain: { post_mean: [number, number] };
   files: Record<string, { name: string }>;
   table: {
     region_thresholds: {
@@ -432,33 +450,89 @@ describe('projects page content', () => {
     expect(footnote).toContain(provenance.hf_revision.slice(0, 7));
     expect(text(footnote)).toContain('coarsened for display');
     expect(footnote).not.toContain('<a');
-    // The no-JS count and the table come from the pinned data. The default threshold is 5%: at
-    // 10% no area's whole conservative range clears it, so the solid outline and its legend key
-    // would show nothing at rest.
-    const atDefault = provenance.table.region_thresholds.find(
-      (row) => row.threshold === 0.05,
-    )!;
-    expect(atDefault.confidently_above).toBeGreaterThan(0);
-    expect(text(hbs)).toContain(
-      `${atDefault.confidently_above} confidently above · ${atDefault.possibly_above} possibly above`,
+    // Server-rendered for AS, the triad's default: its slider at 10% of births (stop 9 of 0–19)
+    // and the count there, from the pinned data.
+    const regionAreas = decodeAreas(
+      readFileSync(path.join(figures, provenance.files.region.name)),
     );
-    expect(hbs).toMatch(/type="range"[^>]*min="1"[^>]*max="15"/);
-    expect(hbs).toMatch(/type="range"[^>]*value="5"/);
-    expect(hbs).toContain('aria-valuetext="5 percent:');
-    // Each clause of the count is its own span, so a line breaks only at the " · ".
+    const atDefault = thresholdCounts(
+      regionAreas.map((area) => genotypeArea(area, 'AS')),
+      DEFAULT_STOP.AS / 100,
+    );
+    expect(atDefault.confident).toBeGreaterThan(0);
+    expect(text(hbs)).toMatch(
+      new RegExp(
+        `${atDefault.confident} confidently above ?, ${atDefault.possible} possibly above`,
+      ),
+    );
+    expect(hbs).toMatch(/type="range"[^>]*min="0"[^>]*max="19"/);
+    expect(hbs).toMatch(/type="range"[^>]*value="9"/);
+    expect(hbs).toContain('aria-valuetext="10 percent:');
+    expect(hbs).toMatch(/data-hbs-genotype="AS"/);
+    expect(text(hbs)).toContain(
+      'Show areas where 10% or more of births are AS',
+    );
+    // Each clause of the count is a line of its own, its number in a fixed column, so a new number
+    // never moves the words (ruling 36).
     expect(hbs).toMatch(
-      /data-hbs-count[^>]*>\s*<span[^>]*>[\d,]+ confidently above<\/span> · <span[^>]*>[\d,]+ possibly above<\/span>\s*<\/p>/,
+      /data-hbs-count[^>]*>\s*<span class="hbs__clause"><b>[\d,]+<\/b> confidently above<span class="visually-hidden">, <\/span>\s*<\/span>\s*<span class="hbs__clause"><b>[\d,]+<\/b> possibly above<\/span>\s*<\/p>/,
     );
     expect(text(hbs)).toContain('Usual hemoglobin');
   });
 
-  it('keys the HbS fill by value and by distance from surveys, and the studs by people', () => {
-    const hbs = text(figure('hbs-threshold'));
-    // The VSUP wedge: low frequency and little evidence are told apart (spec §0, correction 2).
-    expect(hbs).toContain('Modeled frequency, 0–17% Fades away from surveys');
+  it('keys the HbS fill by genotype, value and distance from surveys, and the studs by people', () => {
+    const html = figure('hbs-threshold');
+    const hbs = text(html);
+    // One plain caption says what the map shows (ruling 36).
+    expect(hbs).toContain(
+      'Expected share of births, from the modeled frequency',
+    );
+    // Each genotype keys its own ramp and range, rounded from the data; the VSUP wedge still tells
+    // low share and little evidence apart.
+    for (const line of [
+      'AA: 68–100% of births',
+      'AS: 0–29% of births',
+      'SS: 0–3% of births',
+    ])
+      expect(hbs).toContain(line);
+    expect(hbs).toContain('Fades away from surveys');
+    expect(hbs).not.toContain('Modeled frequency, 0–17%');
+    // The muted state, in words as well as grey.
+    expect(html).toMatch(/data-hbs-muted-key[^>]*>Below 10%</);
+    expect(hbs).toContain('No estimate');
     expect(hbs).toContain('Survey, sized by people tested');
     expect(hbs).not.toContain('AC of AN');
     expect(hbs).toContain('Tap to inspect.');
+  });
+
+  it('describes each genotype’s map, and tables it, with the random-mating assumption', () => {
+    const html = figure('hbs-threshold');
+    const map = html.match(/<div class="hbs__map"[^>]*>/)![0];
+    const alt = (genotype: string) =>
+      map.match(new RegExp(`data-alt-${genotype.toLowerCase()}="([^"]+)"`))![1];
+    expect(map).toMatch(/aria-label="[^"]*\(AS\)[^"]*"/);
+    for (const genotype of ['AA', 'AS', 'SS']) {
+      expect(alt(genotype)).toContain(`(${genotype})`);
+      expect(alt(genotype)).toContain('assuming random mating');
+      expect(alt(genotype)).toContain('measured surveys');
+      expect(alt(genotype)).toMatch(/hatched/);
+    }
+    expect(alt('AS')).toMatch(/highest, about 28 percent, in Central Africa/);
+    expect(alt('AA')).toMatch(/lowest, about 69 percent, in Central Africa/);
+    const tables = [
+      ...html.matchAll(
+        /<table\b[^>]*data-variant="(A[AS]|SS)"[\s\S]*?<\/table>/g,
+      ),
+    ];
+    expect(tables.map((match) => match[1])).toEqual(['AA', 'AS', 'SS']);
+    for (const [table, genotype] of tables) {
+      const caption = text(
+        table.match(/<caption[^>]*>([\s\S]*?)<\/caption>/)![1],
+      );
+      expect(caption).toContain(`(${genotype})`);
+      expect(caption).toContain('assuming random mating (Hardy–Weinberg)');
+      expect(table.match(/<tr>/g) ?? []).toHaveLength(4);
+    }
   });
 
   it('counts the Atlas markers from the catalog', () => {
@@ -507,20 +581,14 @@ describe('HbS threshold outlines', () => {
     readFileSync(path.join(figures, provenance.files.region.name)),
   );
 
-  it('offers the slider stops 1–15%', () => {
-    expect(THRESHOLD_STOPS).toEqual(
-      Array.from({ length: 15 }, (_, index) => index + 1),
-    );
-  });
-
   it('never outlines an area with no estimate, at any stop', () => {
-    for (const stop of THRESHOLD_STOPS)
+    for (const stop of THRESHOLD_STOPS.AS)
       for (const area of areas.filter((entry) => entry.support === 'unknown'))
         expect(classifyArea(area, stop / 100)).toBeNull();
   });
 
   it('keeps confidently above inside "the estimate is above", and apart from possibly above', () => {
-    for (const stop of THRESHOLD_STOPS) {
+    for (const stop of THRESHOLD_STOPS.AS) {
       const t = stop / 100;
       for (const area of areas) {
         const kind = classifyArea(area, t);
@@ -555,7 +623,8 @@ describe('HbS readouts', () => {
   const areas = decodeAreas(
     readFileSync(path.join(figures, provenance.files.region.name)),
   );
-  const read = (area: Area) => describeHit({ type: 'area', area, x: 0, y: 0 });
+  const read = (area: Area, genotype: 'AA' | 'AS' | 'SS' = 'AS') =>
+    describeHit({ type: 'area', area, x: 0, y: 0 }, genotype);
   const unknown = (distanceKm: number): Area => ({
     boundary: [],
     center: [0, 0],
@@ -604,59 +673,111 @@ describe('HbS readouts', () => {
     }
   });
 
-  it('writes shares, ranges and distances as the Home hero readouts do', () => {
-    expect(read(modeled(0.064, 0.018, 0.2, 1234.4, 'strong'))).toBe(
-      'Modeled estimate about 6.4% · 95% credible range across this area 1.8–20% · Nearest survey about 1,234 km',
+  it('reads an area out as the selected genotype’s expected share of births (ruling 36)', () => {
+    const area = modeled(0.064, 0.018, 0.2, 1234.4, 'strong');
+    // AS 2q(1 − q), SS q², AA (1 − q)²; for AA the range's ends swap.
+    expect(read(area, 'AS')).toBe(
+      'Modeled: AS in about 12% of births · 95% credible range across this area 3.5–32% · HbS frequency about 6.4% · Nearest survey about 1,234 km',
     );
-    expect(read(modeled(0.004, 0.0004, 0.012, 88, 'partial'))).toBe(
-      'Modeled estimate about 0.40% · 95% credible range across this area 0.04–1.2% · Nearest survey about 88 km',
+    expect(read(area, 'SS')).toBe(
+      'Modeled: SS in about 0.41% of births · 95% credible range across this area 0.03–4.0% · HbS frequency about 6.4% · Nearest survey about 1,234 km',
     );
-    expect(read(modeled(0.12, 0, 0.31, 2500, 'weak'))).toBe(
-      'Modeled estimate about 12% · 95% credible range across this area 0–31% · Nearest survey about 2,500 km. Far from surveys: this range leans on the model’s assumptions.',
+    expect(read(area, 'AA')).toBe(
+      'Modeled: AA in about 88% of births · 95% credible range across this area 64–96% · HbS frequency about 6.4% · Nearest survey about 1,234 km',
     );
-    for (const area of areas.filter((entry) => entry.mean !== null)) {
-      const line = read(area)!;
-      // One percent sign closes the range, and nothing below 1% rounds to "0.0".
-      expect(line).toMatch(/range across this area [\d.]+–[\d.]+% · /);
-      expect(line).not.toMatch(/\b0\.0(?!\d)/);
+    expect(read(modeled(0.12, 0, 0.31, 2500, 'weak'), 'AS')).toBe(
+      'Modeled: AS in about 21% of births · 95% credible range across this area 0–43% · HbS frequency about 12% · Nearest survey about 2,500 km. Far from surveys: this range leans on the model’s assumptions.',
+    );
+    for (const genotype of GENOTYPE_ORDER)
+      for (const entry of areas.filter(
+        (candidate) => candidate.mean !== null,
+      )) {
+        const line = read(entry, genotype)!;
+        // One percent sign closes the range, and nothing rounds to a bare "0.0" or a false 100.
+        expect(line).toMatch(/range across this area [<>\d.]+–[<>\d.]+% · /);
+        expect(line).not.toMatch(/\b0\.0(?!\d)/);
+        expect(line).not.toMatch(/about 100%/);
+      }
+  });
+
+  it('keeps an area with no estimate, and every survey, the same for every genotype', () => {
+    for (const genotype of GENOTYPE_ORDER) {
+      expect(read(unknown(1352), genotype)).toBe(
+        'No estimate · — · Nearest survey about 1,352 km',
+      );
+      // Surveys are counts of gene copies, never genotypes: no share of births is derived.
+      expect(
+        describeHit(
+          { type: 'surveys', surveys: [survey(3, 100)], x: 0, y: 0 },
+          genotype,
+        ),
+      ).toBe(
+        'Measured survey · 50 people tested; 3 of their 100 gene copies carry HbS · Location within ±25 km',
+      );
     }
+  });
+
+  it('writes tiny and near-total shares without a false zero or a false 100', () => {
+    expect(formatPercent(0)).toBe('0');
+    expect(formatPercent(0.00004)).toBe('<0.01');
+    expect(formatPercent(0.0041)).toBe('0.41');
+    expect(formatPercent(0.064)).toBe('6.4');
+    expect(formatPercent(0.876)).toBe('88');
+    expect(formatPercent(0.9984)).toBe('99.8');
+    expect(formatPercent(0.99996)).toBe('>99.9');
+    expect(formatPercent(1)).toBe('100');
   });
 
   it('reads out surveys in people tested, keeping the copies as counts (R2-16)', () => {
     // HBB is autosomal: AN gene copies are AN/2 people, exactly. No carrier count is derived
     // from AC, which counts copies, not people.
     expect(
-      describeHit({ type: 'surveys', surveys: [survey(3, 100)], x: 0, y: 0 }),
+      describeHit(
+        { type: 'surveys', surveys: [survey(3, 100)], x: 0, y: 0 },
+        'AS',
+      ),
     ).toBe(
       'Measured survey · 50 people tested; 3 of their 100 gene copies carry HbS · Location within ±25 km',
     );
     expect(
-      describeHit({
-        type: 'surveys',
-        surveys: [survey(3, 100), survey(5, 2000)],
-        x: 0,
-        y: 0,
-      }),
+      describeHit(
+        {
+          type: 'surveys',
+          surveys: [survey(3, 100), survey(5, 2000)],
+          x: 0,
+          y: 0,
+        },
+        'AS',
+      ),
     ).toBe('2 surveys here · 50 and 1,000 people tested');
     expect(
-      describeHit({
-        type: 'surveys',
-        surveys: [1, 2, 3, 4].map((ac) => survey(ac, 50)),
-        x: 0,
-        y: 0,
-      }),
+      describeHit(
+        {
+          type: 'surveys',
+          surveys: [1, 2, 3, 4].map((ac) => survey(ac, 50)),
+          x: 0,
+          y: 0,
+        },
+        'AS',
+      ),
     ).toBe('4 surveys here · 25, 25 and 25 people tested · …');
     // Every number a multi-survey readout lists says what it counts (design review, round 3).
     expect(
-      describeHit({
-        type: 'surveys',
-        surveys: [survey(3, 1106), survey(5, 4026), survey(1, 2684)],
-        x: 0,
-        y: 0,
-      }),
+      describeHit(
+        {
+          type: 'surveys',
+          surveys: [survey(3, 1106), survey(5, 4026), survey(1, 2684)],
+          x: 0,
+          y: 0,
+        },
+        'AS',
+      ),
     ).toBe('3 surveys here · 553, 2,013 and 1,342 people tested');
     for (const line of [
-      describeHit({ type: 'surveys', surveys: [survey(1, 4)], x: 0, y: 0 }),
+      describeHit(
+        { type: 'surveys', surveys: [survey(1, 4)], x: 0, y: 0 },
+        'AS',
+      ),
     ])
       expect(line).not.toMatch(/alleles/);
   });
@@ -711,5 +832,201 @@ describe('HbS readouts', () => {
         { type: 'area', area: a, x: 5, y: 5 },
       ),
     ).toBe(false);
+  });
+});
+
+describe('HbS genotypes on the map (ruling 36)', () => {
+  const areas = decodeAreas(
+    readFileSync(path.join(figures, provenance.files.region.name)),
+  );
+  const domain = provenance.metric_domain.post_mean;
+
+  it('gives each genotype its expected share of births from q, under random mating', () => {
+    expect(genotypeShare('AA', 0.1)).toBeCloseTo(0.81, 12);
+    expect(genotypeShare('AS', 0.1)).toBeCloseTo(0.18, 12);
+    expect(genotypeShare('SS', 0.1)).toBeCloseTo(0.01, 12);
+    for (const q of [0, 0.0008, 0.05, 0.173, 0.284, 0.5, 0.9, 1])
+      expect(
+        genotypeShare('AA', q) +
+          genotypeShare('AS', q) +
+          genotypeShare('SS', q),
+      ).toBeCloseTo(1, 12);
+    // The edges: no HbS at all, and the most mixed population.
+    expect(GENOTYPE_ORDER.map((g) => genotypeShare(g, 0))).toEqual([1, 0, 0]);
+    expect(GENOTYPE_ORDER.map((g) => genotypeShare(g, 0.5))).toEqual([
+      0.25, 0.5, 0.25,
+    ]);
+    for (const q of [-0.01, 1.01, Number.NaN])
+      expect(() => genotypeShare('AS', q)).toThrow(RangeError);
+  });
+
+  it('puts every range through the same transform: monotone below q = 0.5, the ends swapped for AA', () => {
+    const [lo, hi] = [0.02, 0.1];
+    expect(shareInterval('AS', lo, hi)).toEqual([
+      genotypeShare('AS', lo),
+      genotypeShare('AS', hi),
+    ]);
+    expect(shareInterval('SS', lo, hi)).toEqual([
+      genotypeShare('SS', lo),
+      genotypeShare('SS', hi),
+    ]);
+    expect(shareInterval('AA', lo, hi)).toEqual([
+      genotypeShare('AA', hi),
+      genotypeShare('AA', lo),
+    ]);
+    // q = 0 at the low end: AA reaches 100%, AS and SS start at 0.
+    expect(shareInterval('AA', 0, 0.1)).toEqual([genotypeShare('AA', 0.1), 1]);
+    expect(shareInterval('AS', 0, 0.1)[0]).toBe(0);
+    // A range across q = 0.5 peaks at AS = 0.5 (not reached by these data, but exact).
+    expect(shareInterval('AS', 0.4, 0.6)).toEqual([
+      genotypeShare('AS', 0.4),
+      0.5,
+    ]);
+    expect(shareInterval('AS', 0.5, 0.5)).toEqual([0.5, 0.5]);
+    expect(() => shareInterval('AS', 0.2, 0.1)).toThrow(RangeError);
+  });
+
+  it('transforms every area of the pinned data, keeping lo ≤ mean ≤ hi and no estimate as none', () => {
+    for (const genotype of GENOTYPE_ORDER)
+      for (const area of areas) {
+        const shown = genotypeArea(area, genotype);
+        if (area.mean === null) {
+          expect([shown.mean, shown.lo, shown.hi]).toEqual([null, null, null]);
+          continue;
+        }
+        expect(shown.mean).toBeCloseTo(genotypeShare(genotype, area.mean), 12);
+        expect(shown.lo!).toBeLessThanOrEqual(shown.mean! + 1e-12);
+        expect(shown.mean!).toBeLessThanOrEqual(shown.hi! + 1e-12);
+        expect([shown.lo, shown.hi]).toEqual(
+          shareInterval(genotype, area.lo!, area.hi!),
+        );
+        // Geometry, support, tier and distance are the area's own.
+        expect(shown.boundary).toBe(area.boundary);
+        expect([shown.support, shown.tier, shown.distanceKm]).toEqual([
+          area.support,
+          area.tier,
+          area.distanceKm,
+        ]);
+      }
+    // The pinned data never reach q = 0.5, so every transform is monotone on them.
+    expect(Math.max(...areas.map((area) => area.hi ?? 0))).toBeLessThan(0.5);
+  });
+
+  it('gives each genotype its own legend range, rounded from the data', () => {
+    expect(rangeLabel(genotypeDomain('AA', domain))).toBe('68–100%');
+    expect(rangeLabel(genotypeDomain('AS', domain))).toBe('0–29%');
+    expect(rangeLabel(genotypeDomain('SS', domain))).toBe('0–3%');
+  });
+
+  it('offers per-genotype stops that never show an empty or an all-muted map', () => {
+    expect(THRESHOLD_STOPS.AS).toEqual(
+      Array.from({ length: 20 }, (_, index) => index + 1),
+    );
+    expect(THRESHOLD_STOPS.SS.map(stopText)).toEqual(
+      Array.from({ length: 20 }, (_, index) => stopText((index + 1) / 10)),
+    );
+    expect(THRESHOLD_STOPS.AA).toEqual(
+      Array.from({ length: 20 }, (_, index) => 80 + index),
+    );
+    expect(DEFAULT_STOP).toEqual({ AA: 90, AS: 10, SS: 0.5 });
+    for (const genotype of GENOTYPE_ORDER) {
+      expect(THRESHOLD_STOPS[genotype]).toContain(DEFAULT_STOP[genotype]);
+      // The same number of stops for every genotype: the slider never changes size.
+      expect(THRESHOLD_STOPS[genotype]).toHaveLength(20);
+      const shown = areas.map((area) => genotypeArea(area, genotype));
+      for (const stop of THRESHOLD_STOPS[genotype]) {
+        const t = stop / 100;
+        const counts = thresholdCounts(shown, t);
+        const muted = shown.filter(
+          (area) => area.mean !== null && area.mean < t,
+        ).length;
+        expect(
+          counts.confident + counts.possible,
+          `${genotype} ${stop}`,
+        ).toBeGreaterThan(0);
+        expect(muted, `${genotype} ${stop}`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('labels the threshold in words true for the measure shown', () => {
+    expect(thresholdLabel('AS', 10)).toBe(
+      'Show areas where 10% or more of births are AS',
+    );
+    expect(thresholdLabel('SS', 0.5)).toBe(
+      'Show areas where 0.5% or more of births are SS',
+    );
+    expect(thresholdLabel('SS', 1)).toBe(
+      'Show areas where 1% or more of births are SS',
+    );
+    expect(thresholdLabel('AA', 90)).toBe(
+      'Show areas where 90% or more of births are AA',
+    );
+    expect(valueText(0.5, { confident: 68, possible: 520 })).toBe(
+      '0.5 percent: 68 areas confidently above, 520 possibly above',
+    );
+  });
+
+  it('mutes areas below the threshold in a grey of the ramp, keeps the rest in colour, and never colors no estimate', () => {
+    const t = DEFAULT_STOP.AS / 100;
+    const shownDomain = genotypeDomain('AS', domain);
+    let muted = 0;
+    let full = 0;
+    for (const area of areas) {
+      const shown = genotypeArea(area, 'AS');
+      const paint = areaFill(shown, t, shownDomain);
+      if (shown.mean === null) {
+        expect(paint).toEqual({ fill: null, muted: false });
+        continue;
+      }
+      const ramp = vsupColor(
+        shown.mean,
+        shown.tier === 'none' ? 'weak' : shown.tier,
+        shownDomain,
+      )!;
+      if (shown.mean < t) {
+        expect(paint).toEqual({ fill: muteColor(ramp), muted: true });
+        muted += 1;
+      } else {
+        expect(paint).toEqual({ fill: ramp, muted: false });
+        full += 1;
+      }
+    }
+    expect(muted).toBeGreaterThan(0);
+    expect(full).toBeGreaterThan(0);
+  });
+
+  it('draws the muted state as a clearly greyer, darker version of each ramp colour', () => {
+    const rgb = (hex: string) =>
+      [1, 3, 5].map((at) => Number.parseInt(hex.slice(at, at + 2), 16));
+    const spread = (hex: string) =>
+      Math.max(...rgb(hex)) - Math.min(...rgb(hex));
+    const luminance = (hex: string) => {
+      const [r, g, b] = rgb(hex).map((value) => {
+        const c = value / 255;
+        return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const colours = [...ENC.mean, ...ENC.meanPartial, ENC.meanWeak];
+    for (const colour of colours) {
+      const muted = muteColor(colour);
+      expect(muted).toMatch(/^#[0-9a-f]{6}$/);
+      expect(spread(muted), colour).toBeLessThanOrEqual(12);
+      expect(spread(colour), colour).toBeGreaterThanOrEqual(40);
+      expect(luminance(muted), colour).toBeLessThan(luminance(colour));
+      // Never the hatch's grey, which means "no estimate".
+      expect(muted).not.toBe(ENC.hatch);
+      expect(luminance(muted)).toBeLessThan(luminance(ENC.hatch) / 2);
+    }
+    // The muted ramp keeps the ramp's order, faintly.
+    const greys = ENC.mean.map((colour) => luminance(muteColor(colour)));
+    for (let index = 1; index < greys.length; index += 1)
+      expect(greys[index]).toBeGreaterThan(greys[index - 1]);
+  });
+
+  it('recolours within 300 ms', () => {
+    expect(RECOLOUR_MS).toBeGreaterThan(0);
+    expect(RECOLOUR_MS).toBeLessThanOrEqual(300);
   });
 });

@@ -1340,6 +1340,12 @@
   margin-top: 1rem;
 }
 
+/* Four lines reserved, with the box's 1 px borders: an area's readout (share, range, frequency,
+   distance) runs to four in the side panel, and the panel must not grow under the pointer. */
+.hbs > .hbs__readout {
+  min-height: calc(4 * 1.45em + 1.3rem + 2px);
+}
+
 .hbs > .kit-figure__legend {
   grid-area: legend;
   margin-top: 1.25rem;
@@ -1381,6 +1387,13 @@
   display: block;
   width: 100%;
   height: 100%;
+}
+
+/* The last picture, fading out over the new one when the genotype or threshold changes
+   (hbs-map.ts, ≤ 300 ms); empty and transparent otherwise. */
+.hbs__map canvas[data-hbs-canvas='previous'] {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* The studs' canvas is laid out larger and scaled down (hbs-map.ts, studScale). */
@@ -1432,19 +1445,28 @@
   gap: 0.55rem;
 }
 
+/* Two lines reserved: the label's numbers and genotype change, and the slider must not move. */
 .hbs__slider-label {
+  min-height: calc(2 * 1.4em);
   color: var(--color-starlight);
   font-size: 0.95rem;
   font-weight: 620;
+  line-height: 1.4;
 }
 
+/* The threshold sits in a box as wide as its widest stop ("0.5%", 2.3em in tabular figures),
+   right-aligned, so the words after it never move as it changes (ruling 36: no layout shift). */
 .hbs__slider-label output {
+  display: inline-block;
+  min-width: 2.3em;
+  text-align: right;
   font-variant-numeric: lining-nums tabular-nums;
 }
 
 /* The slider itself is the site's range control (.kit-range, global.css). */
 
-/* Two lines reserved: the count wraps at some stops and not others, and the legend must not jump. */
+/* The count: one clause a line, each whole, its number right-aligned in a column wide enough for
+   the largest count (4,287 areas), so a new number never moves the words. */
 .hbs__count {
   min-height: calc(2 * 1.45em);
   margin: 0;
@@ -1454,9 +1476,26 @@
   line-height: 1.45;
 }
 
-/* Each clause stays whole, so the count breaks only at its " · ". */
-.hbs__count > span {
+.hbs__clause {
+  display: block;
   white-space: nowrap;
+}
+
+.hbs__clause b {
+  display: inline-block;
+  min-width: 2.8em;
+  margin-right: 0.3em;
+  color: var(--color-starlight);
+  font-weight: 620;
+  text-align: right;
+}
+
+/* What the map shows, in one plain line over its keys (ruling 36). */
+.hbs__caption {
+  margin: 0 0 0.75rem;
+  color: var(--color-starlight);
+  font-weight: 620;
+  line-height: 1.35;
 }
 
 .hbs__legend {
@@ -1465,6 +1504,41 @@
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* Per-genotype words, stacked in one cell: the cell keeps the size of the longest, so changing the
+   genotype moves nothing; only the shown genotype's words are visible (and read). */
+.hbs__variants {
+  display: grid;
+}
+
+.hbs__variants > * {
+  grid-area: 1 / 1;
+}
+
+.hbs:not([data-hbs-genotype='AA']) .hbs__variants > [data-variant='AA'],
+.hbs:not([data-hbs-genotype='AS']) .hbs__variants > [data-variant='AS'],
+.hbs:not([data-hbs-genotype='SS']) .hbs__variants > [data-variant='SS'] {
+  visibility: hidden;
+}
+
+/* "View as table" lists the genotype shown. */
+.hbs:not([data-hbs-genotype='AA']) .hbs__table[data-variant='AA'],
+.hbs:not([data-hbs-genotype='AS']) .hbs__table[data-variant='AS'],
+.hbs:not([data-hbs-genotype='SS']) .hbs__table[data-variant='SS'] {
+  display: none;
+}
+
+.hbs__table caption {
+  margin-bottom: 0.4rem;
+  color: var(--color-muted);
+  text-align: left;
+  caption-side: top;
+}
+
+/* The muted key holds its width while its number changes. */
+[data-hbs-muted-key] {
+  min-width: 7.5em;
 }
 
 .hbs__legend li {
