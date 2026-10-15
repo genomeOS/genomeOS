@@ -1,12 +1,17 @@
 /**
- * The Contribute page's transit line and group vignettes, as models (site redesign spec §4.3 C2,
- * #454). Owned by the Contribute orbit and flow task (round 2 plan T4); split verbatim out of
- * contribute-model.test.ts (plan T0 step 3).
+ * The Contribute page's transit line and orbit scene, as models (site redesign spec §4.3 C2; round
+ * 2 spec §4.3.2, §4.3.3; #454). Owned by the Contribute orbit and flow task (round 2 plan T4); the
+ * transit tests were split verbatim out of contribute-model.test.ts (plan T0 step 3). The group
+ * vignettes retired with the group cards (round 2 spec §4.3.5).
  *
  * - The transit line: one route through three lanes, stations in pipeline order, a model step
  *   between the observations and the frequency surfaces, and two tokens. The measured stud rides
  *   the whole line; the modeled hex only joins at the model step and never replaces the stud, and
  *   both rest on the map's stretch, side by side (spec §6.1 rule 1).
+ * - The orbit: three layouts chosen by stage width, each keeping its moon labels at 13 px or more;
+ *   crews and props stand within ±37° of a moon's top; a moon behind the globe never covers it;
+ *   the moons arrive in column order and each group's text is typed before the next moon comes;
+ *   the orbit is a whole number of idle loops; the markup is deterministic (SEED = 42).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -25,11 +30,21 @@ import {
   type TransitLayout,
 } from '../src/components/contribute/transit-route';
 import {
-  RING,
-  modelingCells,
-  modelingGroups,
-  vignetteArt,
-} from '../src/components/contribute/vignette-art';
+  BREAKPOINTS,
+  CREW,
+  GROUPS,
+  KINDS,
+  LAYOUTS,
+  PROPS,
+  T,
+  TOUCHDOWN_MS,
+  depth,
+  layoutFor,
+  moonCenter,
+  renderOrbit,
+  theta,
+} from '../src/components/contribute/orbit-layouts';
+import { typeFrames } from '../src/graphics/typing';
 
 const layouts = Object.values(TRANSIT_LAYOUTS);
 /** The hex token's radius, as TransitLine.astro draws it. */
@@ -191,58 +206,150 @@ describe.each(layouts.map((layout) => [layout.id, layout] as const))(
   },
 );
 
-describe('group vignettes', () => {
-  it('carry no words and no status colour', () => {
-    for (const kind of ['data', 'modeling', 'ui'] as const) {
-      const art = vignetteArt(kind);
-      expect(art, kind).not.toMatch(/<text\b|<tspan\b/);
-      // Gold means validation or caution only (spec §2.6), never data.
-      expect(art, kind).not.toMatch(/signal|#f4c86a/i);
-      // Violet means future work, and only as a dashed outline (spec §2.1).
-      if (kind !== 'ui') expect(art, kind).not.toMatch(/genome/);
-    }
-    expect(vignetteArt('ui')).toMatch(
-      /class="wg-vig__future"[^>]*stroke:var\(--color-genome\)|class="wg-vig__future"[^>]*stroke-dasharray/,
-    );
+describe('orbit scene', () => {
+  const layouts = Object.values(LAYOUTS);
+
+  it('keeps every moon label at 13 px or more on the narrowest stage of its layout', () => {
+    for (const L of layouts)
+      expect(
+        (L.label * L.minStage) / L.w,
+        `${L.id} at ${L.minStage} px`,
+      ).toBeGreaterThanOrEqual(13);
+    // The phone layout reaches down to the 320 px viewport's stage (16 px gutters each side and
+    // the site's 1.2rem page margin: 320 − 2 × 21.6 − 2 px of frame).
+    expect(LAYOUTS.phone.minStage).toBeLessThanOrEqual(274.8);
   });
 
-  it('fades the modeled cells by evidence, hatching the far edge with no colour', () => {
-    const cells = modelingCells();
-    const tiers = new Set(cells.map((cell) => cell.tier));
-    expect([...tiers].sort()).toEqual(['none', 'partial', 'strong', 'weak']);
-    for (const cell of cells)
-      expect(cell.fill === null, `${cell.tier} at ${cell.d}`).toBe(
-        cell.tier === 'none',
-      );
-    // Cells come in by rings of distance from the evidence, each ring one path per colour: every
-    // cell drawn once, nearer rings never after farther ones.
-    const groups = modelingGroups();
-    expect(groups.reduce((n, group) => n + group.cells.length, 0)).toBe(
-      cells.length,
-    );
-    for (const group of groups)
-      for (const cell of group.cells) {
-        expect(cell.fill).toBe(group.fill);
-        expect(Math.floor(cell.d / RING)).toBe(group.ring);
+  it('keeps each moon label one size at every depth, countering its moon’s depth scale', () => {
+    // Moons shrink to 0.8 at the back of the orbit; their labels must not (13 px floor).
+    for (const L of layouts) {
+      const svg = renderOrbit(L, { globeHref: '/favicon.svg' });
+      for (const kind of KINDS) {
+        const label = svg.match(
+          new RegExp(
+            `<g class="orbiter orbiter--label" data-moon="${kind}"[\\s\\S]*?</text>`,
+          ),
+        )![0];
+        const scale = (cls: string) =>
+          Number(
+            label.match(
+              new RegExp(`${cls}" style="transform:scale\\(([\\d.]+)\\)`),
+            )![1],
+          );
+        expect(
+          scale('orb-depth') * scale('orb-label-k'),
+          `${L.id} ${kind}`,
+        ).toBeCloseTo(1, 2);
       }
-    const byRing = [...groups].sort((a, b) => a.ring - b.ring);
-    for (let index = 1; index < byRing.length; index += 1)
-      expect(byRing[index].delay).toBeGreaterThanOrEqual(
-        byRing[index - 1].delay,
-      );
-    const art = vignetteArt('modeling');
-    expect([...art.matchAll(/--wg-d:(\d+)ms/g)]).toHaveLength(groups.length);
+    }
   });
 
-  it('draws the studs after the surface they sit on', () => {
-    for (const kind of ['data', 'modeling', 'ui'] as const) {
-      const art = vignetteArt(kind);
-      const lastCell = Math.max(
-        art.lastIndexOf('wg-vig__grow'),
-        art.lastIndexOf('url(#wg-hatch'),
-      );
-      const firstStud = art.indexOf('fill:var(--enc-obs)');
-      expect(firstStud, kind).toBeGreaterThan(lastCell);
+  it('switches layouts by stage width: phone, then tablet, then desktop', () => {
+    expect(layoutFor(274.8).id).toBe('phone');
+    expect(layoutFor(BREAKPOINTS.tablet - 1).id).toBe('phone');
+    expect(layoutFor(BREAKPOINTS.tablet).id).toBe('tablet');
+    // A 768 px tablet (705 px stage) and a 1024 px laptop (940 px stage) take the tablet layout.
+    expect(layoutFor(705).id).toBe('tablet');
+    expect(layoutFor(940).id).toBe('tablet');
+    expect(layoutFor(BREAKPOINTS.desktop).id).toBe('desktop');
+    expect(layoutFor(1323).id).toBe('desktop');
+    // One unit is about one pixel at the desktop's widest stage.
+    expect(LAYOUTS.desktop.w / 1323).toBeLessThan(1.01);
+  });
+
+  it('stands crews and props within 37° of a moon’s top, so nobody looks like falling off', () => {
+    for (const kind of KINDS) {
+      for (const member of CREW[kind])
+        expect(Math.abs(member.deg), member.id).toBeLessThanOrEqual(37);
+      for (const [name, deg] of PROPS[kind])
+        expect(Math.abs(deg), name).toBeLessThanOrEqual(37);
+    }
+    // Two, one and three astronauts: the owner's 1–3 per ship, six in the scene.
+    expect(KINDS.map((kind) => CREW[kind].length)).toEqual([2, 1, 3]);
+  });
+
+  it('never lets a moon behind the globe cover it, at any time of the orbit', () => {
+    for (const L of layouts)
+      for (const kind of KINDS)
+        for (let t = 0; t < T.orbit; t += 1000) {
+          const deg = theta(kind, t);
+          if (Math.sin((deg * Math.PI) / 180) >= 0) continue; // in front
+          const [x, y, d] = moonCenter(L, kind, t);
+          const gap = Math.hypot(x - L.cx, y - L.cy) - L.r[kind] * d;
+          expect(gap, `${L.id} ${kind} at ${t} ms`).toBeGreaterThan(
+            L.globe * 1.05,
+          );
+        }
+  });
+
+  it('ends the story with the moons left to right in column order, clear of the globe', () => {
+    for (const L of layouts) {
+      const xs = KINDS.map((kind) => moonCenter(L, kind, T.story)[0]);
+      expect(xs[0], L.id).toBeLessThan(xs[1]);
+      expect(xs[1], L.id).toBeLessThan(xs[2]);
+    }
+    expect(KINDS.map((kind) => Math.round(theta(kind, T.story)))).toEqual([
+      170, 250, 25,
+    ]);
+    expect(depth(90)).toBe(1);
+    expect(depth(270)).toBeCloseTo(0.8);
+  });
+
+  it('keeps every moon and its label inside the stage all the way round', () => {
+    for (const L of layouts)
+      for (const kind of KINDS)
+        for (let t = 0; t < T.orbit; t += 2000) {
+          const [x, y, d] = moonCenter(L, kind, t);
+          const r = L.r[kind] * d;
+          expect(x - r, `${L.id} ${kind}`).toBeGreaterThanOrEqual(0);
+          expect(x + r, `${L.id} ${kind}`).toBeLessThanOrEqual(L.w);
+          // The label's baseline sits r + size + 14 below the centre.
+          expect(
+            y + (L.r[kind] + L.label + 14) * d,
+            `${L.id} ${kind}`,
+          ).toBeLessThanOrEqual(L.h);
+        }
+  });
+
+  it('brings the moons in column order and types each group’s text before the next moon comes', () => {
+    expect(GROUPS.map((group) => group.kind)).toEqual(['data', 'model', 'ui']);
+    const pops = KINDS.map((kind) => T.moon[kind]);
+    expect([...pops].sort((a, b) => a - b)).toEqual(pops);
+    GROUPS.forEach((group, index) => {
+      const what = typeFrames(group.what, { start: T.moon[group.kind] + 650 });
+      const end = what[what.length - 1][0];
+      const who = typeFrames(group.who, { start: end + 120 });
+      const done = who[who.length - 1][0];
+      const next =
+        index < 2 ? T.moon[GROUPS[index + 1].kind] : T.ship[group.kind];
+      expect(done, group.kind).toBeLessThan(next);
+    });
+    // Pods land after the last text is typed, one moon after another, before the story ends.
+    for (const kind of KINDS)
+      expect(T.ship[kind] + TOUCHDOWN_MS + 2500).toBeLessThanOrEqual(T.story);
+  });
+
+  it('fits the orbit and the phone tour to a whole number of idle loops', () => {
+    expect(T.orbit % T.loop).toBe(0);
+    expect(T.orbit / T.loop).toBe(30);
+    expect(T.story % T.loop).toBe(0);
+    // The phone's idle tour holds each moon for one loop: three loops, ten tours a revolution.
+    expect(T.orbit % (3 * T.loop)).toBe(0);
+  });
+
+  it('renders the same markup every time, with ids unique across the three layouts', () => {
+    const opt = { globeHref: '/favicon.svg' };
+    const all = layouts.map((L) => renderOrbit(L, opt));
+    expect(layouts.map((L) => renderOrbit(L, opt))).toEqual(all);
+    const ids = all.flatMap((svg) =>
+      [...svg.matchAll(/\bid="([^"]+)"/g)].map(([, id]) => id),
+    );
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const svg of all) {
+      // Decorative, out of the tab order, no words but the three moon labels.
+      expect(svg).toMatch(/^<svg[^>]*aria-hidden="true"[^>]*focusable="false"/);
+      expect(svg.match(/<text\b/g)).toHaveLength(3);
+      expect(svg).not.toMatch(/Math\.random|NaN|undefined/);
     }
   });
 });

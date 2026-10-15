@@ -1,9 +1,11 @@
 /**
- * Contribute page content (moved from content.test.ts, #454). Owned by the Contribute task.
+ * Contribute page content, as built (round 2 spec §4.3, §11.1; #454). Owned by the Contribute
+ * orbit and flow task (round 2 plan T4).
  *
- * Contribute absorbs the Working groups page (site redesign spec §1.3, §4.3): the groups'
- * pins move here, the six-step flow and its six detail articles become one board with five steps,
- * and the decorative community image goes.
+ * Round 2 (owner brief, R2-5): the orbit scene opens the page, with each working group's text
+ * typed below it as three columns (the old group cards); then the transit line in its own section
+ * ("the flow ... should come after the orbit scene"); then How work moves (the board task's); then
+ * Start here. The group pins of round 1 all survive in the columns.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -22,6 +24,17 @@ const textOf = (html: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 const WORD = /[\p{L}\p{N}][\p{L}\p{N}'’.\-]*/gu;
+const section = (id: string) =>
+  main.match(new RegExp(`<section[^>]*id="${id}"[\\s\\S]*?</section>`))?.[0];
+const orbit = () =>
+  main.match(/<figure[^>]*data-graphic="orbit"[\s\S]*?<\/figure>/)?.[0] ?? '';
+const column = (id: string) =>
+  main.match(new RegExp(`<article[^>]*id="${id}"[\\s\\S]*?</article>`))?.[0];
+/** The typed twin's text: one span per character. */
+const twinText = (html: string) =>
+  [...html.matchAll(/<span style="--i:\d+"(?: class="b")?>([^<]*)<\/span>/g)]
+    .map(([, ch]) => ch.replace(/&amp;/g, '&'))
+    .join('');
 
 describe('contribute page content', () => {
   it('defines all three forming working groups and modeling breadth', () => {
@@ -39,47 +52,201 @@ describe('contribute page content', () => {
     expect(contribute).toContain('Three groups are forming');
   });
 
-  it('links each group card to its unchanged skill filter', () => {
+  it('opens on the orbit, then the flow, then how work moves, then the start links', () => {
+    const order = [...main.matchAll(/<section[^>]*\bid="([\w-]+)"[^>]*>/g)].map(
+      ([, id]) => id,
+    );
+    expect(order).toEqual([
+      'working-groups',
+      'flow',
+      'how-work-moves',
+      'start',
+    ]);
+    // Three concepts, each one figure: the orbit, the transit line, the work board.
+    expect(main.match(/data-concept/g)).toHaveLength(3);
+    expect(section('working-groups')).toMatch(
+      /<section[^>]*data-concept[\s\S]*data-graphic="orbit"/,
+    );
+    expect(section('flow')).toMatch(
+      /<section[^>]*data-concept[\s\S]*data-graphic="transit-line"/,
+    );
+    expect(section('how-work-moves')).toMatch(
+      /<section[^>]*data-concept[\s\S]*data-graphic="work-board"/,
+    );
+    expect(section('start')).not.toContain('data-concept');
+    // The orbit is the page's first figure.
+    expect(main.match(/<figure[^>]*data-graphic="([\w-]+)"/)?.[1]).toBe(
+      'orbit',
+    );
+  });
+
+  it('names the working groups section, captions the orbit and gives it its controls', () => {
+    expect(section('working-groups')).toMatch(
+      /<p class="section-kicker[^"]*">\s*Working groups\s*<\/p>\s*<h2\b[^>]*id="working-groups-title"[^>]*>\s*Three groups are forming\./,
+    );
+    const figure = orbit();
+    const open = figure.match(/<figure[^>]*>/)![0];
+    expect(open).toContain('data-kind="mechanism"');
+    expect(open).toContain('role="group"');
+    expect(open).toContain('aria-labelledby="working-groups-title"');
+    expect(open).toContain('data-motion-exception="orbit"');
+    const describedby = open.match(/aria-describedby="([\w-]+)"/)?.[1];
+    expect(describedby).toBeDefined();
+    expect(
+      textOf(
+        figure.match(
+          new RegExp(`<p[^>]*id="${describedby}"[\\s\\S]*?</p>`),
+        )![0],
+      ),
+    ).toBe('Examples, not requirements: curiosity counts.');
+    // The caption line and the controls share the plate's top bar, the figure's figcaption.
+    expect(figure).toMatch(
+      /<figcaption[^>]*data-figure-chrome[\s\S]*Examples, not requirements[\s\S]*data-scene-toggle[\s\S]*data-scene-replay[\s\S]*<\/figcaption>/,
+    );
+    expect(textOf(figure)).toContain('Pause the orbit animation');
+    expect(textOf(figure)).toContain('Replay the orbit animation');
+  });
+
+  it('names the stage with the scene in one sentence and draws it three ways, hidden from assistive tech', () => {
+    const figure = orbit();
+    const stage = figure.match(/<div[^>]*data-figure-stage[^>]*>/)![0];
+    expect(stage).toContain('role="img"');
+    expect(stage).toMatch(
+      /aria-label="Three moons orbit the genomeOS globe, one per working group; crews land and get to work: mining data, measuring soil and charting, building and painting a screen\."/,
+    );
+    const svgs = [
+      ...figure.matchAll(/<svg[^>]*class="orbit-svg[^"]*"[^>]*>/g),
+    ].map(([svg]) => svg);
+    expect(svgs.map((svg) => svg.match(/data-layout="(\w+)"/)![1])).toEqual([
+      'desktop',
+      'tablet',
+      'phone',
+    ]);
+    for (const svg of svgs) expect(svg).toContain('aria-hidden="true"');
+  });
+
+  it('server-renders the story’s last frame: every crew on its moon, the pods gone', () => {
+    for (const layout of ['desktop', 'tablet', 'phone']) {
+      const svg = orbit().match(
+        new RegExp(
+          `<svg[^>]*data-layout="${layout}"[\\s\\S]*?</svg>(?=\\s*(?:<svg[^>]*class="orbit-svg|</div>))`,
+        ),
+      )![0];
+      const moonOf = (kind: string) =>
+        svg.match(
+          new RegExp(
+            `<g class="orbiter orbiter--moon" data-moon="${kind}"[\\s\\S]*?(?=<g class="orbiter orbiter--moon"|$)`,
+          ),
+        )![0];
+      for (const [kind, crew] of [
+        ['data', ['A1', 'A6']],
+        ['model', ['A5']],
+        ['ui', ['A4', 'A2', 'A3']],
+      ] as const) {
+        const markup = moonOf(kind);
+        for (const id of crew)
+          expect(markup, `${layout} ${kind} ${id}`).toContain(`crew-${id}`);
+        expect(markup).toMatch(/<g class="ship-g" opacity="0">/);
+      }
+      // One label per moon, under the globe.
+      expect(svg.match(/class="moon-label"/g)).toHaveLength(3);
+    }
+  });
+
+  it('labels the moons with the groups’ names, short on phones', () => {
+    const labels = (layout: string) =>
+      [
+        ...orbit()
+          .match(
+            new RegExp(`<svg[^>]*data-layout="${layout}"[\\s\\S]*?</svg>`),
+          )![0]
+          .matchAll(/<text class="moon-label"[^>]*>([^<]*)<\/text>/g),
+      ].map(([, text]) => text.replace(/&amp;/g, '&'));
+    for (const layout of ['desktop', 'tablet'])
+      expect(labels(layout)).toEqual([
+        'Data & Infrastructure',
+        'Statistical & AI Modeling',
+        'UI & Applications',
+      ]);
+    expect(labels('phone')).toEqual(['Data', 'Modeling', 'UI']);
+  });
+
+  it('gives each group a column: title, Group forming, typed text, examples and its skill filter', () => {
     const issues =
       'https://github.com/genomeOS/genomeOS/issues?q=is%3Aissue+is%3Aopen+label%3A%22skill%3A';
-    for (const [id, skill] of [
-      ['group-data', 'data-engineering'],
-      ['group-modeling', 'spatial-stats'],
-      ['group-ui', 'frontend'],
+    for (const [id, skill, title] of [
+      ['group-data', 'data-engineering', 'Data Gathering & Infrastructure'],
+      ['group-modeling', 'spatial-stats', 'Statistical & AI Modeling'],
+      ['group-ui', 'frontend', 'UI & Applications'],
     ]) {
-      const card = main.match(
-        new RegExp(`<article[^>]*id="${id}"[\\s\\S]*?</article>`),
-      )?.[0];
+      const card = column(id);
       expect(card, id).toBeDefined();
-      expect(card).toContain(`${issues}${skill}%22`);
+      expect(textOf(card!.match(/<h3\b[\s\S]*?<\/h3>/)![0])).toBe(title);
+      expect(card).toContain(`href="${issues}${skill}%22"`);
+      expect(card).toMatch(/target="_blank" rel="noopener noreferrer"/);
       expect(card).toContain('Group forming');
       expect(textOf(card!)).toContain('Browse matching issues');
     }
     expect(main.match(/Group forming/g)).toHaveLength(3);
+    expect(main.match(/Browse matching issues/g)).toHaveLength(3);
   });
 
-  // Design review, round 2: the lanes and the cards named the same groups two ways, in two cases,
-  // and the section the Working groups links land on never said "Working groups".
-  it('names its section, and names each lane as its card does', () => {
-    const section = main.match(
-      /<section[^>]*id="working-groups"[\s\S]*?<\/section>/,
-    )![0];
-    expect(section).toMatch(
-      /<p class="section-kicker[^"]*">\s*Working groups\s*<\/p>\s*<h2\b[^>]*>\s*Three groups are forming\./,
+  it('types every sentence over a real, visually hidden copy of it', () => {
+    for (const id of ['group-data', 'group-modeling', 'group-ui']) {
+      const card = column(id)!;
+      const typed = [
+        ...card.matchAll(
+          /<span class="visually-hidden">([^<]*)<\/span><span class="typed" aria-hidden="true">([\s\S]*?)<\/span><\/p>/g,
+        ),
+      ];
+      expect(typed, id).toHaveLength(2);
+      for (const [, sentence, twin] of typed)
+        expect(twinText(twin)).toBe(sentence.replace(/&amp;/g, '&'));
+      const [, what] = typed[0];
+      const [, who, whoTwin] = typed[1];
+      expect(what.match(WORD)!.length).toBeLessThanOrEqual(25);
+      // Examples, not requirements: the line opens with a bold "For example:".
+      expect(who).toMatch(/^For example: /);
+      expect(whoTwin.match(/class="b"/g)).toHaveLength('For example:'.length);
+    }
+  });
+
+  it('adds a phone close-up of each moon above its text, from the one scene', () => {
+    for (const id of ['group-data', 'group-modeling', 'group-ui'])
+      expect(column(id)).toMatch(
+        /<svg class="orbit-col__shot"[^>]*aria-hidden="true"[^>]*><use href="#orbit-phone-moons"><\/use><\/svg>/,
+      );
+  });
+
+  it('gives the flow its own section after the orbit, with its heading and legend', () => {
+    const flow = section('flow')!;
+    expect(flow).toMatch(
+      /<h2\b[^>]*id="flow-title"[^>]*>\s*How the groups fit together\.\s*<\/h2>/,
     );
+    expect(flow).toMatch(/aria-labelledby="flow-title"/);
+    expect(textOf(flow.match(/<figcaption\b[\s\S]*?<\/figcaption>/)![0])).toBe(
+      'One line carries evidence to the map. Each group owns a stretch of it.',
+    );
+    // The transit line names the model step in words and draws the guide as future work.
+    expect(flow).toContain('Model step');
+    expect(flow).toMatch(
+      /class="[^"]*wg-station--future[^"]*"[^>]*data-station="guide"/,
+    );
+  });
+
+  it('names each lane as the column of the group that owns it', () => {
     const titles = Object.fromEntries(
       [
-        ...section.matchAll(
-          /<article[^>]*id="group-(\w+)"[\s\S]*?<\/article>/g,
-        ),
-      ].map(([card, lane]) => [
+        ['data', 'group-data'],
+        ['modeling', 'group-modeling'],
+        ['ui', 'group-ui'],
+      ].map(([lane, id]) => [
         lane,
-        textOf(card.match(/<h3\b[\s\S]*?<\/h3>/)![0]),
+        textOf(column(id)!.match(/<h3\b[\s\S]*?<\/h3>/)![0]),
       ]),
     );
-    expect(Object.keys(titles)).toEqual(['data', 'modeling', 'ui']);
     const names = [
-      ...section.matchAll(
+      ...section('flow')!.matchAll(
         /<g class="wg-lane" data-lane="(\w+)">[\s\S]*?<text class="wg-lane__name"[^>]*>([\s\S]*?)<\/text>/g,
       ),
     ].map(([, lane, name]) => [lane, textOf(name)] as const);
@@ -90,52 +257,20 @@ describe('contribute page content', () => {
         expect(titles[lane].split(' '), `${lane}: ${name}`).toContain(word);
   });
 
-  it('keeps every group scope line to 25 words or fewer', () => {
-    const scopes = [
-      ...main.matchAll(/<p class="wg-card__scope"[^>]*>([\s\S]*?)<\/p>/g),
-    ];
-    expect(scopes).toHaveLength(3);
-    for (const [, scope] of scopes)
-      expect(textOf(scope).match(WORD)!.length).toBeLessThanOrEqual(25);
-  });
-
-  it('opens on the working groups section with the transit line inside it', () => {
-    expect(main).toMatch(
-      /<section[^>]*id="working-groups"[^>]*data-concept[\s\S]*?data-graphic="transit-line"/,
-    );
-    expect(main).toMatch(
-      /<section[^>]*id="how-work-moves"[^>]*data-concept[\s\S]*?data-graphic="work-board"/,
-    );
-    expect(main.match(/data-concept/g)).toHaveLength(2);
-    // The transit line names the model step in words and draws the guide as future work.
-    expect(main).toContain('Model step');
-    expect(main).toMatch(
-      /class="[^"]*wg-station--future[^"]*"[^>]*data-station="guide"/,
-    );
-  });
-
-  it('draws the group vignettes without words', () => {
-    const vignettes = [
-      ...main.matchAll(/<svg[^>]*class="wg-vig[^"]*"[\s\S]*?<\/svg>/g),
-    ].map(([svg]) => svg);
-    expect(vignettes).toHaveLength(3);
-    for (const svg of vignettes) {
-      expect(svg).toMatch(/aria-hidden="true"/);
-      expect(svg).not.toMatch(/<text\b/);
-    }
-  });
-
-  it('retires the community image, the old flow and its detail articles', () => {
+  it('retires the group cards, their vignettes, the community image and the old flow', () => {
+    expect(main).not.toMatch(/wg-card|wg-vig|group-vignettes|data-wg-card/);
     expect(contribute).not.toContain('contribute-community.webp');
     expect(main).not.toMatch(
       /contribution-flow|contribution-detail|page-visual/,
     );
-    // Label names are set in Figtree as chips, never in code type.
+    // Label names are set in Figtree, never in code type.
     expect(main).not.toMatch(/<code\b/);
+    // "Groups are an invitation, not a boundary." went for the word budget (spec §0.4 item 5).
+    expect(main).not.toContain('invitation, not a boundary');
   });
 
   it('ends on four places to start, including the community standards issue', () => {
-    const start = main.match(/<section[^>]*id="start"[\s\S]*?<\/section>/)?.[0];
+    const start = section('start');
     expect(start).toBeDefined();
     expect(start!.match(/class="github-cta/g)).toHaveLength(4);
     for (const href of [
@@ -148,8 +283,9 @@ describe('contribute page content', () => {
   });
 
   it('sends data, expertise and funding offers to the Contact page’s draft, offer pressed', () => {
-    const start = main.match(/<section[^>]*id="start"[\s\S]*?<\/section>/)?.[0];
-    const offers = start!.match(/<p class="start-offers"[\s\S]*?<\/p>/)?.[0];
+    const offers = section('start')!.match(
+      /<p class="start-offers"[\s\S]*?<\/p>/,
+    )?.[0];
     expect(offers).toBeDefined();
     for (const offer of ['data', 'expertise', 'funding'])
       expect(offers).toContain(
@@ -160,20 +296,17 @@ describe('contribute page content', () => {
     );
   });
 
-  it('arms the transit line before its first paint, and only when motion is allowed', () => {
-    // Spec §2.7 rule 5: the server renders the line drawn; a head script marks it armed before any
-    // of it paints, and stands down at 1,200 ms if the island has not begun (design review, round 1).
+  it('arms the orbit before its first paint, and only when motion is allowed', () => {
+    // Spec §2.7 rule 5 (round 2 §4.3.2): the server renders the story's last frame; a head script
+    // marks the orbit armed (its 0 ms state) before any of it paints, and stands down at 1,200 ms
+    // if the scene has not begun loading. The transit line is no longer above the fold.
     const head = contribute.slice(0, contribute.indexOf('</head>'));
     const script = head.match(
-      /<script>((?:(?!<\/script>)[\s\S])*data-arm-transit(?:(?!<\/script>)[\s\S])*)<\/script>/,
+      /<script>((?:(?!<\/script>)[\s\S])*data-arm-orbit(?:(?!<\/script>)[\s\S])*)<\/script>/,
     )?.[1];
     expect(script).toBeDefined();
     expect(script).toContain('prefers-reduced-motion: reduce');
     expect(script).toContain('1200');
-  });
-
-  it('marks the UI group’s future work with the status dot, not a link-like underline', () => {
-    const ui = main.match(/<article[^>]*id="group-ui"[\s\S]*?<\/article>/)?.[0];
-    expect(ui).toMatch(/class="wg-card__future"[^>]*data-status="future"/);
+    expect(contribute).not.toContain('data-arm-transit');
   });
 });

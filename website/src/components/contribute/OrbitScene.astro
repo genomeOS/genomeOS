@@ -1,0 +1,133 @@
+---
+/**
+ * The working groups' orbit scene (round 2 spec §4.3.2, §8.4; characters.md §2, §4, §5; owner
+ * brief; R2-5, R2-6, R2-7; #454): a mechanism plate whose top bar holds the caption line and the
+ * scene's Pause and Replay (white glyphs, ruling 22), a stage where three working-group moons
+ * orbit the genomeOS globe, and below it one column per group with the text the story types.
+ *
+ * Server-rendered as the story's last frame in three layouts (orbit-layouts.ts; only the one that
+ * fits the stage shows, by container query), which is also what reduced motion and no JavaScript
+ * show; phones add a close-up of each moon above its text there. orbit.ts (imported by the page
+ * once the figure is near) plays the story on the scene timeline and takes the controls over.
+ *
+ * Accessibility: the figure is a group named by the section heading and described by the caption;
+ * the stage is one image whose name is the scene in a sentence, actions only; every typed sentence
+ * is real text, visually hidden, beside an aria-hidden twin that types; the only tab stops are the
+ * controls and the three "Browse matching issues" links.
+ */
+import KitDefs from '../kit/KitDefs.astro';
+import SceneControls from '../kit/SceneControls.astro';
+import { ICON } from '../../graphics/astro/props';
+import { splitTyped } from '../../graphics/typing';
+import { FAVICON_SVG } from '../../lib/favicons';
+import { sitePath } from '../../lib/paths';
+import {
+  GROUPS,
+  LAYOUTS,
+  LEAD,
+  SUMMARY,
+  closeUpViewBox,
+  renderOrbit,
+} from './orbit-layouts';
+
+interface Props {
+  /** The id of the section heading that names the figure. */
+  labelledby: string;
+}
+
+const { labelledby } = Astro.props;
+const globeHref = sitePath(FAVICON_SVG);
+const scenes = [LAYOUTS.desktop, LAYOUTS.tablet, LAYOUTS.phone].map((layout) =>
+  renderOrbit(layout, { globeHref }),
+);
+const columns = GROUPS.map((group) => ({
+  ...group,
+  what: splitTyped(group.what),
+  who: splitTyped(group.who, { lead: LEAD.length }),
+  shot: closeUpViewBox(group.kind),
+}));
+// Each column's icon is its moon's engraving, on a small plate disc.
+const icon = (kind: keyof typeof ICON) =>
+  `<circle r="29" fill="#0a2140" stroke="rgb(112 230 255 / 45%)"/><g fill="none" stroke="#70e6ff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" transform="scale(.72)">${ICON[kind]}</g>`;
+---
+
+{
+  /*
+   * role="group" (spec §8.4) makes the figure the controls' group too; data-select="multiple" tells
+   * the figure contract (tests/figures.spec.ts) that its one toggle is independent, not a
+   * single-choice segmented control.
+   */
+}
+<figure
+  class="kit-plate orbit"
+  data-graphic="orbit"
+  data-kind="mechanism"
+  data-motion-exception="orbit"
+  data-select="multiple"
+  role="group"
+  aria-labelledby={labelledby}
+  aria-describedby="orbit-caption"
+>
+  <figcaption class="kit-plate__bar orbit__bar" data-figure-chrome>
+    <p class="orbit__caption" id="orbit-caption">
+      Examples, not requirements: curiosity counts.
+    </p>
+    <SceneControls object="the orbit animation" replay />
+  </figcaption>
+  <div class="orbit__stage" data-figure-stage role="img" aria-label={SUMMARY}>
+    <KitDefs moons sprite />
+    {scenes.map((svg) => <Fragment set:html={svg} />)}
+  </div>
+  <div class="orbit__cols">
+    {
+      columns.map((group) => (
+        <article
+          class="orbit-col"
+          id={group.id}
+          data-group={group.kind}
+          aria-labelledby={`${group.id}-title`}
+        >
+          <span class="orbit-col__rule" aria-hidden="true" />
+          <svg
+            class="orbit-col__shot"
+            viewBox={group.shot}
+            aria-hidden="true"
+            focusable="false"
+          >
+            <use href="#orbit-phone-moons" />
+          </svg>
+          <div class="orbit-col__head">
+            <svg
+              class="orbit-col__icon"
+              viewBox="-30 -30 60 60"
+              aria-hidden="true"
+              focusable="false"
+              set:html={icon(group.kind)}
+            />
+            <h3 class="orbit-col__title" id={`${group.id}-title`}>
+              {group.title}
+            </h3>
+          </div>
+          <p class="orbit-col__status">
+            <span class="orbit-col__dot" aria-hidden="true" />
+            Group forming
+          </p>
+          <p class="orbit-col__what">
+            <Fragment set:html={group.what.sr + group.what.twin} />
+          </p>
+          <p class="orbit-col__who">
+            <Fragment set:html={group.who.sr + group.who.twin} />
+          </p>
+          <a
+            class="orbit-col__link"
+            href={group.issues}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Browse matching issues <span aria-hidden="true">↗</span>
+          </a>
+        </article>
+      ))
+    }
+  </div>
+</figure>

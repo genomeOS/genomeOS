@@ -1,11 +1,12 @@
 ---
 /**
- * The working groups' transit line (site redesign spec §4.3 C2, #454): a mechanism plate, the
- * shared rail of the group cards below it. One ion line runs through three swimlanes; a white stud
+ * How the working groups fit together (site redesign spec §4.3 C2; round 2 spec §4.3.3, #454): the
+ * transit line, a mechanism plate in its own section after the orbit scene (owner: "the flow ...
+ * should come after the orbit scene"). One ion line runs through three swimlanes; a white stud
  * rides it from the start and a teal hex joins at the model step, and both rest on the map's
  * stretch. Server-rendered in its final state, in both layouts (`transit-route.ts`); `transit.ts`
- * (loaded once by the page, with the board's island) plays the entrance once and lights a group's
- * lane from its card.
+ * (the page's island) plays the entrance once at 35% visible and lights a group's lane from that
+ * lane's own label.
  */
 import Plate from '../kit/Plate.astro';
 import { ICON_PATHS } from '../kit/icons';
@@ -263,6 +264,6 @@ const at = (point: { x: number; y: number }) =>
   }
   <p slot="caption" class="wg-transit__legend">
     <strong>One line carries evidence to the map.</strong> Each group owns a stretch
-    of it. Groups are an invitation, not a boundary.
+    of it.
   </p>
 </Plate>

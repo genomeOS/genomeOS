@@ -3,7 +3,8 @@
  * shared CSS.
  *
  *   .contribute-*   page type and section heads
- *   .wg-*           working groups: the transit line plate, the group cards and their vignettes
+ *   .orbit*         working groups: the orbit scene and its typed columns (OrbitScene.astro)
+ *   .wg-*           how the groups fit together: the transit line plate (TransitLine.astro)
  *
  * The work board (.wb-*, "How work moves") lives in components/contribute/how-work-moves.css with
  * its section (round 2 plan T0 step 3).
@@ -76,21 +77,337 @@
   transition: translate var(--dur-micro) var(--ease-ui);
 }
 
-/* ---------- working groups ---------- */
+/* ---------- working groups: the orbit scene ---------- */
 
-/* The intro hands straight over to the transit line: the band opens tight, so the line is the
-   first thing below the lede, above the fold on desktops and phones (spec §2.4, §4.3 C1). Two
+/* The intro hands straight over to the orbit: the band opens tight, so the plate's top is the
+   first thing below the lede, above the fold on desktops and phones (round 2 spec §4.3.1). Two
    classes: the built stylesheet may order the shared .band rule after this one. */
 .band.wg-section {
   padding-top: clamp(1.75rem, 3.2vw, 2.5rem);
 }
 
-.wg-section .contribute-h2 {
+:is(.wg-section, .flow-section) .contribute-h2 {
   margin-bottom: clamp(1.1rem, 2vw, 1.5rem);
 }
 
-/* The transit line: horizontal swimlanes from an 870 px stage, a vertical rail below that
-   (transit-route.ts holds the geometry; each layout keeps its labels at 13 px or more). */
+/*
+ * The orbit plate (OrbitScene.astro; round 2 spec §4.3.2): the kit plate's frame, ticks and dot
+ * grid (.kit-plate, Plate.astro's styles, which the transit line's plate brings to this page), a
+ * top bar with the caption line and the scene's controls, the stage, and the group columns.
+ *
+ * Each column dims by colour while it waits for its moon (--orbit-wait, 1 → 0 on the scene
+ * timeline, orbit.ts), never by opacity, so its text holds 4.5:1 at every instant: faint is 5.8:1
+ * on the plate and every colour between it and starlight, aurora or ion is lighter still.
+ */
+@property --orbit-wait {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+
+@property --orbit-link-wait {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+
+.orbit {
+  container: orbit / inline-size;
+}
+
+/* The controls' room is reserved before the scene takes them over (they are `hidden` until then),
+   so the bar never grows under the visitor's eyes; under reduced motion they never come
+   (scenes.css hides their row) and the caption has the bar to itself. */
+.orbit__bar {
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  padding-block: 0.375rem;
+  padding-right: 0.45rem;
+  border-bottom: 1px solid var(--color-deep-line);
+}
+
+.orbit__caption {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+
+.orbit__bar .kit-scene-controls {
+  flex: none;
+  justify-content: flex-end;
+  min-width: calc(2 * 44px + 0.25rem);
+  min-height: 44px;
+}
+
+/* The stage draws the layout that fits its width (orbit-layouts.ts LAYOUTS): phones below 680 px,
+   tablets from 680 px, desktops from 960 px, so the moon labels stay at 13 px or more. */
+.orbit__stage {
+  container: orbit-stage / inline-size;
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--color-deep-line);
+}
+
+.orbit-svg {
+  display: none;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  font-family: var(--font-body);
+}
+
+/* A portrait stage: on wide phones and small tablets it stays a phone's size, centred. */
+.orbit-svg--phone {
+  display: block;
+  max-width: 32rem;
+  margin-inline: auto;
+}
+
+/* On wide stages the drawing (never the plate) is sized to the screen's height, so the scene and
+   the first lines its columns type show together; never narrower than the width that keeps its
+   labels at 13 px (orbit-layouts.ts minStage), centred on the plate's dot grid. */
+.orbit-svg--tablet {
+  width: min(100%, max(680px, (100svh - 20rem) * 900 / 560));
+  margin-inline: auto;
+}
+
+.orbit-svg--desktop {
+  width: min(100%, max(960px, min(1320px, (100svh - 20rem) * 1320 / 680)));
+  margin-inline: auto;
+}
+
+@container orbit-stage (min-width: 680px) {
+  .orbit-svg--phone {
+    display: none;
+  }
+
+  .orbit-svg--tablet {
+    display: block;
+  }
+}
+
+@container orbit-stage (min-width: 960px) {
+  .orbit-svg--tablet {
+    display: none;
+  }
+
+  .orbit-svg--desktop {
+    display: block;
+  }
+}
+
+/* The columns: stacked on narrow plates, three abreast from 860 px, split by hairlines. Space for
+   every typed character is reserved (the twin's characters are only transparent), so typing
+   never shifts the layout. */
+.orbit__cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.orbit-col {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 1.35rem 1.4rem 1.4rem;
+}
+
+.orbit-col + .orbit-col {
+  border-top: 1px solid var(--color-deep-line);
+}
+
+/* Abreast, the columns share their rows (subgrid): titles, "Group forming", the typed lines and
+   the links line up across all three however a title wraps. */
+@container orbit (min-width: 860px) {
+  .orbit__cols {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: repeat(4, auto) 1fr;
+  }
+
+  .orbit-col {
+    display: grid;
+    grid-row: span 5;
+    grid-template-rows: subgrid;
+    align-content: start;
+  }
+
+  .orbit-col + .orbit-col {
+    border-top: 0;
+    border-left: 1px solid var(--color-deep-line);
+  }
+
+  .orbit-col__link {
+    align-self: end;
+    justify-self: start;
+  }
+}
+
+/* An ion rule draws across the column whose text is typing, and hands over to the next. */
+.orbit-col__rule {
+  position: absolute;
+  top: -1px;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: var(--color-ion);
+  opacity: 0;
+  transform-origin: 0 50%;
+}
+
+.orbit-col__head {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.orbit-col__icon {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  opacity: calc(1 - 0.6 * var(--orbit-wait));
+}
+
+.orbit-col__title {
+  margin: 0;
+  color: color-mix(
+    in srgb,
+    var(--color-faint) calc(var(--orbit-wait) * 100%),
+    var(--color-starlight)
+  );
+  font-family: var(--font-display);
+  font-size: var(--type-h3);
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+/* "Group forming": the aurora status dot always comes with its words. */
+.orbit-col__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  color: color-mix(
+    in srgb,
+    var(--color-faint) calc(var(--orbit-wait) * 100%),
+    var(--color-aurora)
+  );
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.orbit-col__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-aurora);
+  opacity: calc(1 - 0.65 * var(--orbit-wait));
+}
+
+.orbit-col__what,
+.orbit-col__who {
+  margin: 0;
+  text-wrap: pretty;
+}
+
+.orbit-col__what {
+  color: var(--color-text-soft);
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.orbit-col__who {
+  color: var(--color-muted);
+  font-size: var(--type-legend);
+  line-height: 1.5;
+}
+
+/* Always focusable and readable: it only lights from faint to ion once its column is typed. */
+.orbit-col__link {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 44px;
+  margin-top: auto;
+  color: color-mix(
+    in srgb,
+    var(--color-faint) calc(var(--orbit-link-wait) * 100%),
+    var(--color-ion)
+  );
+  font-size: var(--type-legend);
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.orbit-col__link:hover {
+  color: var(--color-starlight);
+  text-decoration: underline;
+}
+
+/* Phones, under reduced motion or without JavaScript: a close-up of each moon above its text,
+   the story's last frame through a viewBox on the one phone scene (round 2 spec §4.3.2). */
+.orbit-col__shot {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce), (scripting: none) {
+  @container orbit (max-width: 679.98px) {
+    .orbit-col__shot {
+      display: block;
+      width: 100%;
+      max-width: 32rem;
+      height: auto;
+      margin-bottom: 0.35rem;
+      overflow: hidden;
+      border: 1px solid var(--color-deep-line);
+      background-color: var(--color-plate);
+      background-image: radial-gradient(
+        circle at 1px 1px,
+        var(--color-grid-dot) 1px,
+        transparent 1.3px
+      );
+      background-size: 24px 24px;
+      aspect-ratio: 358 / 210;
+    }
+  }
+}
+
+/* Armed before the first paint, until the scene is built (the head script in contribute.astro,
+   spec §2.7 rule 5): the story's first moment, drawn in CSS: an empty stage (no globe, orbit,
+   moons or labels yet), every column waiting, nothing typed. orbit.ts seeks the same moment. */
+@media screen {
+  :root[data-arm-orbit]
+    .orbit:not([data-scene-state])
+    :is(.globe, .arcs, .orb-label) {
+    opacity: 0;
+  }
+
+  :root[data-arm-orbit] .orbit:not([data-scene-state]) .moon-pop {
+    transform: scale(0);
+  }
+
+  :root[data-arm-orbit] .orbit:not([data-scene-state]) .orbit-col {
+    --orbit-wait: 1;
+  }
+
+  :root[data-arm-orbit] .orbit:not([data-scene-state]) .orbit-col__link {
+    --orbit-link-wait: 1;
+  }
+
+  :root[data-arm-orbit] .orbit:not([data-scene-state]) .typed {
+    --n: 0;
+  }
+}
+
+/* ---------- how the groups fit together: the transit line ---------- */
+
+/* The transit line (round 2 spec §4.3.3, its own section after the orbit): horizontal swimlanes
+   from an 870 px stage, a vertical rail below that (transit-route.ts holds the geometry; each
+   layout keeps its labels at 13 px or more). */
 .wg-transit > .kit-plate__stage {
   container: wg-transit / inline-size;
 }
@@ -256,39 +573,6 @@
     stroke-dasharray: 1 1;
   }
 
-  /* Armed before the first paint, until the island takes over (the head script in
-     contribute.astro, spec §2.7 rule 5): the entrance's first frame, drawn in CSS. The lit line is
-     undrawn, every station past the first waits dim, the stud waits at the head of the line and
-     the hex has not joined it yet (transit.ts draws the same frame as draw(0)). */
-  :root[data-arm-transit] .wg-transit:not([data-figure-state]) .wg-line--lit {
-    stroke-dasharray: 1 1;
-    stroke-dashoffset: 1;
-  }
-
-  :root[data-arm-transit]
-    .wg-transit:not([data-figure-state])
-    .wg-station:not([data-reach='0'])
-    .wg-station__ring {
-    stroke: var(--color-line-strong);
-  }
-
-  :root[data-arm-transit]
-    .wg-transit:not([data-figure-state])
-    .wg-station:not([data-reach='0'])
-    .wg-station__icon
-    path {
-    stroke: var(--color-muted);
-  }
-
-  :root[data-arm-transit] .wg-transit:not([data-figure-state]) .wg-token--hex {
-    opacity: 0;
-    transition: none;
-  }
-
-  :root[data-arm-transit] .wg-transit:not([data-figure-state]) .wg-token--stud {
-    transform: var(--wg-start);
-  }
-
   .wg-transit.is-armed .wg-station.is-ahead .wg-station__ring {
     stroke: var(--color-line-strong);
   }
@@ -359,389 +643,6 @@
   .wg-lane__bracket,
 .wg-transit[data-active='ui'] .wg-lane[data-lane='ui'] .wg-lane__bracket {
   stroke: var(--color-ion);
-}
-
-/* The group cards: three equal columns split by hairlines in the gaps, flush with the plate. */
-.wg-cards {
-  --wg-gap: clamp(2rem, 4.4vw, 4rem);
-
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  column-gap: var(--wg-gap);
-  margin-top: clamp(1.75rem, 3.5vw, 2.75rem);
-  border-block: 1px solid var(--color-deep-line);
-}
-
-.wg-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.7rem;
-  min-width: 0;
-  padding-block: clamp(1.25rem, 2.4vw, 2rem);
-}
-
-.wg-card + .wg-card::after {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: calc(var(--wg-gap) / -2);
-  width: 1px;
-  background: var(--color-deep-line);
-  content: '';
-}
-
-/* The active card's mark: a short ion rule on the hairline above it. */
-.wg-card::before {
-  position: absolute;
-  top: -1px;
-  left: 0;
-  width: 2.5rem;
-  height: 2px;
-  background: var(--color-ion);
-  content: '';
-  opacity: 0;
-  transition: opacity var(--dur-ui) var(--ease-ui);
-}
-
-.wg-card.is-active::before {
-  opacity: 1;
-}
-
-.wg-vig {
-  display: block;
-  width: 100%;
-  height: auto;
-  margin-bottom: 0.35rem;
-  aspect-ratio: 16 / 10;
-  overflow: visible;
-  transition: opacity var(--dur-ui) var(--ease-ui);
-}
-
-/* Only the art of the other cards quiets down; card text keeps its colour. */
-.wg-cards:has(.wg-card.is-active) .wg-card:not(.is-active) .wg-vig {
-  opacity: 0.45;
-}
-
-.wg-card__title {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: var(--type-h3);
-  font-weight: 500;
-  letter-spacing: -0.015em;
-  line-height: 1.2;
-}
-
-.wg-card__badge {
-  margin: 0;
-}
-
-.wg-card__badge span {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0.18rem 0.55rem 0.2rem 0.5rem;
-  border: 1px solid rgb(114 231 193 / 55%);
-  color: var(--color-aurora);
-  font-size: var(--type-tag);
-  font-weight: 620;
-  line-height: 1.3;
-}
-
-.wg-card__badge span::before {
-  width: 0.42rem;
-  height: 0.42rem;
-  border-radius: 50%;
-  background: currentColor;
-  content: '';
-}
-
-.wg-card__scope {
-  margin: 0;
-  color: var(--color-text-soft);
-  font-size: 1rem;
-  line-height: 1.55;
-}
-
-/* Future work wears violet only as a dashed outline (spec §6.1 rule 7): the same dashed status
-   dot as Home's vision strip and Project's ladder, never an underline that reads as a link. */
-.wg-card__future {
-  color: var(--color-starlight);
-  white-space: nowrap;
-}
-
-.wg-card__future::before {
-  content: '';
-  display: inline-block;
-  width: 0.55rem;
-  height: 0.55rem;
-  margin-right: 0.4em;
-  border: 1.5px dashed var(--color-genome);
-  border-radius: 50%;
-  vertical-align: 0.05em;
-}
-
-.wg-card__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin: 0.1rem 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.wg-card__chips li {
-  padding: 0.12rem 0.5rem 0.16rem;
-  border: 1px solid var(--color-deep-line);
-  color: var(--color-muted);
-  font-size: 0.8rem;
-  font-weight: 560;
-  line-height: 1.4;
-}
-
-.wg-card__link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  min-height: 2.75rem;
-  margin-top: auto;
-  font-weight: 650;
-  text-decoration: none;
-}
-
-.wg-card__link span {
-  transition: translate var(--dur-micro) var(--ease-ui);
-}
-
-.wg-card__link:hover span {
-  translate: 0.12rem -0.12rem;
-}
-
-@media (max-width: 52rem) {
-  .wg-cards {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .wg-card + .wg-card {
-    border-top: 1px solid var(--color-deep-line);
-  }
-
-  .wg-card + .wg-card::after {
-    display: none;
-  }
-
-  .wg-vig {
-    max-width: 26rem;
-  }
-}
-
-/* Vignettes: the markup is the last frame. Armed, the entrance's later marks wait; playing, each
-   plays once (≤ 1.6 s), 300 ms after the card before it (--wg-delay). */
-.wg-vig__fly {
-  offset-rotate: 0deg;
-  opacity: 0;
-}
-
-.wg-vig__ring,
-.wg-vig__pop {
-  transform-box: fill-box;
-  transform-origin: center;
-}
-
-@media screen {
-  .wg-cards[data-figure-state='armed']
-    .wg-vig
-    :is(
-      .wg-vig__land,
-      .wg-vig__ring,
-      .wg-vig__plate,
-      .wg-vig__grow,
-      .wg-vig__hi,
-      .wg-vig__band,
-      .wg-vig__draw-tick,
-      .wg-vig__pop,
-      .wg-vig__future
-    ) {
-    opacity: 0;
-  }
-
-  .wg-cards[data-figure-state='armed'] .wg-vig__draw {
-    stroke-dasharray: 1 1;
-    stroke-dashoffset: 1;
-  }
-
-  .wg-cards[data-figure-state='armed'] .wg-vig__cursor {
-    opacity: 0;
-    transform: translate(-64px, 48px);
-  }
-
-  .wg-vig.is-playing :is(*) {
-    animation-fill-mode: both;
-    animation-timing-function: var(--ease-figure);
-  }
-
-  .wg-vig.is-playing .wg-vig__fly {
-    animation-name: wg-fly;
-    animation-duration: 820ms;
-    animation-delay: var(--wg-delay, 0ms);
-  }
-
-  .wg-vig.is-playing .wg-vig__land {
-    animation-name: wg-fade;
-    animation-duration: 220ms;
-    animation-delay: calc(var(--wg-delay, 0ms) + 700ms);
-  }
-
-  .wg-vig.is-playing .wg-vig__ring {
-    animation-name: wg-ring;
-    animation-duration: 420ms;
-    animation-delay: calc(var(--wg-delay, 0ms) + 760ms);
-  }
-
-  .wg-vig.is-playing .wg-vig__plate {
-    animation-name: wg-plate;
-    animation-duration: 380ms;
-    animation-delay: calc(var(--wg-delay, 0ms) + 1180ms);
-  }
-
-  .wg-vig.is-playing .wg-vig__grow {
-    animation-name: wg-fade;
-    animation-duration: 420ms;
-    animation-delay: calc(var(--wg-delay, 0ms) + var(--wg-d, 0ms));
-  }
-
-  .wg-vig.is-playing .wg-vig__hi {
-    animation-name: wg-fade;
-    animation-duration: 260ms;
-    animation-delay: calc(var(--wg-delay, 0ms) + 980ms);
-  }
-
-  .wg-vig--ui.is-playing .wg-vig__hi {
-    animation-delay: calc(var(--wg-delay, 0ms) + 820ms);
-  }
-
-  .wg-vig.is-playing .wg-vig__draw {
-    stroke-dasharray: 1 1;
-    animation-name: wg-draw;
-    animation-duration: 520ms;
-    animation-delay: calc(var(--wg-delay, 0ms) + 1000ms);
-  }
-
-  .wg-vig.is-playing .wg-vig__band,
-  .wg-vig.is-playing .wg-vig__draw-tick {
-    animation-name: wg-fade;
-    animation-duration: 300ms;
-    animation-delay: calc(var(--wg-delay, 0ms) + 1280ms);
-  }
-
-  .wg-vig.is-playing .wg-vig__cursor {
-    animation-name: wg-cursor;
-    animation-duration: 820ms;
-    animation-timing-function: var(--ease-camera);
-    animation-delay: var(--wg-delay, 0ms);
-  }
-
-  .wg-vig.is-playing .wg-vig__pop {
-    animation-name: wg-pop;
-    animation-duration: 300ms;
-    animation-delay: calc(var(--wg-delay, 0ms) + 900ms);
-  }
-
-  .wg-vig.is-playing .wg-vig__future {
-    animation-name: wg-fade;
-    animation-duration: 380ms;
-    animation-delay: calc(var(--wg-delay, 0ms) + 1220ms);
-  }
-}
-
-@keyframes wg-fade {
-  from {
-    opacity: 0;
-  }
-
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes wg-fly {
-  0% {
-    offset-distance: 0%;
-    opacity: 1;
-  }
-
-  86% {
-    offset-distance: 100%;
-    opacity: 1;
-  }
-
-  100% {
-    offset-distance: 100%;
-    opacity: 0;
-  }
-}
-
-@keyframes wg-ring {
-  from {
-    opacity: 0;
-    transform: scale(0.3);
-  }
-
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@keyframes wg-plate {
-  from {
-    opacity: 0;
-    transform: translateY(-7px);
-  }
-
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@keyframes wg-draw {
-  from {
-    stroke-dashoffset: 1;
-  }
-
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
-@keyframes wg-cursor {
-  from {
-    opacity: 0;
-    transform: translate(-64px, 48px);
-  }
-
-  20% {
-    opacity: 1;
-  }
-
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@keyframes wg-pop {
-  from {
-    opacity: 0;
-    transform: scale(0.94);
-  }
-
-  to {
-    opacity: 1;
-    transform: none;
-  }
 }
 
 /* ---------- the transit line's legend ---------- */
@@ -817,25 +718,38 @@
 /* ---------- reduced motion, print, forced colours ---------- */
 
 @media (prefers-reduced-motion: reduce) {
-  :is(.wg-transit, .wg-cards, .contribute-more, .start-offers) *,
-  :is(.wg-transit, .wg-cards, .contribute-more, .start-offers) *::before,
-  :is(.wg-transit, .wg-cards, .contribute-more, .start-offers) *::after {
+  :is(.wg-transit, .orbit, .contribute-more, .start-offers) *,
+  :is(.wg-transit, .orbit, .contribute-more, .start-offers) *::before,
+  :is(.wg-transit, .orbit, .contribute-more, .start-offers) *::after {
     animation: none !important;
     transition: none !important;
   }
 }
 
 @media (forced-colors: active) {
-  .wg-transit,
-  .wg-vig {
+  .wg-transit {
     --enc-obs: CanvasText;
     --enc-obs-ring: Canvas;
     --enc-obs-radius: CanvasText;
   }
 
-  .wg-transit svg,
-  .wg-vig {
+  .wg-transit svg {
     forced-color-adjust: none;
+  }
+
+  /* The orbit is an illustration: it keeps its own night sky and colours, framed by the plate. */
+  .orbit__stage,
+  .orbit-col__shot {
+    forced-color-adjust: none;
+    background-color: var(--color-plate);
+  }
+
+  .orbit-col__rule {
+    background: Highlight;
+  }
+
+  .orbit-col__dot {
+    background: CanvasText;
   }
 
   .wg-line--lit,
