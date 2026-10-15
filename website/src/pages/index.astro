@@ -8,8 +8,8 @@
  */
 import ralewayLatin from '@fontsource-variable/raleway/files/raleway-latin-wght-normal.woff2?url';
 import BrandName from '../components/BrandName.astro';
-import ApplicationCard from '../components/home/ApplicationCard.astro';
-import CountsFigure from '../components/home/CountsFigure.astro';
+import ApplicationCard from '../components/project/ApplicationCard.astro';
+import CountsFigure from '../components/project/CountsFigure.astro';
 import EvidenceBase from '../components/home/EvidenceBase.astro';
 import AtlasPreview from '../components/home/AtlasPreview.astro';
 import HeroMedia from '../components/home/HeroMedia.astro';
@@ -299,7 +299,7 @@ const routes = [
     <div class="section-shell layout-figure-split">
       <div class="layout-figure-split__text home-head">
         <h2 id="vision-title">From one world map to many biological scales.</h2>
-        <a class="home-vision__link" href={sitePath('/project/#vision')}
+        <a class="home-vision__link" href={sitePath('/projects/#vision')}
           >Explore the larger vision <span aria-hidden="true">→</span></a
         >
       </div>
@@ -356,7 +356,7 @@ const routes = [
    * page fetches one module instead of one per figure, as Project and Contribute do.
    */
   import { initAtlasPreview } from '../components/home/atlas-preview';
-  import { initCounts } from '../components/home/counts';
+  import { initCounts } from '../components/project/counts';
   import { initHeroMedia } from '../components/home/hero-media';
   import { FigureController } from '../graphics/figure';
 
@@ -376,7 +376,7 @@ const routes = [
     'figure[data-graphic="evidence-base"]',
     (figure) => new FigureController(figure, { duration: 600, rest() {} }),
   );
-  // The application glyphs draw in once, 90 ms apart (CSS, home.css); each replays its mechanism
+  // The application glyphs draw in once, 90 ms apart (CSS, applications.css); each replays its mechanism
   // on hover.
   each(
     'figure[data-graphic="applications"]',

@@ -15,8 +15,10 @@ export function setup(): void {
       ATLAS_CATALOG_PATH: 'public/data/atlas/catalog.json',
       PUBLIC_ATLAS_REQUEST_STALL_MS: '',
       PUBLIC_ATLAS_DATA_BASE_URL: '',
-      // #453: no e2e test hooks in the build the unit tests read.
+      // #453: no e2e test hooks in the build the unit tests read; #454 round 2: no motion hooks
+      // and no /kit/ page either (tests/motion-hooks.test.ts).
       PUBLIC_ATLAS_E2E_HOOKS: '',
+      PUBLIC_MOTION_HOOKS: '',
       // #422: unit tests read a build without analytics (tests/analytics-build.test.ts), whatever
       // the shell exports.
       PUBLIC_GA_MEASUREMENT_ID: '',

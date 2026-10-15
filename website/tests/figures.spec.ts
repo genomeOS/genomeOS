@@ -1,10 +1,12 @@
 /**
- * The figure contract (site redesign spec §2.3–§2.6, §8, §9.2; #454), at 1440×900 and 390×844, for
- * every page whose manifest enforces it:
+ * The figure contract (site redesign spec §2.3–§2.6, §8, §9.2; round 2 spec §11.2; #454), at
+ * 1440×900 and 390×844, for every page with a manifest:
  *
  * - the page has as many [data-concept] sections as its manifest says (so leaving `data-concept`
- *   off cannot pass), and each holds exactly one figure[data-graphic], with a figcaption and an
- *   accessible name or a "View as table" twin;
+ *   off cannot pass), where the manifest enforces its concepts (or with FORCE_CONCEPTS=1; round 2:
+ *   Home, Projects and Contribute from the integration task on); every [data-concept] holds
+ *   exactly one figure[data-graphic], with a figcaption and an accessible name or a "View as
+ *   table" twin;
  * - figure chrome (controls, legends, readouts) overlaps neither other chrome, nor the stage it
  *   describes, nor the fixed header, nor the cookie control corner;
  * - every figure label renders at 13 px or more, at the project's width and at the other widths a
@@ -12,8 +14,11 @@
  *   figure in a narrower column than the page, such as the Docs content, must still pick a layout
  *   that fits it);
  *   nothing in <main> is set in a monospace face;
- * - no wordmark inside a call to action; one selected tab and one pressed segment per group (a
- *   group of independent toggles, marked data-select="multiple", may press any number);
+ * - no wordmark inside a call to action (the Atlas pills, .launch-atlas-cta and .atlas-open, are
+ *   the wordmark's own); one selected tab and one pressed segment per group (a group of
+ *   independent toggles, marked data-select="multiple", may press any number);
+ * - a scene's controls ([data-scene-toggle], [data-scene-replay]) sit off the stage they act on
+ *   and clear of the cookie control's corner (round 2 spec §3.5);
  * - chip and step rows keep inside the 16 px phone gutters, and control labels never overflow;
  * - the lead figure opens above the fold (Project, Contribute, Privacy). (Home's first view is its
  *   hero film since round 2, ruling R2-1; its figures start below it.)
@@ -22,7 +27,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { useSiteFixtures } from './helpers/marketing';
 import { openManifestPage } from './helpers/manifest-page';
-import { conceptEnforced, type PageManifest } from './helpers/pages';
+import { pageManifests, type PageManifest } from './helpers/pages';
 
 useSiteFixtures();
 
@@ -129,9 +134,11 @@ function typeAndControls(): string[] {
   for (const brand of main.querySelectorAll(
     '.button-link .brand-name, .github-cta strong .brand-name',
   ))
-    failures.push(
-      `wordmark inside a call to action: ${brand.closest('a')?.textContent?.trim()}`,
-    );
+    // The Atlas pills set "genomeOS" in the wordmark by design (round 2 spec §4.1.5).
+    if (!brand.closest('.launch-atlas-cta, .atlas-open'))
+      failures.push(
+        `wordmark inside a call to action: ${brand.closest('a')?.textContent?.trim()}`,
+      );
   for (const list of main.querySelectorAll('[role="tablist"]')) {
     const selected = list.querySelectorAll(
       '[role="tab"][aria-selected="true"]',
@@ -279,6 +286,83 @@ async function chromeCollisions(page: Page): Promise<string[]> {
   return failures;
 }
 
+/**
+ * Scene controls (round 2 spec §3.5): each visible Pause/Play or Replay button stays off its own
+ * stage and, scrolled into view, out of the cookie control's corner (the bottom-right 4.5rem).
+ */
+async function sceneControls(
+  page: Page,
+  manifest: PageManifest,
+): Promise<string[]> {
+  const selector =
+    'main figure[data-graphic] :is([data-scene-toggle], [data-scene-replay])';
+  const count = await page.locator(selector).count();
+  if (count === 0) return [];
+  // Under reduced motion the controls stay hidden: look with motion allowed, once each scene's
+  // controller has taken its controls over.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await openManifestPage(page, manifest);
+  for (let index = 0; index < count; index += 1) {
+    await page
+      .locator(selector)
+      .nth(index)
+      .evaluate((control) =>
+        control
+          .closest('figure')!
+          .scrollIntoView({ block: 'center', behavior: 'instant' }),
+      );
+    await page.waitForTimeout(300);
+  }
+  const failures: string[] = [];
+  for (let index = 0; index < count; index += 1)
+    failures.push(
+      ...(await page.evaluate((target) => {
+        const control = [
+          ...document.querySelectorAll<HTMLElement>(
+            'main figure[data-graphic] :is([data-scene-toggle], [data-scene-replay])',
+          ),
+        ][target];
+        if (!control.checkVisibility({ visibilityProperty: true })) return [];
+        control.scrollIntoView({ block: 'center', behavior: 'instant' });
+        const box = control.getBoundingClientRect();
+        const name = `${control.closest('figure')!.dataset.graphic} ${control.hasAttribute('data-scene-replay') ? 'Replay' : 'Pause'}`;
+        const hit = (
+          other:
+            | DOMRect
+            | { left: number; top: number; right: number; bottom: number },
+        ) =>
+          Math.min(box.right, other.right) - Math.max(box.left, other.left) >
+            0.5 &&
+          Math.min(box.bottom, other.bottom) - Math.max(box.top, other.top) >
+            0.5;
+        const out: string[] = [];
+        const stage = control
+          .closest('figure')!
+          .querySelector('[data-figure-stage]');
+        if (
+          stage &&
+          !stage.contains(control) &&
+          hit(stage.getBoundingClientRect())
+        )
+          out.push(`${name} overlaps its stage`);
+        if (stage?.contains(control)) out.push(`${name} sits inside its stage`);
+        const corner =
+          parseFloat(getComputedStyle(document.documentElement).fontSize) * 4.5;
+        if (
+          hit({
+            left: innerWidth - corner,
+            top: innerHeight - corner,
+            right: innerWidth,
+            bottom: innerHeight,
+          })
+        )
+          out.push(`${name} sits in the cookie control's corner`);
+        return out;
+      }, index)),
+    );
+  return failures;
+}
+
 async function gutters(page: Page): Promise<string[]> {
   return page.evaluate(() => {
     const failures: string[] = [];
@@ -324,12 +408,17 @@ for (const viewport of VIEWPORTS)
   test.describe(`figures at ${viewport.width} px ${viewport.tag}`, () => {
     test.use({ viewport: { width: viewport.width, height: viewport.height } });
 
-    for (const manifest of conceptEnforced)
+    for (const manifest of pageManifests)
       test(`${manifest.route} keeps the figure contract`, async ({ page }) => {
         await page.emulateMedia({ reducedMotion: 'reduce' });
         await openManifestPage(page, manifest);
         const sections = await page.evaluate(concepts);
-        expect(sections.count, 'concept sections').toBe(manifest.concepts);
+        if (manifest.conceptsEnforced || process.env.FORCE_CONCEPTS === '1')
+          expect(sections.count, 'concept sections').toBe(manifest.concepts);
+        else
+          console.log(
+            `concepts ${manifest.route}: ${sections.count} / ${manifest.concepts} (not enforced until conceptsEnforced)`,
+          );
         expect(sections.failures, 'concept sections').toEqual([]);
         expect(await page.evaluate(smallLabels), 'figure labels').toEqual([]);
         expect(
@@ -353,5 +442,13 @@ for (const viewport of VIEWPORTS)
             `figure labels at ${width} px`,
           ).toEqual([]);
         }
+        // Last: it reopens the page with motion allowed.
+        await page.setViewportSize({
+          width: viewport.width,
+          height: viewport.height,
+        });
+        expect(await sceneControls(page, manifest), 'scene controls').toEqual(
+          [],
+        );
       });
   });

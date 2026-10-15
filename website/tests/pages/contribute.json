@@ -1,12 +1,25 @@
 {
   "route": "/contribute/",
-  "words": 330,
-  "wordsEnforced": true,
-  "conceptsEnforced": true,
-  "concepts": 2,
+  "words": 380,
+  "wordsEnforced": false,
+  "conceptsEnforced": false,
+  "concepts": 3,
+  "sections": {
+    ".page-intro": 30,
+    "#working-groups": 136,
+    "#flow": 45,
+    "#how-work-moves": 142,
+    "#start": 34
+  },
+  "sectionsPending": ["#working-groups"],
   "jsKbGz": 10,
+  "lazyJsKbGz": {
+    "orbit": 40,
+    "board": 40
+  },
   "dataKbGz": 0,
-  "transferKbGz": 160,
+  "imagesKbGz": 0,
+  "transferKbGz": 220,
   "lcpMs": {
     "desktop": 1000,
     "phone": 2200

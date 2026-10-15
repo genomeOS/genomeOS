@@ -1,12 +1,12 @@
 /**
  * No run-together words (site redesign spec §9.2, #454): an inline element closing straight into a
  * letter renders as one word ("genomeOSasks", "issuesbefore", "opt-in.This"). Checked in <main> of
- * every built page whose manifest enforces its copy.
+ * every built page that has a manifest (round 2: whether or not its word total is enforced yet).
  */
 import { describe, expect, it } from 'vitest';
 
 import { builtHtml } from './helpers/dist';
-import { wordEnforced } from './helpers/pages';
+import { pageManifests } from './helpers/pages';
 
 const ADJACENT = /<\/(?:a|b|em|span|strong)>\p{L}/gu;
 
@@ -17,7 +17,7 @@ function main(html: string): string {
 }
 
 describe('copy spacing', () => {
-  it.each(wordEnforced.map((page) => [page.route, page] as const))(
+  it.each(pageManifests.map((page) => [page.route, page] as const))(
     'separates every inline element from the next word on %s',
     (route) => {
       const html = main(builtHtml(route.replace(/^\//, '').replace(/\/$/, '')));

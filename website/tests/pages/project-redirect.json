@@ -1,0 +1,13 @@
+{
+  "route": "/project/",
+  "words": 20,
+  "wordsEnforced": true,
+  "conceptsEnforced": true,
+  "concepts": 0,
+  "redirect": "/projects/",
+  "jsKbGz": null,
+  "dataKbGz": 0,
+  "transferKbGz": null,
+  "lcpMs": null,
+  "cls": 0
+}

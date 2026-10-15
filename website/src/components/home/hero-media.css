@@ -1,0 +1,325 @@
+/*
+ * The hero film's CSS (round 2, ruling R2-1; round 2 spec §4.1.1): every .hero-media* and
+ * .home-hero* rule, cut verbatim from styles/pages/home.css (round 2 plan T0 step 3), so the hero
+ * task owns one file. HeroMedia.astro imports it. The hero's text (.home-hero__*) is the slot's
+ * markup contract with index.astro (round 2 plan I-8).
+ */
+
+/*
+ * The hero film (round 2, ruling R2-1; HeroMedia.astro): the frame fills the first view under the
+ * landing bar, the text over it. Wide screens set the text on the left, beside the globe the film
+ * keeps on the right, over a scrim from the left; tall screens set it at the bottom, under the
+ * globe, over a scrim from the bottom. Each scrim keeps the text at 4.5:1 or more over the film's
+ * brightest frame (measured; see the redesign's hero build report).
+ */
+.home-hero {
+  position: relative;
+}
+
+.hero-media {
+  --hero-position: var(--hero-position-wide);
+
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  min-height: calc(100svh - var(--site-header-height) - 1px);
+  overflow: clip;
+  background: var(--color-void);
+}
+
+.hero-media__backdrop {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  transform-origin: 68% 42%;
+}
+
+.hero-media__backdrop :is(picture, img, video) {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  object-fit: cover;
+  object-position: var(--hero-position);
+}
+
+/* The film fades in over the poster once its first frame is up, and stays while paused. */
+.hero-media__video {
+  opacity: 0;
+  transition: opacity 900ms var(--ease-figure);
+}
+
+.hero-media[data-video-frame]:is([data-video='playing'], [data-video='paused'])
+  .hero-media__video {
+  opacity: 1;
+}
+
+/* The frame's lower edge melts into the page. */
+.hero-media__scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, var(--color-void) 0, rgb(2 7 18 / 0%) 16%);
+}
+
+.hero-media__content {
+  display: grid;
+  align-items: center;
+  padding-block: clamp(2.5rem, 8vh, 5rem) clamp(5rem, 12vh, 7rem);
+}
+
+/* As wide as its widest line (the H1 at 12ch keeps three lines from a phone to 1920 px), so the
+   scrim below ends where the text does. */
+.home-hero__text {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+}
+
+/*
+ * The scrim follows the text, not the frame, so it covers the text however the text wraps: on a
+ * wide screen a band from the left edge that stays dark under the text and 3rem past its end, then
+ * clears by 14rem; on a tall one (below) a fade from 7rem above the kicker down to the frame's
+ * bottom. Its stops hold every line at 4.5:1 or more against the brightest pixel behind it, in
+ * every frame of the loop (measured every 0.5 s at thirteen sizes from 320 to 2560 px; see the
+ * redesign's hero build report). It sits behind the text and over the film (z-index -1 in the
+ * hero's isolated stack, after the backdrop).
+ */
+.home-hero__text::before {
+  position: absolute;
+  z-index: -1;
+  inset: -100vh -14rem -100vh -100vw;
+  background: linear-gradient(
+    90deg,
+    rgb(2 7 18 / 80%) 0,
+    rgb(2 7 18 / 74%) calc(100% - 17rem),
+    rgb(2 7 18 / 54%) calc(100% - 11rem),
+    rgb(2 7 18 / 16%) calc(100% - 5rem),
+    rgb(2 7 18 / 0%) 100%
+  );
+  content: '';
+  pointer-events: none;
+}
+
+.home-hero h1 {
+  max-width: 12ch;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--type-hero);
+  font-weight: 360;
+  line-height: 0.96;
+  letter-spacing: -0.05em;
+  text-wrap: balance;
+}
+
+.home-hero__lede {
+  max-width: 34ch;
+  margin: 1.5rem 0 0;
+  color: var(--color-text-soft);
+  font-size: var(--type-lede);
+  line-height: 1.5;
+}
+
+.home-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.75rem;
+}
+
+/* The film's Pause/Play control: the site's square control style, quiet over the frame. Wide
+   screens put it at the bottom of the text's column, tall ones at the top right, over the globe
+   (WCAG 2.2.2). It never sits over the text or in the cookie control's corner. */
+.hero-media__toggle {
+  position: absolute;
+  bottom: clamp(1rem, 3vh, 1.75rem);
+  left: max(var(--space-page), (100% - var(--content-width)) / 2);
+  min-width: 44px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0.45rem 0.85rem 0.45rem 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid rgb(242 248 255 / 30%);
+  background: rgb(2 7 18 / 62%);
+  color: var(--color-starlight);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 620;
+  line-height: 1;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition:
+    border-color var(--dur-micro) var(--ease-ui),
+    background-color var(--dur-micro) var(--ease-ui);
+}
+
+.hero-media__toggle[hidden] {
+  display: none;
+}
+
+.hero-media__toggle:hover {
+  border-color: var(--color-starlight);
+  background: rgb(2 7 18 / 82%);
+}
+
+.hero-media__toggle svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex: none;
+  fill: currentColor;
+}
+
+.hero-media__toggle:not([data-state='paused']) .hero-media__icon-play,
+.hero-media__toggle[data-state='paused'] .hero-media__icon-pause {
+  display: none;
+}
+
+/* Tall screens (a phone, a tablet in portrait): the globe in the upper part of the frame, the text
+   under it at the bottom, over a scrim from the bottom. The text ends 4.5rem above the screen's
+   edge, so the cookie control's corner (spec §2.4) never covers a call to action (#419). */
+@media (orientation: portrait) {
+  .hero-media {
+    --hero-position: var(--hero-position-tall);
+  }
+
+  .hero-media__content {
+    align-items: end;
+    padding-block: min(5rem, 12svh) 4.5rem;
+  }
+
+  .home-hero__text::before {
+    inset: -7rem -100vw -4.5rem;
+    background: linear-gradient(
+      180deg,
+      rgb(2 7 18 / 0%) 0,
+      rgb(2 7 18 / 46%) 4rem,
+      rgb(2 7 18 / 74%) 7rem,
+      rgb(2 7 18 / 86%) 60%,
+      var(--color-void) 100%
+    );
+  }
+
+  .hero-media__toggle {
+    top: 0.9rem;
+    right: var(--space-page);
+    bottom: auto;
+    left: auto;
+  }
+}
+
+/* A phone (design review, round 2): the two calls to action share one row of equal halves wherever
+   each label fits in 8.5rem (from a 360 px screen), and stack as two equal, full-width buttons
+   below that, never as a ragged pair. The heading steps down a little on a phone, to two lines,
+   so the globe keeps the top of the frame and a 320 × 640 screen still shows the calls to action
+   clear of the cookie control's corner. */
+@media (max-width: 26rem) {
+  .home-hero h1 {
+    font-size: clamp(2rem, 11.2vw, 2.6rem);
+    max-width: 14ch;
+  }
+
+  .home-hero__lede {
+    margin-top: 1.1rem;
+  }
+
+  .home-hero__actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+    margin-top: 1.25rem;
+  }
+
+  .home-hero__actions .button-link {
+    padding-inline: 0.6rem;
+    white-space: nowrap;
+  }
+}
+
+/* The scroll fade: as the page scrolls into the content, the film recedes (it fades and settles a
+   little smaller), from when the hero's top reaches the top of the screen until three quarters of
+   it has passed. A scroll-driven animation, so it moves only when the visitor scrolls; where that
+   is missing, hero-media.ts sets --hero-recede instead. Neither under reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .home-hero {
+      view-timeline: --home-hero block;
+      view-timeline-inset: 0;
+    }
+
+    /* Longhands only: the minifier would fold a timeline into the `animation` shorthand, which
+       CSS Animations 2 allows but browsers do not parse yet, and the fade would be dropped. */
+    .hero-media__backdrop {
+      animation-name: hero-recede;
+      animation-duration: auto;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: --home-hero;
+      animation-range: exit-crossing 0% exit-crossing 75%;
+    }
+
+    /* The film's Pause control goes with the film: it fades as the film does, and once the film is
+       gone, so is the control (visibility, so no one tabs to a control for nothing). */
+    .hero-media__toggle {
+      animation-name: hero-recede-control;
+      animation-duration: auto;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: --home-hero;
+      animation-range: exit-crossing 0% exit-crossing 75%;
+    }
+  }
+
+  .hero-media[data-recede='script'] .hero-media__backdrop {
+    opacity: calc(1 - var(--hero-recede, 0));
+    scale: calc(1 - 0.06 * var(--hero-recede, 0));
+  }
+
+  .hero-media[data-recede='script'] .hero-media__toggle {
+    opacity: calc(1 - var(--hero-recede, 0));
+  }
+
+  /* A keyboard visitor who reaches the control while the film is fading sees it whole. Important,
+     because an animation's value outranks every normal declaration. */
+  .hero-media__toggle:focus-visible {
+    opacity: 1 !important;
+  }
+}
+
+@keyframes hero-recede {
+  to {
+    opacity: 0;
+    scale: 0.94;
+  }
+}
+
+@keyframes hero-recede-control {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-media__video,
+  .hero-media__toggle {
+    transition: none;
+  }
+}
+
+/* The film and its control never print (spec §8). */
+@media print {
+  .hero-media__backdrop .hero-media__video,
+  .hero-media__toggle {
+    display: none;
+  }
+}
+
+/* The hero's film and poster are decorative: under forced colours the text sits on the system's
+   own background instead of over a frame it can no longer be guaranteed to read against. */
+@media (forced-colors: active) {
+  .hero-media__backdrop {
+    visibility: hidden;
+  }
+}

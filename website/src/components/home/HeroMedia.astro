@@ -11,7 +11,7 @@
  *            dimensions and high fetch priority: the page's LCP, never lazy. Decorative (alt="").
  *   film     an empty `<video muted loop playsinline preload="none">`, hidden from assistive tech;
  *            hero-media.ts adds its sources after the load event, or keeps the poster
- *   scrim    a gradient that keeps the text over the frame at 4.5:1 or more (home.css; from the
+ *   scrim    a gradient that keeps the text over the frame at 4.5:1 or more (hero-media.css; from the
  *            left on wide screens, from the bottom on tall ones)
  *   control  a Pause/Play button after the slotted text, so the calls to action are reached first
  *            (WCAG 2.4.3); shown only once the film is going to play (WCAG 2.2.2)
@@ -22,6 +22,7 @@ import type { ImageMetadata } from 'astro';
 import { getImage } from 'astro:assets';
 
 import type { HeroVideoSource } from './hero-media';
+import './hero-media.css';
 
 interface Props {
   /** The film's first frame, imported from src/assets (2560 × 1440 or larger). */
@@ -82,6 +83,7 @@ const height = Math.round((WIDTHS.at(-1)! * poster.height) / poster.width);
 <div
   class:list={['hero-media', className]}
   data-hero-media
+  data-motion-exception="hero-film"
   data-video="poster"
   style={`--hero-position-wide: ${position.wide}; --hero-position-tall: ${position.tall}`}
 >

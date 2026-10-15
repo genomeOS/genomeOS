@@ -23,7 +23,7 @@ async function hbsReady(page: Page) {
 test('project page labels all three capability states, in order', async ({
   page,
 }) => {
-  await page.goto('/project/');
+  await page.goto('/projects/');
   const names = [
     'Available now',
     'In active development',
@@ -54,7 +54,7 @@ test('project page labels all three capability states, in order', async ({
 test('the scale ladder is a tablist of three levels with one selected', async ({
   page,
 }) => {
-  await page.goto('/project/');
+  await page.goto('/projects/');
   const ladder = page.locator('figure[data-graphic="scale-ladder"]');
   const tabs = ladder.getByRole('tab');
   await expect(tabs).toHaveCount(3);
@@ -91,7 +91,7 @@ test('the scale ladder is a tablist of three levels with one selected', async ({
 test('the threshold slider changes the count and its spoken value', async ({
   page,
 }) => {
-  await page.goto('/project/');
+  await page.goto('/projects/');
   const figure = await hbsReady(page);
   const slider = figure.getByRole('slider');
   const count = figure.locator('[data-hbs-count]');
@@ -121,7 +121,7 @@ test('the threshold slider changes the count and its spoken value', async ({
 });
 
 test('selecting SS draws the sickled cell', async ({ page }) => {
-  await page.goto('/project/');
+  await page.goto('/projects/');
   const figure = page.locator('figure[data-graphic="hbs-threshold"]');
   const group = figure.getByRole('group', { name: 'Genotype', exact: true });
   await group.scrollIntoViewIfNeeded();
@@ -150,7 +150,7 @@ test('selecting SS draws the sickled cell', async ({ page }) => {
 test('the cell frame names the pressed allele pair, so AS after AA changes it', async ({
   page,
 }) => {
-  await page.goto('/project/');
+  await page.goto('/projects/');
   const figure = page.locator('figure[data-graphic="hbs-threshold"]');
   const group = figure.getByRole('group', { name: 'Genotype', exact: true });
   await group.scrollIntoViewIfNeeded();
@@ -173,7 +173,7 @@ test('the follow-the-work links are equal cards in whole rows @desktop-chromium'
 }) => {
   for (const width of [1100, 1280, 1440, 1920]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto('/project/');
+    await page.goto('/projects/');
     const boxes = await page
       .locator('.proj-links > li')
       .evaluateAll((items) =>
@@ -193,7 +193,7 @@ test('the follow-the-work links are equal cards in whole rows @desktop-chromium'
 test('the HbS map describes the area under its keyboard reticle', async ({
   page,
 }) => {
-  await page.goto('/project/');
+  await page.goto('/projects/');
   const figure = await hbsReady(page);
   const map = figure.locator('[data-hbs-map]');
   const readout = figure.locator('[data-readout]');
@@ -209,7 +209,7 @@ test('the HbS map describes the area under its keyboard reticle', async ({
 });
 
 test('the HbS map plays its entrance after a jump scroll', async ({ page }) => {
-  await page.goto('/project/');
+  await page.goto('/projects/');
   const figure = page.locator('figure[data-graphic="hbs-threshold"]');
   // Near view but still below the fold: the data loads and the figure arms off screen.
   await figure.evaluate((element) =>
@@ -242,7 +242,7 @@ test('the HbS map plays its entrance after a jump scroll', async ({ page }) => {
 });
 
 test('the safeguard tiles play once, then rest', async ({ page }) => {
-  await page.goto('/project/');
+  await page.goto('/projects/');
   const figure = page.locator('figure[data-graphic="safeguards"]');
   await figure.scrollIntoViewIfNeeded();
   await expect(figure.locator('li')).toHaveCount(6);
@@ -261,7 +261,7 @@ test('the safeguard tiles play once, then rest', async ({ page }) => {
 test('the Pipeline switches from 6 parts to 3 stages and back', async ({
   page,
 }) => {
-  await page.goto('/project/');
+  await page.goto('/projects/');
   const pipeline = page.locator('figure[data-graphic="pipeline"]');
   await pipeline.scrollIntoViewIfNeeded();
   const toggle = pipeline.getByRole('group', { name: 'Level of detail' });
@@ -278,7 +278,7 @@ test('the Pipeline switches from 6 parts to 3 stages and back', async ({
 test('the HbS heading takes the full width on narrow screens', async ({
   page,
 }) => {
-  await page.goto('/project/');
+  await page.goto('/projects/');
   const hbs = page.locator('#hbs-title');
   const vision = page.locator('#vision-title');
   // Below the split layout's breakpoint every H2 sets in the same measure (spec §2.4).
@@ -294,7 +294,7 @@ test(
   { tag: '@desktop-chromium' },
   async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('/project/');
+    await page.goto('/projects/');
     const figure = await hbsReady(page);
     const slider = figure.getByRole('slider');
     const legend = figure.locator('.hbs__legend');
@@ -337,7 +337,7 @@ test(
   async ({ page }) => {
     for (const width of [1440, 1100, 800]) {
       await page.setViewportSize({ width, height: 900 });
-      await page.goto('/project/');
+      await page.goto('/projects/');
       const figure = await hbsReady(page);
       const map = figure.locator('.hbs__map');
       await expect(map).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
@@ -376,7 +376,7 @@ test(
   'the link row sets in two to four columns',
   { tag: '@desktop-chromium' },
   async ({ page }) => {
-    await page.goto('/project/');
+    await page.goto('/projects/');
     const links = page.locator('.proj-links > li');
     for (const width of [1440, 1024]) {
       await page.setViewportSize({ width, height: 900 });
@@ -394,7 +394,7 @@ test(
   'a tap replays a safeguard tile and lights a roadmap item’s node',
   { tag: '@mobile-chromium' },
   async ({ page }) => {
-    await page.goto('/project/');
+    await page.goto('/projects/');
     const safeguards = page.locator('figure[data-graphic="safeguards"]');
     await safeguards.scrollIntoViewIfNeeded();
     await expect(safeguards).toHaveAttribute('data-figure-state', 'rest', {
@@ -424,7 +424,7 @@ test(
 test('the join-up gives each contract field its reason, and replays a record', async ({
   page,
 }) => {
-  await page.goto('/project/');
+  await page.goto('/projects/');
   const figure = page.locator('figure[data-graphic="join-up"]');
   const caption = figure.locator('[data-joinup-caption]');
   await expect(caption).toHaveText(
@@ -452,7 +452,7 @@ test(
     tag: '@mobile-chromium',
   },
   async ({ page }) => {
-    await page.goto('/project/');
+    await page.goto('/projects/');
     const figure = page.locator('figure[data-graphic="join-up"]');
     const head = figure.locator('button[data-field="an"]');
     await head.scrollIntoViewIfNeeded();
@@ -487,7 +487,7 @@ test(
 test('the HbS map lets go of its readout when focus leaves it', async ({
   page,
 }) => {
-  await page.goto('/project/');
+  await page.goto('/projects/');
   const figure = await hbsReady(page);
   const map = figure.locator('[data-hbs-map]');
   const reticle = figure.locator('[data-hbs-reticle]');
@@ -516,7 +516,7 @@ test(
         return clear.apply(this, args);
       };
     });
-    await page.goto('/project/');
+    await page.goto('/projects/');
     const figure = await hbsReady(page);
     await expect(figure).toHaveAttribute('data-figure-state', 'rest', {
       timeout: 4_000,
@@ -559,7 +559,7 @@ test(
 );
 
 test('“haemoglobin S” never breaks across two lines', async ({ page }) => {
-  await page.goto('/project/');
+  await page.goto('/projects/');
   const title = page.locator('#hbs-title');
   for (const width of [390, 360, 320]) {
     await page.setViewportSize({ width, height: 844 });
@@ -578,7 +578,7 @@ test('“haemoglobin S” never breaks across two lines', async ({ page }) => {
 });
 
 test('the HbS count breaks only between its two clauses', async ({ page }) => {
-  await page.goto('/project/');
+  await page.goto('/projects/');
   const figure = await hbsReady(page);
   const slider = figure.getByRole('slider');
   const clauses = figure.locator('[data-hbs-count] > span');

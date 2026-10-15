@@ -80,7 +80,7 @@ const layoutOf = (m: PipelineMode, o: Orientation): PipelineLayout =>
 
 const LANE_COLOUR = {
   source: 'var(--color-faint)',
-  measured: 'rgb(244 251 255 / 78%)',
+  measured: 'var(--lane-measured)',
   modeled: 'var(--enc-mean-5)',
 } as const;
 
@@ -620,7 +620,7 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
   }
 
   .pl-edge--measured {
-    stroke: rgb(244 251 255 / 78%);
+    stroke: var(--lane-measured);
   }
 
   .pl-edge--modeled {

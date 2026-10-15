@@ -1,7 +1,7 @@
-/** The primary navigation (site redesign spec §1.1, §1.5; #454): one list for the site header,
- * the docs header and the 404. GitHub follows these links as the nav's last item (GitHubLink),
- * and the genomeOS Atlas pill stands outside the nav. Contact joins the list after Docs (Contact
- * page spec §1).
+/** The primary navigation (site redesign spec §1.1, §1.5; round 2 spec §1.1, R2-4; #454): one list
+ * for the site header, the docs header and the 404. GitHub follows these links as the nav's last
+ * item (GitHubLink), and the genomeOS Atlas pill stands outside the nav. Contact joins the list
+ * after Docs (Contact page spec §1).
  */
 
 export interface NavLink {
@@ -10,7 +10,7 @@ export interface NavLink {
 }
 
 export const PRIMARY_NAV: readonly NavLink[] = [
-  { label: 'Project', href: '/project/' },
+  { label: 'Projects', href: '/projects/' },
   { label: 'Contribute', href: '/contribute/' },
   { label: 'Docs', href: '/docs/' },
   { label: 'Contact', href: '/contact/' },

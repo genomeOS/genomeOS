@@ -1,0 +1,275 @@
+/*
+ * "Counts, not guesses" (site redesign spec §4.1 H2; round 2 spec §4.2.5): every .cf rule, cut
+ * verbatim from styles/pages/home.css (round 2 plan T0 step 3) as the figure moves to Projects.
+ * CountsFigure.astro imports it. The entrance keyframes it plays are copied from home.css's shared
+ * motion (same names, same frames), so the figure carries them to any page.
+ */
+
+.cf {
+  container: cf / inline-size;
+}
+
+/* Narrow: the rows stack (label, grid, bar), and the shared axis heads bar A, directly under
+   grid A; bar B, its sentence and the slider follow grid B (spec §4.1 H2 phone). */
+.cf-stage {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.cf-row {
+  display: contents;
+}
+
+[data-row='a'] .cf-row__label {
+  order: 1;
+}
+
+[data-row='a'] .cf-row__grid {
+  order: 2;
+}
+
+.cf-axis {
+  order: 3;
+}
+
+[data-row='a'] .cf-row__bar {
+  order: 4;
+}
+
+[data-row='b'] .cf-row__label {
+  order: 5;
+  margin-top: 1.4rem;
+}
+
+[data-row='b'] .cf-row__grid {
+  order: 6;
+}
+
+[data-row='b'] .cf-row__bar {
+  order: 7;
+}
+
+.cf-slider {
+  order: 8;
+}
+
+.cf-axis {
+  margin: 0.4rem 6.25rem 0 0;
+  display: grid;
+  gap: 0.15rem;
+  color: var(--color-faint);
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.cf-axis__name {
+  color: var(--color-muted);
+}
+
+.cf-axis__ends {
+  display: flex;
+  justify-content: space-between;
+}
+
+.cf-row__label {
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 0.95rem;
+  font-weight: 560;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.cf-row__label::first-letter {
+  color: var(--color-starlight);
+  font-weight: 760;
+}
+
+.cf-row__grid {
+  min-width: 0;
+}
+
+.cf-grid {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.cf-grid--wide {
+  display: none;
+}
+
+.cf-grid [data-squares] {
+  transition:
+    width var(--dur-ui) var(--ease-ui),
+    height var(--dur-ui) var(--ease-ui),
+    y var(--dur-ui) var(--ease-ui);
+}
+
+.cf-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5.5rem;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* The shared 0–25% axis: a baseline and faint 5% rules behind each bar. */
+.cf-bar__track {
+  position: relative;
+  height: 1.4rem;
+  border-bottom: 1px solid var(--color-deep-line);
+  background: linear-gradient(
+      to right,
+      rgb(165 185 211 / 12%) 1px,
+      transparent 1px
+    )
+    0 0 / 20% 100%;
+}
+
+.cf-bar__range {
+  position: absolute;
+  top: 50%;
+  height: 8px;
+  min-width: 2px;
+  margin-top: -4px;
+  background: rgb(242 248 255 / 72%);
+  transform-origin: var(--origin, 0%) 50%;
+  transition: width var(--dur-ui) var(--ease-ui);
+}
+
+.cf-bar__mean {
+  position: absolute;
+  top: 50%;
+  width: 2px;
+  height: 18px;
+  margin: -9px 0 0 -1px;
+  background: var(--color-starlight);
+  box-shadow: 0 0 0 1px var(--color-orbit);
+  transition: left var(--dur-ui) var(--ease-ui);
+}
+
+.cf-bar__value {
+  color: var(--color-starlight);
+  font-size: 0.95rem;
+  font-weight: 620;
+  font-variant-numeric: lining-nums tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.cf-output {
+  display: block;
+  min-height: 1.5em;
+  margin-top: 0.6rem;
+  color: var(--color-starlight);
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.cf-slider {
+  display: grid;
+  gap: 0.15rem;
+  max-width: 320px;
+}
+
+.cf-slider label {
+  color: var(--color-text-soft);
+  font-size: 0.9rem;
+  font-weight: 620;
+}
+
+/* The site's range control (.kit-range, global.css), with a phone-sized target. */
+.cf-slider input {
+  min-height: 44px;
+}
+
+.cf-slider__ends {
+  display: flex;
+  justify-content: space-between;
+  color: var(--color-faint);
+  font-size: 0.8rem;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+/* Wide: the same stacked rows, in larger grids of eighty alleles per row (about 9 px squares at
+   1440 px, so one allele reads as one square), each grid and bar spanning the figure (spec §4.1 H2;
+   design review, rounds 1 and 2). */
+@container cf (min-width: 36rem) {
+  .cf-grid--wide {
+    display: block;
+  }
+
+  .cf-grid--narrow {
+    display: none;
+  }
+}
+
+@media screen {
+  .cf[data-figure-state='armed'] .cf-grid {
+    clip-path: inset(0 0 100% 0);
+  }
+
+  .cf[data-figure-state='armed'] :is(.cf-grid__on, .cf-bar__mean),
+  .cf[data-figure-state='armed'] .cf-bar__range {
+    opacity: 0;
+  }
+
+  .cf[data-figure-state='playing'] [data-row='a'] .cf-grid {
+    animation: home-unroll 600ms steps(6, end) both;
+  }
+
+  .cf[data-figure-state='playing'] [data-row='a'] .cf-grid__on {
+    animation: home-fade 200ms linear 600ms both;
+  }
+
+  .cf[data-figure-state='playing'] [data-bar='a'] .cf-bar__range {
+    animation: home-grow 500ms var(--ease-figure) 800ms both;
+  }
+
+  .cf[data-figure-state='playing'] [data-bar='a'] .cf-bar__mean {
+    animation: home-fade 200ms linear 800ms both;
+  }
+
+  .cf[data-figure-state='playing'] [data-row='b'] .cf-grid {
+    animation: home-unroll 400ms var(--ease-figure) 900ms both;
+  }
+
+  .cf[data-figure-state='playing'] [data-bar='b'] .cf-bar__range {
+    animation: home-grow 500ms var(--ease-figure) 1100ms both;
+  }
+
+  .cf[data-figure-state='playing'] [data-bar='b'] .cf-bar__mean {
+    animation: home-fade 200ms linear 1100ms both;
+  }
+}
+
+@keyframes home-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes home-grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes home-unroll {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+
+  to {
+    clip-path: inset(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cf-grid [data-squares],
+  .cf-bar__range,
+  .cf-bar__mean {
+    transition: none;
+  }
+}

@@ -1,0 +1,43 @@
+---
+/**
+ * One kit astronaut as a `<g>` inside a parent SVG (round 2 spec §3.1, plan I-1): the cast member
+ * in a pose, placed at (x, y) on the ground, at `scale`, facing right (1) or left (-1). The parent
+ * SVG holds one `<KitDefs />` (or the page one `<KitDefs sprite />`). Server-rendered markup is the
+ * final state a scene starts from; `id` lets a scene's island find it.
+ */
+import type { CastId } from '../../graphics/astro/cast';
+import type { Expr, PoseName } from '../../graphics/astro/poses';
+import { astronaut, type AstronautOptions } from '../../graphics/astro/rig';
+
+interface Props {
+  cast: CastId;
+  pose?: PoseName;
+  x?: number;
+  y?: number;
+  scale?: number;
+  facing?: 1 | -1;
+  /** 'lite' for figures 40–60 px tall. */
+  lod?: 'full' | 'lite';
+  expr?: Expr;
+  id?: string;
+  /** The rig's other options (held props, a chart card, a tablet glyph …). */
+  options?: AstronautOptions;
+}
+
+const {
+  cast,
+  pose = 'stand',
+  x = 0,
+  y = 0,
+  scale = 1,
+  facing = 1,
+  lod = 'full',
+  expr,
+  id,
+  options = {},
+} = Astro.props;
+const markup = astronaut(cast, pose, { ...options, lod, expr, face: facing });
+const transform = `translate(${x} ${y})${scale === 1 ? '' : ` scale(${scale})`}`;
+---
+
+<g transform={transform} id={id} set:html={markup} />

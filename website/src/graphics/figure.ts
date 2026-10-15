@@ -19,9 +19,12 @@
  * Plays on the `graphic:play` event that MotionController dispatches for `[data-graphic]`; pages
  * without MotionController (Starlight) fall back to the controller's own observer.
  *
- * Dev builds only: `?t=<ms>` freezes every figure at that moment of its entrance, for
- * `scripts/capture-site.mjs` entrance frames.
+ * Motion hooks (round 2 spec §3.4): in dev and in the e2e build (`MOTION_HOOKS`), `?t=<ms>`
+ * freezes every figure (or, with `&scene=<data-graphic>`, one) at that moment of its entrance, for
+ * `scripts/capture-site.mjs` entrance frames and screenshot tests, and every figure registers with
+ * `window.__motion` under its `data-graphic` name. The deployed build carries none of it.
  */
+import { MOTION_HOOKS, frozenAt, registerScene } from './motion-hooks';
 
 export const PLAY_THRESHOLD = 0.35;
 export const READY_BY_MS = 1200;
@@ -50,13 +53,10 @@ export const prefersReducedMotion = (): boolean =>
   typeof matchMedia === 'function' &&
   matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-/** The dev-only freeze time from `?t=<ms>`, or null. */
-function frozenTime(): number | null {
-  if (!import.meta.env.DEV || typeof location === 'undefined') return null;
-  const value = new URLSearchParams(location.search).get('t');
-  if (value === null) return null;
-  const t = Number(value);
-  return Number.isFinite(t) && t >= 0 ? t : null;
+/** The freeze time from `?t=<ms>` (motion hooks only), or null. */
+function frozenTime(name: string): number | null {
+  if (!MOTION_HOOKS || typeof location === 'undefined') return null;
+  return frozenAt(location.search, name);
 }
 
 function domContentLoaded(): Promise<void> {
@@ -99,7 +99,8 @@ export class FigureController {
   private timer = 0;
   private playObserver: IntersectionObserver | null = null;
   private screenObserver: IntersectionObserver | null = null;
-  private readonly frozenAt = frozenTime();
+  private readonly frozenAt: number | null;
+  private scrubbedAt = 0;
   private readonly onPlay = () => this.play();
   private readonly onVisibility = () => {
     if (document.hidden && this.state === 'playing') this.finish();
@@ -120,6 +121,9 @@ export class FigureController {
     this.motion = motion;
     this.threshold = threshold;
     this.reduced = prefersReducedMotion();
+    const name = element.dataset.graphic ?? 'figure';
+    this.frozenAt = frozenTime(name);
+    this.register(name);
 
     window.addEventListener('beforeprint', this.onPrint);
     if (this.frozenAt !== null) {
@@ -224,6 +228,35 @@ export class FigureController {
     for (const id of this.frames) cancelAnimationFrame(id);
     this.frames.clear();
     window.clearTimeout(this.timer);
+  }
+
+  /** The figure's entrance as a scrubbable scene (motion-hooks.ts); a no-op in the deployed build. */
+  private register(name: string): void {
+    if (!MOTION_HOOKS) return;
+    const figure = this;
+    registerScene({
+      name,
+      story: this.motion.duration,
+      seek: (t) => {
+        figure.cancel();
+        figure.setState('armed');
+        figure.motion.arm?.();
+        figure.scrubbedAt = t;
+        figure.freeze(t);
+      },
+      pause: () => figure.cancel(),
+      play: () => figure.replay(),
+      get time() {
+        if (
+          figure.state === 'playing' &&
+          !figure.element.hasAttribute('data-figure-frozen')
+        )
+          return performance.now() - figure.started;
+        return figure.state === 'rest'
+          ? figure.motion.duration
+          : figure.scrubbedAt;
+      },
+    });
   }
 
   private freeze(t: number): void {

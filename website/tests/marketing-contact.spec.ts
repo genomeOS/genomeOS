@@ -46,7 +46,7 @@ const PARTS = ['info', ['genome-os', 'org'].join('.')] as const;
 const ADDRESS = PARTS.join('@');
 const ISSUES = 'https://github.com/genomeOS/genomeOS/issues/new/choose';
 const NAV = [
-  'Project',
+  'Projects',
   'Contribute',
   'Docs',
   'Contact',
@@ -1404,7 +1404,7 @@ test.describe('Contact in the navigation', () => {
     await expect(
       primary.getByRole('link', { name: 'Contact' }),
     ).toHaveAttribute('href', '/contact/');
-    await page.goto('/project/');
+    await page.goto('/projects/');
     await expect(
       primary.getByRole('link', { name: 'Contact' }),
     ).not.toHaveAttribute('aria-current', 'page');

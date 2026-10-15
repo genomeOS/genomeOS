@@ -24,6 +24,7 @@ import Segmented from '../kit/Segmented.astro';
 import provenance from '../../data/figures/hbs.provenance.json';
 import { sitePath } from '../../lib/paths';
 import { DISC_PAD, formatKm, formatRange, formatShare } from './atlas-preview';
+import './atlas-preview.css';
 
 const posters = import.meta.glob('../../data/figures/hbs-globe-poster.*.svg', {
   query: '?url',
@@ -47,8 +48,8 @@ const domainMax = Math.round(domainHi * 100);
 
 /*
  * Wide-form geometry, in stage units (1 unit = 1cqw; the stage is 100 × 66.667, 3:2): the disc is
- * centred at (50, 33.333) with radius 30, leaving the side margins for the callouts. CSS (home.css)
- * uses the same numbers.
+ * centred at (50, 33.333) with radius 30, leaving the side margins for the callouts. CSS
+ * (atlas-preview.css) uses the same numbers.
  */
 const R = 30;
 const CX = 50;
@@ -159,6 +160,7 @@ const tierRows = [
   label="A preview of the genomeOS Atlas: the sickle-cell variant HbS on a globe, measured surveys and the modeled surface"
   class="hg"
   id="atlas-preview"
+  data-motion-exception="atlas-preview"
 >
   <Fragment slot="toolbar">
     <Segmented

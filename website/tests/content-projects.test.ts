@@ -26,7 +26,7 @@ import {
 } from '../src/graphics/figure-data';
 import { builtHtml } from './helpers/dist';
 
-const project = builtHtml('project');
+const project = builtHtml('projects');
 const website = path.resolve(import.meta.dirname, '..');
 const figures = path.join(website, 'src/data/figures');
 const provenance = JSON.parse(

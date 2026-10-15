@@ -5,15 +5,15 @@
  *   intro             H1 left, lede right (PageIntro split)
  *   #working-groups   the transit line (the page's lead figure) and the three group cards
  *   #how-work-moves   the work board: one issue, five steps; milestones; the Docs workflow
+ *                     (HowWorkMoves.astro, its own section, CSS and script)
  *   #start            four places to start (a link row, no figure)
  *
  * /working-groups/ redirects here (#working-groups, and #data, #modeling, #ui to the cards).
  */
 import GroupCard from '../components/contribute/GroupCard.astro';
-import MilestoneRail from '../components/contribute/MilestoneRail.astro';
-import TransitLine from '../components/contribute/TransitLine.astro';
-import WorkBoard from '../components/contribute/WorkBoard.astro';
+import HowWorkMoves from '../components/contribute/HowWorkMoves.astro';
 import Mark from '../components/contribute/Mark.astro';
+import TransitLine from '../components/contribute/TransitLine.astro';
 import PageIntro from '../components/PageIntro.astro';
 import SiteLayout from '../layouts/SiteLayout.astro';
 import { sitePath } from '../lib/paths';
@@ -163,29 +163,7 @@ const starts = [
     </div>
   </section>
 
-  <section
-    class="band band--orbit contribute-band wb-section"
-    id="how-work-moves"
-    data-concept
-    aria-labelledby="how-work-moves-title"
-  >
-    <div class="section-shell">
-      <div class="contribute-head">
-        <h2 class="contribute-h2" id="how-work-moves-title">How work moves</h2>
-        <p class="contribute-legend">
-          <strong>One issue, from hello to review.</strong> Board statuses mean exactly
-          what they say.
-        </p>
-      </div>
-      <WorkBoard />
-      <MilestoneRail />
-      <p class="contribute-more">
-        <a href={sitePath('/docs/issues-and-projects/')}
-          >The full workflow in Docs <Mark icon="arrow" size={18} /></a
-        >
-      </p>
-    </div>
-  </section>
+  <HowWorkMoves />
 
   <section
     class="band contribute-band start-section"
@@ -228,8 +206,7 @@ const starts = [
 </SiteLayout>
 
 <script>
-  // The page's one island: both figures' behaviour in a single module, so a visitor fetches one
-  // script for them (site redesign spec §7: ≤ 10 KB of first-party JS on Contribute).
+  // The page's island: the transit line (site redesign spec §7: ≤ 10 KB of first-party JS on
+  // Contribute). The work board's script lives with its section (HowWorkMoves.astro).
   import '../components/contribute/transit';
-  import '../components/contribute/board';
 </script>

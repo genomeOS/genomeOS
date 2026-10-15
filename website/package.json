@@ -11,7 +11,7 @@
     "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev",
     "build": "ASTRO_TELEMETRY_DISABLED=1 astro build",
     "build:fallback": "node scripts/build-fallback.mjs",
-    "build:e2e": "ATLAS_CATALOG_PATH=tests/fixtures/atlas/e2e/catalog.json PUBLIC_ATLAS_REQUEST_STALL_MS=120000 PUBLIC_ATLAS_E2E_HOOKS=1 npm run build",
+    "build:e2e": "ATLAS_CATALOG_PATH=tests/fixtures/atlas/e2e/catalog.json PUBLIC_ATLAS_REQUEST_STALL_MS=120000 PUBLIC_ATLAS_E2E_HOOKS=1 PUBLIC_MOTION_HOOKS=1 npm run build",
     "build:deployed": "PUBLIC_ATLAS_DATA_BASE_URL=http://127.0.0.1:4323/ PUBLIC_GA_MEASUREMENT_ID=G-TEST123 npm run build",
     "build:brand": "node scripts/build-brand.mjs",
     "build:favicons": "node scripts/build-favicons.mjs",

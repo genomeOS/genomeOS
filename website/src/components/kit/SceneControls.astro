@@ -1,0 +1,54 @@
+---
+/**
+ * A scene's Pause/Play toggle and optional Replay (round 2 spec §3.5, plan I-5; WCAG 2.2.2; ruling 22
+ * of the round-2 build): white glyphs with no background and no visible label, in a figure's top
+ * bar, never in the bottom-right cookie corner. Each is a real button whose accessible name says
+ * what it does ("Pause the orbit animation"); the toggle carries `aria-pressed` (pressed = paused)
+ * and `data-state`, which picks the glyph. Both stay `hidden` until a scene controller takes the
+ * figure over (src/graphics/timeline.ts `sceneController`), and under reduced motion they stay
+ * hidden: nothing moves, so there is nothing to pause. Styles: styles/scenes.css.
+ */
+
+interface Props {
+  /** What the controls act on, as a phrase: "the orbit animation". */
+  object: string;
+  replay?: boolean;
+  id?: string;
+}
+
+const { object, replay = false, id } = Astro.props;
+---
+
+<div
+  class="kit-scene-controls"
+  id={id}
+  data-scene-controls
+  data-select="multiple"
+>
+  <button
+    type="button"
+    class="kit-scene-control"
+    data-scene-toggle
+    data-state="playing"
+    aria-pressed="false"
+    hidden
+  >
+    <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+      <path
+        class="kit-scene-control__pause"
+        d="M5 3.5h3.2v13H5zM11.8 3.5H15v13h-3.2z"></path>
+      <path class="kit-scene-control__play" d="M6 3.3v13.4L16.4 10z"></path>
+    </svg>
+    <span class="visually-hidden">Pause {object}</span>
+  </button>
+  {
+    replay && (
+      <button type="button" class="kit-scene-control" data-scene-replay hidden>
+        <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+          <path d="M10 3.4a6.6 6.6 0 1 1-6.43 8.08l1.95-.45A4.6 4.6 0 1 0 10 5.4H8.6v2.3L4.4 4.4 8.6 1.1v2.3z" />
+        </svg>
+        <span class="visually-hidden">Replay {object}</span>
+      </button>
+    )
+  }
+</div>

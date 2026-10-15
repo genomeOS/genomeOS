@@ -143,7 +143,7 @@ test('primary navigation reaches Contribute and exposes GitHub access', async ({
           ),
         ),
     ).toEqual([
-      'Project',
+      'Projects',
       'Contribute',
       'Docs',
       'Contact',
@@ -160,6 +160,54 @@ test('primary navigation reaches Contribute and exposes GitHub access', async ({
     'Find work that fits how you think.',
   );
 });
+
+// Round 2 (spec §1.1, R2-4): one nav list everywhere. The site header, its Menu, the docs header
+// and the 404 read PRIMARY_NAV, so they name the same links in the same order.
+const NAV_NAMES = [
+  'Projects',
+  'Contribute',
+  'Docs',
+  'Contact',
+  'View genomeOS on GitHub',
+];
+const linkNames = (scope: Locator) =>
+  scope
+    .getByRole('link')
+    .evaluateAll((links) =>
+      links.map(
+        (link) => link.getAttribute('aria-label') ?? link.textContent!.trim(),
+      ),
+    );
+
+test(
+  'the site header, the docs header and the 404 name the same nav',
+  { tag: '@desktop-chromium' },
+  async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    for (const route of ['/', '/projects/', '/docs/', '/404.html']) {
+      await page.goto(route);
+      expect(
+        await linkNames(
+          page.getByRole('navigation', { name: 'Primary navigation' }),
+        ),
+        route,
+      ).toEqual(NAV_NAMES);
+    }
+  },
+);
+
+test(
+  'the Menu names the same nav',
+  { tag: '@mobile-chromium' },
+  async ({ page }) => {
+    await page.goto('/');
+    await page.getByText('Menu', { exact: true }).click();
+    const names = await linkNames(
+      page.getByRole('navigation', { name: 'Mobile navigation' }),
+    );
+    expect(names.filter((name) => NAV_NAMES.includes(name))).toEqual(NAV_NAMES);
+  },
+);
 
 test(
   'the docs header shows the GitHub link wherever the sidebar is not the mobile menu',
@@ -544,7 +592,7 @@ test('Atlas status replaces the launch action only on the Atlas page', async ({
     /loading|validating|rendering|revealing|Atlas ready/i,
   );
 
-  await page.goto('/project/');
+  await page.goto('/projects/');
   await expect(header.getByLabel('Atlas status')).toHaveCount(0);
   await expect(
     header.getByRole('link', { name: 'genomeOS Atlas', exact: true }),
@@ -723,7 +771,7 @@ test(
     // second for as long as the page was open. The clock runs the page's
     // timers; the curtains keep the real one.
     await page.clock.install();
-    await page.goto('/project/');
+    await page.goto('/projects/');
     const curtains = page.locator('.launch-atlas-cta__lights i');
     await expect(curtains).toHaveCount(3);
     const playStates = () =>
@@ -886,7 +934,7 @@ test(
 
     for (const width of [1153, 1280, 1440, 1920]) {
       await page.setViewportSize({ width, height: 900 });
-      for (const route of ['/', '/project/']) {
+      for (const route of ['/', '/projects/']) {
         await page.goto(route);
         await page.evaluate(() => document.fonts.ready);
         await expectAligned(`${route} at ${width} px, landing`);
@@ -1456,7 +1504,7 @@ for (const route of ['/', '/contribute/']) {
 
 // Home, and pages where, on phones, scroll anchoring used to correct scrollY
 // by a pixel and flip the header back.
-for (const route of ['/', '/project/', '/contribute/']) {
+for (const route of ['/', '/projects/', '/contribute/']) {
   test(`the header settles in one state while scrolling slowly across the threshold (${route})`, async ({
     page,
   }) => {
@@ -1567,9 +1615,9 @@ test('linked sections land below the fixed header, not under it', async ({
   // without scroll padding each heading ended at the viewport top, 71 px of
   // it under the compact bar.
   for (const [route, id, width, height] of [
-    ['/project/', 'safeguards-title', 1440, 900],
+    ['/projects/', 'safeguards-title', 1440, 900],
     ['/', 'metrics-title', 390, 844],
-    ['/project/', 'pipeline-title', 844, 390],
+    ['/projects/', 'pipeline-title', 844, 390],
   ] as const) {
     await page.setViewportSize({ width, height });
     await page.goto(`${route}#${id}`);
@@ -1644,7 +1692,7 @@ test(
     const desktopNavFrom = 1153;
     for (const width of [737, 1025, 1152, 1153, 1280, 1392, 1393]) {
       await page.setViewportSize({ width, height: 800 });
-      await page.goto('/project/');
+      await page.goto('/projects/');
       const row = await page.evaluate(() => {
         const inner = document.querySelector('.site-header__inner')!;
         const shown = (selector: string) =>
@@ -2235,7 +2283,7 @@ test('mobile navigation is a keyboard-operable disclosure', async ({
         ),
       ),
   ).toEqual([
-    'Project',
+    'Projects',
     'Contribute',
     'Docs',
     'Contact',
@@ -2640,7 +2688,7 @@ for (const route of topLevelRoutes) {
 test('introduction pages avoid unexplained internal milestone codes', async ({
   page,
 }) => {
-  for (const route of ['/', '/project/', '/app/']) {
+  for (const route of ['/', '/projects/', '/app/']) {
     await page.goto(route);
     const text = await page.locator('main').innerText();
     expect(text).not.toMatch(/\bP[0-9]+\b/);

@@ -3,14 +3,18 @@
  * playwright.performance.config.ts against the deployed build (`npm run build:deployed`), in the
  * Pages workflow's performance job.
  *
- * Gzip transfer by type (first-party JS, deferred figure data, images, total), LCP and CLS, on a
- * desktop profile and a phone profile (Pixel 7 viewport, 4× CPU, Slow 4G), from each finished
- * page's manifest. Every marketing route is also held to no Cesium, no React and no third-party
- * request.
+ * Gzip transfer by type, LCP and CLS, on a desktop profile and a phone profile (Pixel 7 viewport,
+ * 4× CPU, Slow 4G), from each finished page's manifest. Round 2 (spec §7) splits what a visitor
+ * downloads by when:
  *
- * A deferred hero film (Home, round 2 ruling R2-1) is measured on its own: it must start after the
- * load event, it is left out of the total transfer (the poster, which is the LCP, stays in it), and
- * the rendition each profile loads is held to the manifest's `videoKb` (the 1080p AV1 ≤ 4 MB).
+ *   initial   everything from navigation until network idle without scrolling, the film left
+ *             out: first-load JS (`jsKbGz`), images (`imagesKbGz`), the total (`transferKbGz`)
+ *   lazy      each module imported as its figure approaches, by chunk name (`lazyJsKbGz`)
+ *   deferred  figure data fetched near view (`dataKbGz`), and a hero film (`deferredMediaKb`,
+ *             per profile), which must not start before the load event
+ *
+ * Every marketing route is also held to no Cesium, no React, no GSAP, no Lottie and no
+ * third-party request.
  *
  * The rulings of 2026-10-14 (spec §7):
  *   10  The budgets measure what visitors download: a build with an analytics id. Google
@@ -31,12 +35,15 @@ import { fullyEnforced, type PageManifest } from './helpers/pages';
 import { marketingRoutes } from './site-routes';
 
 interface Measured {
-  /** First-party JS without the cookie control (ruling 11). */
+  /** First-load first-party JS (before any scrolling), without the cookie control (ruling 11). */
   jsKb: number;
+  /** JS by chunk name (the file name before its hash), wherever in the visit it loaded. */
+  chunksKb: Record<string, number>;
   /** The cookie control's module and the modules it imports. */
   cookieKb: number;
   cookieUrls: string[];
   dataKb: number;
+  /** Images in the initial transfer. */
   imageKb: number;
   /** The deferred hero film: KB as transferred, and when each file started after the load event. */
   videoKb: number;
@@ -106,6 +113,11 @@ async function measure(
     }).observe({ type: 'layout-shift', buffered: true });
   });
   await page.goto(route, { waitUntil: 'load' });
+  // The initial transfer: what arrives before the visitor scrolls.
+  await page.waitForLoadState('networkidle');
+  const initialCount = await page.evaluate(
+    () => performance.getEntriesByType('resource').length,
+  );
   // Bring every figure into view, so deferred data loads as a visitor would load it.
   await page.evaluate(async () => {
     for (const figure of document.querySelectorAll(
@@ -139,12 +151,13 @@ async function measure(
       { timeout: 45_000 },
     );
   const filmReason = film?.reason ?? null;
-  const measured = await page.evaluate(async () => {
+  const measured = await page.evaluate(async (initialCount) => {
     const kb = (bytes: number) => Math.round((bytes / 1024) * 10) / 10;
     // Read the timing first: fetching the control's sources below adds entries of its own.
     const entries = performance.getEntriesByType(
       'resource',
     ) as PerformanceResourceTiming[];
+    const initialEntries = new Set(entries.slice(0, initialCount));
     // The cookie control: its module script and, transitively, the modules it imports.
     const control = document.querySelector<HTMLScriptElement>(
       'script[type="module"][src*="CookieControl.astro_astro_type_script"]',
@@ -182,21 +195,39 @@ async function measure(
       /\.m?js(\?|$)/.test(entry.name),
     );
     const cookie = scripts.filter((entry) => cookieUrls.has(entry.name));
-    const js = scripts.filter((entry) => !cookieUrls.has(entry.name));
+    const js = scripts.filter(
+      (entry) => !cookieUrls.has(entry.name) && initialEntries.has(entry),
+    );
+    const chunks: Record<string, number> = {};
+    for (const entry of scripts) {
+      const name = new URL(entry.name).pathname
+        .split('/')
+        .pop()!
+        .replace(/\.[\w-]+\.m?js$/, '');
+      chunks[name] =
+        (chunks[name] ?? 0) + (entry.transferSize || entry.encodedBodySize);
+    }
     const data = firstParty.filter((entry) =>
       /\/_astro\/hbs-[^/]+\.bin(\?|$)/.test(entry.name),
     );
-    const images = firstParty.filter((entry) => entry.initiatorType === 'img');
+    const images = firstParty.filter(
+      (entry) => entry.initiatorType === 'img' && initialEntries.has(entry),
+    );
     // The hero film: deferred past the load event, budgeted on its own, out of the total.
     const videos = firstParty.filter(
       (entry) => entry.initiatorType === 'video',
     );
-    const initial = firstParty.filter((entry) => !videos.includes(entry));
+    const initial = firstParty.filter(
+      (entry) => !videos.includes(entry) && initialEntries.has(entry),
+    );
     const state = (
       window as unknown as { __perf: { lcp: number; cls: number } }
     ).__perf;
     return {
       jsKb: kb(sum(js)),
+      chunksKb: Object.fromEntries(
+        Object.entries(chunks).map(([name, bytes]) => [name, kb(bytes)]),
+      ),
       cookieKb: kb(sum(cookie)),
       cookieUrls: [...cookieUrls],
       dataKb: kb(sum(data)),
@@ -213,7 +244,7 @@ async function measure(
       cls: Math.round(state.cls * 1000) / 1000,
       urls: entries.map((entry) => entry.name),
     };
-  });
+  }, initialCount);
   return { ...measured, filmReason };
 }
 
@@ -233,7 +264,17 @@ function expectBudgets(
     expect(measured.totalKb, `${label} transfer`).toBeLessThanOrEqual(
       manifest.transferKbGz,
     );
-  if (manifest.videoKb !== undefined) {
+  if (manifest.imagesKbGz !== undefined)
+    expect(measured.imageKb, `${label} initial images`).toBeLessThanOrEqual(
+      manifest.imagesKbGz,
+    );
+  for (const [chunk, budget] of Object.entries(manifest.lazyJsKbGz ?? {})) {
+    // A lazy module loads as its figure approaches: measured whenever the page has it.
+    const loaded = measured.chunksKb[chunk];
+    if (loaded === undefined) continue;
+    expect(loaded, `${label} lazy module ${chunk}`).toBeLessThanOrEqual(budget);
+  }
+  if (manifest.deferredMediaKb !== undefined) {
     // The desktop profile always plays the film (no reduced motion, Save-Data or slow
     // connection), so the budget is always exercised; a profile on which the page keeps its poster
     // must then load none. A film that loads waits for the load event.
@@ -248,7 +289,7 @@ function expectBudgets(
         `${label} ${video.name} starts after load`,
       ).toBeGreaterThanOrEqual(0);
     expect(measured.videoKb, `${label} film`).toBeLessThanOrEqual(
-      manifest.videoKb,
+      manifest.deferredMediaKb[profile === 'desktop' ? 'desktop' : 'phone'],
     );
   } else expect(measured.videos, `${label} loads no film`).toEqual([]);
   if (profile === 'desktop') {
@@ -281,7 +322,7 @@ for (const manifest of fullyEnforced.filter((page) => !page.redirect))
     });
 
 for (const route of marketingRoutes)
-  test(`${route} requests no Cesium, no React and nothing third-party`, async ({
+  test(`${route} requests no Cesium, no React, no GSAP or Lottie, and nothing third-party`, async ({
     page,
   }) => {
     // The same measurement as the budgets, which waits for a streaming hero film to arrive whole.
@@ -292,6 +333,6 @@ for (const route of marketingRoutes)
     const origin = new URL(page.url()).origin;
     for (const url of requests) {
       expect(new URL(url).origin, url).toBe(origin);
-      expect(url, url).not.toMatch(/cesium|react/i);
+      expect(url, url).not.toMatch(/cesium|react|gsap|lottie/i);
     }
   });

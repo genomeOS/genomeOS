@@ -70,3 +70,59 @@ describe('/working-groups/ redirect page', () => {
     expect(redirect).not.toContain('atlas-page');
   });
 });
+
+/**
+ * /project/ became Projects at /projects/ (round 2 spec §1.3, R2-4): the same kind of redirect
+ * page, keeping the fragment, with the retired vision section's fragments mapped to Status.
+ */
+describe('/project/ redirect page', () => {
+  const page = builtHtml('project');
+  const projects = builtHtml('projects');
+  const pageHead = page.slice(0, page.indexOf('</head>'));
+
+  it('sends visitors to Projects before first paint, keeping the fragment', () => {
+    expect(pageHead).toContain(
+      '<meta http-equiv="refresh" content="0; url=/projects/">',
+    );
+    const script = pageHead.match(
+      /<script\b[^>]*\bdata-redirect\b[^>]*>([\s\S]*?)<\/script>/,
+    );
+    expect(script).not.toBeNull();
+    expect(script![1]).toContain('location.replace("/projects/"');
+    expect(script![1]).toContain('"#vision":"#status"');
+    expect(script![1]).toContain('"#vision-title":"#status-title"');
+    // Any other fragment is kept as it is.
+    expect(script![1]).toContain('location.hash');
+  });
+
+  it('names Projects as canonical and stays out of search results', () => {
+    expect(pageHead).toContain('<meta name="robots" content="noindex">');
+    expect(pageHead).toMatch(
+      /<link rel="canonical" href="https:\/\/[^"]+\/projects\/">/,
+    );
+    const sitemaps = readdirSync(dist).filter((file) =>
+      /^sitemap.*\.xml$/.test(file),
+    );
+    const xml = sitemaps
+      .map((file) => readFileSync(path.join(dist, file), 'utf8'))
+      .join('\n');
+    expect(xml).not.toMatch(/\/project\/</);
+    expect(xml).toContain('/projects/<');
+    expect(xml).not.toContain('/kit/');
+  });
+
+  it('keeps the shell every SiteLayout page has', () => {
+    expect(pageHead).toContain(
+      '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    );
+    expect(count(page, /<h1(?:\s|>)/g)).toBe(1);
+    expect(page).toContain('The project page is now Projects.');
+    expect(page).toMatch(/<a href="\/projects\/">Go to Projects<\/a>/);
+    expect(count(page, /googletagmanager\.com/g)).toBe(
+      count(projects, /googletagmanager\.com/g),
+    );
+    expect(count(page, /data-cookie-control(?:\s|>|=)/g)).toBe(
+      count(projects, /data-cookie-control(?:\s|>|=)/g),
+    );
+  });
+});

@@ -1,0 +1,17 @@
+{
+  "route": "/projects/",
+  "words": 600,
+  "wordsEnforced": false,
+  "conceptsEnforced": false,
+  "concepts": 8,
+  "jsKbGz": 28,
+  "dataKbGz": 100,
+  "imagesKbGz": 0,
+  "transferKbGz": 300,
+  "lcpMs": {
+    "desktop": 1000,
+    "phone": 2200
+  },
+  "cls": 0.02,
+  "leadFigure": true
+}

@@ -22,9 +22,13 @@ export default defineConfig({
     'atlas-mobile.spec.ts',
     'atlas-cross-origin.spec.ts',
     'analytics.spec.ts',
-    // The site redesign's per-page and cross-page suites (#454, spec §9). The marketing
-    // performance budgets run under playwright.performance.config.ts instead.
-    /marketing-(home|project|contribute|privacy|contact|404)\.spec\.ts$/,
+    // The site redesign's per-page and cross-page suites (#454, spec §9; round 2 spec §11.2: every
+    // marketing-*.spec.ts, so a page's split spec files run without a config change). The
+    // marketing performance budgets run under playwright.performance.config.ts instead, which
+    // never matches marketing-performance here (it needs the deployed build).
+    /marketing-(?!performance)[a-z0-9-]+\.spec\.ts$/,
+    // The astronaut kit and the scene timeline on /kit/ (e2e build only, round 2 spec §3.4).
+    'kit.spec.ts',
     'word-budget.spec.ts',
     'figures.spec.ts',
     'motion.spec.ts',

@@ -164,7 +164,7 @@ export function initCounts(figure: HTMLElement): void {
   const sentence = figure.querySelector<HTMLElement>('[data-row-sentence="b"]');
   const grids = figure.querySelectorAll<SVGSVGElement>('[data-grid="b"]');
 
-  // A CSS-only entrance (home.css): grid A fills row by row, its carriers light, bar A grows from
+  // A CSS-only entrance (counts.css): grid A fills row by row, its carriers light, bar A grows from
   // its mean; row B follows. Under 1.6 s, then rest. Moving the slider ends it at once.
   const controller = new FigureController(figure, {
     duration: 1600,

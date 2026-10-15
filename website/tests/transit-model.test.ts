@@ -1,26 +1,15 @@
 /**
- * The Contribute page's figure models (site redesign spec §4.3 C2–C3, #454). Owned by the
- * Contribute task.
+ * The Contribute page's transit line and group vignettes, as models (site redesign spec §4.3 C2,
+ * #454). Owned by the Contribute orbit and flow task (round 2 plan T4); split verbatim out of
+ * contribute-model.test.ts (plan T0 step 3).
  *
  * - The transit line: one route through three lanes, stations in pipeline order, a model step
  *   between the observations and the frequency surfaces, and two tokens. The measured stud rides
  *   the whole line; the modeled hex only joins at the model step and never replaces the stud, and
  *   both rest on the map's stretch, side by side (spec §6.1 rule 1).
- * - The work board: one example issue in exactly one place per step, the five real statuses, and a
- *   tour that fits in 6 s.
  */
 import { describe, expect, it } from 'vitest';
 
-import {
-  BOARD_COLUMNS,
-  BOARD_STEPS,
-  NO_SCRIPT_STEP,
-  REDUCED_STEP,
-  STEP_MS,
-  TOUR_MS,
-  TOUR_REST_STEP,
-  stepAt,
-} from '../src/components/contribute/board-steps';
 import {
   MIN_LABEL_PX,
   ROUTE_ORDER,
@@ -255,53 +244,5 @@ describe('group vignettes', () => {
       const firstStud = art.indexOf('fill:var(--enc-obs)');
       expect(firstStud, kind).toBeGreaterThan(lastCell);
     }
-  });
-});
-
-describe('work board', () => {
-  it('has the five real board statuses as columns', () => {
-    expect(BOARD_COLUMNS.map((column) => column.label)).toEqual([
-      'Backlog',
-      'Ready',
-      'In progress',
-      'In review',
-      'Blocked',
-    ]);
-  });
-
-  it('puts the example issue in exactly one place per step, moving forward', () => {
-    expect(BOARD_STEPS.map((step) => step.at)).toEqual([
-      'discussion',
-      'backlog',
-      'ready',
-      'in-progress',
-      'in-review',
-    ]);
-    // Blocked holds ghost cards only.
-    expect(BOARD_STEPS.some((step) => step.at === 'blocked')).toBe(false);
-    // The column definition line names the column the card is in (none at the Discussion).
-    for (const step of BOARD_STEPS) {
-      const column = BOARD_COLUMNS.find((item) => item.key === step.at);
-      if (!column) expect(step.definition).toBeNull();
-      else expect(step.definition).toMatch(new RegExp(`^${column.label}: `));
-    }
-  });
-
-  it('tours once in at most 6 s and rests on the last step', () => {
-    expect(TOUR_MS).toBeLessThanOrEqual(6000);
-    expect(STEP_MS * BOARD_STEPS.length).toBe(TOUR_MS);
-    expect(TOUR_REST_STEP).toBe(5);
-    expect(REDUCED_STEP).toBe(1);
-    expect(NO_SCRIPT_STEP).toBe(3);
-    let previous = 1;
-    for (let t = 0; t < TOUR_MS; t += 50) {
-      const step = stepAt(t);
-      expect(step).toBeGreaterThanOrEqual(previous);
-      expect(step).toBeLessThanOrEqual(5);
-      previous = step;
-    }
-    expect(stepAt(0)).toBe(1);
-    expect(stepAt(TOUR_MS - 1)).toBe(5);
-    expect(stepAt(TOUR_MS + 500)).toBe(5);
   });
 });

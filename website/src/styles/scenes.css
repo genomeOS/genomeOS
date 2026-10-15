@@ -1,0 +1,168 @@
+/*
+ * Scenes and figure notes (round 2 spec §2.2, §3.1–§3.5; rulings 22 of the round-2 build; #454):
+ * the astronaut rig's joints, the typing twin, the scene controls and the figure note. Imported by
+ * global.css, so every site page has them; kit-wide, owned by the foundation.
+ */
+
+/* ---------------------------------------------------------------------- the astronaut rig */
+
+/* Each joint turns about its own local origin (src/graphics/astro/rig.ts KIT_CSS). */
+.astro .j {
+  transform-box: view-box;
+  transform-origin: 0 0;
+}
+
+/* ------------------------------------------------------------------------------- typing */
+
+/*
+ * The typing twin (src/graphics/typing.ts): one span per character carries --i, and a timeline
+ * track animates --n on the twin. A character shows once --n passes it; an ion caret follows the
+ * last one shown. --n starts high, so without the animation (no JavaScript, reduced motion, no
+ * @property support) the whole sentence shows.
+ */
+@property --n {
+  syntax: '<integer>';
+  inherits: true;
+  initial-value: 100000;
+}
+
+.typed > span {
+  position: relative;
+  opacity: clamp(0, calc(var(--n) - var(--i)), 1);
+}
+
+.typed > span::after {
+  position: absolute;
+  top: 0.12em;
+  right: -2px;
+  bottom: 0.08em;
+  width: 2px;
+  background: var(--color-ion);
+  content: '';
+  opacity: calc(
+    clamp(0, calc(var(--n) - var(--i)), 1) *
+      clamp(0, calc(2 - var(--n) + var(--i)), 1)
+  );
+}
+
+.typed .b {
+  color: var(--color-starlight);
+  font-weight: 650;
+}
+
+/* ------------------------------------------------------------------------- scene controls */
+
+/*
+ * SceneControls.astro (spec §3.5; ruling 22): Pause/Play and Replay as white glyphs with no
+ * background, no border and no visible label; the accessible name says what each does. A 44 px
+ * square hit target around an 18–20 px glyph; a soft drop shadow (not a background) keeps the glyph
+ * at 3:1 over bright figures; the site's ion focus ring; hover brightens. A paper theme re-points
+ * --scene-control-color to its ink.
+ */
+.kit-scene-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
+.kit-scene-control {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--scene-control-color, var(--color-starlight));
+  cursor: pointer;
+  opacity: 0.86;
+  transition:
+    opacity var(--dur-micro) var(--ease-ui),
+    filter var(--dur-micro) var(--ease-ui);
+  filter: drop-shadow(0 0 1.5px rgb(2 7 18 / 90%))
+    drop-shadow(0 1px 3px rgb(2 7 18 / 60%));
+}
+
+.kit-scene-control[hidden] {
+  display: none;
+}
+
+.kit-scene-control:hover {
+  opacity: 1;
+  filter: drop-shadow(0 0 1.5px rgb(2 7 18 / 90%))
+    drop-shadow(0 0 6px rgb(242 248 255 / 35%));
+}
+
+.kit-scene-control:focus-visible {
+  outline: 2px solid var(--color-ion);
+  outline-offset: 0;
+  opacity: 1;
+}
+
+.kit-scene-control svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+/* The toggle shows what a press does: pause while playing, play while paused. */
+.kit-scene-control[data-state='paused'] .kit-scene-control__pause,
+.kit-scene-control:not([data-state='paused']) .kit-scene-control__play {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Nothing moves, so there is nothing to pause or replay (sceneController hides them too). */
+  .kit-scene-controls {
+    display: none;
+  }
+
+  .kit-scene-control {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .kit-scene-control {
+    color: ButtonText;
+    filter: none;
+  }
+}
+
+@media print {
+  .kit-scene-controls {
+    display: none;
+  }
+}
+
+/* --------------------------------------------------------------------------- figure note */
+
+/*
+ * A figure note (spec §2.2, plan I-7; R2-14): in a figure's readout slot, one plain sentence saying
+ * the figure is simplified or an example, then the way to the Atlas. Never gold, never a warning.
+ *
+ *   <div class="figure-note" data-figure-chrome><p>…</p><a href="…">…</a></div>
+ */
+.figure-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem 0.9rem;
+  margin: 0.9rem 0 0;
+  color: var(--color-text-soft);
+  font-size: var(--type-legend);
+  line-height: 1.45;
+}
+
+.figure-note p {
+  margin: 0;
+}
+
+.figure-note a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  font-weight: 650;
+}

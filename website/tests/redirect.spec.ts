@@ -33,3 +33,28 @@ test.describe('without JavaScript @desktop-chromium', () => {
     await expect(page).toHaveURL(/\/contribute\/#working-groups$/);
   });
 });
+
+// /project/ became Projects (round 2 spec §1.3, R2-4): the fragment is kept, and the retired
+// vision section's fragments land on Status.
+for (const [from, to] of [
+  ['/project/', '/projects/'],
+  ['/project/#safeguards-title', '/projects/#safeguards-title'],
+  ['/project/#hbs', '/projects/#hbs'],
+  ['/project/#vision', '/projects/#status'],
+] as const)
+  test(`${from} lands on ${to}`, async ({ page }) => {
+    await page.goto(from);
+    await expect(page).toHaveURL(new RegExp(`${to.replace(/[/#]/g, '\\$&')}$`));
+    await expect(
+      page.locator('nav[aria-label="Primary navigation"] a[href="/projects/"]'),
+    ).toHaveAttribute('aria-current', 'page');
+  });
+
+test.describe('/project/ without JavaScript @desktop-chromium', () => {
+  test.use({ javaScriptEnabled: false });
+
+  test('the meta refresh still lands on Projects', async ({ page }) => {
+    await page.goto('/project/');
+    await expect(page).toHaveURL(/\/projects\/$/);
+  });
+});
