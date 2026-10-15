@@ -169,12 +169,13 @@
   user-select: all;
 }
 
-/* Spelled out, the line sets the address a step smaller, its box (the unseen copy) a few per cent
-   wider than the address will be in either font (Figtree, or a metric-matched fallback: 0.73 and
-   0.72 of the spelled-out width), so Copy keeps its place and its line beside it on a phone. */
+/* Spelled out, the line sets the address a step smaller: its box (the unseen copy) is then 2 to 3
+   per cent wider than the address will be in either font (the address is 0.729 of the spelled-out
+   width in Figtree, 0.722 in the fallback), so Copy keeps its place, and its line beside the
+   address in both fonts, so the web font's arrival moves nothing either. */
 .contact-address__value::before,
 .contact-address__value > :not([data-joined]) {
-  font-size: 0.76em;
+  font-size: 0.745em;
 }
 
 /* Copy, a quiet square button: its icon and word, and for a moment its check and "Copied". Both
@@ -294,12 +295,10 @@
     width: 100%;
     justify-content: center;
   }
-}
 
-/* Too narrow for the address and Copy's words on one line (a 320 or 360 px phone): Copy keeps its
-   icon, and its check when it has copied, a 44 px square beside the address; its name and the
-   live region still say it. */
-@media (width <= 24rem) {
+  /* Too narrow for the address and Copy's words on one line in every font: Copy keeps its icon,
+     and its check when it has copied, a 44 px square beside the address; its name and the live
+     region still say it. */
   .contact-copy {
     width: 2.75rem;
     padding: 0;
@@ -317,6 +316,13 @@
     overflow: hidden;
     clip: rect(0 0 0 0);
     white-space: nowrap;
+  }
+}
+
+/* A 320 px phone: the address and its icon a little closer, so they share a line in every font. */
+@media (width <= 24rem) {
+  .contact-address {
+    column-gap: 0.5rem;
   }
 }
 
