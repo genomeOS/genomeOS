@@ -443,7 +443,7 @@ test('the steps end on the server-rendered figure, and a moment before it does n
   await page.goto('/');
   const figure = steps(page);
   const stage = figure.locator('[data-figure-stage]');
-  // At 4.5 s the model is still lit and the cursor still gliding: the comparison sees it.
+  // At 4.5 s the cursor is still gliding: the comparison sees it.
   await seek(figure, 'how-it-works', 4500);
   const before = await stage.screenshot();
   await seek(figure, 'how-it-works', 4900);

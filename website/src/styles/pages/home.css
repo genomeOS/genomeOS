@@ -346,14 +346,16 @@
   stroke-width: 1.4;
 }
 
+/* At rest the model is lit, as mid-entrance (how-it-works.ts plays it dark → lit): step 2 reads as
+   working, beside the lit globe of step 3. */
 .hiw-edges {
-  stroke: rgb(165 185 211 / 26%);
+  stroke: rgb(112 230 255 / 55%);
   stroke-width: 1;
 }
 
 .hiw-nodes {
-  fill: var(--color-plate);
-  stroke: var(--color-muted);
+  fill: var(--color-ion);
+  stroke: var(--color-ion);
   stroke-width: 1.4;
 }
 

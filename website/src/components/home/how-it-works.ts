@@ -41,6 +41,8 @@ const HEX_FILLS = [1, 3, 5, 2, 4, 6, 3].map(
 );
 const GLOW = 'rgb(112 230 255 / 35%)';
 const BRIGHT_EDGE = 'rgb(112 230 255 / 55%)';
+/** The model's edges before they light (its rest state, home.css, is BRIGHT_EDGE). */
+const DIM_EDGE = 'rgb(165 185 211 / 26%)';
 
 const inOut = (t: number) =>
   t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
@@ -162,26 +164,23 @@ function build(tl: Timeline, figure: HTMLElement): void {
     ]);
   }
 
-  // 1.9–2.6 s: the model lights layer by layer, then settles to rest by 4.9 s.
+  // 1.9–2.6 s: the model lights layer by layer and stays lit: at rest step 2 reads as working, as
+  // the lit globe does at the end (design critique of the integrated build: it went back to hollow
+  // grey nodes and looked switched off). The server's rest state (home.css) is lit too.
   const dark = { fill: color('--color-plate'), stroke: color('--color-muted') };
   const lit = { fill: color('--color-ion'), stroke: color('--color-ion') };
   svg.querySelectorAll('.hiw-nodes').forEach((layer, k) =>
     tl.story(layer, [
       [1900 + k * 200, dark, EASE.out],
       [2160 + k * 200, lit],
-      [4300, lit, EASE.inOut],
-      [STEPS_STORY, dark],
     ]),
   );
-  svg.querySelectorAll('.hiw-edges').forEach((layer, k) => {
-    const dim = getComputedStyle(layer).stroke;
+  svg.querySelectorAll('.hiw-edges').forEach((layer, k) =>
     tl.story(layer, [
-      [2000 + k * 200, { stroke: dim }, EASE.out],
+      [2000 + k * 200, { stroke: DIM_EDGE }, EASE.out],
       [2300 + k * 200, { stroke: BRIGHT_EDGE }],
-      [4300, { stroke: BRIGHT_EDGE }, EASE.inOut],
-      [STEPS_STORY, { stroke: dim }],
-    ]);
-  });
+    ]),
+  );
 
   // 2.6–3.5 s: estimates leave the model as hexes (a stud never becomes a hex anywhere else).
   for (let k = 0; k < 7; k += 1) {
