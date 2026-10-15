@@ -1440,11 +1440,11 @@ function modeledPoint(figure: Locator) {
           }
         return true;
       };
-      const onScreen = (x: number, y: number) =>
+      const onScreen = (y: number) =>
         box.top + y > 8 && box.top + y < innerHeight - 8;
       for (const [lon, lat] of centres) {
         const [x, y] = hook.__hbsPoint(lon, lat);
-        if (onScreen(x, y) && clear(x, y))
+        if (onScreen(y) && clear(x, y))
           return { x: box.left + x, y: box.top + y };
       }
       return null;
