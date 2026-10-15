@@ -48,7 +48,9 @@ a:hover {
 }
 
 :focus-visible {
-  border-radius: 2px;
+  /* Square, as every control (spec §2.4): a rounded corner here also rounds the ring's (design
+     critique 2, m-3). */
+  border-radius: 0;
   outline: 2px solid var(--color-ion);
   outline-offset: 4px;
   box-shadow: var(--focus-ring);
@@ -695,12 +697,14 @@ svg {
   font-size: 1rem;
 }
 
+.site-footer__links-row,
 .site-footer__links {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem 1.5rem;
 }
 
+.site-footer__contact,
 .site-footer__links a,
 .site-footer__button {
   min-height: 24px;
@@ -718,6 +722,7 @@ svg {
   cursor: pointer;
 }
 
+.site-footer__contact:hover,
 .site-footer__links a:hover,
 .site-footer__button:hover {
   color: var(--color-starlight);
@@ -780,6 +785,20 @@ svg {
 .mobile-nav a {
   color: var(--color-starlight);
   text-decoration: none;
+}
+/* The current page, marked as the docs sidebar marks it: ion, with a square side rule at the
+ * panel's inner edge (the desktop nav brightens it instead). */
+.mobile-nav a[aria-current='page'] {
+  position: relative;
+  color: var(--color-ion);
+}
+.mobile-nav a[aria-current='page']::before {
+  content: '';
+  position: absolute;
+  top: -0.2rem;
+  bottom: -0.2rem;
+  left: -1.2rem;
+  border-left: 3px solid var(--color-ion);
 }
 
 /*

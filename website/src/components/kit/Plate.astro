@@ -24,6 +24,9 @@ interface Props {
   class?: string;
   /** The bottom bar is a polite live region (it narrates focus changes). */
   captionLive?: boolean;
+  /** A stage that is neither a picture nor a control group, such as the Contact page's live
+   * letter: a labelled region whose text is read as text (Contact page spec §6). */
+  region?: boolean;
   [key: `data-${string}`]: string | undefined;
 }
 
@@ -37,6 +40,7 @@ const {
   id,
   class: className,
   captionLive = false,
+  region = false,
   ...data
 } = Astro.props;
 // A slot passed inside a false expression still counts as present: draw the top bar only when it
@@ -61,7 +65,7 @@ const top = Astro.slots.has('top') ? await Astro.slots.render('top') : '';
   <div
     class="kit-plate__stage"
     data-figure-stage
-    role={interactive ? 'group' : 'img'}
+    role={region ? 'region' : interactive ? 'group' : 'img'}
     aria-label={label}
     aria-labelledby={labelledby}
     aria-describedby={describedby}

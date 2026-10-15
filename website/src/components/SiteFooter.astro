@@ -21,10 +21,17 @@ const year = new Date().getFullYear();
       />
       <p>© {year} <BrandName /></p>
     </div>
-    <nav class="site-footer__links" aria-label="Site policies">
-      <a href={sitePath('/privacy/')}>Privacy</a>
-      <CookieSettings class="site-footer__button" />
-    </nav>
+    {
+      /* Contact leads the footer's links (Contact page spec §1). It is not a policy, so it stands
+         beside the Site policies nav rather than in it. */
+    }
+    <div class="site-footer__links-row">
+      <a class="site-footer__contact" href={sitePath('/contact/')}>Contact</a>
+      <nav class="site-footer__links" aria-label="Site policies">
+        <a href={sitePath('/privacy/')}>Privacy</a>
+        <CookieSettings class="site-footer__button" />
+      </nav>
+    </div>
     <GitHubLink />
   </div>
 </footer>

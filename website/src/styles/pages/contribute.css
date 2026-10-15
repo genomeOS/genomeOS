@@ -1473,6 +1473,39 @@
   margin-top: var(--head-gap);
 }
 
+/* Offers that go by email rather than GitHub: a quiet row of links to the Contact page's draft,
+   each with its offer pressed. */
+.start-offers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 clamp(1.25rem, 3vw, 2.25rem);
+  margin: clamp(1.25rem, 2.5vw, 1.75rem) 0 0;
+}
+
+.start-offers__lead {
+  color: var(--color-muted);
+  font-size: var(--type-legend);
+  font-weight: 620;
+}
+
+.start-offers a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.75rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.start-offers .contribute-mark {
+  transition: translate var(--dur-micro) var(--ease-ui);
+}
+
+.start-offers a:hover .contribute-mark {
+  translate: 0.15rem 0;
+}
+
 /* ---------- phones and narrow columns ---------- */
 
 @media (max-width: 52rem) {
@@ -1492,6 +1525,16 @@
 }
 
 @media (max-width: 40rem) {
+  /* One link a line, under the lead-in, clear of the cookie control's corner. */
+  .start-offers {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .start-offers__lead {
+    margin-bottom: 0.25rem;
+  }
+
   .wb-tabs {
     grid-template-columns: repeat(6, minmax(0, 1fr));
   }
@@ -1542,9 +1585,11 @@
 /* ---------- reduced motion, print, forced colours ---------- */
 
 @media (prefers-reduced-motion: reduce) {
-  :is(.wg-transit, .wg-cards, .wb-plate, .contribute-more) *,
-  :is(.wg-transit, .wg-cards, .wb-plate, .contribute-more) *::before,
-  :is(.wg-transit, .wg-cards, .wb-plate, .contribute-more) *::after {
+  :is(.wg-transit, .wg-cards, .wb-plate, .contribute-more, .start-offers) *,
+  :is(.wg-transit, .wg-cards, .wb-plate, .contribute-more, .start-offers)
+    *::before,
+  :is(.wg-transit, .wg-cards, .wb-plate, .contribute-more, .start-offers)
+    *::after {
     animation: none !important;
     transition: none !important;
   }

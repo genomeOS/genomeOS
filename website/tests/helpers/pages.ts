@@ -24,8 +24,10 @@ export interface PageManifest {
   wordsExclude?: string;
   /** The page only redirects here: the suites read it with the redirect held. */
   redirect?: string;
-  /** The first figure's top is above the fold (Project, Contribute, Privacy). */
-  leadFigure?: boolean;
+  /** The first figure's top is above the fold (Project, Contribute, Privacy). "desktop" holds it
+   * there at 1440 × 900 only: Contact, whose phone layout puts the controls before the letter
+   * (Contact page spec §4), says so here instead of leaving the check out. */
+  leadFigure?: boolean | 'desktop';
   /** Gzip budgets in KB; null is "no budget of its own" (Starlight baseline, redirect). */
   jsKbGz: number | null;
   dataKbGz: number | null;
@@ -38,6 +40,8 @@ export interface PageManifest {
   videoKb?: number;
   lcpMs: { desktop: number; phone: number } | null;
   cls: number;
+  /** Why a budget departs from the spec's table (spec §7), for the reader of the manifest. */
+  budgetNote?: string;
 }
 
 const directory = path.resolve(import.meta.dirname, '../pages');
@@ -56,6 +60,7 @@ const KEYS = new Set([
   'videoKb',
   'lcpMs',
   'cls',
+  'budgetNote',
 ]);
 
 function load(file: string): PageManifest {
@@ -78,6 +83,12 @@ function load(file: string): PageManifest {
     throw new Error(`${file}: route must be a site path`);
   if (!Number.isInteger(raw.concepts) || (raw.concepts as number) < 0)
     throw new Error(`${file}: concepts must be a whole number`);
+  if (
+    'leadFigure' in raw &&
+    typeof raw.leadFigure !== 'boolean' &&
+    raw.leadFigure !== 'desktop'
+  )
+    throw new Error(`${file}: leadFigure must be true, false or "desktop"`);
   return { name: file.replace(/\.json$/, ''), ...raw } as PageManifest;
 }
 
