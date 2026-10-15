@@ -1,11 +1,13 @@
 /*
- * Project page (site redesign spec §4.2, #454). Owned by the Project task; loaded after the
- * shared CSS. Sections alternate void and orbit bands; every concept is carried by one figure.
+ * Projects page (site redesign spec §4.2; round 2 spec §4.2; #454). Owned by the Projects task;
+ * loaded after the shared CSS. The intro and its project index, the genomeOS Atlas chapter opener,
+ * then the chapter's sections on alternating orbit and void bands; every concept is carried by one
+ * figure. The counts figure and the application cards bring their own CSS (components/project/).
  *
  * Motion follows one pattern for every figure here: the island adds `is-armed` (the before state,
  * screens only) and then `is-playing`, whose keyframes read `--d` (ms) for their delay and
- * `--figure-freeze` (dev captures) to hold a moment; at rest neither class is present, so the
- * server-rendered final state shows and nothing runs. Reduced motion never arms.
+ * `--figure-freeze` (captures, motion hooks) to hold a moment; at rest neither class is present,
+ * so the server-rendered final state shows and nothing runs. Reduced motion never arms.
  */
 
 /* ---------- shared heads ---------- */
@@ -27,6 +29,26 @@
   margin-bottom: var(--head-gap);
 }
 
+/* A section of the Atlas chapter: an h3 one step below the chapter's h2 (round 2 spec §4.2). */
+.h3-section {
+  max-width: 22ch;
+  margin: 0;
+  color: var(--color-starlight);
+  font-family: var(--font-display);
+  font-size: clamp(1.7rem, 3vw, 2.6rem);
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  line-height: 1.06;
+  text-wrap: balance;
+}
+
+.proj-kicker {
+  margin: 0 0 0.9rem;
+  color: var(--color-ion);
+  font-size: var(--type-kicker);
+  font-weight: 640;
+}
+
 .proj-head--split {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -34,7 +56,7 @@
   align-items: end;
 }
 
-.proj-head--split h2 {
+.proj-head--split > div {
   grid-column: 1 / span 7;
 }
 
@@ -47,15 +69,14 @@
   line-height: 1.5;
 }
 
-.proj-vision .proj-h2,
 .proj-pipeline__title {
   margin-bottom: var(--head-gap);
 }
 
 @media (max-width: 52rem) {
-  /* As specific as the wide rule for the h2, so it does not keep its 7 columns here. */
+  /* As specific as the wide rule for the title block, so it does not keep its 7 columns here. */
   .proj-head--split > *,
-  .proj-head--split h2 {
+  .proj-head--split > div {
     grid-column: 1 / -1;
   }
 
@@ -114,11 +135,333 @@
   animation-play-state: paused !important;
 }
 
-/* ---------- intro: the join-up plate (the intro) ---------- */
+/* ---------- intro: the project index (lead figure) ---------- */
 
-.proj-intro .page-intro__figure {
-  margin-top: var(--head-gap);
+.pidx {
+  margin: 0;
 }
+
+.pidx__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: var(--grid-gap);
+}
+
+.pidx__card {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: clamp(1.25rem, 2.4vw, 2rem);
+  min-width: 0;
+  padding: clamp(1.4rem, 2.6vw, 2rem);
+  border: 1px solid var(--color-line-strong);
+  background: linear-gradient(140deg, rgb(10 33 64 / 92%), rgb(6 20 42 / 92%));
+}
+
+/* The future, in violet dashes: a frame and a "+" (spec §6.1 rule 7), never a fill. */
+.pidx__card--next {
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 1.1rem;
+  border: 1.5px dashed rgb(173 139 255 / 62%);
+  background: transparent;
+}
+
+.pidx__mark {
+  display: block;
+  flex: none;
+}
+
+.pidx__plus {
+  width: 3.5rem;
+  height: 3.5rem;
+  fill: none;
+  stroke: var(--color-genome);
+}
+
+.pidx__plus circle {
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+
+.pidx__plus path {
+  stroke-width: 1.6;
+}
+
+.pidx__title {
+  margin: 0;
+  color: var(--color-starlight);
+  font-family: var(--font-display);
+  font-size: clamp(1.6rem, 2.4vw, 2.1rem);
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.pidx__title .brand-name {
+  letter-spacing: 0.06em;
+}
+
+.pidx__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.65rem 0 0;
+  font-size: 0.9rem;
+  font-weight: 640;
+}
+
+.pidx__status::before {
+  content: '';
+  flex: none;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+}
+
+/* Aurora is "now" in the status vocabulary; violet dashes are "future". */
+.pidx__status--live {
+  color: var(--color-aurora);
+}
+
+.pidx__status--live::before {
+  background: var(--color-aurora);
+  box-shadow: 0 0 0 4px rgb(114 231 193 / 18%);
+}
+
+.pidx__status--future {
+  color: var(--color-genome);
+}
+
+.pidx__status--future::before {
+  border: 1.5px dashed var(--color-genome);
+}
+
+.pidx__text {
+  max-width: 46ch;
+  margin: 0.9rem 0 0;
+  color: var(--color-text-soft);
+  font-size: 1.02rem;
+  line-height: 1.55;
+}
+
+.pidx__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.9rem 1.5rem;
+  margin-top: 1.4rem;
+}
+
+/* The site's primary button (home.css's .button-link, which this page does not load). */
+.pidx .button-link {
+  min-height: 2.9rem;
+  padding: 0.6rem 1.1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-ion);
+  background: var(--color-ion);
+  color: var(--color-void);
+  font-weight: 720;
+  text-decoration: none;
+  transition:
+    background-color var(--dur-micro) var(--ease-ui),
+    border-color var(--dur-micro) var(--ease-ui);
+}
+
+.pidx .button-link:hover {
+  border-color: var(--color-starlight);
+  background: var(--color-starlight);
+}
+
+.pidx__more {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  font-weight: 650;
+}
+
+@media (max-width: 52rem) {
+  .pidx__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 36rem) {
+  .pidx__card {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+  }
+
+  .pidx__mark {
+    width: 5.5rem;
+    height: 5.5rem;
+  }
+}
+
+/* ---------- the genomeOS Atlas chapter opener ---------- */
+
+/* Two classes: the shared .band padding may load after this file. */
+.band.chapter {
+  padding-block: clamp(2.25rem, 4.5vw, 3.5rem);
+}
+
+.chapter__inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem 1.25rem;
+}
+
+.chapter__mark {
+  flex: none;
+}
+
+.chapter__head {
+  min-width: 0;
+}
+
+.chapter__kicker {
+  margin: 0 0 0.2rem;
+  color: var(--color-ion);
+  font-size: var(--type-kicker);
+  font-weight: 640;
+}
+
+.chapter__title {
+  margin: 0;
+  color: var(--color-starlight);
+  font-family: var(--font-display);
+  font-size: clamp(2.2rem, 4.4vw, 3.6rem);
+  font-weight: 380;
+  letter-spacing: -0.035em;
+  line-height: 1.02;
+}
+
+.chapter__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-left: auto;
+}
+
+.chapter__nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border: 1px solid var(--color-line-strong);
+  color: var(--color-starlight);
+  font-size: 0.95rem;
+  font-weight: 620;
+  text-decoration: none;
+  transition:
+    border-color var(--dur-micro) var(--ease-ui),
+    background-color var(--dur-micro) var(--ease-ui);
+}
+
+.chapter__nav a:hover,
+.chapter__nav a:focus-visible {
+  border-color: var(--color-ion);
+  background: var(--color-plate);
+}
+
+@media (max-width: 48rem) {
+  .chapter__nav {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
+/* Phones: the small mark leads the running head, and the title takes the full width under them at
+   2rem, so the wordmark fits at 320 px without a lone mark on a row of its own. */
+@media (max-width: 26rem) {
+  .chapter__inner {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 0.35rem 0.7rem;
+  }
+
+  .chapter__head {
+    display: contents;
+  }
+
+  .chapter__mark {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .chapter__kicker {
+    margin: 0;
+  }
+
+  .chapter__title {
+    grid-column: 1 / -1;
+    font-size: 2rem;
+  }
+
+  .chapter__nav {
+    grid-column: 1 / -1;
+    margin-top: 0.8rem;
+  }
+}
+
+/* The chapter opener follows straight on from the intro: one hairline between them. */
+.proj-intro + .chapter {
+  border-top: 0;
+}
+
+/* ---------- purpose 2: applications ---------- */
+
+.proj-apps {
+  --spotlight-x: 78%;
+  --spotlight-y: 24rem;
+
+  background:
+    radial-gradient(
+      circle 30rem at var(--spotlight-x) var(--spotlight-y),
+      rgb(112 230 255 / 7%),
+      transparent 72%
+    ),
+    var(--color-void);
+}
+
+.proj-apps__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 22rem);
+  column-gap: var(--grid-gap);
+  row-gap: var(--head-gap);
+  align-items: end;
+}
+
+.proj-apps__figure {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 52rem) {
+  .proj-apps__layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .proj-apps__cta {
+    order: 3;
+  }
+}
+
+/* ---------- process 2: counts, not guesses ---------- */
+
+/* The heading stays beside the tall figure while it scrolls past (wide only). */
+@media (min-width: 52.01rem) {
+  .proj-counts__text {
+    position: sticky;
+    top: 7rem;
+  }
+}
+
+/* ---------- process 1: the join-up plate ---------- */
 
 .joinup > .kit-plate__stage {
   container: joinup / inline-size;
@@ -651,18 +994,19 @@
     minmax(15rem, 17.5rem);
   grid-template-rows: auto auto auto 1fr auto auto;
   grid-template-areas:
-    'stage stage tool'
     'stage stage controls'
     'stage stage readout'
+    'stage stage note'
     'stage stage legend'
     'foot foot foot'
     'table table table';
   column-gap: clamp(1.25rem, 2.6vw, 2.25rem);
 }
 
-.hbs > .kit-figure__toolbar {
-  grid-area: tool;
-  margin-bottom: 1.1rem;
+/* The figure note (R2-14): one plain sentence and the link to the live map, under the readout. */
+.hbs > .hbs__note {
+  grid-area: note;
+  margin-top: 1rem;
 }
 
 /* The genotypes and the map share the stage's top and bottom (design review, round 2). */
@@ -862,21 +1206,6 @@
   stroke-dasharray: 6 4;
 }
 
-.proj-gate {
-  max-width: 52rem;
-  margin: clamp(2rem, 4vw, 3rem) 0 0;
-  padding: 0.35rem 0 0.35rem 1.15rem;
-  border-left: 2px solid var(--color-signal);
-  color: var(--color-text-soft);
-  font-size: var(--type-lede);
-  line-height: 1.5;
-}
-
-.proj-gate strong {
-  color: var(--color-starlight);
-  font-weight: 620;
-}
-
 /* The genotype triad: one shared cell frame, three pressable genotypes. Beside the map, it fills
    the stage's height: the frame takes the room the buttons leave, so the frame's top meets the
    map's top and the last button's bottom meets the map's bottom (design review, round 2). */
@@ -1044,10 +1373,10 @@
     grid-template-columns: minmax(9rem, 12rem) minmax(0, 1fr);
     grid-template-rows: none;
     grid-template-areas:
-      'tool tool'
       'stage stage'
       'controls controls'
       'readout readout'
+      'note note'
       'legend legend'
       'foot foot'
       'table table';
@@ -1095,213 +1424,6 @@
   .hbs__slider {
     min-height: 44px;
   }
-}
-
-/* ---------- the scale ladder (the vision) ---------- */
-
-.ladder {
-  margin: 0;
-}
-
-.ladder__tabs {
-  container: ladder-tabs / inline-size;
-  margin-bottom: clamp(1.25rem, 2.5vw, 2rem);
-}
-
-.ladder__tablist {
-  display: flex;
-  flex-wrap: wrap;
-}
-
-.ladder__tablist [role='tab'] {
-  display: grid;
-  flex: 1 1 0;
-  align-content: start;
-  gap: 0.3rem;
-  min-width: 0;
-  min-height: 2.75rem;
-  margin: 0;
-  padding: 0.75rem 1.1rem calc(0.8rem + 1px);
-  border: 0;
-  border-bottom: 1px solid var(--color-deep-line);
-  background: transparent;
-  color: var(--color-text-soft);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    color var(--dur-micro) var(--ease-ui),
-    background-color var(--dur-micro) var(--ease-ui);
-}
-
-.ladder__tablist [role='tab']:hover {
-  color: var(--color-starlight);
-}
-
-.ladder__tablist [role='tab'][aria-selected='true'] {
-  border-bottom-color: var(--color-ion);
-  background: rgb(10 33 64 / 55%);
-  box-shadow: inset 0 -1px 0 var(--color-ion);
-  color: var(--color-starlight);
-}
-
-.ladder__tab-title {
-  font-size: 1rem;
-  font-weight: 640;
-  line-height: 1.3;
-}
-
-.ladder__tab-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  color: var(--color-muted);
-  font-size: 0.8rem;
-  font-weight: 580;
-}
-
-.ladder__tab-status::before {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--color-ion);
-  content: '';
-}
-
-.ladder__tab-status[data-status='future']::before {
-  border: 1.5px dashed var(--color-genome);
-  background: transparent;
-}
-
-@container ladder-tabs (max-width: 40rem) {
-  .ladder__tablist {
-    flex-direction: column;
-  }
-
-  .ladder__tablist [role='tab'] {
-    flex: none;
-  }
-}
-
-.ladder__toolbar {
-  margin-bottom: 0.75rem;
-}
-
-.ladder__stage {
-  container: ladder / inline-size;
-}
-
-.ladder__svg {
-  display: block;
-  width: 100%;
-  height: auto;
-  margin-inline: auto;
-  overflow: visible;
-  font-family: var(--font-body);
-}
-
-.ladder__svg--row {
-  display: none;
-  max-width: 1100px;
-}
-
-.ladder__svg--grid {
-  max-width: 26rem;
-}
-
-@container ladder (min-width: 860px) {
-  .ladder__svg--row {
-    display: block;
-  }
-
-  .ladder__svg--grid {
-    display: none;
-  }
-}
-
-.ladder__bridge {
-  fill: none;
-  stroke: var(--color-genome);
-  stroke-dasharray: 5 4;
-  stroke-width: 1.6;
-}
-
-/* The selected level lights its frames; the rest of the art dims. Labels never dim. */
-.ladder__frame,
-.ladder__wedge,
-.ladder__bridge {
-  transition: opacity 320ms var(--ease-ui);
-}
-
-.ladder[data-level='earth']
-  :is(
-    [data-frame='chromosome'],
-    [data-frame='nucleus'],
-    [data-wedge='2'],
-    [data-wedge='3'],
-    .ladder__bridge
-  ),
-.ladder[data-level='cell']
-  :is(
-    [data-frame='earth'],
-    [data-frame='population'],
-    [data-wedge='1'],
-    [data-wedge='2'],
-    .ladder__bridge
-  ),
-.ladder[data-level='bridge']
-  :is([data-frame='earth'], [data-frame='nucleus'], .ladder__wedge) {
-  opacity: 0.38;
-}
-
-.ladder__caption {
-  min-height: calc(1.5em + 1.6rem);
-  margin-top: 1.1rem;
-  padding-top: 0.8rem;
-  border-top: 1px solid var(--color-deep-line);
-  color: var(--color-text-soft);
-  font-size: var(--type-lede);
-  line-height: 1.5;
-}
-
-.ladder__caption p {
-  margin: 0;
-}
-
-@media screen {
-  .ladder.is-armed :is(.ladder__art, .ladder__label) {
-    opacity: 0;
-  }
-
-  .ladder.is-armed .ladder__wedge line {
-    transform: scale(0);
-  }
-
-  .ladder.is-armed .ladder__bridge {
-    stroke-opacity: 0;
-  }
-}
-
-.ladder.is-playing :is(.ladder__art, .ladder__label) {
-  animation: proj-fade 340ms var(--ease-figure) both;
-  animation-delay: calc(var(--d) * 1ms + var(--figure-freeze, 0ms));
-}
-
-.ladder.is-playing .ladder__wedge line {
-  animation: proj-draw 360ms var(--ease-camera) both;
-  animation-delay: calc(var(--d) * 1ms + var(--figure-freeze, 0ms));
-}
-
-@keyframes ladder-bridge {
-  from {
-    stroke-opacity: 0;
-  }
-}
-
-.ladder.is-playing .ladder__bridge {
-  animation: ladder-bridge 260ms var(--ease-figure) both;
-  animation-delay: calc(var(--d) * 1ms + var(--figure-freeze, 0ms));
 }
 
 /* ---------- safeguards (safeguards) ---------- */
@@ -1363,7 +1485,7 @@
   font-family: var(--font-body);
 }
 
-.sg-tile h3 {
+.sg-tile h4 {
   margin: 0;
   color: var(--color-starlight);
   font-family: var(--font-display);
@@ -1469,24 +1591,45 @@
   transform-box: view-box;
 }
 
-.sg-raw {
+/* Safeguard 4 (round 2 spec §4.2.8): a record card's sockets; the unstated one is a gold dashed
+   outline (gold means refusal), its label in signal. */
+.sg-card {
+  fill: var(--color-plate-raised);
+  stroke: var(--color-line);
+}
+
+.sg-socket {
+  fill: var(--color-plate);
+  stroke: var(--color-deep-line);
+}
+
+.sg-socket--empty {
   fill: none;
-  stroke: var(--color-muted);
-  stroke-dasharray: 4 3;
+  stroke: var(--color-signal);
+  stroke-dasharray: 5 4;
+  stroke-width: 1.5;
 }
 
-.sg-corrected {
-  fill: var(--enc-mean-4);
-  transform-box: view-box;
+.sg-person {
+  fill: var(--person-other);
 }
 
-.sg-switch-track {
-  fill: rgb(112 230 255 / 16%);
-  stroke: var(--color-ion);
+.sg-person__helmet {
+  stroke: var(--color-plate);
+  stroke-width: 1.2;
 }
 
-.sg-switch-knob {
-  fill: var(--color-ion);
+.sg-person__visor {
+  fill: #0c1b36;
+}
+
+.sg-label--refused {
+  fill: var(--color-signal);
+}
+
+.sg-fill {
+  transform-box: fill-box;
+  transform-origin: center;
 }
 
 .sg-chip rect {
@@ -1588,18 +1731,6 @@
   }
 }
 
-@keyframes sg-correct {
-  from {
-    transform: scaleX(1.5);
-  }
-}
-
-@keyframes sg-knob {
-  from {
-    transform: translateX(-20px);
-  }
-}
-
 @keyframes sg-pointer {
   from {
     opacity: 0;
@@ -1644,17 +1775,9 @@
   animation-delay: calc((var(--t0) + 800) * 1ms + var(--figure-freeze, 0ms));
 }
 
-:is(.sg.is-playing, .sg-tile.is-replaying) .sg-corrected {
-  animation-name: sg-correct;
-  animation-duration: 900ms;
-  animation-delay: calc((var(--t0) + 350) * 1ms + var(--figure-freeze, 0ms));
-  animation-timing-function: var(--ease-camera);
-}
-
-:is(.sg.is-playing, .sg-tile.is-replaying) .sg-switch-knob {
-  animation-name: sg-knob;
-  animation-duration: 380ms;
-  animation-timing-function: var(--ease-ui);
+:is(.sg.is-playing, .sg-tile.is-replaying) .sg-fill {
+  animation-name: proj-pop;
+  animation-duration: 420ms;
 }
 
 :is(.sg.is-playing, .sg-tile.is-replaying) .sg-pointer {
@@ -1680,20 +1803,61 @@
   margin: 0;
 }
 
-.rail__caption {
-  margin-bottom: var(--head-gap);
+/* The evidence totals head the rail's figure (round 2 spec §4.2.9): static numbers from the pinned
+   corpus revision, each over its label, then how they are counted. */
+.rail__totals {
+  margin: 0 0 clamp(2rem, 4vw, 3rem);
 }
 
-.rail__caption h2 {
-  max-width: 24ch;
-  text-wrap: balance;
+.rail__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem clamp(2rem, 5vw, 4.5rem);
   margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rail__stats li {
+  min-width: 0;
+}
+
+.rail__stats data {
+  display: block;
   color: var(--color-starlight);
-  font-family: var(--font-display);
-  font-size: var(--type-h2);
-  font-weight: 400;
-  letter-spacing: -0.035em;
-  line-height: 1.04;
+  font-family: var(--font-body);
+  font-size: clamp(2.2rem, 3.6vw, 3rem);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.rail__stats span {
+  display: block;
+  margin-top: 0.5rem;
+  color: var(--color-muted);
+  font-size: 0.95rem;
+  font-weight: 560;
+}
+
+.rail__method {
+  margin-top: 1.1rem;
+  font-size: var(--type-legend);
+}
+
+.rail__method summary {
+  min-height: 24px;
+  color: var(--color-ion);
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.rail__method p {
+  max-width: var(--reading-width);
+  margin: 0.75rem 0 0;
+  color: var(--color-muted);
+  font-size: 0.92rem;
 }
 
 .rail__stage {
@@ -1811,7 +1975,7 @@
   grid-column: 3;
 }
 
-.rail__zone h3 {
+.rail__zone h4 {
   margin: 0 0 0.85rem;
   color: var(--color-aurora);
   font-family: var(--font-display);
@@ -1821,11 +1985,11 @@
   line-height: 1.2;
 }
 
-.rail__zone--active h3 {
+.rail__zone--active h4 {
   color: var(--color-ion);
 }
 
-.rail__zone--future h3 {
+.rail__zone--future h4 {
   color: var(--color-genome);
 }
 
@@ -1843,12 +2007,6 @@
   font-size: 1rem;
   line-height: 1.45;
   transition: color var(--dur-micro) var(--ease-ui);
-}
-
-.rail__zone li:has(.kit-status-tag) {
-  display: grid;
-  justify-items: start;
-  gap: 0.45rem;
 }
 
 .rail__zone li.is-lit {
@@ -2039,7 +2197,6 @@
   .joinup *,
   .joinup *::before,
   .joinup *::after,
-  .ladder *,
   .sg *,
   .rail *,
   .rail *::before,

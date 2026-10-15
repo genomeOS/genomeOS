@@ -56,8 +56,9 @@
   overflow: visible;
 }
 
-.application-card h3 {
+.application-card__title {
   margin: 0;
+  color: var(--color-starlight);
   font-family: var(--font-display);
   font-size: var(--type-h3);
   font-weight: 500;

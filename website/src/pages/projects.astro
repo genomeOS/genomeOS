@@ -1,27 +1,76 @@
 ---
 /**
- * Projects, at /projects/ since round 2 (R2-4; round 2 spec §1.3, the old /project/ redirects here),
- * still holding round 1's project page (site redesign spec §4.2, #454): how scattered evidence is joined, the HbS proof
- * case, the multi-scale vision, the six safeguards, the pipeline and what exists today. Six concept
- * sections, each carried by one figure; the words are the spec's copy deck.
+ * Projects, at /projects/ (round 2 spec §4.2; rulings R2-3, R2-4, R2-14, R2-15, R2-16; #454; the
+ * old /project/ redirects here): the Foundation's projects, then the genomeOS Atlas's own chapter,
+ * which holds the technical story Home leaves out. Eight concept sections, each carried by one
+ * figure; the words are the spec's copy deck.
  *
- *   intro + join-up  →  #hbs  →  #vision  →  #safeguards-title  →  #pipeline-title  →  status
- *   →  follow the work (a link row, no figure)
+ *   #projects   intro + the project index (lead figure)
+ *   #atlas      chapter opener: Project 1 · genomeOS Atlas · Purpose · Process · Status
+ *   Purpose     #hbs (why hemoglobin S) → #applications
+ *   Process     #join-up (placing evidence) → #counts (counts, not guesses, in people) →
+ *               #pipeline → #safeguards
+ *   Status      #status (the evidence totals and the roadmap)
+ *   then follow the work (a link row, no figure)
+ *
+ * Outline: h1 "What we’re building" → h2 "genomeOS Atlas" → an h3 per section (and h2 "Follow
+ * the work"). Round 1's ids are kept, so old deep links land after the redirect.
  */
-import BrandName from '../components/BrandName.astro';
 import Glyph from '../components/kit/Glyph.astro';
 import Icon from '../components/kit/Icon.astro';
 import type { IconName } from '../components/kit/icons';
 import Pipeline from '../components/kit/Pipeline.astro';
 import PageIntro from '../components/PageIntro.astro';
+import ApplicationCard from '../components/project/ApplicationCard.astro';
+import ChapterOpener from '../components/project/ChapterOpener.astro';
+import CountsFigure from '../components/project/CountsFigure.astro';
 import HbsThresholdMap from '../components/project/HbsThresholdMap.astro';
 import JoinUp from '../components/project/JoinUp.astro';
+import ProjectIndex from '../components/project/ProjectIndex.astro';
 import SafeguardTile from '../components/project/SafeguardTile.astro';
-import ScaleLadder from '../components/project/ScaleLadder.astro';
 import StatusRail from '../components/project/StatusRail.astro';
+import { GITHUB_REPOSITORY } from '../data/nav';
 import SiteLayout from '../layouts/SiteLayout.astro';
 import { sitePath } from '../lib/paths';
 import '../styles/pages/projects.css';
+
+const APPLICATIONS: {
+  title: string;
+  horizon?: string;
+  tone?: 'aurora' | 'signal' | 'ion' | 'genome';
+  line: string;
+}[] = [
+  {
+    title: 'Screening programs',
+    horizon: 'First release',
+    tone: 'aurora',
+    line: 'Where carrier screening would help most.',
+  },
+  {
+    title: 'Diagnostic context',
+    horizon: 'Clinical validation needed',
+    tone: 'signal',
+    line: 'Regional context before a genetic test.',
+  },
+  {
+    title: 'Trial planning',
+    line: 'Where a study could find enough carriers.',
+  },
+  {
+    title: 'The map of what we don’t know',
+    line: 'Where the next sample matters most.',
+  },
+  {
+    title: 'Medicines and drug response',
+    horizon: 'Future exploration',
+    tone: 'genome',
+    line: 'Variants that change a dose.',
+  },
+  {
+    title: 'Research and discovery',
+    line: 'Patterns worth testing.',
+  },
+];
 
 const SAFEGUARDS = [
   {
@@ -30,15 +79,15 @@ const SAFEGUARDS = [
   },
   {
     title: 'Unknown stays visible',
-    line: 'Too little evidence is hatched, never coloured.',
+    line: 'Too little evidence is hatched, never colored.',
   },
   {
     title: 'Zoom cannot manufacture detail',
     line: 'A coarse cell stays one cell.',
   },
   {
-    title: 'Sampling corrections stay inspectable',
-    line: 'Every adjustment can be switched off.',
+    title: 'Assumptions remain explicit',
+    line: 'No convenient defaults for places, recruitment or denominators.',
   },
   {
     title: 'Clinical scope is enforced',
@@ -50,7 +99,7 @@ const SAFEGUARDS = [
   },
 ] as const;
 
-const REPOSITORY = 'https://github.com/genomeOS/genomeOS/blob/main';
+const REPOSITORY = `${GITHUB_REPOSITORY}/blob/main`;
 const LINKS: {
   label: string;
   href: string;
@@ -86,22 +135,24 @@ const LINKS: {
 ---
 
 <SiteLayout
-  title="The project"
-  description="How genomeOS joins scattered genetic evidence, why haemoglobin S is its first test, the multi-scale vision, the safeguards, the pipeline, and what exists today."
+  title="Projects"
+  description="The genomeOS Foundation's projects. First, the genomeOS Atlas: why it exists, how it works and what comes next."
 >
   <Glyph sprite />
   <Icon sprite />
 
-  <div class="proj-intro" id="join-up" data-concept>
+  <div class="proj-intro" id="projects" data-concept>
     <PageIntro
       layout="split"
-      note="The project"
-      title="A world atlas built from evidence, not assumptions."
-      lede="The data exists. It just doesn’t work together yet. genomeOS places it, models what it supports, and shows the gaps."
+      note="Projects"
+      title="What we’re building"
+      lede="One project is live. Many more can start with you."
     >
-      <JoinUp slot="figure" />
+      <ProjectIndex slot="figure" />
     </PageIntro>
   </div>
+
+  <ChapterOpener />
 
   <section
     class="band band--orbit proj-hbs"
@@ -111,39 +162,119 @@ const LINKS: {
   >
     <div class="section-shell">
       <div class="proj-head proj-head--split">
-        <h2 id="hbs-title">
-          Why haemoglobin&nbsp;S makes the mission tangible
-        </h2>
+        <div>
+          <p class="proj-kicker">Purpose</p>
+          <h3 class="h3-section" id="hbs-title">
+            Why hemoglobin&nbsp;S makes the mission tangible
+          </h3>
+        </div>
         <p class="proj-lede">
           One copy can protect against severe malaria; two cause sickle-cell
           disease. Its frequency traces biology, environment and history.
         </p>
       </div>
       <HbsThresholdMap />
-      <p class="proj-gate">
-        <strong>A plausible map is not success.</strong> Until <BrandName /> reproduces
-        published HbS, G6PD and carrier-screening results, every surface says “not
-        yet validated”.
-      </p>
     </div>
   </section>
 
   <section
-    class="band proj-vision"
-    id="vision"
+    class="band proj-apps"
+    id="applications"
     data-concept
-    aria-labelledby="vision-title"
+    aria-labelledby="applications-title"
+    data-motion-surface
+  >
+    <div class="section-shell proj-apps__layout">
+      <h3 class="h3-section proj-apps__title" id="applications-title">
+        From scattered evidence to better decisions.
+      </h3>
+      <a
+        class="github-cta proj-apps__cta"
+        href={`${GITHUB_REPOSITORY}/discussions/1`}
+        target="_blank"
+        rel="noopener noreferrer"
+        ><span>Help shape it</span><strong>Suggest an application</strong><span
+          aria-hidden="true">↗</span
+        ></a
+      >
+      <figure
+        class="apps proj-apps__figure"
+        data-graphic="applications"
+        data-kind="mechanism"
+      >
+        <figcaption class="apps__rule" data-figure-chrome>
+          Population evidence is context, not a diagnosis.
+        </figcaption>
+        <div
+          class="apps__grid"
+          data-figure-stage
+          role="group"
+          aria-labelledby="applications-title"
+        >
+          {
+            APPLICATIONS.map((application, index) => (
+              <ApplicationCard
+                index={index}
+                glyph={(index + 1) as 1 | 2 | 3 | 4 | 5 | 6}
+                level={4}
+                {...application}
+              />
+            ))
+          }
+        </div>
+      </figure>
+    </div>
+  </section>
+
+  <section
+    class="band band--orbit proj-joinup"
+    id="join-up"
+    data-concept
+    aria-labelledby="join-up-title"
   >
     <div class="section-shell">
-      <h2 class="proj-h2" id="vision-title">
-        One connected view, from cells to Earth.
-      </h2>
-      <ScaleLadder />
+      <div class="proj-head">
+        <p class="proj-kicker">Process</p>
+        <h3 class="h3-section" id="join-up-title">
+          From scattered tables to placed evidence
+        </h3>
+      </div>
+      <JoinUp />
     </div>
   </section>
 
   <section
-    class="band band--orbit proj-safeguards"
+    class="band proj-counts"
+    id="counts"
+    data-concept
+    aria-labelledby="counts-title"
+  >
+    <div class="section-shell layout-figure-split">
+      <div class="layout-figure-split__text proj-counts__text">
+        <h3 class="h3-section" id="counts-title">Counts, not guesses.</h3>
+      </div>
+      <div class="layout-figure-split__figure">
+        <CountsFigure />
+      </div>
+    </div>
+  </section>
+
+  <section
+    class="band band--orbit proj-pipeline"
+    id="pipeline"
+    data-concept
+    aria-labelledby="pipeline-title"
+  >
+    <div class="section-shell">
+      <h3 class="h3-section proj-pipeline__title" id="pipeline-title">
+        From evidence to an explorable map
+      </h3>
+      <Pipeline mode={6} stageBrackets={false} idPrefix="project-pipeline" />
+    </div>
+  </section>
+
+  <section
+    class="band proj-safeguards"
     id="safeguards"
     data-concept
     aria-labelledby="safeguards-title"
@@ -151,9 +282,9 @@ const LINKS: {
     <div class="section-shell">
       <figure class="sg" data-graphic="safeguards" data-safeguards>
         <figcaption>
-          <h2 class="proj-h2" id="safeguards-title">
+          <h3 class="h3-section" id="safeguards-title">
             Six rules the interface cannot hide
-          </h2>
+          </h3>
         </figcaption>
         <svg class="sg-defs" aria-hidden="true" focusable="false">
           <defs>
@@ -189,22 +320,8 @@ const LINKS: {
         </div>
       </figure>
       <a class="proj-more" href={sitePath('/docs/scientific-safeguards/')}
-        >Read the safeguards in Docs<Icon name="arrow" size={18} /></a
+        >Safeguards in Docs<Icon name="arrow" size={18} /></a
       >
-    </div>
-  </section>
-
-  <section
-    class="band proj-pipeline"
-    id="pipeline"
-    data-concept
-    aria-labelledby="pipeline-title"
-  >
-    <div class="section-shell">
-      <h2 class="proj-h2 proj-pipeline__title" id="pipeline-title">
-        From evidence to an explorable map
-      </h2>
-      <Pipeline mode={6} stageBrackets={false} idPrefix="project-pipeline" />
     </div>
   </section>
 
@@ -215,6 +332,12 @@ const LINKS: {
     aria-labelledby="status-title"
   >
     <div class="section-shell">
+      <div class="proj-head">
+        <p class="proj-kicker">Status</p>
+        <h3 class="h3-section" id="status-title">
+          What exists—and what comes later
+        </h3>
+      </div>
       <StatusRail titleId="status-title" />
     </div>
   </section>
@@ -247,14 +370,14 @@ const LINKS: {
 
 <script>
   /*
-   * The page's one island (site redesign spec §2.7, §4.2; #454): every Project figure starts here,
-   * so the page ships one module instead of one per figure. The HbS map's data load only once
-   * that figure is near view.
+   * The page's one island (site redesign spec §2.7, §4.2; round 2 spec §4.2; #454): every Projects
+   * figure starts here, so the page ships one module instead of one per figure. The HbS map's data
+   * load only once that figure is near view.
    */
+  import { initCounts } from '../components/project/counts';
   import { initGenotype } from '../components/project/genotype';
   import { initHbsMap } from '../components/project/hbs-map';
   import { initJoinUp } from '../components/project/join-up';
-  import { initLadder } from '../components/project/ladder';
   import { FigureController, prefersReducedMotion } from '../graphics/figure';
 
   const once = (selector: string, init: (element: HTMLElement) => void) => {
@@ -279,7 +402,14 @@ const LINKS: {
 
   once('[data-joinup]', initJoinUp);
   once('[data-genotype-root]', initGenotype);
-  once('[data-ladder]', initLadder);
+  once('figure[data-graphic="counts"]', initCounts);
+
+  // The application glyphs draw in once, 90 ms apart (CSS keyed on data-figure-state,
+  // applications.css); each replays its mechanism on hover.
+  once(
+    'figure[data-graphic="applications"]',
+    (figure) => new FigureController(figure, { duration: 1100, rest() {} }),
+  );
 
   // The HbS map (hbs-map.ts) and its two data files, once it is within 600 px of view.
   const urls = import.meta.glob(

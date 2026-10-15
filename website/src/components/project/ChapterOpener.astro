@@ -1,0 +1,35 @@
+---
+/**
+ * The genomeOS Atlas chapter opener (round 2 spec §4.2.1; #454): an orbit band with the small Atlas
+ * mark, the running head "Project 1", the chapter's h2 in the wordmark, and three outlined chips
+ * that jump to the chapter's parts: Purpose (#hbs), Process (#join-up) and Status (#status). Below
+ * 48rem the chips wrap under the title; below 26rem the h2 steps down so the wordmark fits at 320 px.
+ * Navigation, not a concept: it holds no figure.
+ */
+import AtlasMark from '../kit/AtlasMark.astro';
+
+const PARTS = [
+  { label: 'Purpose', href: '#hbs' },
+  { label: 'Process', href: '#join-up' },
+  { label: 'Status', href: '#status' },
+] as const;
+---
+
+<section
+  class="band band--orbit chapter"
+  id="atlas"
+  aria-labelledby="atlas-title"
+>
+  <div class="section-shell chapter__inner">
+    <AtlasMark size="3.4rem" class="chapter__mark" idPrefix="chapter-mark" />
+    <div class="chapter__head">
+      <p class="chapter__kicker">Project 1</p>
+      <h2 class="chapter__title" id="atlas-title">
+        <span class="brand-name">genomeOS</span> Atlas
+      </h2>
+    </div>
+    <nav class="chapter__nav" aria-label="genomeOS Atlas sections">
+      {PARTS.map((part) => <a href={part.href}>{part.label}</a>)}
+    </nav>
+  </div>
+</section>

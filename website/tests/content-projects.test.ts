@@ -1,11 +1,13 @@
 /**
- * Project page content (site redesign spec §4.2, §6, §9.1; #454). Owned by the Project task.
+ * Projects page content (round 2 spec §4.2, §6, §11.1; rulings R2-4, R2-14, R2-15, R2-16; #454).
+ * Owned by the Projects task.
  *
- * The built page keeps its pinned copy (status order, the HbS → G6PD → screening bar, the
- * registry, the public map, the roadmap), drops the retired vision images, opens six concept
- * sections with one figure each, and keeps its schematic figures free of numbers. The HbS
- * threshold figure's two outline classes are checked against the decoded figure data at every
- * slider stop.
+ * The built page opens on the project index (the genomeOS Atlas, live and in development, and an
+ * honest "more to come"), then the Atlas's chapter: Purpose (HbS, applications), Process (join-up,
+ * counts, pipeline, safeguards) and Status, with eight concept sections and one figure each. It
+ * keeps round 1's ids, writes counts in people, carries no "Not yet validated" tag (a plain note and
+ * a link to the Atlas instead) and speaks US English. The HbS threshold figure's two outline classes
+ * are checked against the decoded figure data at every slider stop.
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -21,12 +23,15 @@ import {
 } from '../src/components/project/hbs-map';
 import {
   decodeAreas,
+  decodeSurveys,
   type Area,
   type Survey,
 } from '../src/graphics/figure-data';
+import { corpusMetrics } from '../src/data/corpusMetrics';
 import { builtHtml } from './helpers/dist';
 
 const project = builtHtml('projects');
+const corpusRevision = corpusMetrics.sourceRevision;
 const website = path.resolve(import.meta.dirname, '..');
 const figures = path.join(website, 'src/data/figures');
 const provenance = JSON.parse(
@@ -71,7 +76,120 @@ const text = (html: string) =>
     .replace(/&nbsp;/g, ' ')
     .replace(/\s+/g, ' ');
 
-describe('project page content', () => {
+describe('projects page content', () => {
+  it('opens with one h1, the Atlas chapter’s h2 and an h3 for each of its sections', () => {
+    expect(project.match(/<h1\b/g) ?? []).toHaveLength(1);
+    const h1 = project.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/)![1];
+    expect(text(h1).trim()).toBe('What we’re building');
+    const h2s = [...project.matchAll(/<h2\b[^>]*>([\s\S]*?)<\/h2>/g)].map(
+      ([, inner]) => text(inner).trim(),
+    );
+    expect(h2s).toEqual(['genomeOS Atlas', 'Follow the work']);
+    const h3s = [...project.matchAll(/<h3\b[^>]*>([\s\S]*?)<\/h3>/g)].map(
+      ([, inner]) => text(inner).trim(),
+    );
+    expect(h3s).toEqual([
+      'Why hemoglobin S makes the mission tangible',
+      'From scattered evidence to better decisions.',
+      'From scattered tables to placed evidence',
+      'Counts, not guesses.',
+      'From evidence to an explorable map',
+      'Six rules the interface cannot hide',
+      'What exists—and what comes later',
+    ]);
+    // The chapter's wordmark is set in the brand face.
+    expect(project).toMatch(
+      /<h2\b[^>]*>\s*<span class="brand-name">genomeOS<\/span> Atlas\s*<\/h2>/,
+    );
+  });
+
+  it('keeps every round-1 fragment the /project/ redirect forwards', () => {
+    for (const id of [
+      'projects',
+      'atlas',
+      'hbs',
+      'hbs-title',
+      'applications',
+      'join-up',
+      'counts',
+      'safeguards',
+      'safeguards-title',
+      'pipeline',
+      'pipeline-title',
+      'status',
+      'status-title',
+      'follow-title',
+    ])
+      expect(project, id).toContain(`id="${id}"`);
+    expect(project).not.toContain('id="vision"');
+  });
+
+  it('opens eight concept sections in the chapter’s order, each holding one figure', () => {
+    const sections = [
+      ...project.matchAll(/<(?:section|div)\b[^>]*\bdata-concept\b[^>]*>/g),
+    ].map(([tag]) => tag.match(/\bid="([^"]+)"/)?.[1]);
+    expect(sections).toEqual([
+      'projects',
+      'hbs',
+      'applications',
+      'join-up',
+      'counts',
+      'pipeline',
+      'safeguards',
+      'status',
+    ]);
+    for (const name of [
+      'project-index',
+      'hbs-threshold',
+      'applications',
+      'join-up',
+      'counts',
+      'pipeline',
+      'safeguards',
+      'status-rail',
+    ])
+      expect(figure(name), name).not.toBe('');
+    expect(project).not.toContain('data-graphic="scale-ladder"');
+  });
+
+  it('indexes the projects: the Atlas, live and in development, then more to come', () => {
+    const index = figure('project-index');
+    const words = text(index);
+    expect(words).toContain('genomeOS Atlas');
+    expect(words).toContain('Live, in development');
+    expect(words).toContain(
+      'Genetic data sit scattered in papers and databases. The Atlas places them, models what they support and shows the gaps.',
+    );
+    expect(words).toContain('Next project');
+    expect(words).toContain('More to come');
+    expect(words).toContain('Every project starts as a community idea.');
+    expect(index).toMatch(/href="\/app\/"[^>]*>\s*Open the Atlas/);
+    expect(index).toMatch(/href="#atlas"[^>]*>\s*Read more/);
+    expect(index).toMatch(
+      /href="https:\/\/github\.com\/genomeOS\/genomeOS\/discussions"[^>]*target="_blank"[^>]*>\s*Share an idea/,
+    );
+    // Card titles are styled paragraphs, so "genomeOS Atlas" is not a second heading.
+    expect(index).not.toMatch(/<h[1-6]\b/);
+    // No wordmark inside a call to action (round 1 §2.3).
+    expect(index).not.toMatch(
+      /class="button-link"[^>]*>[^<]*<span class="brand-name"/,
+    );
+  });
+
+  it('jumps to Purpose, Process and Status from the chapter opener', () => {
+    const nav = project.match(
+      /<nav\b[^>]*aria-label="genomeOS Atlas sections"[^>]*>([\s\S]*?)<\/nav>/,
+    )![1];
+    const links = [...nav.matchAll(/href="([^"]+)"[^>]*>([^<]+)</g)].map(
+      ([, href, label]) => `${label.trim()} ${href}`,
+    );
+    expect(links).toEqual([
+      'Purpose #hbs',
+      'Process #join-up',
+      'Status #status',
+    ]);
+  });
+
   it('labels current work, active work, and future ideas separately', () => {
     expect(project).toMatch(
       /Available now[\s\S]*In active development[\s\S]*Future exploration/,
@@ -80,44 +198,49 @@ describe('project page content', () => {
       /Future exploration[\s\S]*privacy[\s\S]*consent[\s\S]*governance/,
     );
     expect(project).toContain('ancient-DNA time slider');
+    expect(text(figure('status-rail'))).toContain('Agentic literature search');
+    expect(project).not.toContain('Literature evidence');
   });
 
-  it('states the scientific publication bar', () => {
+  it('states the scientific publication bar without a scare label', () => {
     expect(project).toMatch(/HbS[\s\S]*G6PD[\s\S]*screening/);
-    expect(text(project)).toContain(
-      'Why haemoglobin S makes the mission tangible',
-    );
-    // "haemoglobin S" is one name: a no-break space keeps the S off the start of a line.
+    // "hemoglobin S" is one name: a no-break space keeps the S off the start of a line.
     expect(project).toMatch(
-      /Why haemoglobin(?:&nbsp;|&#160;| )S makes the mission tangible/,
+      /Why hemoglobin(?:&nbsp;|&#160;| )S makes the mission tangible/,
     );
     expect(project).toMatch(/population-location registry/i);
     expect(project).toMatch(/interactive public map/i);
-    expect(text(project)).toContain(
-      'A plausible map is not success. Until genomeOS reproduces published HbS, G6PD and carrier-screening results, every surface says “not yet validated”.',
+    // The HbS gate line is cut; the Pipeline's gate node and the status rail carry the bar.
+    expect(project).not.toContain('A plausible map is not success');
+    expect(project).not.toMatch(/not yet validated/i);
+    expect(project).not.toContain('data-status="not-validated"');
+  });
+
+  it('names the model plainly and describes the gate as R2-14 asks', () => {
+    // "Machine learning" under Frequency modeling (round 2 spec §4.2.6), so Home's "Build AI
+    // models" step has a visible referent here.
+    expect(text(figure('pipeline'))).toMatch(
+      /Frequency modeling\s+Machine learning/,
+    );
+    expect(project).toContain(
+      'Results are checked against published HbS, G6PD and carrier-screening estimates before they are called validated.',
+    );
+    expect(project).toContain(
+      'Bayesian spatial models, a kind of machine learning, are fitted ahead of time and published as versioned results.',
     );
   });
 
-  it('retires the three vision images', () => {
-    expect(project).not.toMatch(/\/images\/vision-[a-z]+\.webp/);
-    expect(project).not.toContain('vision-card');
+  it('speaks US English', () => {
+    for (const word of [/haemoglobin/i, /programmes/i, /Behaviour/, /coloured/])
+      expect(text(project)).not.toMatch(word);
+    expect(text(project)).toContain('Screening programs');
+    expect(text(project)).toContain('Behavior');
+    expect(text(project)).toContain(
+      'Too little evidence is hatched, never colored.',
+    );
   });
 
-  it('opens six concept sections, each holding one figure', () => {
-    const concepts = project.match(/\bdata-concept\b/g) ?? [];
-    expect(concepts).toHaveLength(6);
-    for (const name of [
-      'join-up',
-      'hbs-threshold',
-      'scale-ladder',
-      'safeguards',
-      'pipeline',
-      'status-rail',
-    ])
-      expect(figure(name), name).not.toBe('');
-  });
-
-  it('opens on the join-up schematic: five outcomes, no numbers', () => {
+  it('opens Process on the join-up schematic: five outcomes, no numbers', () => {
     const joinUp = figure('join-up');
     expect(joinUp).toContain('data-status="schematic"');
     expect(joinUp).toContain('From scattered tables to placed evidence');
@@ -135,12 +258,22 @@ describe('project page content', () => {
     expect(text(joinUp)).not.toMatch(/\d/);
   });
 
-  it('tags the HbS map as not yet validated and cites its provenance', () => {
+  it('notes that the HbS map is simplified, links the live map and cites its provenance', () => {
     const hbs = figure('hbs-threshold');
-    expect(hbs).toContain('data-status="not-validated"');
-    expect(hbs).toContain(provenance.hf_revision.slice(0, 7));
-    expect(hbs).toContain('/app/?entity=hbs-rs334&amp;palette=genome');
-    expect(text(hbs)).toContain('coarsened for display');
+    expect(hbs).not.toContain('kit-status-tag');
+    const note = hbs.match(
+      /<div class="figure-note\b[^"]*"[^>]*>([\s\S]*?)<\/div>/,
+    )![1];
+    expect(text(note)).toContain('Simplified from the Atlas’s HbS data.');
+    expect(note).toMatch(
+      /href="\/app\/\?entity=hbs-rs334&amp;palette=genome"[^>]*>\s*See it live in the Atlas/,
+    );
+    const footnote = hbs.match(
+      /<p class="kit-figure__footnote"[^>]*>([\s\S]*?)<\/p>/,
+    )![1];
+    expect(footnote).toContain(provenance.hf_revision.slice(0, 7));
+    expect(text(footnote)).toContain('coarsened for display');
+    expect(footnote).not.toContain('<a');
     // The no-JS count and the table come from the pinned data. The default threshold is 5%: at
     // 10% no area's whole conservative range clears it, so the solid outline and its legend key
     // would show nothing at rest.
@@ -158,17 +291,16 @@ describe('project page content', () => {
     expect(hbs).toMatch(
       /data-hbs-count[^>]*>\s*<span[^>]*>[\d,]+ confidently above<\/span> · <span[^>]*>[\d,]+ possibly above<\/span>\s*<\/p>/,
     );
+    expect(text(hbs)).toContain('Usual hemoglobin');
   });
 
-  it('keys the HbS fill by value and by distance from surveys, in the deck’s words', () => {
+  it('keys the HbS fill by value and by distance from surveys, and the studs by people', () => {
     const hbs = text(figure('hbs-threshold'));
     // The VSUP wedge: low frequency and little evidence are told apart (spec §0, correction 2).
     expect(hbs).toContain('Modeled frequency, 0–17% Fades away from surveys');
+    expect(hbs).toContain('Survey, sized by people tested');
+    expect(hbs).not.toContain('AC of AN');
     expect(hbs).toContain('Tap to inspect.');
-  });
-
-  it('tags the scale ladder as a schematic: its studs and footprint hold no data', () => {
-    expect(figure('scale-ladder')).toContain('data-status="schematic"');
   });
 
   it('counts the Atlas markers from the catalog', () => {
@@ -177,8 +309,56 @@ describe('project page content', () => {
     );
   });
 
-  it('sets the wordmark apart from the next word in the lede', () => {
-    expect(project).toMatch(/<span class="brand-name">genomeOS<\/span> places/);
+  it('heads the status rail with the evidence totals and how they are counted', () => {
+    const rail = figure('status-rail');
+    const totals = [...rail.matchAll(/<data\b([^>]*)>([^<]*)<\/data>/g)];
+    expect(totals.map((match) => match[2])).toEqual(['4,392', '6.69M', '2']);
+    for (const [, attributes] of totals) {
+      expect(attributes).not.toContain('aria-hidden');
+      expect(attributes).not.toContain('data-count-to');
+    }
+    const words = text(rail);
+    expect(words).toContain('Genetic variants & alleles');
+    expect(words).toContain('People represented, not deduplicated');
+    expect(words).toContain('Diseases represented');
+    expect(rail).toMatch(/<summary[^>]*>\s*How we count\s*<\/summary>/);
+    expect(rail).toContain(corpusRevision);
+    // The composition bars retire with EvidenceBase.
+    expect(rail).not.toContain('eb-bar');
+  });
+
+  it('lists six applications, with horizons only where a status applies', () => {
+    const apps = figure('applications');
+    const cards = [...apps.matchAll(/<article\b[\s\S]*?<\/article>/g)].map(
+      ([card]) => text(card).trim(),
+    );
+    expect(cards).toEqual([
+      'Screening programs First release Where carrier screening would help most.',
+      'Diagnostic context Clinical validation needed Regional context before a genetic test.',
+      'Trial planning Where a study could find enough carriers.',
+      'The map of what we don’t know Where the next sample matters most.',
+      'Medicines and drug response Future exploration Variants that change a dose.',
+      'Research and discovery Patterns worth testing.',
+    ]);
+    expect(text(apps)).toContain(
+      'Population evidence is context, not a diagnosis.',
+    );
+    expect(project).toMatch(
+      /href="https:\/\/github\.com\/genomeOS\/genomeOS\/discussions\/1"[\s\S]{0,200}Suggest an application/,
+    );
+  });
+
+  it('replaces the old safeguard 4 with the Docs rule it can back', () => {
+    const safeguards = text(figure('safeguards'));
+    expect(safeguards).toContain('Assumptions remain explicit');
+    expect(safeguards).toContain(
+      'No convenient defaults for places, recruitment or denominators.',
+    );
+    expect(safeguards).toContain('No default');
+    expect(safeguards).not.toContain('Sampling corrections');
+    expect(project).toMatch(
+      /href="\/docs\/scientific-safeguards\/"[^>]*>\s*Safeguards in Docs/,
+    );
   });
 });
 
@@ -302,11 +482,13 @@ describe('HbS readouts', () => {
     }
   });
 
-  it('reads out surveys as the Home hero readouts do', () => {
+  it('reads out surveys in people tested, keeping the copies as counts (R2-16)', () => {
+    // HBB is autosomal: AN gene copies are AN/2 people, exactly. No carrier count is derived
+    // from AC, which counts copies, not people.
     expect(
       describeHit({ type: 'surveys', surveys: [survey(3, 100)], x: 0, y: 0 }),
     ).toBe(
-      'Measured survey · 3 of 100 alleles carry HbS · Location within ±25 km',
+      'Measured survey · 50 people tested; 3 of their 100 gene copies carry HbS · Location within ±25 km',
     );
     expect(
       describeHit({
@@ -315,7 +497,7 @@ describe('HbS readouts', () => {
         x: 0,
         y: 0,
       }),
-    ).toBe('2 surveys here · 3 of 100 alleles · 5 of 2,000');
+    ).toBe('2 surveys here · 50 people tested · 1,000');
     expect(
       describeHit({
         type: 'surveys',
@@ -323,7 +505,19 @@ describe('HbS readouts', () => {
         x: 0,
         y: 0,
       }),
-    ).toBe('4 surveys here · 1 of 50 alleles · 2 of 50 · 3 of 50 · …');
+    ).toBe('4 surveys here · 25 people tested · 25 · 25 · …');
+    for (const line of [
+      describeHit({ type: 'surveys', surveys: [survey(1, 4)], x: 0, y: 0 }),
+    ])
+      expect(line).not.toMatch(/alleles/);
+  });
+
+  it('only ever halves an even AN: every pinned survey counts whole people', () => {
+    const surveys = decodeSurveys(
+      readFileSync(path.join(figures, provenance.files.surveys.name)),
+    );
+    expect(surveys.length).toBeGreaterThan(1000);
+    for (const entry of surveys) expect(entry.an % 2, `${entry.an}`).toBe(0);
   });
 
   it('treats the pointer as unmoved while it stays over the same area or studs', () => {

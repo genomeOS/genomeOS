@@ -1,10 +1,14 @@
 /**
- * Project page browser checks (site redesign spec §4.2, §9.1; #454). Owned by the Project task.
+ * Projects page browser checks (site redesign spec §4.2, §9.1; round 2 spec §4.2, §11.2; #454).
+ * Owned by the Projects task.
  *
- * The roadmap's three states in order; the scale ladder's tabs; the HbS threshold slider, its count
- * and its spoken value; the genotype triad's sickled cell; the safeguard tiles playing once and
- * resting; the Pipeline's 6 ↔ 3 toggle; the join-up's field reasons and record replay; and the map's
- * keyboard readout. The cross-page suites (word budget, figures, motion) cover the rest.
+ * The project index opens above the fold and the chapter's chips jump to its parts; the roadmap's
+ * three states in order, with no status tag; the HbS threshold slider, its count and spoken value,
+ * the genotype triad's sickled cell, and survey readouts in people; the counts figure's slider at
+ * every stop (grid, bar, output, spoken value) with its value labels inside the figure; the
+ * application cards; the safeguard tiles playing once and resting; the Pipeline's 6 ↔ 3 toggle;
+ * the join-up's field reasons and record replay; and the map's keyboard readout. The cross-page
+ * suites (word budget, figures, motion) cover the rest.
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -32,7 +36,7 @@ test('project page labels all three capability states, in order', async ({
   const tops: number[] = [];
   const lefts: number[] = [];
   for (const name of names) {
-    const heading = page.getByRole('heading', { level: 3, name, exact: true });
+    const heading = page.getByRole('heading', { level: 4, name, exact: true });
     await expect(heading).toBeVisible();
     const box = (await heading.boundingBox())!;
     tops.push(box.y);
@@ -44,48 +48,13 @@ test('project page labels all three capability states, in order', async ({
       lefts[index] > lefts[index - 1] || tops[index] > tops[index - 1],
       names[index],
     ).toBe(true);
-  // The Atlas item carries its honest status.
+  // No scare tag on the Atlas item (R2-14): the gate and the active list say where validation is.
   const rail = page.locator('figure[data-graphic="status-rail"]');
+  await expect(rail.locator('.kit-status-tag')).toHaveCount(0);
   await expect(
-    rail.locator('.kit-status-tag[data-status="not-validated"]'),
+    rail.getByText('Validation against published estimates'),
   ).toBeVisible();
-});
-
-test('the scale ladder is a tablist of three levels with one selected', async ({
-  page,
-}) => {
-  await page.goto('/projects/');
-  const ladder = page.locator('figure[data-graphic="scale-ladder"]');
-  const tabs = ladder.getByRole('tab');
-  await expect(tabs).toHaveCount(3);
-  await expect(
-    ladder.locator('[role="tab"][aria-selected="true"]'),
-  ).toHaveCount(1);
-  await expect(tabs.first()).toHaveAttribute('aria-selected', 'true');
-  await expect(tabs.first()).toContainText('Variation across Earth');
-  await expect(tabs.first()).toContainText('In active development');
-  const stage = ladder.locator('[data-figure-stage]');
-  const earthLabel = await stage.getAttribute('aria-label');
-  await expect(
-    ladder.getByText(
-      'Where variants and conditions are common, rare or unmeasured.',
-    ),
-  ).toBeVisible();
-
-  await tabs.first().focus();
-  await page.keyboard.press('ArrowRight');
-  await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
-  await expect(tabs.nth(1)).toBeFocused();
-  await expect(
-    ladder.locator('[role="tab"][aria-selected="true"]'),
-  ).toHaveCount(1);
-  await expect(ladder).toHaveAttribute('data-level', 'cell');
-  expect(await stage.getAttribute('aria-label')).not.toBe(earthLabel);
-  await expect(
-    ladder.getByText('From chromosome to the folded locus around a gene.'),
-  ).toBeVisible();
-  await page.keyboard.press('End');
-  await expect(ladder).toHaveAttribute('data-level', 'bridge');
+  await expect(rail.locator('data')).toHaveText(['4,392', '6.69M', '2']);
 });
 
 test('the threshold slider changes the count and its spoken value', async ({
@@ -202,7 +171,7 @@ test('the HbS map describes the area under its keyboard reticle', async ({
   await page.keyboard.press('ArrowLeft');
   await expect(readout).not.toHaveText(idle!);
   await expect(readout).toHaveText(
-    /Modeled estimate about [\d.]+%|No estimate|of [\d,]+ alleles/,
+    /Modeled estimate about [\d.]+%|No estimate|[\d,]+ people tested/,
   );
   await page.keyboard.press('Home');
   await expect(readout).not.toHaveText(idle!);
@@ -280,11 +249,11 @@ test('the HbS heading takes the full width on narrow screens', async ({
 }) => {
   await page.goto('/projects/');
   const hbs = page.locator('#hbs-title');
-  const vision = page.locator('#vision-title');
-  // Below the split layout's breakpoint every H2 sets in the same measure (spec §2.4).
+  const other = page.locator('#join-up-title');
+  // Below the split layout's breakpoint every section heading sets in the same measure (spec §2.4).
   for (const width of [390, 640]) {
     await page.setViewportSize({ width, height: 844 });
-    const [a, b] = await Promise.all([hbs.boundingBox(), vision.boundingBox()]);
+    const [a, b] = await Promise.all([hbs.boundingBox(), other.boundingBox()]);
     expect(Math.round(a!.width), `${width} px`).toBe(Math.round(b!.width));
   }
 });
@@ -357,7 +326,7 @@ test(
       ).toBeLessThan(1.5);
       if (width > 1200) {
         const [tool, legend] = await Promise.all(
-          [':scope > .kit-figure__toolbar', '.hbs__legend'].map(box),
+          [':scope > .hbs__controls', '.hbs__legend'].map(box),
         );
         expect(
           Math.abs(tool.top - stage.top),
@@ -558,17 +527,17 @@ test(
   },
 );
 
-test('“haemoglobin S” never breaks across two lines', async ({ page }) => {
+test('“hemoglobin S” never breaks across two lines', async ({ page }) => {
   await page.goto('/projects/');
   const title = page.locator('#hbs-title');
   for (const width of [390, 360, 320]) {
     await page.setViewportSize({ width, height: 844 });
     const lines = await title.evaluate((heading) => {
       const node = heading.firstChild as Text;
-      const at = node.data.indexOf('haemoglobin');
+      const at = node.data.indexOf('hemoglobin');
       const range = document.createRange();
       range.setStart(node, at);
-      range.setEnd(node, at + 'haemoglobin S'.length);
+      range.setEnd(node, at + 'hemoglobin S'.length);
       return new Set(
         [...range.getClientRects()].map((rect) => Math.round(rect.top)),
       ).size;
@@ -590,5 +559,416 @@ test('the HbS count breaks only between its two clauses', async ({ page }) => {
       spans.map((span) => span.getClientRects().length),
     );
     expect(lines, `${stop}%`).toEqual([1, 1]);
+  }
+});
+
+// ---------------------------------------------------------------------------------------------
+// Round 2 (spec §4.2, §11.2): the index and chapter, people in the HbS readouts, the counts
+// figure in people, and the application cards that moved here from Home.
+
+test('the project index opens above the fold, and its links go where they say', async ({
+  page,
+}, info) => {
+  await page.goto('/projects/');
+  const index = page.locator('figure[data-graphic="project-index"]');
+  const fold = info.project.name === 'mobile-chromium' ? 700 : 640;
+  const top = await index.evaluate(
+    (element) => element.getBoundingClientRect().top,
+  );
+  expect(top).toBeLessThan(fold);
+  await expect(page.locator('h1')).toHaveText('What we’re building');
+  await expect(
+    index.getByRole('link', { name: 'Open the Atlas' }),
+  ).toHaveAttribute('href', '/app/');
+  await expect(
+    index.getByRole('link', { name: /Share an idea/ }),
+  ).toHaveAttribute('target', '_blank');
+  await index.getByRole('link', { name: /Read more/ }).click();
+  await expect(page).toHaveURL(/#atlas$/);
+  await expect(
+    page.getByRole('heading', { level: 2, name: 'genomeOS Atlas' }),
+  ).toBeInViewport();
+});
+
+test('the chapter’s chips jump to Purpose, Process and Status', async ({
+  page,
+}) => {
+  await page.goto('/projects/');
+  const nav = page.getByRole('navigation', { name: 'genomeOS Atlas sections' });
+  for (const [label, id] of [
+    ['Purpose', 'hbs'],
+    ['Process', 'join-up'],
+    ['Status', 'status'],
+  ] as const) {
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await nav.getByRole('link', { name: label, exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`#${id}$`));
+    // The section's heading lands in view, clear of the fixed header.
+    const heading = page.locator(`#${id} h3`).first();
+    await expect(heading).toBeInViewport();
+    const [headingBox, header] = await Promise.all([
+      heading.boundingBox(),
+      page.locator('[data-site-header]').boundingBox(),
+    ]);
+    expect(headingBox!.y, label).toBeGreaterThanOrEqual(
+      header!.y + header!.height - 1,
+    );
+  }
+});
+
+test('the HbS map reads a survey out in people tested, with its copies as counts', async ({
+  page,
+}) => {
+  await page.goto('/projects/');
+  const figure = await hbsReady(page);
+  await expect(figure).toHaveAttribute('data-figure-state', 'rest', {
+    timeout: 4_000,
+  });
+  const map = figure.locator('[data-hbs-map]');
+  await map.scrollIntoViewIfNeeded();
+  // A stud's white centre, found on the studs' own canvas.
+  const point = await figure
+    .locator('[data-hbs-canvas="studs"]')
+    .evaluate((canvas: HTMLCanvasElement) => {
+      const { width, height } = canvas;
+      const { data } = canvas
+        .getContext('2d')!
+        .getImageData(0, 0, width, height);
+      const white = (x: number, y: number) => {
+        const at = (y * width + x) * 4;
+        return (
+          data[at] > 235 &&
+          data[at + 1] > 235 &&
+          data[at + 2] > 235 &&
+          data[at + 3] > 250
+        );
+      };
+      const rect = canvas.getBoundingClientRect();
+      for (let y = 3; y < height - 3; y += 2)
+        for (let x = 3; x < width - 3; x += 2)
+          if (
+            [-2, 0, 2].every((dy) =>
+              [-2, 0, 2].every((dx) => white(x + dx, y + dy)),
+            )
+          )
+            return {
+              x: rect.left + ((x + 0.5) / width) * rect.width,
+              y: rect.top + ((y + 0.5) / height) * rect.height,
+            };
+      return null;
+    });
+  expect(point).not.toBeNull();
+  await page.mouse.move(point!.x, point!.y);
+  const readout = figure.locator('[data-readout]');
+  await expect(readout).toHaveText(/[\d,]+ people tested/);
+  await expect(readout).not.toHaveText(/alleles/);
+  const text = (await readout.textContent()) ?? '';
+  if (text.startsWith('Measured survey'))
+    expect(text).toMatch(
+      /^Measured survey · [\d,]+ people tested; [\d,]+ of their [\d,]+ gene copies carry HbS · Location within ±[\d,]+ km$/,
+    );
+});
+
+test('the HbS figure says plainly it is simplified, and links the live map', async ({
+  page,
+}) => {
+  await page.goto('/projects/');
+  const figure = page.locator('figure[data-graphic="hbs-threshold"]');
+  await expect(figure.locator('.kit-status-tag')).toHaveCount(0);
+  const note = figure.locator('.figure-note');
+  await expect(note).toContainText('Simplified from the Atlas’s HbS data.');
+  await expect(
+    note.getByRole('link', { name: 'See it live in the Atlas' }),
+  ).toHaveAttribute('href', '/app/?entity=hbs-rs334&palette=genome');
+  await expect(
+    figure.getByText('Survey, sized by people tested'),
+  ).toBeVisible();
+});
+
+/** Survey 2's state, read from the page. */
+const surveyTwo = (page: Page) =>
+  page.locator('figure[data-graphic="counts"]').evaluate((figure) => {
+    const places = [
+      ...figure.querySelectorAll('[data-grid="2"] use[data-s]'),
+    ].map((use) => use.getAttribute('href'));
+    const bar = figure.querySelector<HTMLElement>('[data-bar="2"]')!;
+    const range = bar.querySelector('.cf-bar__range')!.getBoundingClientRect();
+    const track = bar.getBoundingClientRect();
+    return {
+      places: places.length,
+      tested: places.filter((href) => href?.startsWith('#micro-face-tested-'))
+        .length,
+      untested: places.filter((href) => href === '#micro-untested').length,
+      label: figure.querySelector('[data-count-n]')!.textContent,
+      value: bar.querySelector('.cf-bar__value')!.textContent,
+      side: bar.dataset.side,
+      share: range.right - track.left,
+      width: track.width,
+      sentence: figure.querySelector('[data-row-sentence="2"]')!.textContent,
+    };
+  });
+
+test('the counts slider updates survey 2’s people, bar, sentence and spoken value at every stop', async ({
+  page,
+}) => {
+  await page.goto('/projects/');
+  const figure = page.locator('figure[data-graphic="counts"]');
+  const slider = figure.getByRole('slider', {
+    name: 'People tested in survey 2',
+  });
+  await slider.scrollIntoViewIfNeeded();
+  await expect(figure.locator('[data-grid="1"] use')).toHaveCount(206);
+  await expect(figure.locator('[data-grid="1"] use.cf-carrier')).toHaveCount(
+    58,
+  );
+  const STOPS = [
+    [10, '21.7'],
+    [20, '11.7'],
+    [50, '4.9'],
+    [100, '2.5'],
+    [200, '1.2'],
+    [500, '0.50'],
+  ] as const;
+  let previous = Infinity;
+  for (const [index, [people, upper]] of STOPS.entries()) {
+    await slider.fill(String(index));
+    await expect(slider).toHaveAttribute(
+      'aria-valuetext',
+      `${people} people tested, none carry it, up to ${upper} percent`,
+    );
+    await expect(figure.locator('output')).toHaveText(
+      `0 of ${people}: up to ${upper}% is still plausible.`,
+    );
+    // Let the bar's 240 ms transition land before measuring it.
+    await page.waitForTimeout(400);
+    const state = await surveyTwo(page);
+    expect(state.places, `${people}`).toBe(500);
+    expect(state.tested, `${people}`).toBe(people);
+    expect(state.untested, `${people}`).toBe(500 - people);
+    expect(state.label).toBe(String(people));
+    expect(state.value).toBe(`0–${upper}%`);
+    expect(state.side).toBe('right');
+    expect(state.sentence).toContain(`none of ${people} people tested`);
+    // The bar ends where its upper bound sits on the 0–40% axis, and shrinks as people are added.
+    expect(state.share / state.width).toBeCloseTo(
+      Math.max(Number(upper) / 40, 2 / state.width),
+      1,
+    );
+    expect(state.share).toBeLessThan(previous);
+    previous = state.share;
+  }
+  // Back to 10: the tested block shrinks again, with no new nodes.
+  await slider.fill('0');
+  await expect.poll(async () => (await surveyTwo(page)).tested).toBe(10);
+  await expect(figure.locator('[data-grid="2"] use')).toHaveCount(500);
+});
+
+test('the counts figure’s value labels stay inside it, and nothing scrolls sideways', async ({
+  page,
+}) => {
+  for (const width of [320, 360, 390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/projects/');
+    const figure = page.locator('figure[data-graphic="counts"]');
+    const slider = figure.getByRole('slider');
+    await slider.scrollIntoViewIfNeeded();
+    for (const stop of ['0', '5']) {
+      await slider.fill(stop);
+      await page.waitForTimeout(350);
+      const escapes = await figure.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        return [...element.querySelectorAll('.cf-bar__value')]
+          .map((label) => label.getBoundingClientRect())
+          .filter(
+            (label) =>
+              label.left < box.left - 0.5 || label.right > box.right + 0.5,
+          ).length;
+      });
+      expect(escapes, `${width} px, stop ${stop}`).toBe(0);
+    }
+    // Survey 1's interval ends past 60% of the axis, so its label sits left of the bar.
+    await expect(figure.locator('[data-bar="1"]')).toHaveAttribute(
+      'data-side',
+      'left',
+    );
+    const overflow = await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
+    );
+    expect(overflow, `${width} px`).toBe(0);
+  }
+});
+
+test('the counts figure draws people as micro astronauts, wide and narrow, from the same nodes', async ({
+  page,
+}, info) => {
+  await page.goto('/projects/');
+  const figure = page.locator('figure[data-graphic="counts"]');
+  await figure.scrollIntoViewIfNeeded();
+  await expect(figure).toHaveAttribute('data-figure-state', 'rest', {
+    timeout: 4_000,
+  });
+  const layout = await figure.evaluate((element) => {
+    const grid = element.querySelector('[data-grid="1"]')!;
+    const uses = [...grid.querySelectorAll('use')];
+    const boxes = uses.slice(0, 41).map((use) => use.getBoundingClientRect());
+    const rows = new Set(
+      uses.map((use) => Math.round(use.getBoundingClientRect().top)),
+    ).size;
+    return {
+      perRow: boxes.filter((box) => Math.abs(box.top - boxes[0].top) < 1)
+        .length,
+      rows,
+      glyph: { width: boxes[0].width, height: boxes[0].height },
+      gridBottom: grid.getBoundingClientRect().bottom,
+      lastBottom: Math.max(
+        ...uses.map((use) => use.getBoundingClientRect().bottom),
+      ),
+    };
+  });
+  const narrow = info.project.name === 'mobile-chromium';
+  expect(layout.perRow).toBe(narrow ? 25 : 40);
+  expect(layout.rows).toBe(narrow ? 9 : 6);
+  // Big enough to read as a person (the drawn figure, helmet to boots, inside its 16 × 20 glyph):
+  // about 14 px tall on a phone, 19 at desktop widths.
+  expect(layout.glyph.height).toBeGreaterThanOrEqual(narrow ? 13 : 18);
+  expect(layout.glyph.width).toBeGreaterThanOrEqual(narrow ? 8.5 : 12);
+  // Every person sits inside the grid's box: none is cut off by the layout switch.
+  expect(layout.lastBottom).toBeLessThanOrEqual(layout.gridBottom + 0.5);
+  await info.attach(`counts-${info.project.name}`, {
+    body: await figure.screenshot(),
+    contentType: 'image/png',
+  });
+});
+
+test('the counts figure rests at once under reduced motion, every person drawn', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/projects/');
+  const figure = page.locator('figure[data-graphic="counts"]');
+  await figure.scrollIntoViewIfNeeded();
+  await expect(figure).toHaveAttribute('data-figure-state', 'rest');
+  const hidden = await figure.evaluate(
+    (element) =>
+      [...element.querySelectorAll('use, .cf-bar__range')].filter(
+        (node) => Number(getComputedStyle(node).opacity) < 1,
+      ).length,
+  );
+  expect(hidden).toBe(0);
+  // A new stop swaps people at once: no fade runs.
+  await figure.getByRole('slider').fill('3');
+  const running = await figure.evaluate(
+    (element) =>
+      element
+        .getAnimations({ subtree: true })
+        .filter((animation) => animation.playState === 'running').length,
+  );
+  expect(running).toBe(0);
+});
+
+test('the counts entrance is a scrubbable scene in the e2e build', async ({
+  page,
+}) => {
+  await page.goto('/projects/');
+  await page.waitForFunction(() => Boolean(window.__motion));
+  expect(await page.evaluate(() => window.__motion!.names())).toContain(
+    'counts',
+  );
+  const figure = page.locator('figure[data-graphic="counts"]');
+  await figure.scrollIntoViewIfNeeded();
+  // At 300 ms survey 1's people are still arriving and its carriers have not lit.
+  await page.evaluate(() => window.__motion!.seek('counts', 300));
+  const early = await figure.evaluate((element) => ({
+    carrier: Number(
+      getComputedStyle(element.querySelector('.cf-carrier')!).opacity,
+    ),
+    bar: getComputedStyle(
+      element.querySelector('[data-bar="1"] .cf-bar__range')!,
+    ).transform,
+  }));
+  expect(early.carrier).toBeLessThan(0.5);
+  expect(early.bar).toMatch(/matrix\(0,/);
+  await page.evaluate(() => window.__motion!.seek('counts', 1600));
+  await expect(figure).toHaveAttribute('data-figure-state', 'rest');
+});
+
+// Hover is a pointer interaction.
+test('application cards reveal on scroll and respond to hover @desktop-chromium', async ({
+  page,
+}) => {
+  await page.goto('/projects/');
+
+  const card = page.locator('.application-card').first();
+  await card.scrollIntoViewIfNeeded();
+  await expect(card).toHaveClass(/is-visible/);
+  // Let the reveal slide finish: hovering a moving card makes Playwright re-scroll the page, and
+  // the smooth scroll then carries the card out from under the pointer.
+  await card.evaluate((element) =>
+    Promise.all(element.getAnimations().map((animation) => animation.finished)),
+  );
+  const restingTransform = await card.evaluate(
+    (element) => getComputedStyle(element).transform,
+  );
+  await card.hover();
+  await page.waitForTimeout(250);
+  const hoverTransform = await card.evaluate(
+    (element) => getComputedStyle(element).transform,
+  );
+  expect(hoverTransform).not.toBe(restingTransform);
+});
+
+// Design review, round 3: the glyphs' drawings filled about 60% of their 96 × 64 box, each at its
+// own place in it. They are drawn at one scale, at least 96 × 64 and about 128 × 80 a glyph, each
+// drawing on its card's text edge, with the title a spacing step under the glyph.
+test('the application glyphs read at card scale, on each card’s text edge', async ({
+  page,
+}) => {
+  await page.goto('/projects/');
+  const first = page.locator('.application-card').first();
+  await first.scrollIntoViewIfNeeded();
+  await expect(first).toHaveClass(/is-visible/);
+  const cards = await page.locator('.application-card').evaluateAll((list) =>
+    list.map((card) => {
+      const svg = card.querySelector<SVGSVGElement>('svg.ag')!;
+      const title = card
+        .querySelector('.application-card__title')!
+        .getBoundingClientRect();
+      const glyph = svg.getBoundingClientRect();
+      let left = Infinity;
+      let top = Infinity;
+      let bottom = -Infinity;
+      for (const mark of svg.querySelectorAll<SVGGraphicsElement>(
+        'path, circle, ellipse, rect, line',
+      )) {
+        if (mark.closest('defs, pattern, clipPath')) continue;
+        const rect = mark.getBoundingClientRect();
+        left = Math.min(left, rect.left);
+        top = Math.min(top, rect.top);
+        bottom = Math.max(bottom, rect.bottom);
+      }
+      return {
+        width: glyph.width,
+        height: glyph.height,
+        scale: svg.getScreenCTM()!.a,
+        markLeft: left - title.left,
+        markTop: top - glyph.top,
+        markBottom: glyph.bottom - bottom,
+        titleGap: title.top - glyph.bottom,
+      };
+    }),
+  );
+  expect(cards).toHaveLength(6);
+  for (const [index, card] of cards.entries()) {
+    const at = `glyph ${index + 1}`;
+    expect(card.width, at).toBeGreaterThanOrEqual(120);
+    expect(card.height, at).toBeGreaterThanOrEqual(80);
+    expect(card.scale, at).toBeCloseTo(cards[0]!.scale, 3);
+    // The drawing starts on the text edge (its stroke may sit a pixel either side).
+    expect(Math.abs(card.markLeft), at).toBeLessThan(2);
+    expect(card.markTop, at).toBeGreaterThanOrEqual(-0.5);
+    expect(card.markBottom, at).toBeGreaterThanOrEqual(-0.5);
+    expect(card.titleGap, at).toBeGreaterThanOrEqual(8);
   }
 });
