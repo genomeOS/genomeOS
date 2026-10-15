@@ -1,9 +1,11 @@
-/** Jeffreys 95% intervals for allele counts (site redesign spec §4.1 H2, §6.1 rule 2; #454).
+/** Jeffreys 95% intervals for counts out of a total (site redesign spec §4.1 H2, §6.1 rule 2;
+ * round 2 R2-15; #454): allele counts (AC of AN), and, for Projects' counts figure, carriers among
+ * the people tested.
  *
- * The posterior for a share after AC carriers among AN alleles, under the Jeffreys prior, is
- * Beta(AC + ½, AN − AC + ½); the equal-tailed 95% interval is its 2.5% and 97.5% quantiles, with
- * the lower bound pinned at 0 when AC = 0 and the upper at 1 when AC = AN. A zero count therefore
- * reads as "up to X% is still plausible", never as absence.
+ * The posterior for a share after k of n (AC of AN alleles, or carriers of people tested), under
+ * the Jeffreys prior, is Beta(k + ½, n − k + ½); the equal-tailed 95% interval is its 2.5% and
+ * 97.5% quantiles, with the lower bound pinned at 0 when k = 0 and the upper at 1 when k = n. A
+ * zero count therefore reads as "up to X% is still plausible", never as absence.
  *
  * Build and SSR only: figures receive precomputed tables, and no browser bundle fits anything.
  * A port of `tools-final/jeffreys.py` (continued fraction for the regularised incomplete beta,
