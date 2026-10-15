@@ -1835,6 +1835,13 @@
   }
 }
 
+/* The narrowest phones: a smaller cell frame, so "Usual hemoglobin" keeps inside its button. */
+@media (max-width: 22rem) {
+  .triad {
+    grid-template-columns: 4.75rem minmax(0, 1fr);
+  }
+}
+
 /* ---------- safeguards (safeguards) ---------- */
 
 .sg {

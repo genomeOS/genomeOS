@@ -1778,3 +1778,111 @@ test('the counts slider’s focus ring stays clear of its labels', async ({
   });
   expect(clash).toEqual([]);
 });
+
+test(
+  'the genotype buttons hold their names at 320 px',
+  { tag: '@mobile-chromium' },
+  async ({ page }) => {
+    for (const width of [320, 360, 390]) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto('/projects/#hbs');
+      const spill = await page
+        .locator('.triad__choice')
+        .evaluateAll((buttons) =>
+          buttons.flatMap((button) => {
+            const label = button.querySelector<HTMLElement>('.triad__label')!;
+            return label.scrollWidth > label.clientWidth ||
+              button.scrollWidth > button.clientWidth
+              ? [button.textContent?.trim() ?? '']
+              : [];
+          }),
+        );
+      expect(spill, `${width} px`).toEqual([]);
+    }
+  },
+);
+
+// The cross-page figure contract (figures.spec) reads figures as the page loads, when every section
+// is closed. With every section open, the figures inside keep it too.
+test('with every section open, the figures keep the figure contract', async ({
+  page,
+}, info) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/projects/');
+  for (const name of SECTIONS) await openSection(page, name);
+  const phone = info.project.name === 'mobile-chromium';
+  const problems = await page.evaluate(async (onPhone) => {
+    const out: string[] = [];
+    const visible = (element: Element) =>
+      element.checkVisibility({ visibilityProperty: true }) &&
+      !element.closest('.visually-hidden, .sr-only, [hidden]');
+    const figures = [
+      ...document.querySelectorAll<HTMLElement>(
+        '.acc-list figure[data-graphic]',
+      ),
+    ];
+    for (const figure of figures) {
+      const name = figure.dataset.graphic;
+      // Labels at 13 px or more: HTML text and SVG text at its rendered scale.
+      for (const element of figure.querySelectorAll<HTMLElement>('*')) {
+        if (!visible(element)) continue;
+        const own = [...element.childNodes].some(
+          (node) => node.nodeType === Node.TEXT_NODE && node.nodeValue?.trim(),
+        );
+        if (!own) continue;
+        let size = Number.parseFloat(getComputedStyle(element).fontSize);
+        if (element instanceof SVGTextElement) {
+          const matrix = element.getScreenCTM();
+          if (matrix) size *= Math.hypot(matrix.a, matrix.b);
+        } else if (element instanceof SVGElement) continue;
+        if (size < 12.95)
+          out.push(
+            `${name}: "${element.textContent?.trim().slice(0, 30)}" ${size.toFixed(1)} px`,
+          );
+      }
+      // Chrome clears the fixed header and the cookie control, scrolled into view.
+      const chrome = [
+        ...figure.querySelectorAll<HTMLElement>('[data-figure-chrome]'),
+      ].filter(
+        (element) =>
+          !element.parentElement?.closest('[data-figure-chrome]') &&
+          visible(element) &&
+          element.getBoundingClientRect().width > 0,
+      );
+      for (const element of chrome) {
+        element.scrollIntoView({ block: 'center', behavior: 'instant' });
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const box = element.getBoundingClientRect();
+        for (const [label, blocker] of [
+          ['header', document.querySelector('[data-site-header]')],
+          ['cookie control', document.querySelector('[data-cookie-control]')],
+        ] as const) {
+          if (!blocker || blocker.getClientRects().length === 0) continue;
+          const other = blocker.getBoundingClientRect();
+          if (
+            Math.min(box.right, other.right) - Math.max(box.left, other.left) >
+              0.5 &&
+            Math.min(box.bottom, other.bottom) - Math.max(box.top, other.top) >
+              0.5
+          )
+            out.push(`${name}: ${element.className} under the ${label}`);
+        }
+        if (onPhone && (box.left < 15.5 || box.right > innerWidth - 15.5))
+          out.push(
+            `${name}: ${element.className} spans ${box.left.toFixed(0)}–${box.right.toFixed(0)} px`,
+          );
+      }
+    }
+    return { out, figures: figures.map((figure) => figure.dataset.graphic) };
+  }, phone);
+  expect(problems.figures).toEqual([
+    'hbs-threshold',
+    'applications',
+    'join-up',
+    'counts',
+    'pipeline',
+    'safeguards',
+    'status-rail',
+  ]);
+  expect(problems.out).toEqual([]);
+});
