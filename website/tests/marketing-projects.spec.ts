@@ -132,7 +132,7 @@ test('the threshold slider changes the count and its spoken value', async ({
     /^[\d,]+ confidently above, [\d,]+ possibly above$/,
   );
   await expect(figure.locator('.hbs__slider-label')).toHaveText(
-    'Show areas where 15% or more of births are AS',
+    'Show areas where AS births are at least 15%',
   );
 
   await slider.focus();

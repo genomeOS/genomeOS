@@ -1442,15 +1442,31 @@
   line-height: 1.4;
 }
 
-/* The threshold sits in a box as wide as its widest stop ("0.5%", 2.3em in tabular figures), so
-   the words after it never move as the slider or the genotype changes (ruling 36: no layout
-   shift); left-aligned, so the sentence reads on from "where" without a hole before the number
-   (design critique of the integrated build). */
-.hbs__slider-label output {
+/* "Show areas where {g} births are at least {t}": the two values sit in boxes as wide as their
+   widest (the genotype "AA", the stop "0.5%", 2.3em in tabular figures), so no word moves as the
+   slider or the genotype changes (ruling 36: no layout shift). The threshold ends the sentence, so
+   its box's slack falls after the last word, never as a hole inside the sentence (design critique
+   of the integrated build, rounds 1 and 2), and "at least" keeps it company on a line; the
+   genotype's slack, at most the width of "AA" less that of "SS" (0.19em in Figtree), is split
+   either side of the name, a hair each. */
+.hbs__slider-label output,
+.hbs__slider-label [data-hbs-genotype-name] {
   display: inline-block;
+}
+
+.hbs__slider-label output {
   min-width: 2.3em;
   text-align: left;
   font-variant-numeric: lining-nums tabular-nums;
+}
+
+.hbs__slider-label [data-hbs-genotype-name] {
+  min-width: 1.42em;
+  text-align: center;
+}
+
+.hbs__at-least {
+  white-space: nowrap;
 }
 
 /* The slider itself is the site's range control (.kit-range, global.css). */

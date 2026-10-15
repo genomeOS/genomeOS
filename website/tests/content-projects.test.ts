@@ -492,9 +492,18 @@ describe('projects page content', () => {
     expect(hbs).toMatch(/type="range"[^>]*value="9"/);
     expect(hbs).toContain('aria-valuetext="10 percent:');
     expect(hbs).toMatch(/data-hbs-genotype="AS"/);
-    expect(text(hbs)).toContain(
-      'Show areas where 10% or more of births are AS',
-    );
+    expect(text(hbs)).toContain('Show areas where AS births are at least 10%');
+    // As the label reads, tags dropped without adding spaces: every word stands apart, and the
+    // threshold ends the sentence (design critique of the integrated build, round 2).
+    const label = hbs.match(
+      /<label class="hbs__slider-label"[^>]*>([\s\S]*?)<\/label>/,
+    )![1];
+    expect(
+      label
+        .replace(/<[^>]+>/g, '')
+        .replace(/\s+/g, ' ')
+        .trim(),
+    ).toBe('Show areas where AS births are at least 10%');
     // Each clause of the count is a line of its own, its number in a fixed column, so a new number
     // never moves the words (ruling 36).
     expect(hbs).toMatch(
@@ -977,16 +986,16 @@ describe('HbS genotypes on the map (ruling 36)', () => {
 
   it('labels the threshold in words true for the measure shown', () => {
     expect(thresholdLabel('AS', 10)).toBe(
-      'Show areas where 10% or more of births are AS',
+      'Show areas where AS births are at least 10%',
     );
     expect(thresholdLabel('SS', 0.5)).toBe(
-      'Show areas where 0.5% or more of births are SS',
+      'Show areas where SS births are at least 0.5%',
     );
     expect(thresholdLabel('SS', 1)).toBe(
-      'Show areas where 1% or more of births are SS',
+      'Show areas where SS births are at least 1%',
     );
     expect(thresholdLabel('AA', 90)).toBe(
-      'Show areas where 90% or more of births are AA',
+      'Show areas where AA births are at least 90%',
     );
     expect(valueText(0.5, { confident: 68, possible: 520 })).toBe(
       '0.5 percent: 68 areas confidently above, 520 possibly above',
