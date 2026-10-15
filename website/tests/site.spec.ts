@@ -430,18 +430,34 @@ for (const [platform, hint] of [
             parts.atlas.left,
           );
         }
-        // Nothing is shed where there is room: below 72em, where the nav is only GitHub, and from
-        // 1,392 px. Where the nav first shows, Search is the bare magnifier.
-        if (width < 1152 || width >= 1392) {
+        // Search narrows first (round 2 spec §1.1), now that the Docs theme toggle sits beside it
+        // (§4.4): the label and its key hint where there is room (900 px to 72em, where the nav is
+        // only GitHub, and from 1,440 px); the label alone at 800 and 1,392 px; and the bare
+        // magnifier where the whole nav first shows (1,152 to 1,300 px).
+        if ((width >= 900 && width < 1152) || width >= 1440) {
           expect(parts.label, `${at}: label`).toBe(true);
           expect(parts.kbd?.text, `${at}: key hint`).toBe(hint);
         }
-        if (width <= 1153) {
+        if (width === 800 || width === 1392) {
+          expect(parts.label, `${at}: label`).toBe(true);
+          expect(parts.kbd, `${at}: no key hint`).toBeNull();
+        }
+        if (width <= 1153)
           expect(
             parts.shown.map(({ tag }) => tag),
             at,
-          ).toEqual(width < 1152 ? ['svg', 'SPAN', 'KBD'] : ['svg']);
-        }
+          ).toEqual(
+            width === 800
+              ? ['svg', 'SPAN']
+              : width < 1152
+                ? ['svg', 'SPAN', 'KBD']
+                : ['svg'],
+          );
+        if (width >= 1152 && width <= 1300)
+          expect(
+            parts.shown.map(({ tag }) => tag),
+            at,
+          ).toEqual(['svg']);
       }
       // The bare magnifier still opens Search, by pointer and by the shortcut it no longer shows.
       await page.setViewportSize({ width: 1153, height: 800 });
@@ -461,84 +477,105 @@ for (const [platform, hint] of [
 
 // The docs shell speaks the site's visual language, not stock Starlight (design review, round 1):
 // Raleway at the site's weights and tracking, square controls, a square ion-ruled current item, and
-// the current page shown as the site shows it (starlight colour, no underline).
-test('the docs shell uses the site’s type, square controls and current-page mark', async ({
-  page,
-  isMobile,
-}) => {
-  await page.goto('/docs/system-overview/');
-  const h1 = page.getByRole('heading', { level: 1 });
-  await expect(h1).toHaveCSS('font-weight', '370');
-  await expect(h1).toHaveCSS('letter-spacing', /^-/);
-  const h2 = page.locator('.sl-markdown-content h2').first();
-  await expect(h2).toHaveCSS('font-weight', '400');
-  if (isMobile) {
-    const menu = page.locator('.sl-menu-button');
-    await expect(menu).toHaveCSS('border-radius', '0px');
-    await expect(menu).not.toHaveCSS('background-color', 'rgb(242, 248, 255)');
-    await menu.click();
-  } else {
-    await expect(page.locator('button[data-open-modal]')).toHaveCSS(
-      'border-radius',
-      '0px',
-    );
-  }
-  const current = page.locator('#starlight__sidebar a[aria-current="page"]');
-  await expect(current).toHaveCSS('border-radius', '0px');
-  await expect(current).toHaveCSS('color', 'rgb(242, 248, 255)');
-  if (!isMobile) {
-    await page.setViewportSize({ width: 1440, height: 900 });
-    const docs = page
-      .getByRole('navigation', { name: 'Primary navigation' })
-      .getByRole('link', { name: 'Docs' });
-    await expect(docs).toHaveCSS('color', 'rgb(242, 248, 255)');
-    await expect(docs).toHaveCSS('box-shadow', 'none');
-    await expect(docs).toHaveCSS('text-decoration-line', 'none');
-  }
-});
+// the current page shown as the site shows it (no underline). Round 2 (spec §4.4, R2-9): paper is
+// the default, with display type 20 heavier and the current page in ink; the dark choice keeps
+// round 1's values. The site header's current "Docs" is the site's bar in both.
+const DOCS_THEMES = {
+  paper: { h1: '390', h2: '420', current: 'rgb(7, 24, 49)' },
+  dark: { h1: '370', h2: '400', current: 'rgb(242, 248, 255)' },
+} as const;
+const DOCS_PAGER = {
+  paper: { rule: 'rgba(0, 106, 130, 0.2)', hover: 'rgb(0, 106, 130)' },
+  dark: { rule: 'rgba(112, 230, 255, 0.18)', hover: 'rgb(112, 230, 255)' },
+} as const;
+const chooseDocsTheme = (page: Page, theme: keyof typeof DOCS_THEMES) =>
+  theme === 'dark'
+    ? page.addInitScript(() => localStorage.setItem('starlight-theme', 'dark'))
+    : Promise.resolve();
 
-// Design review, round 3: the previous and next cards were Starlight's rounded grey cards, set
-// 4 px above the footer's Privacy link, and the docs H1 ran larger than the site's page H1.
-test('the docs pager cards are the site’s square link cards, clear of the footer links', async ({
-  page,
-  isMobile,
-}) => {
-  await page.goto('/contribute/');
-  const siteH1 = await page
-    .getByRole('heading', { level: 1 })
-    .evaluate((heading) => getComputedStyle(heading).fontSize);
-  await page.goto('/docs/system-overview/');
-  await expect(page.getByRole('heading', { level: 1 })).toHaveCSS(
-    'font-size',
-    siteH1,
-  );
-  const cards = page.locator('.pagination-links a');
-  await expect(cards).toHaveCount(2);
-  for (const card of await cards.all()) {
-    await expect(card).toHaveCSS('border-radius', '0px');
-    await expect(card).toHaveCSS(
-      'border-top-color',
-      'rgba(112, 230, 255, 0.18)',
-    );
-    await expect(card).toHaveCSS('box-shadow', 'none');
-  }
-  const gap = await page.evaluate(() => {
-    const last = [...document.querySelectorAll('.pagination-links a')].at(-1)!;
-    const privacy = document.querySelector('.docs-site-links a')!;
-    return (
-      privacy.getBoundingClientRect().top - last.getBoundingClientRect().bottom
-    );
+for (const theme of ['paper', 'dark'] as const) {
+  test(`the docs shell uses the site’s type, square controls and current-page mark (${theme})`, async ({
+    page,
+    isMobile,
+  }) => {
+    const pins = DOCS_THEMES[theme];
+    await chooseDocsTheme(page, theme);
+    await page.goto('/docs/system-overview/');
+    const h1 = page.getByRole('heading', { level: 1 });
+    await expect(h1).toHaveCSS('font-weight', pins.h1);
+    await expect(h1).toHaveCSS('letter-spacing', /^-/);
+    const h2 = page.locator('.sl-markdown-content h2').first();
+    await expect(h2).toHaveCSS('font-weight', pins.h2);
+    if (isMobile) {
+      const menu = page.locator('.sl-menu-button');
+      await expect(menu).toHaveCSS('border-radius', '0px');
+      await expect(menu).not.toHaveCSS(
+        'background-color',
+        'rgb(242, 248, 255)',
+      );
+      await menu.click();
+    } else {
+      await expect(page.locator('button[data-open-modal]')).toHaveCSS(
+        'border-radius',
+        '0px',
+      );
+    }
+    const current = page.locator('#starlight__sidebar a[aria-current="page"]');
+    await expect(current).toHaveCSS('border-radius', '0px');
+    await expect(current).toHaveCSS('color', pins.current);
+    if (!isMobile) {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      const docs = page
+        .getByRole('navigation', { name: 'Primary navigation' })
+        .getByRole('link', { name: 'Docs' });
+      await expect(docs).toHaveCSS('color', 'rgb(242, 248, 255)');
+      await expect(docs).toHaveCSS('box-shadow', 'none');
+      await expect(docs).toHaveCSS('text-decoration-line', 'none');
+    }
   });
-  // At least 2rem (36 px at the 18 px root).
-  expect(gap).toBeGreaterThanOrEqual(36);
-  if (!isMobile) {
-    await cards.first().hover();
-    await expect(cards.first()).toHaveCSS(
-      'border-top-color',
-      'rgb(112, 230, 255)',
+
+  // Design review, round 3: the previous and next cards were Starlight's rounded grey cards, set
+  // 4 px above the footer's Privacy link, and the docs H1 ran larger than the site's page H1.
+  test(`the docs pager cards are the site’s square link cards, clear of the footer links (${theme})`, async ({
+    page,
+    isMobile,
+  }) => {
+    const pins = DOCS_PAGER[theme];
+    await page.goto('/contribute/');
+    const siteH1 = await page
+      .getByRole('heading', { level: 1 })
+      .evaluate((heading) => getComputedStyle(heading).fontSize);
+    await chooseDocsTheme(page, theme);
+    await page.goto('/docs/system-overview/');
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCSS(
+      'font-size',
+      siteH1,
     );
-  }
-});
+    const cards = page.locator('.pagination-links a');
+    await expect(cards).toHaveCount(2);
+    for (const card of await cards.all()) {
+      await expect(card).toHaveCSS('border-radius', '0px');
+      await expect(card).toHaveCSS('border-top-color', pins.rule);
+      await expect(card).toHaveCSS('box-shadow', 'none');
+    }
+    const gap = await page.evaluate(() => {
+      const last = [...document.querySelectorAll('.pagination-links a')].at(
+        -1,
+      )!;
+      const privacy = document.querySelector('.docs-site-links a')!;
+      return (
+        privacy.getBoundingClientRect().top -
+        last.getBoundingClientRect().bottom
+      );
+    });
+    // At least 2rem (36 px at the 18 px root).
+    expect(gap).toBeGreaterThanOrEqual(36);
+    if (!isMobile) {
+      await cards.first().hover();
+      await expect(cards.first()).toHaveCSS('border-top-color', pins.hover);
+    }
+  });
+}
 
 test('a docs section heading draws one full-width rule, even when it wraps', async ({
   page,
