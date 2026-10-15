@@ -5,17 +5,19 @@
  *
  *   intro      the shared PageIntro, split: note, H1, lede; then the plainest way to write, first
  *              on every screen (owner request, 2026-10-14): Email us, a plain mailto:, and the
- *              address itself in view, with a button that copies it
+ *              address itself in view, with a glyph that copies it, all three on one row
  *   templates  a band of its own, "Or start from a template": 1 what it's about (purposes, real
  *              radios), 2 what you'd offer (for a contribution, toggle buttons), 3 send it (open
  *              the composed draft in the visitor's email app); the live letter beside them, or
- *              after them on a phone
+ *              after them on a phone, with its own copy glyph
  *   problem    last, a secondary link: problems go to GitHub Issues, not email
  *
- * The address is in no served file (src/lib/contact-address.ts): the browser joins it from stored
- * parts, and an inline script writes it into the page before the first paint (contact-paint.ts).
- * No `mailto:` is in the page until a visitor reaches for Email us (contact.ts), and every draft is
- * built then (src/lib/contact-draft.ts) and handed to the visitor's own email app. Nothing is
+ * The address is in no served file (src/lib/contact-address.ts): the page serves it spelled out,
+ * and the island joins it from stored parts at the first sign of a person (owner, 2026-10-15),
+ * each place keeping the spelled-out form's box so nothing moves. No `mailto:` is in the page until
+ * a visitor reaches for Email us (contact.ts), and every draft is built then
+ * (src/lib/contact-draft.ts) and handed to the visitor's own email. If a `mailto:` click leaves the
+ * page in front, nothing opened, and a hint next to the control says what still works. Nothing is
  * sent, stored or tracked. Without JavaScript Email us and the templates stay hidden and a
  * `<noscript>` line spells the address out for a person to type; if JavaScript runs but the island
  * never does, the pre-paint script puts the page back that way at `load`.
@@ -28,6 +30,7 @@ import ContactLetter from '../components/contact/ContactLetter.astro';
 import {
   contactDirectScript,
   contactPaintScript,
+  SPELLED_OUT,
   TOPIC_INPUT,
 } from '../components/contact/contact-paint';
 import PageIntro from '../components/PageIntro.astro';
@@ -43,8 +46,6 @@ import '../styles/pages/contact.css';
 
 const ROOT = 'contact-composer';
 const ISSUES = `${GITHUB_REPOSITORY}/issues/new/choose`;
-/** The address as a person reads it, for a page whose scripts cannot run. */
-const SPELLED_OUT = 'info [at] genome-os [dot] org';
 ---
 
 <SiteLayout
@@ -72,7 +73,8 @@ const SPELLED_OUT = 'info [at] genome-os [dot] org';
         {
           /*
            * The plainest way to write, first: the Atlas pill's look at call-to-action size, whose
-           * mailto: the island sets when a visitor reaches for it, and the address in view.
+           * mailto: the island sets when a visitor reaches for it, and the address in view with
+           * its copy glyph: one row, centres level, wherever the three fit on a line.
            */
         }
         <div class="contact-direct" data-contact-direct hidden>
@@ -81,28 +83,19 @@ const SPELLED_OUT = 'info [at] genome-os [dot] org';
             Email us
           </a>
           <p class="contact-address">
-            <span
-              class="contact-address__value"
-              id="contact-address"
-              data-address></span>
-            <button
+            <span class="contact-address__value" data-spelled={SPELLED_OUT}
+              ><span id="contact-address" data-address>{SPELLED_OUT}</span
+              ></span
+            ><button
               type="button"
-              class="contact-copy"
+              class="contact-glyph contact-copy"
               data-action="copy-address"
               aria-label="Copy email address"
               aria-describedby="contact-address"
             >
-              <span class="contact-copy__swap">
-                <span class="contact-copy__idle">
-                  <ContactIcon name="copy" />
-                  <span class="contact-copy__word">Copy</span>
-                </span>
-                <span class="contact-copy__done" data-copied>
-                  <ContactIcon name="check" />
-                  <span class="contact-copy__word">Copied</span>
-                </span>
-              </span>
-            </button>
+              <ContactIcon name="copy" class="contact-glyph__idle" />
+              <ContactIcon name="check" class="contact-glyph__check" />
+            </button><span class="contact-glyph__word" data-copied>Copied</span>
           </p>
           <p class="contact-hint" data-hint="address" hidden></p>
           <p class="visually-hidden" role="status" data-status></p>

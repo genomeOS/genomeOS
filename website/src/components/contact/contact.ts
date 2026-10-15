@@ -1,23 +1,34 @@
 /**
  * The Contact page's island (Contact page spec §2, §3, §5, §6): Email us and the address, the
- * template composer's state, the live letter, and the action that hands a draft to the visitor's
- * own email app.
+ * template composer's state, the live letter, and the actions that hand a draft to the visitor's
+ * own email.
  *
- * - The address is joined in the browser (contact-address.ts); the pre-paint script has already
- *   written it into the page (contact-paint.ts). Email us is a link whose `mailto:` this sets only
- *   when a visitor reaches for it (a pointer over it or down on it, a touch, or focus), so the page
- *   as loaded holds no `mailto:` link. Its copy button confirms in place: it reads "Copied" for a
- *   moment, at its own size.
+ * - The address is joined in the browser (contact-address.ts), and only at the first sign of a
+ *   person (owner, 2026-10-15; no CAPTCHA, by the controller's ruling): a pointer that moves or
+ *   presses, a touch, a key, a wheel, or focus moving into the page. A scroll a person makes comes
+ *   with one of those; a scroll alone is no sign (a script's, or a browser restoring its place).
+ *   Until then the page shows it spelled out, as served; then the address takes the spelled-out
+ *   form's box in each place (contact.css), once, and this stops listening. Events a script
+ *   dispatches are no person. A press of a copy button copies the address whatever stands.
+ * - Email us is a link whose `mailto:` this sets only when a visitor reaches for it (a pointer over
+ *   it or down on it, a touch, or focus), so the page as loaded holds no `mailto:` link. The copy
+ *   glyphs (the address's, the letter's) confirm in place: a check, and "Copied", for a moment, at
+ *   their own size.
+ * - A `mailto:` click (Email us, Open draft) with the page still in front 1.5 s on, neither blurred
+ *   nor hidden, opened no email app: a hint next to the control says to copy the address or the
+ *   letter. Its line is taken at the click, unseen, so showing it moves nothing.
  * - State is a purpose and a set of offers. The pre-paint script has already drawn the
  *   `?topic=…&offer=…` preselect; this takes over from the same `parseQuery`. The composer's
  *   `data-topic` and `data-offers` drive what the letter shows (contact.css), and a choice keeps
  *   the query in step with `history.replaceState`, so the page's link can be shared. Transitions
  *   exist only once the visitor has changed something (`data-live`), so nothing moves on load.
- * - Open draft in your email app builds the draft and navigates to its `mailto:`.
+ * - Open draft in your email app builds the draft and navigates to its `mailto:`; the letter's copy
+ *   button copies the draft's text.
  * - Feedback goes through the page's one polite live region, which stays out of sight. Guidance on
- *   how to carry on (no email app opened; the clipboard is blocked) also shows as a line under the
+ *   how to carry on (no email app opened; the clipboard is blocked) also shows as a line next to the
  *   control it follows, and keeps it until that control's next message, so nothing moves by
- *   itself. Where the clipboard is blocked, the address is selected instead, ready to copy by hand.
+ *   itself. Where the clipboard is blocked, the address or the letter is selected instead, ready to
+ *   copy by hand.
  * - The whole letter selected (by hand) copies as the draft's text, exactly what the email app
  *   would get: the letter as laid out is not the draft's text (To and Subject lose their colons,
  *   each dash breaks from its field, and hidden sections leave blank lines).
@@ -48,11 +59,26 @@ import { letterTyping } from './letter-typing';
 
 /** How long a message only read out stays in the live region. */
 const STATUS_MS = 6000;
-/** How long the copy button reads "Copied". */
+/** How long a copy button reads "Copied". */
 const CONFIRM_MS = 2000;
+/** How long after a `mailto:` click a page still in front means no email app opened. */
+const NOTHING_MS = 1500;
 
-const DRAFT_HINT =
-  'If no email app opens, copy the letter and send it to the address above.';
+const NOTHING = 'Nothing opened? Copy the ';
+const BLOCKED_ADDRESS =
+  'Copying is blocked here. The address is selected, ready to copy.';
+const BLOCKED_LETTER = 'Press Ctrl+C or Cmd+C to copy.';
+/** The first signs of a person. */
+const SIGNS = [
+  'pointermove',
+  'pointerdown',
+  'touchstart',
+  'keydown',
+  'wheel',
+  'focusin',
+];
+/** A visitor reaching for Email us; a click with none of those (a script, an assistive tool) too. */
+const REACH = ['pointerover', 'pointerdown', 'touchstart', 'focus', 'click'];
 
 export function initContact(root: HTMLElement): void {
   root.hidden = false;
@@ -71,18 +97,15 @@ export function initContact(root: HTMLElement): void {
   const status = page.querySelector<HTMLElement>('[data-status]');
   const emailUs = page.querySelector<HTMLAnchorElement>('[data-email-us]');
   const addressText = page.querySelector('[data-address]');
+  const hint = (which: string) =>
+    page.querySelector<HTMLElement>(`[data-hint="${which}"]`);
   const hints = {
-    address: page.querySelector<HTMLElement>('[data-hint="address"]'),
-    draft: page.querySelector<HTMLElement>('[data-hint="draft"]'),
+    address: hint('address'),
+    draft: hint('draft'),
+    letter: hint('letter'),
   };
 
-  // Written by the pre-paint script already; written again, so the page holds it either way.
   const address = contactAddress();
-  for (const place of page.querySelectorAll(
-    '[data-address], [data-to-address]',
-  ))
-    place.textContent = address;
-  root.dataset.revealed = '';
 
   let { topic, offers } = parseQuery(location.search);
   const state = () => ({ topic, offers });
@@ -106,6 +129,25 @@ export function initContact(root: HTMLElement): void {
     letter?.dataset.typing === 'pending' && plate
       ? letterTyping(letter, plate)
       : undefined;
+
+  // The address, joined at the first sign of a person, once: in its line and in the letter's To,
+  // whole there even if the To line was typing.
+  let joined = false;
+  const join = (event?: Event) => {
+    if (joined || (event && !event.isTrusted)) return;
+    joined = true;
+    for (const type of SIGNS) removeEventListener(type, join, true);
+    for (const place of page.querySelectorAll<HTMLElement>(
+      '[data-address], [data-to-address]',
+    )) {
+      place.textContent = address;
+      place.dataset.joined = '';
+      const line = place.closest<HTMLElement>('dd');
+      if (line) typing?.settle(line);
+    }
+  };
+  for (const type of SIGNS)
+    addEventListener(type, join, { capture: true, passive: true });
 
   const changed = () => {
     root.dataset.live = '';
@@ -144,6 +186,7 @@ export function initContact(root: HTMLElement): void {
     if (hint) {
       hint.textContent = message;
       hint.hidden = false;
+      delete hint.dataset.pending;
     }
     if (!status) return;
     window.clearTimeout(statusTimer);
@@ -159,41 +202,77 @@ export function initContact(root: HTMLElement): void {
     } else write();
   };
 
-  // Email us: the address's mailto:, set when a visitor reaches for the link, never before.
+  // After a mailto: click: a page that neither blurs nor hides within NOTHING_MS opened no app.
+  // The hint's line is laid out now, at the visitor's own click, and shown then.
+  let watching: AbortController | undefined;
+  const watch = (line: HTMLElement | null, message: string) => {
+    watching?.abort();
+    const own = (watching = new AbortController());
+    const { signal } = own;
+    const opened = () => own.abort();
+    addEventListener('blur', opened, { signal });
+    page.addEventListener(
+      'visibilitychange',
+      () => page.visibilityState === 'hidden' && opened(),
+      { signal },
+    );
+    if (line) {
+      line.textContent = message;
+      line.hidden = false;
+      line.dataset.pending = '';
+    }
+    const timer = setTimeout(() => {
+      own.abort();
+      say(message, line);
+    }, NOTHING_MS);
+    signal.addEventListener('abort', () => clearTimeout(timer));
+  };
+
+  // Email us: the address's mailto:, a blank email, set when a visitor reaches for it.
   if (emailUs) {
-    const reach = () => {
-      emailUs.href = mailtoUrl(address);
-    };
-    for (const type of ['pointerover', 'pointerdown', 'touchstart', 'focus'])
-      emailUs.addEventListener(type, reach, { once: true, passive: true });
-    // A click that came with none of those (a script, an assistive tool) still opens it.
-    emailUs.addEventListener('click', reach);
+    for (const type of REACH)
+      emailUs.addEventListener(
+        type,
+        () => (emailUs.href = mailtoUrl(address)),
+        { passive: true },
+      );
+    emailUs.addEventListener('click', () =>
+      watch(hints.address, `${NOTHING}address.`),
+    );
   }
 
-  // The copy button reads "Copied" for a moment: both its labels share one cell (contact.css), so
-  // it keeps its size.
-  let confirmTimer = 0;
+  // A copy button reads "Copied" for a moment, at its own size (contact.css).
+  const confirms = new WeakMap<HTMLElement, number>();
   const confirmCopy = (button: HTMLElement) => {
-    window.clearTimeout(confirmTimer);
+    clearTimeout(confirms.get(button));
     button.toggleAttribute('data-confirmed', true);
-    confirmTimer = window.setTimeout(
-      () => button.removeAttribute('data-confirmed'),
-      CONFIRM_MS,
+    confirms.set(
+      button,
+      window.setTimeout(
+        () => button.removeAttribute('data-confirmed'),
+        CONFIRM_MS,
+      ),
     );
   };
 
-  const copyAddress = async (button: HTMLElement) => {
+  // Copied, or where the clipboard is blocked, selected for the keys, and said so beside it.
+  const copy = async (
+    button: HTMLElement,
+    text: string,
+    held: Node | null,
+    blocked: string,
+    line: HTMLElement | null,
+  ) => {
+    join();
     try {
-      await navigator.clipboard.writeText(address);
-      if (hints.address) hints.address.hidden = true;
+      await navigator.clipboard.writeText(text);
+      watching?.abort();
+      if (line) line.hidden = true;
       confirmCopy(button);
       say('Copied');
     } catch {
-      if (addressText) window.getSelection()?.selectAllChildren(addressText);
-      say(
-        'Copying is blocked here. The address is selected, ready to copy.',
-        hints.address,
-      );
+      if (held) window.getSelection()?.selectAllChildren(held);
+      say(blocked, line);
     }
   };
 
@@ -239,9 +318,12 @@ export function initContact(root: HTMLElement): void {
   const actions: Record<string, (button: HTMLElement) => void> = {
     open: () => {
       window.location.href = mailtoUrl(address, buildDraft(state()));
-      say(DRAFT_HINT, hints.draft);
+      watch(hints.draft, `${NOTHING}letter.`);
     },
-    'copy-address': (button) => void copyAddress(button),
+    'copy-address': (button) =>
+      void copy(button, address, addressText, BLOCKED_ADDRESS, hints.address),
+    'copy-letter': (button) =>
+      void copy(button, draft(), letter, BLOCKED_LETTER, hints.letter),
   };
   page.addEventListener('click', (event) => {
     const button = (event.target as Element | null)?.closest<HTMLElement>(

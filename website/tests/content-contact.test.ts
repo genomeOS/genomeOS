@@ -31,6 +31,9 @@ const FORMS = [
   PARTS.join('\\x40'),
 ];
 const TEXT = /\.(?:html|js|mjs|css|json|xml|txt|svg|webmanifest)$/;
+/** The address as a person reads it, before one is here to read it. */
+const SPELLED = 'info [at] genome-os [dot] org';
+const escape = (text: string) => text.replace(/[[\]]/g, '\\$&');
 
 function textFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -94,6 +97,38 @@ describe('the built Contact page', () => {
     expect(main).toMatch(
       /<noscript>[\s\S]*info \[at\] genome-os \[dot\] org[\s\S]*<\/noscript>/,
     );
+  });
+
+  // Owner, 2026-10-15: the address is spelled out until a person is here (no CAPTCHA, by the
+  // controller's ruling); the island joins it then.
+  it('serves the address spelled out in both its places, each holding the spelled-out box for the address to come', () => {
+    const slots = [
+      ...main.matchAll(/<span [^>]*data-spelled="([^"]*)"[^>]*>(.*?)<\/span>/g),
+    ];
+    expect(slots).toHaveLength(2);
+    for (const [, spelled, inner] of slots) {
+      expect(spelled).toBe(SPELLED);
+      expect(inner).toMatch(
+        new RegExp(`^<span [^>]*data-(?:to-)?address[^>]*>${escape(SPELLED)}$`),
+      );
+    }
+    expect(slots.map(([, , inner]) => /data-to-address/.test(inner))).toEqual([
+      false,
+      true,
+    ]);
+  });
+
+  // Owner, 2026-10-15 (~09:55): "remove the 'or open in Gmail · Outlook' bits. remove the border
+  // around the copy icon and remove the text 'Copy'".
+  it('serves no Gmail or Outlook links, and Copy as a glyph named by its label alone', () => {
+    expect(main).not.toMatch(/data-webmail|or open in|mail\.google|outlook\./i);
+    const copy = main.match(
+      /<button [^>]*data-action="copy-address"[^>]*>([\s\S]*?)<\/button>(<span[^>]*>[^<]*<\/span>)/,
+    )!;
+    expect(copy[0]).toContain('aria-label="Copy email address"');
+    // No word in it, so no "Copy"; "Copied" follows it, shown for a moment after a press.
+    expect(copy[1].replace(/<[^>]+>/g, '').trim()).toBe('');
+    expect(copy[2]).toMatch(/data-copied[^>]*>Copied<\/span>$/);
   });
 
   it('writes every purpose, offer and section of the letter from the draft builder', () => {

@@ -4,13 +4,13 @@
  * `<noscript>` address. Two scripts, a few lines each, inlined right after each part, show them
  * before the first paint:
  *
- * - `contactDirectScript`, after the address and Email us: joins the address from its stored parts
- *   (contact-address.ts) and writes it into the page, so it is in view from the first paint and
- *   nothing moves when the island arrives. No `mailto:` is written here: the island sets Email us's
- *   when a visitor reaches for it.
- * - `contactPaintScript`, after the composer: shows it, writes the address into the letter's To,
- *   and applies a `?topic=…&offer=…` preselect at the same moment, so a link from Contribute never
- *   paints the default letter and then grows (a module script runs too late for that). Where the
+ * - `contactDirectScript`, after the address and Email us: shows them. The address is served
+ *   spelled out (`SPELLED_OUT`), in its line and in the letter's To, and neither script joins it:
+ *   the island does, at the first sign of a person (owner, 2026-10-15; contact.ts). No `mailto:` is
+ *   written here either: the island sets Email us's when a visitor reaches for it.
+ * - `contactPaintScript`, after the composer: shows it and applies a `?topic=…&offer=…` preselect
+ *   at the same moment, so a link from Contribute never paints the default letter and then grows
+ *   (a module script runs too late for that). Where the
  *   letter will type itself out (letter-typing.ts: no reduced motion, no forced colours, and
  *   `@property` for its characters to step), it sets it waiting, its words hidden
  *   (`data-typing="pending"`, contact.css), so it never shows whole and then empties.
@@ -23,10 +23,9 @@
  *
  * If the island never runs (a chunk that failed to load, a browser without modules), Email us,
  * the copy button and the composer's buttons would be inert. Module scripts run before `load`, so
- * a page still not ready then goes back to the no-JavaScript page: both parts hidden, the joined
- * address taken out again, and the address spelled out in their place (`[data-contact-fallback]`).
+ * a page still not ready then goes back to the no-JavaScript page: both parts hidden, and the
+ * address spelled out in a line in their place (`[data-contact-fallback]`).
  */
-import { ADDRESS_PARTS } from '../../lib/contact-address';
 import {
   OFFERS,
   TOPICS,
@@ -38,6 +37,12 @@ import {
 /** The radio group's name, shared by the markup, this script and the island. */
 export const TOPIC_INPUT = 'contact-topic';
 
+/**
+ * The address as a person reads it, as the page serves it: in the `<noscript>` line, and in the
+ * address's two places until a person is here (the island then joins the address in their place).
+ */
+export const SPELLED_OUT = 'info [at] genome-os [dot] org';
+
 /** Every set of offers, keyed by its space-separated canonical list: [opening list, subject suffix]. */
 export function offerWording(): Record<string, [string, string]> {
   const table: Record<string, [string, string]> = {};
@@ -48,35 +53,11 @@ export function offerWording(): Record<string, [string, string]> {
   return table;
 }
 
-/** ES5 that sets `address` from the stored parts, joined as `contactAddress` joins them. */
-function joinAddress(): string {
-  const json = JSON.stringify;
-  const { key, mailbox, domain } = ADDRESS_PARTS;
-  return `var address = [${json(mailbox)}, ${json(domain)}]
-      .map(function (codes) {
-        return String.fromCharCode.apply(
-          null,
-          codes
-            .map(function (code) {
-              return code - ${key};
-            })
-            .reverse()
-        );
-      })
-      .join(String.fromCharCode(64));`;
-}
-
-/** Shows the address with Email us, the address written in, before the first paint. */
+/** Shows the address, spelled out, with Email us before the first paint. */
 export function contactDirectScript(): string {
   return `(function () {
   var direct = document.querySelector('[data-contact-direct]');
-  if (!direct) return;
-  try {
-    ${joinAddress()}
-    var places = document.querySelectorAll('[data-address]');
-    for (var i = 0; i < places.length; i += 1) places[i].textContent = address;
-    direct.hidden = false;
-  } catch (error) {}
+  if (direct) direct.hidden = false;
 })();`;
 }
 
@@ -86,12 +67,6 @@ export function contactPaintScript(rootId: string): string {
   var root = document.getElementById(${json(rootId)});
   if (!root) return;
   root.hidden = false;
-  try {
-    ${joinAddress()}
-    var to = document.querySelectorAll('[data-to-address]');
-    for (var j = 0; j < to.length; j += 1) to[j].textContent = address;
-    root.setAttribute('data-revealed', '');
-  } catch (error) {}
   try {
     var letter = root.querySelector('[data-letter]');
     if (
@@ -139,11 +114,8 @@ export function contactPaintScript(rootId: string): string {
   window.addEventListener('load', function () {
     if (root.hasAttribute('data-ready')) return;
     root.hidden = true;
-    root.removeAttribute('data-revealed');
     var direct = document.querySelector('[data-contact-direct]');
     if (direct) direct.hidden = true;
-    var written = document.querySelectorAll('[data-address], [data-to-address]');
-    for (var k = 0; k < written.length; k += 1) written[k].textContent = '';
     var line = document.querySelector('[data-contact-fallback]');
     if (line) line.hidden = false;
   });

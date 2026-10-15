@@ -1,6 +1,6 @@
 /**
- * The Contact page's line icons (owner request, 2026-10-14): one for Email us, the copy button and
- * its confirmation, each purpose and each offer. Drawn as the kit's interface icons are
+ * The Contact page's line icons (owner request, 2026-10-14): one for Email us, the copy buttons and
+ * their confirmation, each purpose and each offer. Drawn as the kit's interface icons are
  * (components/kit/icons.ts): a 24 px grid, round caps and joins, no fills, in currentColor; set at
  * about 20 px, so a 1.8 stroke draws 1.5 px. Kept here, not in the kit, as only this page uses them.
  * `ContactIcon.astro` renders them as one sprite per page; every icon is decoration (aria-hidden),
