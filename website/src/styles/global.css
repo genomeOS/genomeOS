@@ -868,6 +868,17 @@ svg {
   }
 }
 
+/* Too narrow for the footer's three links on one row (about 304 px): one column, never one link
+ * above two (design critique 3, m-5). The markup stays, so Contact keeps out of the Site policies
+ * nav. */
+@media (max-width: 22rem) {
+  .site-footer__links-row,
+  .site-footer__links {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
 /* Landscape phones (iPhone 13 at 750x342, Pixel 7 at 863x360) are wide enough
  * for the desktop row but too short for its 5.5rem bar: 27-29% of the screen.
  * They get the phone bar's height, and a 3.2rem lockup (FOUNDATION ~7.9 px)
