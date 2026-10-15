@@ -5,11 +5,11 @@
  *
  *   intro      the shared PageIntro, split: note, H1, lede; then the plainest way to write, first
  *              on every screen (owner request, 2026-10-14): Email us, a plain mailto:, and the
- *              address itself in view, with a button that copies it
+ *              address itself in view, with a glyph that copies it, all three on one row
  *   templates  a band of its own, "Or start from a template": 1 what it's about (purposes, real
  *              radios), 2 what you'd offer (for a contribution, toggle buttons), 3 send it (open
  *              the composed draft in the visitor's email app); the live letter beside them, or
- *              after them on a phone, with its own copy button
+ *              after them on a phone, with its own copy glyph
  *   problem    last, a secondary link: problems go to GitHub Issues, not email
  *
  * The address is in no served file (src/lib/contact-address.ts): the page serves it spelled out,
@@ -73,7 +73,8 @@ const ISSUES = `${GITHUB_REPOSITORY}/issues/new/choose`;
         {
           /*
            * The plainest way to write, first: the Atlas pill's look at call-to-action size, whose
-           * mailto: the island sets when a visitor reaches for it, and the address in view.
+           * mailto: the island sets when a visitor reaches for it, and the address in view with
+           * its copy glyph: one row, centres level, wherever the three fit on a line.
            */
         }
         <div class="contact-direct" data-contact-direct hidden>
@@ -81,32 +82,21 @@ const ISSUES = `${GITHUB_REPOSITORY}/issues/new/choose`;
             <ContactIcon name="mail" class="contact-email__icon" />
             Email us
           </a>
-          <div class="contact-direct__aside">
-            <p class="contact-address">
-              <span class="contact-address__value" data-spelled={SPELLED_OUT}
-                ><span id="contact-address" data-address>{SPELLED_OUT}</span
-                ></span
-              >
-              <button
-                type="button"
-                class="contact-copy"
-                data-action="copy-address"
-                aria-label="Copy email address"
-                aria-describedby="contact-address"
-              >
-                <span class="contact-copy__swap">
-                  <span class="contact-copy__idle">
-                    <ContactIcon name="copy" />
-                    <span class="contact-copy__word">Copy</span>
-                  </span>
-                  <span class="contact-copy__done" data-copied>
-                    <ContactIcon name="check" />
-                    <span class="contact-copy__word">Copied</span>
-                  </span>
-                </span>
-              </button>
-            </p>
-          </div>
+          <p class="contact-address">
+            <span class="contact-address__value" data-spelled={SPELLED_OUT}
+              ><span id="contact-address" data-address>{SPELLED_OUT}</span
+              ></span
+            ><button
+              type="button"
+              class="contact-glyph contact-copy"
+              data-action="copy-address"
+              aria-label="Copy email address"
+              aria-describedby="contact-address"
+            >
+              <ContactIcon name="copy" class="contact-glyph__idle" />
+              <ContactIcon name="check" class="contact-glyph__check" />
+            </button><span class="contact-glyph__word" data-copied>Copied</span>
+          </p>
           <p class="contact-hint" data-hint="address" hidden></p>
           <p class="visually-hidden" role="status" data-status></p>
         </div>

@@ -2,7 +2,8 @@
  * Contact (Contact page spec §4, #454). Owned by the Contact page; loaded after the shared CSS.
  *
  *   .contact-direct    under the intro, first on every screen: Email us (the Atlas pill's look at
- *                      call-to-action size) and the address in view, with its copy button
+ *                      call-to-action size) and the address in view, with its copy glyph, on one
+ *                      row with their centres level (the pill on its own line on a phone)
  *   .contact-templates the template section, a band of its own: the steps (1 what it's about,
  *                      2 what you'd offer, 3 send it) left, the letter right; on a phone the steps,
  *                      then the letter; the problem link last
@@ -50,11 +51,31 @@
 
 /* ---------- Email us and the address ---------- */
 
+/* Owner (2026-10-15): "make sure the 'Email us' button, the email, and the copy icon are all
+   aligned horizontally". Wherever the three fit on one line, they share one grid row, each centred
+   in it, so their centres are level whatever the fonts; a hint goes under the address, from its
+   left edge, and moves nothing in the row. Narrower (a phone), one column: the pill, then the
+   address and its glyph, then the hint. */
+.contact-reach {
+  container: contact-reach / inline-size;
+}
+
 .contact-direct:not([hidden]) {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  justify-items: start;
   align-items: center;
-  gap: 1rem clamp(1.5rem, 3vw, 2.5rem);
+  row-gap: 0.75rem;
+}
+
+@container contact-reach (width >= 30rem) {
+  .contact-direct:not([hidden]) {
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: clamp(1.5rem, 3vw, 2.5rem);
+  }
+
+  .contact-direct .contact-hint {
+    grid-column: 2;
+  }
 }
 
 /* Email us: the Atlas pill's language at call-to-action size (Home's .atlas-open): a black pill in
@@ -140,20 +161,18 @@
   grid-area: 1 / 1;
 }
 
-/* Beside Email us (under it on a phone): the address with its copy button. */
-.contact-direct__aside {
-  display: grid;
-  justify-items: start;
-  row-gap: 0.15rem;
+/* The address and its copy glyph: never apart. The glyph's target reaches 0.5rem back into the
+   address's box, so the glyph starts less than half an em after its last letter. Its "Copied" is
+   the row's, beside the glyph (under it on a narrow phone), so the button keeps its own box. */
+.contact-address {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 0;
 }
 
-/* The address itself, in view, and its copy button. */
-.contact-address {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 0.9rem;
-  margin: 0;
+.contact-address .contact-glyph {
+  margin-left: -0.5rem;
 }
 
 .contact-address__value {
@@ -167,71 +186,78 @@
   user-select: all;
 }
 
-/* Spelled out, the line sets the address a step smaller: its box (the unseen copy) is then 2 to 3
-   per cent wider than the address will be in either font (the address is 0.729 of the spelled-out
-   width in Figtree, 0.722 in the fallback), so Copy keeps its place, and its line beside the
-   address in both fonts, so the web font's arrival moves nothing either. */
+/* Spelled out, the line sets the address a step smaller: its box (the unseen copy) is then 1 to 2
+   per cent wider than the address will be (the address is 0.729 of the spelled-out width in
+   Figtree, 0.726 in the Arial-based fallback, 0.722 in Avenir Next), so the glyph keeps its place
+   when the address is joined, and sits close to it, in every font. */
 .contact-address__value::before,
 .contact-address__value > :not([data-joined]) {
-  font-size: 0.745em;
+  font-size: 0.735em;
 }
 
-/* Copy, a quiet square button: its icon and word, and for a moment its check and "Copied". Both
-   labels share one cell, so it keeps the wider one's size and nothing moves (contact.ts). */
-.contact-copy {
-  min-height: 2.75rem;
-  margin: 0;
-  padding: 0 0.85rem;
-  border: 1px solid var(--color-line-strong);
-  background: none;
-  color: var(--color-muted);
-  font: inherit;
-  font-size: 0.9rem;
-  font-weight: 650;
-  cursor: pointer;
-  transition:
-    border-color var(--dur-micro) var(--ease-ui),
-    color var(--dur-micro) var(--ease-ui);
-}
-
-.contact-copy:hover {
-  border-color: var(--color-ion);
-  color: var(--color-starlight);
-}
-
-.contact-copy__swap {
+/* The two copy glyphs, the address's and the letter's, one control (the owner, 2026-10-15; rulings
+   22 and 35): no outline, no fill, no word, a 44 px target around a 20 px glyph. Hover turns the
+   glyph ion and changes nothing else; the ring shows on keyboard focus only. Pressed, the glyph is
+   a check with "Copied" beside it for a moment (contact.ts), outside the button's box, so its size
+   never changes and nothing moves. */
+.contact-glyph {
+  position: relative;
   display: grid;
-}
-
-.contact-copy__idle,
-.contact-copy__done {
-  display: inline-flex;
-  grid-area: 1 / 1;
-  align-items: center;
-  gap: 0.45rem;
-}
-
-.contact-copy .contact-icon {
   flex: none;
-  width: 1.05rem;
-  height: 1.05rem;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text-soft);
+  font: inherit;
+  cursor: pointer;
+  transition: color var(--dur-micro) var(--ease-ui);
 }
 
-.contact-copy__done,
-.contact-copy[data-confirmed] .contact-copy__idle {
+.contact-glyph:hover,
+.contact-glyph[data-confirmed] {
+  color: var(--color-ion);
+}
+
+.contact-glyph:focus-visible {
+  outline: 2px solid var(--color-ion);
+  outline-offset: 0;
+}
+
+.contact-glyph .contact-icon {
+  grid-area: 1 / 1;
+}
+
+.contact-glyph__word {
+  position: absolute;
+  top: 50%;
+  left: calc(100% - 0.4rem);
+  translate: 0 -50%;
+  color: var(--color-ion);
+  font-size: 0.85rem;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.contact-glyph__check,
+.contact-glyph__word,
+.contact-glyph[data-confirmed] .contact-glyph__idle {
   visibility: hidden;
 }
 
-.contact-copy[data-confirmed] .contact-copy__done {
+.contact-glyph[data-confirmed] :is(.contact-glyph__check, .contact-glyph__word),
+.contact-glyph[data-confirmed] + .contact-glyph__word {
   visibility: visible;
-  color: var(--color-ion);
 }
 
 /* Guidance on how to carry on, under the control it follows, only when there is some. After a
    mailto: click its line is laid out at once and unseen (`data-pending`): shown 1.5 s on, if no
    app took the page, it moves nothing then (contact.ts). */
 .contact-hint {
-  flex-basis: 100%;
   margin: 0;
   color: var(--color-text-soft);
   font-size: 0.9rem;
@@ -262,34 +288,16 @@
     width: 100%;
     justify-content: center;
   }
-
-  /* Too narrow for the address and Copy's words on one line in every font: Copy keeps its icon,
-     and its check when it has copied, a 44 px square beside the address; its name and the live
-     region still say it. */
-  .contact-copy {
-    width: 2.75rem;
-    padding: 0;
-  }
-
-  .contact-copy__idle,
-  .contact-copy__done {
-    justify-content: center;
-  }
-
-  .contact-copy__word {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-  }
 }
 
-/* A 320 px phone: the address and its icon a little closer, so they share a line in every font. */
+/* A narrow phone has no room beside the address's glyph: "Copied" shows under it, its end at the
+   glyph's target's end. */
 @media (width <= 24rem) {
-  .contact-address {
-    column-gap: 0.5rem;
+  .contact-address > .contact-glyph__word {
+    top: calc(100% - 0.2rem);
+    right: 0.25rem;
+    left: auto;
+    translate: none;
   }
 }
 
@@ -693,71 +701,19 @@
   text-wrap: pretty;
 }
 
-/* The letter's copy button: a glyph in the plate's top-right corner, 16 px in from both edges, as
-   the site's icon buttons are (rulings 22 and 35): no outline, no fill, a 44 px target around a
-   20 px glyph. The To line starts below it, so nothing of the letter runs under it, and it never
-   moves: the letter's typing moves nothing. */
+/* The letter's copy glyph (.contact-glyph) in the plate's top-right corner, 16 px in from both
+   edges. The To line starts below it, so nothing of the letter runs under it, and it never moves:
+   the letter's typing moves nothing. "Copied" shows to the left of its check. */
 .letter-copy {
   position: absolute;
   z-index: 1;
   top: 4px;
   right: 4px;
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--color-starlight);
-  font: inherit;
-  cursor: pointer;
-  opacity: 0.86;
-  transition: opacity var(--dur-micro) var(--ease-ui);
 }
 
-.letter-copy:hover,
-.letter-copy:focus-visible {
-  opacity: 1;
-}
-
-.letter-copy:focus-visible {
-  outline: 2px solid var(--color-ion);
-  outline-offset: 0;
-}
-
-.letter-copy .contact-icon {
-  grid-area: 1 / 1;
-}
-
-/* "Copied", beside the check, above the To line; outside the button's box, so its size never
-   changes. */
-.letter-copy__word {
-  position: absolute;
-  top: 50%;
+.letter-copy .contact-glyph__word {
   right: calc(100% - 0.4rem);
-  translate: 0 -50%;
-  color: var(--color-ion);
-  font-size: 0.85rem;
-  font-weight: 650;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.letter-copy__check,
-.letter-copy__word,
-.letter-copy[data-confirmed] .letter-copy__idle {
-  visibility: hidden;
-}
-
-.letter-copy[data-confirmed] :is(.letter-copy__check, .letter-copy__word) {
-  visibility: visible;
-}
-
-.letter-copy[data-confirmed] {
-  color: var(--color-ion);
-  opacity: 1;
+  left: auto;
 }
 
 /* Where the clipboard is blocked: the letter selected, and this line at its top, clear of the
@@ -1031,8 +987,8 @@
     color: CanvasText;
   }
 
-  .letter-copy,
-  .letter-copy[data-confirmed] {
+  .contact-glyph,
+  .contact-glyph[data-confirmed] {
     color: ButtonText;
   }
 
@@ -1079,8 +1035,7 @@
   }
 
   .contact-email,
-  .contact-copy,
-  .letter-copy,
+  .contact-glyph,
   .contact-hint,
   .contact-templates__title,
   .contact__controls,
