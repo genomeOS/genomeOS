@@ -2,7 +2,7 @@
  * Home (round 2 spec §4.1, §2.3–§2.7; #454). Imported by src/pages/index.astro only, so every rule
  * here is Home's own. Sections: page type and calls to action · the bands · why it matters (the
  * people figure, .people) · how it works (the steps plate, .hiw, and the open-source row) · our
- * flagship project · join us (the crew, .crew, and its cards) · reduced motion.
+ * flagship project · join us (the crew, .crew, and its cards) · forced colours · reduced motion.
  *
  * Other files own the hero film and its text layout (components/home/hero-media.css) and the toy
  * globe (components/home/atlas-preview.css). Scene motion runs on the timeline helper
@@ -617,6 +617,30 @@
 
 .crew[data-filled] .crew__spot {
   opacity: 0;
+}
+
+/* ------------------------------------------------------------------------- forced colours */
+
+/* Spec §8.9: the figures show their end state (the scenes are not imported, pages/index.astro) with
+   the system's text colour for every line and label that would otherwise vanish on its canvas. */
+@media (forced-colors: active) {
+  .people__ring,
+  .people__leader,
+  .hiw-wire,
+  .hiw-gate,
+  .hiw-socket,
+  .crew__ledge path {
+    stroke: CanvasText;
+  }
+
+  .hiw-label {
+    fill: CanvasText;
+  }
+
+  /* No scene, so nothing to replay. */
+  .hiw .kit-plate__bar--top {
+    display: none;
+  }
 }
 
 /* ------------------------------------------------------------------------- reduced motion */

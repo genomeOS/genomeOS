@@ -288,9 +288,9 @@ const ways = [
   /*
    * The page's one island (round 2 spec §4.1, §7): the hero film starts here; every figure's module
    * is imported only as its figure comes within 600 px of the viewport (the Atlas preview, the
-   * steps, the people and the crew), so none of them is first-load JS. Under reduced motion the
-   * scenes have nothing to play (their server-rendered final states stay), so only the preview,
-   * which turns and drags by hand, is imported.
+   * steps, the people and the crew), so none of them is first-load JS. Under reduced motion or
+   * forced colours the scenes have nothing to play (their server-rendered final states stay), so
+   * only the preview, which turns and drags by hand, is imported.
    */
   import { initHeroMedia } from '../components/home/hero-media';
 
@@ -299,7 +299,10 @@ const ways = [
   ))
     initHeroMedia(hero);
 
-  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Reduced motion and forced colours keep every scene at its end state (spec §8.2, §8.9).
+  const still =
+    matchMedia('(prefers-reduced-motion: reduce)').matches ||
+    matchMedia('(forced-colors: active)').matches;
   const near = (
     selector: string,
     load: (figure: HTMLElement) => Promise<unknown>,
@@ -322,7 +325,7 @@ const ways = [
       initAtlasPreview(figure),
     ),
   );
-  if (!reduced) {
+  if (!still) {
     near('figure[data-graphic="people"]', (figure) =>
       import('../components/home/people').then(({ initPeople }) =>
         initPeople(figure),

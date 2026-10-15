@@ -535,6 +535,43 @@ test('reduced motion: every Home figure is whole at once, nothing is built, and 
   ).toBe(1);
 });
 
+test('in forced colours the scenes rest, their lines and labels in the system text colour', async ({
+  page,
+}) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await page.goto('/');
+  for (const figure of [people(page), steps(page), crew(page)]) {
+    await figure.evaluate((element) =>
+      element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+    );
+    await page.waitForTimeout(250);
+    expect(
+      await figure.evaluate(
+        (element) => element.getAnimations({ subtree: true }).length,
+      ),
+    ).toBe(0);
+  }
+  const text = await page.evaluate(() => {
+    const probe = document.createElement('span');
+    probe.style.color = 'CanvasText';
+    document.body.append(probe);
+    const value = getComputedStyle(probe).color;
+    probe.remove();
+    return value;
+  });
+  const stroke = (locator: Locator) =>
+    locator.evaluate((element) => getComputedStyle(element).stroke);
+  const fill = (locator: Locator) =>
+    locator.evaluate((element) => getComputedStyle(element).fill);
+  const svg = shown(people(page), 'svg[data-layout]');
+  expect(await stroke(svg.locator('.people__ring'))).toBe(text);
+  expect(await stroke(svg.locator('.people__leader'))).toBe(text);
+  const stage = shown(steps(page), 'svg[data-layout]');
+  expect(await stroke(stage.locator('[data-wire="measured"]'))).toBe(text);
+  expect(await fill(stage.locator('.hiw-label').first())).toBe(text);
+  await expect(steps(page).locator('.kit-plate__bar--top')).toBeHidden();
+});
+
 test('without JavaScript the hero shows its poster and every figure its final state', async ({
   browser,
   isMobile,
