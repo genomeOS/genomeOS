@@ -30,6 +30,7 @@
  *   any of them mid-typing ends the typing at once. The e2e build's motion hooks scrub it as
  *   `contact-letter` (motion-hooks.ts); a seek to or past its end puts it at rest.
  */
+import { registerScene } from '../../graphics/motion-hooks';
 
 /** Characters a second: faster than the kit's sentences (62), for a letter of 200 to 600. */
 export const LETTER_CPS = 90;
@@ -289,29 +290,29 @@ export function letterTyping(
   });
 
   // The motion hooks (motion-hooks.ts), in dev and the e2e build only: the deployed build drops
-  // this whole branch, and with it the import.
+  // this whole branch, and the import goes unused. A static import, not import(): a dynamic one
+  // of a module the figure kit also imports statically makes the bundler build a namespace object
+  // for it, and its helper landed in the React chunk, which every figure page then loaded.
   if (import.meta.env.DEV || import.meta.env.PUBLIC_MOTION_HOOKS === '1')
-    void import('../../graphics/motion-hooks').then(({ registerScene }) =>
-      registerScene({
-        name: 'contact-letter',
-        get story() {
-          return total;
-        },
-        seek(ms) {
-          start();
-          if (ms >= total) return rest();
-          for (const animation of anims) {
-            animation.pause();
-            animation.currentTime = ms;
-          }
-        },
-        pause: () => anims.forEach((animation) => animation.pause()),
-        play: () => anims.forEach((animation) => animation.play()),
-        get time() {
-          return time();
-        },
-      }),
-    );
+    registerScene({
+      name: 'contact-letter',
+      get story() {
+        return total;
+      },
+      seek(ms) {
+        start();
+        if (ms >= total) return rest();
+        for (const animation of anims) {
+          animation.pause();
+          animation.currentTime = ms;
+        }
+      },
+      pause: () => anims.forEach((animation) => animation.pause()),
+      play: () => anims.forEach((animation) => animation.play()),
+      get time() {
+        return time();
+      },
+    });
 
   return {
     snapshot() {
