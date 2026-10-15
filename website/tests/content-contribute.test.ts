@@ -39,7 +39,7 @@ const twinText = (html: string) =>
 describe('contribute page content', () => {
   it('defines all three forming working groups and modeling breadth', () => {
     expect(contribute).toMatch(
-      /Data Gathering &amp; Infrastructure[\s\S]*Statistical &amp; AI Modeling[\s\S]*UI &amp; Applications/,
+      /Data &amp; Infrastructure[\s\S]*Statistical &amp; AI Modeling[\s\S]*UI &amp; Applications/,
     );
     expect(contribute).toContain('geometric deep learning');
     expect(contribute).toContain('Brian');
@@ -198,7 +198,7 @@ describe('contribute page content', () => {
     const issues =
       'https://github.com/genomeOS/genomeOS/issues?q=is%3Aissue+is%3Aopen+label%3A%22skill%3A';
     for (const [id, skill, title] of [
-      ['group-data', 'data-engineering', 'Data Gathering & Infrastructure'],
+      ['group-data', 'data-engineering', 'Data & Infrastructure'],
       ['group-modeling', 'spatial-stats', 'Statistical & AI Modeling'],
       ['group-ui', 'frontend', 'UI & Applications'],
     ]) {
@@ -212,6 +212,36 @@ describe('contribute page content', () => {
     }
     expect(main.match(/Group forming/g)).toHaveLength(3);
     expect(main.match(/Browse matching issues/g)).toHaveLength(3);
+  });
+
+  it('calls each group by one name: its moon, its column and its lane on the line', () => {
+    // Design critique of the integrated build, round 2: the Data column said "Data Gathering &
+    // Infrastructure" under a moon and a lane that say "Data & Infrastructure".
+    const moons = [
+      ...orbit()
+        .match(/<svg[^>]*data-layout="desktop"[\s\S]*?<\/svg>/)![0]
+        .matchAll(/<text class="moon-label"[^>]*>([^<]*)<\/text>/g),
+    ].map(([, text]) => text.replace(/&amp;/g, '&'));
+    const titles = ['group-data', 'group-modeling', 'group-ui'].map((id) =>
+      textOf(column(id)!.match(/<h3\b[\s\S]*?<\/h3>/)![0]),
+    );
+    // The lane buttons, once per drawing (wide and phone): each drawing names the same lanes.
+    const lanes = [
+      ...new Set(
+        [
+          ...section('flow')!.matchAll(
+            /<button[^>]*data-lane-button="[^"]*"[^>]*><span class="visually-hidden">([^<]*)<\/span>/g,
+          ),
+        ].map(([, text]) => text.replace(/&amp;/g, '&')),
+      ),
+    ];
+    expect(titles).toEqual([
+      'Data & Infrastructure',
+      'Statistical & AI Modeling',
+      'UI & Applications',
+    ]);
+    expect(moons).toEqual(titles);
+    expect(lanes).toEqual(titles);
   });
 
   it('types every sentence over a real, visually hidden copy of it', () => {

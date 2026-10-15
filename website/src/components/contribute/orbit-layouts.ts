@@ -524,7 +524,7 @@ export const GROUPS: Group[] = [
   {
     kind: 'data',
     id: 'group-data',
-    title: 'Data Gathering & Infrastructure',
+    title: 'Data & Infrastructure',
     moon: 'Data & Infrastructure',
     short: 'Data',
     what: 'Find allele counts in papers, supplements and non-English literature. Place every population with a stated uncertainty, then store and serve every version.',
