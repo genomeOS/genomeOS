@@ -303,6 +303,81 @@ test('the people keep their desktop size at every width, and “Why it matters�
   }
 });
 
+// Design critique 4: at 1440 the 562 px grid sat at the left of an 874 px column, under a key row
+// that spanned the whole column, so the figure looked lopsided. Beside its text the figure is its
+// grid's width, centred in its column; the note keeps its words and its two lines (rulings 55, 56).
+test('beside its text the people figure is its grid’s width, centred in its column @desktop-chromium', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  for (const width of [1024, 1280, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    const layout = await people(page).evaluate((element) => {
+      const box = (node: Element) => node.getBoundingClientRect();
+      const column = box(element.parentElement!);
+      const svg = [...element.querySelectorAll('.people__svg')].find(
+        (drawing) => getComputedStyle(drawing).display !== 'none',
+      )!;
+      const grid = box(svg);
+      const leader = box(svg.querySelector('.people__leader')!);
+      return {
+        left: grid.left - column.left,
+        right: column.right - grid.right,
+        grid: [grid.left, grid.right],
+        parts: [
+          '.people__title',
+          '.people__note',
+          '.kit-figure__legend',
+          '.kit-figure__footnote',
+        ].map((selector) => {
+          const part = box(element.querySelector(selector)!);
+          return { selector, left: part.left, right: part.right };
+        }),
+        note: [
+          ...element.querySelectorAll<HTMLElement>('.people__note > span'),
+        ].map((line) => {
+          const range = document.createRange();
+          range.selectNodeContents(line);
+          return {
+            text: line.textContent,
+            lines: range.getClientRects().length,
+            right: range.getBoundingClientRect().right,
+          };
+        }),
+        leader: leader.left + leader.width / 2,
+      };
+    });
+    expect(
+      Math.abs(layout.left - layout.right),
+      `${width} centred`,
+    ).toBeLessThan(1.5);
+    const [left, right] = layout.grid;
+    for (const part of layout.parts) {
+      expect(part.left, `${width} ${part.selector}`).toBeGreaterThanOrEqual(
+        left - 0.5,
+      );
+      expect(part.right, `${width} ${part.selector}`).toBeLessThanOrEqual(
+        right + 0.5,
+      );
+    }
+    expect(layout.note.map(({ text }) => text)).toEqual([
+      'Populations with the greatest genetic diversity',
+      'are the least represented in research.',
+    ]);
+    for (const line of layout.note) {
+      expect(line.lines, `${width}: ${line.text}`).toBe(1);
+      // Right-aligned, ending just past the leader that drops to it.
+      expect(
+        Math.abs(line.right - right),
+        `${width}: ${line.text}`,
+      ).toBeLessThan(1.5);
+    }
+    expect(right - layout.leader, `${width} leader`).toBeGreaterThan(0);
+    expect(right - layout.leader, `${width} leader`).toBeLessThan(24);
+  }
+});
+
 /* ------------------------------------------------------------------------- how it works */
 
 const STORYBOARD = [

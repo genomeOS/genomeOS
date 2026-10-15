@@ -139,10 +139,21 @@
   }
 }
 
+/* Beside its text the figure is its grid's width, centred in its column (design critique 4: at
+   1440 the 562 px grid sat at the left of an 874 px column, under a key row that spanned the whole
+   column, so the figure looked lopsided). Title, grid, note, key and source share one measure. */
+@media (min-width: 62rem) {
+  .home-why .people {
+    max-width: 31.25rem;
+    margin-inline: auto;
+  }
+}
+
 /* PeopleFigure.astro: a data figure, open. The wide grid from a 31.25rem figure (a container
    query). Each grid stops growing at a pixel a unit, people 24 × 30 px (562 units wide: 31.25rem;
    282 units narrow: 15.75rem), left-aligned with the title and key; the note keeps to its grid's
-   width, so it ends under the ring's leader. */
+   width, so it ends under the ring's leader. Beside its text the whole figure takes the wide
+   grid's width (the rule above). */
 .people {
   --micro-band: var(--color-orbit);
 
