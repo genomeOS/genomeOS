@@ -28,6 +28,7 @@ import {
   SUMMARY,
   closeUpViewBox,
   renderOrbit,
+  typedTwin,
 } from './orbit-layouts';
 
 interface Props {
@@ -40,10 +41,18 @@ const globeHref = sitePath(FAVICON_SVG);
 const scenes = [LAYOUTS.desktop, LAYOUTS.tablet, LAYOUTS.phone].map((layout) =>
   renderOrbit(layout, { globeHref }),
 );
+// Each sentence: the real text for assistive tech, visually hidden, and the typing twin, in chunks
+// (orbit-layouts.ts typedTwin).
 const columns = GROUPS.map((group) => ({
   ...group,
-  what: splitTyped(group.what),
-  who: splitTyped(group.who, { lead: LEAD.length }),
+  what: {
+    sr: splitTyped(group.what).sr,
+    twin: typedTwin(group.what),
+  },
+  who: {
+    sr: splitTyped(group.who).sr,
+    twin: typedTwin(group.who, LEAD.length),
+  },
   shot: closeUpViewBox(group.kind),
 }));
 // Each column's icon is its moon's engraving, on a small plate disc.

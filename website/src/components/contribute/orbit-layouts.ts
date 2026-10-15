@@ -36,6 +36,7 @@ import {
 } from '../../graphics/astro/props';
 import { resolveKey } from '../../graphics/astro/tracks';
 import { mulberry32, SEED } from '../../graphics/rng';
+import { splitTyped } from '../../graphics/typing';
 import { FOOTPRINT, type Box } from './orbit-footprint';
 
 export { SEED };
@@ -556,6 +557,32 @@ export const GROUPS: Group[] = [
 
 /** The bold lead-in of each examples line. */
 export const LEAD = 'For example:';
+
+/** Characters per chunk of a typing twin (typedTwin; contribute.css counts to it). */
+export const TYPE_CHUNK = 12;
+
+/**
+ * A typed sentence's twin, cheap to type (review of T4, finding 4): the kit's twin (typing.ts
+ * splitTyped: `aria-hidden`, one span per character with its index as `--i`), its characters
+ * grouped in chunks of TYPE_CHUNK, each chunk carrying its first index as `--a`. contribute.css
+ * works out from the twin's typed count (`--n`, the kit's track) how far into its own chunk the
+ * typing is, and hides what is not typed yet with `visibility`, chunk by chunk: per frame only one
+ * chunk's characters change, and no character switches a compositing layer, which per-character
+ * opacity did on every one (a third of all frames dropped at 4× CPU). Without container style
+ * queries the kit's per-character opacity applies instead.
+ */
+export function typedTwin(text: string, lead = 0): string {
+  const spans =
+    splitTyped(text, { lead }).twin.match(
+      /<span style="--i:\d+"(?: class="b")?>[^<]*<\/span>/g,
+    ) ?? [];
+  const chunks: string[] = [];
+  for (let a = 0; a < spans.length; a += TYPE_CHUNK)
+    chunks.push(
+      `<span class="tc" style="--a:${a}">${spans.slice(a, a + TYPE_CHUNK).join('')}</span>`,
+    );
+  return `<span class="typed" aria-hidden="true">${chunks.join('')}</span>`;
+}
 
 /** The scene in one sentence, actions only (spec §8.5): the stage's accessible name. */
 export const SUMMARY =

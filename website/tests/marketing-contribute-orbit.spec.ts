@@ -92,12 +92,22 @@ function snapshot() {
       id: column.id,
       title: rgb(getComputedStyle(column.querySelector('h3')!).color),
       link: rgb(getComputedStyle(column.querySelector('a')!).color),
-      typed: [...column.querySelectorAll<HTMLElement>('.typed')].map(
-        (twin) => ({
+      typed: [...column.querySelectorAll<HTMLElement>('.typed')].map((twin) => {
+        const characters = [
+          ...twin.querySelectorAll<HTMLElement>('span[style*="--i"]'),
+        ];
+        return {
           n: Number(getComputedStyle(twin).getPropertyValue('--n')),
-          length: twin.children.length,
-        }),
-      ),
+          length: characters.length,
+          // The characters a visitor sees: visible and fully opaque.
+          shown: characters.filter((character) => {
+            const style = getComputedStyle(character);
+            return (
+              style.visibility === 'visible' && Number(style.opacity) === 1
+            );
+          }).length,
+        };
+      }),
     }),
   );
   return {
@@ -319,6 +329,13 @@ test.describe('the orbit scene @desktop-chromium', () => {
       expect(column.title).toBe(FAINT);
       expect(column.typed.map((line) => line.n)).toEqual([0, 0]);
     }
+    // What shows is what is typed, at every moment (the chunked reveal, contribute.css).
+    for (const t of Object.keys(shots).map(Number))
+      for (const column of shots[t].columns)
+        for (const line of column.typed)
+          expect(line.shown, `${column.id} at ${t} ms`).toBe(
+            Math.min(line.n, line.length),
+          );
     // 1.5 s: the Data moon is in; its column is lit and typing.
     expect(shown(1500)).toEqual(['data']);
     expect(shots[1500].globe.opacity).toBe(1);

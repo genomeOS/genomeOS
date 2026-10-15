@@ -326,6 +326,162 @@
   line-height: 1.5;
 }
 
+/*
+ * The typing (review of T4, finding 4; orbit-layouts.ts typedTwin). The kit types a twin by giving
+ * every character an opacity worked out from the twin's count (--n): at the orbit's 62 characters a
+ * second that switched a compositing layer per character on every frame and dropped a third of
+ * them at 4× CPU. Here each chunk of 12 characters works out how far into it the typing is
+ * (--orbit-typed, 0 to 12; it changes for one chunk at a time) and a container style query hides
+ * what is not typed yet with `visibility`, which only repaints. A chunk past the typing shows in
+ * full; without style queries, the kit's per-character opacity applies (the fallback below). The
+ * ion caret is a 2 px shadow on the last character typed.
+ */
+@property --orbit-typed {
+  syntax: '<integer>';
+  inherits: false;
+  initial-value: 12;
+}
+
+.orbit .typed > .tc {
+  --orbit-typed: clamp(0, calc(var(--n) - var(--a)), 12);
+
+  position: static;
+  opacity: 1;
+}
+
+.orbit .typed > .tc::after {
+  content: none;
+}
+
+.orbit .tc > span {
+  box-shadow: 2px 0 0
+    rgb(
+      112 230 255 /
+        calc(
+          clamp(0, calc(var(--n) - var(--i)), 1) *
+            clamp(0, calc(2 - var(--n) + var(--i)), 1)
+        )
+    );
+  opacity: clamp(0, calc(var(--n) - var(--i)), 1);
+}
+
+@container style(--orbit-typed: 0) {
+  .orbit .tc > span {
+    visibility: hidden;
+    opacity: 1;
+  }
+}
+
+@container style(--orbit-typed: 1) {
+  .orbit .tc > span {
+    opacity: 1;
+  }
+
+  .orbit .tc > span:nth-child(n + 2) {
+    visibility: hidden;
+  }
+}
+
+@container style(--orbit-typed: 2) {
+  .orbit .tc > span {
+    opacity: 1;
+  }
+
+  .orbit .tc > span:nth-child(n + 3) {
+    visibility: hidden;
+  }
+}
+
+@container style(--orbit-typed: 3) {
+  .orbit .tc > span {
+    opacity: 1;
+  }
+
+  .orbit .tc > span:nth-child(n + 4) {
+    visibility: hidden;
+  }
+}
+
+@container style(--orbit-typed: 4) {
+  .orbit .tc > span {
+    opacity: 1;
+  }
+
+  .orbit .tc > span:nth-child(n + 5) {
+    visibility: hidden;
+  }
+}
+
+@container style(--orbit-typed: 5) {
+  .orbit .tc > span {
+    opacity: 1;
+  }
+
+  .orbit .tc > span:nth-child(n + 6) {
+    visibility: hidden;
+  }
+}
+
+@container style(--orbit-typed: 6) {
+  .orbit .tc > span {
+    opacity: 1;
+  }
+
+  .orbit .tc > span:nth-child(n + 7) {
+    visibility: hidden;
+  }
+}
+
+@container style(--orbit-typed: 7) {
+  .orbit .tc > span {
+    opacity: 1;
+  }
+
+  .orbit .tc > span:nth-child(n + 8) {
+    visibility: hidden;
+  }
+}
+
+@container style(--orbit-typed: 8) {
+  .orbit .tc > span {
+    opacity: 1;
+  }
+
+  .orbit .tc > span:nth-child(n + 9) {
+    visibility: hidden;
+  }
+}
+
+@container style(--orbit-typed: 9) {
+  .orbit .tc > span {
+    opacity: 1;
+  }
+
+  .orbit .tc > span:nth-child(n + 10) {
+    visibility: hidden;
+  }
+}
+
+@container style(--orbit-typed: 10) {
+  .orbit .tc > span {
+    opacity: 1;
+  }
+
+  .orbit .tc > span:nth-child(n + 11) {
+    visibility: hidden;
+  }
+}
+
+@container style(--orbit-typed: 11) {
+  .orbit .tc > span {
+    opacity: 1;
+  }
+
+  .orbit .tc > span:nth-child(n + 12) {
+    visibility: hidden;
+  }
+}
+
 /* Always focusable and readable: it only lights from faint to ion once its column is typed. */
 .orbit-col__link {
   display: inline-flex;
