@@ -1,0 +1,202 @@
+---
+/**
+ * The Atlas mark (round 2 spec §3.1, plan I-6; #454): the abstract genomeOS Atlas globe, a schematic
+ * with no coastlines. Two meridians and three parallels, a cluster of hex cells in the Atlas
+ * encoding (src/graphics/encoding.ts: the strong-evidence ramp near the surveys, the partial and
+ * weak steps further out), fading outward to a hatched edge (no estimate), and six white studs (the
+ * measured surveys) drawn last. Ported once from the round-2 prototypes (`r2/hp/proto/home.js`
+ * `steps`, stage 3; `r2/hp/proto/projects.html`), seeded with mulberry32(SEED), so it draws the same
+ * on every build. Decorative: `aria-hidden`, the words beside it carry the meaning.
+ *
+ *   variant 'mark'   the index card and the chapter opener (3.4–8.5rem): rim and graticule keep a
+ *                    1 px line at any size
+ *   variant 'stage'  inside a figure (Home's steps plate): lines scale with the drawing, and the
+ *                    cells carry hooks for an entrance (`data-tier` near-first order, `data-hatch`)
+ *
+ * Nest it in a larger SVG with `x`, `y` and `size` (user units there), or use it as an image (CSS
+ * size). The drawing's own units: a 220 × 220 box, the globe centred, radius 104.
+ */
+import { ENC } from '../../graphics/encoding';
+import { mulberry32 } from '../../graphics/rng';
+
+interface Props {
+  /** Width and height: a CSS length ("8.5rem") or user units when nested. */
+  size: string;
+  variant?: 'mark' | 'stage';
+  /** Position when nested in another SVG. */
+  x?: number;
+  y?: number;
+  /** Prefix for the drawing's pattern and clip ids (when one page holds several marks). */
+  idPrefix?: string;
+  class?: string;
+}
+
+const {
+  size,
+  variant = 'mark',
+  x,
+  y,
+  idPrefix = 'atlas-mark',
+  class: className,
+} = Astro.props;
+
+const GC = { x: 110, y: 110, r: 104 };
+const R = 9.5;
+const HW = Math.sqrt(3) * R;
+const rng = mulberry32(42);
+const hex = (cx: number, cy: number) =>
+  Array.from({ length: 6 }, (_, k) => {
+    const a = (Math.PI / 3) * k - Math.PI / 2;
+    return `${k ? 'L' : 'M'}${(cx + R * Math.cos(a)).toFixed(1)} ${(cy + R * Math.sin(a)).toFixed(1)}`;
+  }).join('') + 'Z';
+const STUDS: [number, number][] = [
+  [0, 0],
+  [2, -1],
+  [-1, 2],
+  [1, 3],
+  [-2, -2],
+  [3, 1],
+];
+const at = (q: number, r: number): [number, number] => [
+  GC.x - 14 + HW * (q + r / 2),
+  GC.y + 4 + 1.5 * R * r,
+];
+
+interface Cell {
+  x: number;
+  y: number;
+  q: number;
+  r: number;
+  d: number;
+}
+const cells: Cell[] = [];
+for (let q = -4; q <= 5; q++)
+  for (let r = -4; r <= 4; r++) {
+    const [cx, cy] = at(q, r);
+    const d = Math.min(
+      ...STUDS.map(([sq, sr]) =>
+        Math.hypot(q - sq + (r - sr) / 2, (r - sr) * 0.87),
+      ),
+    );
+    const blob = Math.hypot((q + r / 2) * 0.9, r * 1.05) + rng() * 0.9;
+    if (blob > 4.4) continue;
+    if (Math.hypot(cx - GC.x, cy - GC.y) > GC.r - 10) continue;
+    cells.push({ x: cx, y: cy, q, r, d });
+  }
+// The ramp from the surveys outward: strong evidence (the six mean steps, lightest nearest),
+// partial, weak, then the hatch where the model has no estimate.
+const STRONG = [...ENC.mean].reverse();
+const hatchId = `${idPrefix}-hatch`;
+const clipId = `${idPrefix}-clip`;
+const drawn = cells
+  .sort((a, b) => a.d - b.d)
+  .map((cell) => {
+    let fill: string;
+    let tier: 'strong' | 'partial' | 'weak' | 'hatch';
+    if (cell.q + cell.r / 2 > 3 || cell.d > 3.2) {
+      fill = `url(#${hatchId})`;
+      tier = 'hatch';
+    } else if (cell.d > 2.3) {
+      fill = ENC.meanWeak;
+      tier = 'weak';
+    } else if (cell.d > 1.4) {
+      fill = [...ENC.meanPartial].reverse()[Math.floor(rng() * 3)];
+      tier = 'partial';
+    } else {
+      fill =
+        STRONG[Math.min(5, Math.floor(rng() * 4) + (cell.d > 0.7 ? 2 : 0))];
+      tier = 'strong';
+    }
+    return { d: hex(cell.x, cell.y), fill, tier };
+  });
+const studs = STUDS.map(([q, r], i) => {
+  const [cx, cy] = at(q, r);
+  return { cx, cy, r: i % 3 === 0 ? 4.6 : 3.6 };
+});
+const lines = variant === 'mark' ? 'non-scaling-stroke' : undefined;
+const pitch = ENC.hatchPitch;
+---
+
+<svg
+  class:list={['atlas-mark', `atlas-mark--${variant}`, className]}
+  viewBox="0 0 220 220"
+  width={size}
+  height={size}
+  x={x}
+  y={y}
+  aria-hidden="true"
+  focusable="false"
+>
+  <defs>
+    <pattern
+      id={hatchId}
+      width={pitch}
+      height={pitch}
+      patternUnits="userSpaceOnUse"
+      patternTransform="rotate(45)"
+    >
+      <rect width={pitch} height={pitch} fill={ENC.land}></rect>
+      <path
+        d={`M${pitch / 2} 0V${pitch}`}
+        stroke={ENC.hatch}
+        stroke-opacity={ENC.hatchAlpha}
+        stroke-width={ENC.hatchWidth}></path>
+    </pattern>
+    <clipPath id={clipId}>
+      <circle cx={GC.x} cy={GC.y} r={GC.r}></circle>
+    </clipPath>
+  </defs>
+  <circle
+    class="atlas-mark__globe"
+    cx={GC.x}
+    cy={GC.y}
+    r={GC.r}
+    fill="#061a33"
+    stroke="rgb(112 230 255 / 45%)"
+    stroke-width="1.2"
+    vector-effect={lines}></circle>
+  <g
+    clip-path={`url(#${clipId})`}
+    fill="none"
+    stroke="rgb(112 230 255 / 14%)"
+    stroke-width="1"
+  >
+    {
+      [36, 72].map((rx) => (
+        <ellipse cx={GC.x} cy={GC.y} rx={rx} ry={GC.r} vector-effect={lines} />
+      ))
+    }
+    {
+      [-52, 0, 52].map((dy) => (
+        <line
+          x1={GC.x - GC.r}
+          x2={GC.x + GC.r}
+          y1={GC.y + dy}
+          y2={GC.y + dy}
+          vector-effect={lines}
+        />
+      ))
+    }
+  </g>
+  <g class="atlas-mark__cells" stroke="#020712" stroke-width="0.8">
+    {
+      drawn.map((cell, index) => (
+        <path
+          d={cell.d}
+          fill={cell.fill}
+          data-tier={cell.tier}
+          data-hatch={cell.tier === 'hatch' ? '' : undefined}
+          style={variant === 'stage' ? `--k:${index}` : undefined}
+        />
+      ))
+    }
+  </g>
+  <g
+    class="atlas-mark__studs"
+    fill={ENC.obs}
+    stroke="#020712"
+    stroke-width="1.5"
+  >
+    {studs.map((stud) => <circle cx={stud.cx} cy={stud.cy} r={stud.r} />)}
+  </g>
+</svg>
