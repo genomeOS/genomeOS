@@ -9,9 +9,11 @@
  * section's one figure, behind its summary row.
  *
  * The lists are the content; the rail and its nodes are aria-hidden. Hovering an item lights its
- * node, and the reverse; a tap keeps the pair lit until the next tap. The marker count comes from
- * the catalog `/app/` inlines, so it is never typed by hand. Horizontal on wide screens; on a phone
- * the rail runs down the lists. The section's module (section-status.ts) plays the entrance and
+ * node, and the reverse; a tap keeps the pair lit until the next tap. The count of variants and
+ * alleles with maps comes from the catalog `/app/` inlines, so it is never typed by hand. It is in
+ * the overview's unit ("Variants & alleles in the source tables"), so the two read together
+ * (design critique 3: "markers" was a third unit, used nowhere else on the site). Horizontal on
+ * wide screens; on a phone the rail runs down the lists. The section's module (section-status.ts) plays the entrance and
  * links items to nodes, once the section opens. The section's h3 names the figure (`titleId`); the
  * zone titles are h4s, and the visually hidden caption says what the rail shows.
  */
@@ -23,7 +25,7 @@ interface Props {
 
 const { titleId = 'status-title' } = Astro.props;
 const { catalog } = loadPageCatalog(process.env.ATLAS_CATALOG_PATH);
-const markers = catalog.artifacts.length;
+const mapped = catalog.artifacts.length;
 
 const ZONES: {
   key: 'now' | 'active' | 'future';
@@ -34,7 +36,7 @@ const ZONES: {
     key: 'now',
     title: 'Available now',
     items: [
-      `The Atlas: observations and surfaces for ${markers} markers`,
+      `The Atlas: observations and surfaces for ${mapped} variants & alleles`,
       'Population registry and data tools',
     ],
   },

@@ -578,7 +578,9 @@ describe('projects page content', () => {
     expect(hbs).toContain('No estimate');
     expect(hbs).toContain('Survey, sized by people tested');
     expect(hbs).not.toContain('AC of AN');
-    expect(hbs).toContain('Tap to inspect.');
+    // Device-neutral: a mouse reader at 1440 is not told to tap (design critique 3).
+    expect(hbs).toContain('Select an area to inspect.');
+    expect(hbs).not.toContain('Tap to inspect');
   });
 
   it('describes each genotype’s map, and tables it, with the random-mating assumption', () => {
@@ -611,10 +613,12 @@ describe('projects page content', () => {
     }
   });
 
-  it('counts the Atlas markers from the catalog', () => {
+  it('counts the mapped variants and alleles from the catalog, in the overview’s unit', () => {
     expect(text(project)).toContain(
-      `The Atlas: observations and surfaces for ${catalog.artifacts.length} markers`,
+      `The Atlas: observations and surfaces for ${catalog.artifacts.length} variants & alleles`,
     );
+    // One unit across the page: the overview's "Variants & alleles in the source tables".
+    expect(text(project)).not.toMatch(/\bmarkers\b/);
   });
 
   it('lists six applications, with horizons only where a status applies', () => {
