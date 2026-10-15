@@ -14,10 +14,13 @@
  *
  * The server markup is the story's last frame (orbit-layouts.ts `renderOrbit`); the timeline
  * seeks to 0 once built, which the page's head script has already painted (contribute.css, the
- * armed state). `sceneController` (src/graphics/timeline.ts) owns the rest: the start once 150 px
- * of the stage show, pausing off screen and in a hidden tab, the sticky Pause, Replay, print, and
- * the motion hooks (`orbit`). On a narrow plate the text under the stage is one panel, the group
- * being introduced (`--orbit-panel`, contribute.css), until the story ends. Columns dim by colour, never by opacity, so their text holds 4.5:1 at every
+ * armed state). `sceneController` (src/graphics/timeline.ts) owns the rest: the start (on a wide
+ * plate once the stage and the top of its text columns show together, on a narrow one once 150 px
+ * of the stage do; `startWhen`), pausing off screen and in a hidden tab, the sticky Pause, Replay,
+ * print, and the motion hooks (`orbit`). A visitor who reads on into a wide plate's columns
+ * mid-story gets the story's end, every column typed (`settleWhenRead`). On a narrow plate the text
+ * under the stage is one panel, the group being introduced (`--orbit-panel`, contribute.css), until
+ * the story ends. Columns dim by colour, never by opacity, so their text holds 4.5:1 at every
  * instant (rulings item 25).
  */
 import { anchors } from '../../graphics/astro/rig';
@@ -1061,11 +1064,27 @@ function shownHeight(element: Element | null): number {
 }
 
 /**
- * The group columns show, but the stage where the story plays does not (less than a third of it,
- * and under 120 px): a link to a column, a reload that restores the scroll, or a visitor coming
- * back up the page. Playing the story there would blank the very text the visitor is reading for
- * as long as the story takes to type it again (7–20 s), with Pause and Replay out of sight (review
- * of T4 round 3).
+ * The columns stand abreast under the stage (a wide plate, contribute.css), each typing beside the
+ * others, rather than as the narrow plate's one panel that follows the story.
+ */
+function abreast(figure: HTMLElement): boolean {
+  const columns = figure.querySelector('.orbit__cols');
+  return (
+    !!columns &&
+    getComputedStyle(columns).gridTemplateColumns.trim().split(/\s+/).length > 1
+  );
+}
+
+/** Under this share of a wide plate's stage on screen, a visitor at its columns is reading them. */
+const STAGE_SHARE = 0.35;
+
+/**
+ * The group columns show, but the stage where the story plays does not (on a wide plate under 35%
+ * of it; on a narrow one under a third of it and under 120 px): a link to a column, a reload that
+ * restores the scroll, or a visitor reading on down or coming back up the page. Playing the story
+ * there would blank the very text the visitor is reading for as long as the story takes to type it
+ * again (7–20 s), with Pause and Replay out of sight (review of T4 round 3; design critique of the
+ * integrated build, round 2).
  */
 function columnsWithoutStage(figure: HTMLElement): boolean {
   const stage = figure.querySelector('[data-figure-stage]');
@@ -1073,8 +1092,100 @@ function columnsWithoutStage(figure: HTMLElement): boolean {
   const height = stage?.getBoundingClientRect().height ?? 0;
   return (
     shownHeight(figure.querySelector('.orbit__cols')) > 0 &&
-    shown < Math.min(height / 3, 120)
+    shown < (abreast(figure) ? height * STAGE_SHARE : Math.min(height / 3, 120))
   );
+}
+
+/** On a narrow plate the story starts once this many px of the stage show. */
+const START_PX = 150;
+
+/**
+ * When the story starts (sceneController's startWhen). On a wide plate, its columns abreast, once
+ * the top of the columns shows, their titles and "Group forming", above the screen's bottom edge
+ * (or the columns are reached from below): scrolling down to it, the whole stage shows above it on
+ * every laptop screen, the plate's Pause too, and column 1 types right under it, so the visitor sees
+ * each moon arrive and its text appear below it. Starting at 150 px of the stage typed column 1 below
+ * the fold, while the visitor looked at the stage (design critique of the integrated build, round
+ * 2). On a narrow plate, whose one text panel sits right under the stage and follows the phone's
+ * camera, once 150 px of the stage show. A resize that changes the plate's layout before the start
+ * looks again.
+ */
+function startWhen(
+  figure: HTMLElement,
+  stage: Element,
+  columns: Element,
+): (start: () => void) => void {
+  return (start) => {
+    // The columns' top to the bottom of their status line, "Group forming".
+    const status = figure.querySelector('.orbit-col__status');
+    const lead = Math.max(
+      24,
+      (status?.getBoundingClientRect().bottom ?? 0) -
+        columns.getBoundingClientRect().top,
+    );
+    const shown = { stage: false, columns: false };
+    const watchers: { disconnect(): void }[] = [];
+    const check = () => {
+      if (!(abreast(figure) ? shown.columns : shown.stage)) return;
+      for (const watcher of watchers) watcher.disconnect();
+      start();
+    };
+    // The viewport, less its bottom `px`: `element` meets it once that much of it shows (or,
+    // reached from below, once any of it does).
+    const watch = (element: Element, px: number, key: keyof typeof shown) => {
+      const observer = new IntersectionObserver(
+        ([entry]) => {
+          shown[key] = entry.isIntersecting;
+          check();
+        },
+        { rootMargin: `0px 0px -${Math.round(px)}px 0px` },
+      );
+      observer.observe(element);
+      watchers.push(observer);
+    };
+    watch(stage, START_PX, 'stage');
+    watch(columns, lead, 'columns');
+    const resized = new ResizeObserver(check);
+    resized.observe(figure);
+    watchers.push(resized);
+  };
+}
+
+/**
+ * While the story plays on a wide plate, a visitor who reads on down into the columns, under 35%
+ * of the stage left on screen, would see the columns still to come stand blank for up to 14 s and
+ * type out of sight of their moons. The story goes to its end instead: every column typed, the crews
+ * at work, the idle loops running (a visitor's Pause stays). Replay plays it again (design critique
+ * of the integrated build, round 2). Looked at on scroll, on resize and as the scene starts.
+ */
+function settleWhenRead(
+  figure: HTMLElement,
+  controller: SceneController,
+): void {
+  let frame = 0;
+  const look = () => {
+    frame = 0;
+    const tl = controller.timeline;
+    if (!tl || tl.storyDone) return;
+    if (controller.state !== 'playing' && controller.state !== 'paused') return;
+    if (!abreast(figure) || !columnsWithoutStage(figure)) return;
+    const paused =
+      figure
+        .querySelector('[data-scene-toggle]')
+        ?.getAttribute('aria-pressed') === 'true';
+    void controller.seek(T.story).then(() => {
+      if (!paused) controller.play();
+    });
+  };
+  const schedule = () => {
+    frame ||= requestAnimationFrame(look);
+  };
+  addEventListener('scroll', schedule, { passive: true });
+  addEventListener('resize', schedule);
+  new MutationObserver(schedule).observe(figure, {
+    attributes: true,
+    attributeFilter: ['data-scene-state'],
+  });
 }
 
 /** A link to one group's column (#group-ui; /working-groups/#ui redirects to it). */
@@ -1122,8 +1233,8 @@ function scrollSettled(): Promise<void> {
   });
 }
 
-/** Resolves once `px` of `element` show above the viewport's bottom edge (sceneController's
- * startOn). */
+/** Resolves once `px` of `element` show above the viewport's bottom edge (or, reached from below,
+ * once any of it does). */
 function shows(element: Element, px: number): Promise<void> {
   return new Promise((resolve) => {
     const observer = new IntersectionObserver(
@@ -1195,15 +1306,15 @@ export function initOrbit(figure: HTMLElement): SceneController {
     if (rest) tl.seek(T.story);
     build(tl)(tl);
   };
-  // The story starts once 150 px of the stage show (sceneController's startOn), not a share of the
-  // whole figure, whose text columns make it tall: the stage would long be on screen and empty
-  // (design critique of the integrated build). If at that moment only the columns show, rest
-  // instead: the story's end, then the idle loops. While the browser is still carrying the page to
-  // a fragment or a restored scroll, wait until it lands (and, landed elsewhere, until the stage or
+  // The story starts once the stage and the top of its text columns show together on a wide
+  // plate, and once 150 px of the stage show on a narrow one (startWhen), not at a share of the whole
+  // figure, whose text columns make it tall. If at that moment the columns show and the stage hardly
+  // does, rest instead: the story's end, then the idle loops; so too if the visitor reads on into
+  // the columns while it plays (settleWhenRead). While the browser is still carrying the page to a
+  // fragment or a restored scroll, wait until it lands (and, landed elsewhere, until the stage or
   // the columns show again) before deciding.
   const stage = figure.querySelector('[data-figure-stage]') ?? figure;
   const columns = figure.querySelector('.orbit__cols') ?? figure;
-  const START_PX = 150;
   const begin = async (): Promise<SceneBegin> => {
     if (carried()) {
       await scrollSettled();
@@ -1213,7 +1324,7 @@ export function initOrbit(figure: HTMLElement): SceneController {
   };
   const controller = sceneController(figure, first, {
     name: 'orbit',
-    startOn: { element: stage, px: START_PX },
+    startWhen: startWhen(figure, stage, columns),
     begin,
     timeline: { story: T.story, loop: T.loop },
     controls: {
@@ -1221,6 +1332,7 @@ export function initOrbit(figure: HTMLElement): SceneController {
       replay: figure.querySelector<HTMLButtonElement>('[data-scene-replay]'),
     },
   });
+  settleWhenRead(figure, controller);
   // The page marked the scene loading before importing this module. It stays so until the
   // controller has a state (built, or resting), which on a slow phone is several hundred ms after
   // this point: the head script's 1,200 ms check must not stand down in that gap and paint the

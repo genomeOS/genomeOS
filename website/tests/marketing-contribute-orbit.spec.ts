@@ -7,11 +7,13 @@
  *   group's text types after its moon, the pods land and the crews hop out, every column is lit
  *   at the story's end, and the orbit carries on into the idle loops. A picture of each moment is
  *   attached for the visual review.
- * - On a laptop's first screen the globe, its orbit and the first moon show, and the story plays
- *   from the load (design critique of the integrated build); the armed first paint already draws
- *   the globe and its orbit, never an empty box.
- * - The story starts once 150 px of the stage show (not a share of the tall figure); off screen
- *   every animation pauses; the Pause toggle is sticky and Replay starts over.
+ * - On a laptop the armed first paint draws the globe and its orbit, never an empty box, and the
+ *   story waits until the whole stage and the top of its text columns show together, so each moon's
+ *   arrival and its text typing are watched at once (design critique of the integrated build, round
+ *   2); on a narrow plate it starts once 150 px of the stage show. Off screen every animation
+ *   pauses; the Pause toggle is sticky and Replay starts over.
+ * - A visitor who reads on down into the columns mid-story, the stage nearly gone, finds every
+ *   column typed: the story goes to its end (paused still, if they had paused it).
  * - Above the fold it never paints its last frame and then empties (spec §2.7 rule 5), and a page
  *   that arrives too late to arm keeps that last frame through the build, frame by frame.
  * - On a narrow plate the text under the stage is one panel, the group being introduced, in step
@@ -536,29 +538,32 @@ test.describe('the orbit scene @desktop-chromium', () => {
       expect(crew.opacity, id).toBe(1);
   });
 
-  test('starts the story once 150 px of its stage show, and pauses it off screen', async ({
+  test('starts the story once its stage and the top of its columns show, and pauses it off screen', async ({
     page,
   }) => {
-    // A short window: at the top only the stage's top shows, under 150 px of it.
+    // A short window: at the top only the stage's top shows, and none of the columns.
     await page.setViewportSize({ width: 1440, height: 520 });
     await openOrbit(page);
     const figure = page.locator(FIGURE);
-    const stageTop = () =>
+    /** The bottom of the columns' status line ("Group forming"), from the viewport's top. */
+    const headBottom = () =>
       figure
-        .locator('[data-figure-stage]')
-        .evaluate((stage) => stage.getBoundingClientRect().top);
-    expect(520 - (await stageTop())).toBeLessThan(150);
+        .locator('.orbit-col__status')
+        .first()
+        .evaluate((status) => status.getBoundingClientRect().bottom);
+    expect(await headBottom()).toBeGreaterThan(520);
     await page.waitForTimeout(1200);
     await expect(figure).toHaveAttribute('data-scene-state', 'armed');
     expect(await page.evaluate(() => window.__motion!.time('orbit'))).toBe(0);
-    // 140 px of the stage: still waiting.
+    // The columns' heads 10 px below the screen's edge: still waiting, though most of the stage
+    // shows.
     await page.evaluate(
       (by) => window.scrollBy({ top: by, behavior: 'instant' }),
-      (await stageTop()) - 380,
+      (await headBottom()) - 530,
     );
     await page.waitForTimeout(600);
     await expect(figure).toHaveAttribute('data-scene-state', 'armed');
-    // 160 px: the story starts.
+    // 10 px above it: the story starts.
     await page.evaluate(() =>
       window.scrollBy({ top: 20, behavior: 'instant' }),
     );
@@ -675,16 +680,17 @@ test.describe('the orbit scene @desktop-chromium', () => {
     await expect(figure).toHaveAttribute('data-scene-state', 'playing');
   });
 
-  // Design critique of the integrated build: the first screen showed an empty starry box, the
-  // story waiting for 35% of a figure made tall by its text columns. On a laptop the globe and the
-  // first moon now show on the first screen, the armed first paint already draws the globe and its
-  // orbit, and the story plays from the load.
+  // Design critique of the integrated build: the first screen showed an empty starry box, so the
+  // armed first paint draws the globe and its orbit. Round 2: the story then played from the load,
+  // and column 1 typed below the fold while the visitor looked at the stage; it now waits until the
+  // whole stage and the top of its text columns show together, with the plate's Pause above them,
+  // so the visitor sees each moon arrive and its text type below it.
   for (const [width, height] of [
     [1440, 900],
     [1366, 768],
     [1280, 800],
   ] as const)
-    test(`opens on the globe and its first moon at ${width}×${height}, and plays at once`, async ({
+    test(`waits on its globe and orbit until the stage and the top of its columns show, at ${width}×${height}`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height });
@@ -703,7 +709,7 @@ test.describe('the orbit scene @desktop-chromium', () => {
             figure &&
             svg &&
             globe &&
-            figure.getAttribute('data-scene-state') === null
+            figure.getAttribute('data-scene-state') !== 'playing'
           )
             paints.push({
               state: figure.getAttribute('data-scene-state'),
@@ -721,8 +727,11 @@ test.describe('the orbit scene @desktop-chromium', () => {
       await page.goto('/contribute/');
       await page.evaluate(() => document.fonts.ready);
       const figure = page.locator(FIGURE);
-      await expect(figure).toHaveAttribute('data-scene-state', 'playing');
-      // Before the scene was built: the globe and its orbit, no moon.
+      await expect(figure).toHaveAttribute('data-scene-state', 'armed');
+      await page.waitForTimeout(1500);
+      // Until then: the globe and its orbit, no moon, the clock at 0.
+      await expect(figure).toHaveAttribute('data-scene-state', 'armed');
+      expect(await page.evaluate(() => window.__motion!.time('orbit'))).toBe(0);
       const armed = await page.evaluate(
         () =>
           (
@@ -735,27 +744,46 @@ test.describe('the orbit scene @desktop-chromium', () => {
       expect(
         armed.filter((paint) => paint.globe !== 1 || paint.moons > 0),
       ).toEqual([]);
+      /** Where the plate stands on screen, below the site's header. */
+      const where = () =>
+        page.evaluate(() => {
+          const element = document.querySelector('[data-graphic="orbit"]')!;
+          const box = (selector: string) =>
+            element.querySelector(selector)!.getBoundingClientRect();
+          const toggle = box('[data-scene-toggle]');
+          return {
+            state: element.getAttribute('data-scene-state'),
+            header: document
+              .querySelector('[data-site-header]')!
+              .getBoundingClientRect().bottom,
+            stage: box('[data-figure-stage]').toJSON(),
+            head: box('.orbit-col__status').bottom,
+            toggle: toggle.top + toggle.height / 2,
+          };
+        });
+      // Scrolled down a wheel notch at a time, the story starts once the columns' heads show, and
+      // then the whole stage shows above them, with the plate's Pause.
+      await page.mouse.move(width / 2, height / 2);
+      let at = await where();
+      for (let step = 0; at.state === 'armed' && step < 40; step++) {
+        await page.mouse.wheel(0, 40);
+        await page.waitForTimeout(150);
+        at = await where();
+      }
+      expect(at.state).toBe('playing');
+      expect(at.head).toBeLessThanOrEqual(height);
+      expect(at.stage.top).toBeGreaterThanOrEqual(at.header - 1);
+      expect(at.stage.bottom).toBeLessThanOrEqual(height);
+      expect(at.toggle).toBeGreaterThan(at.header);
+      // The first moon arrives on screen while its column types under it.
       await expect
         .poll(() => page.evaluate(() => window.__motion!.time('orbit')))
-        .toBeGreaterThan(T.dataMoon + 800);
-      const fold = await page.evaluate(() => {
-        const svg = [
-          ...document.querySelectorAll<SVGSVGElement>(
-            '[data-graphic="orbit"] .orbit-svg',
-          ),
-        ].find((item) => item.getClientRects().length > 0)!;
-        return {
-          globe: svg.querySelector('.globe-in image')!.getBoundingClientRect()
-            .bottom,
-          moon: svg
-            .querySelector(
-              '.orbiter--moon[data-moon="data"] .moon > circle:nth-of-type(2)',
-            )!
-            .getBoundingClientRect().bottom,
-        };
-      });
-      expect(fold.globe, 'globe').toBeLessThanOrEqual(height);
-      expect(fold.moon, 'first moon').toBeLessThanOrEqual(height);
+        .toBeGreaterThan(2600);
+      const shot = await page.evaluate(snapshot);
+      expect(shot.moons.data.shown).toBe(true);
+      expect(shot.moons.data.top).toBeGreaterThanOrEqual(at.header);
+      expect(shot.moons.data.bottom).toBeLessThanOrEqual(height);
+      expect(shot.columns[0].typed[0].shown).toBeGreaterThan(0);
     });
 
   test('never paints its last frame above the fold and then empties it', async ({
@@ -986,6 +1014,96 @@ test.describe('the orbit scene @desktop-chromium', () => {
       }))
       .filter((step) => step.by > 3);
     expect(jumps).toEqual([]);
+  });
+
+  /** Every column's typed lines in full. */
+  const allTyped = (page: Page) =>
+    page
+      .evaluate(snapshot)
+      .then(({ columns }) =>
+        columns.every(({ typed }) =>
+          typed.every((line) => line.shown === line.length),
+        ),
+      );
+
+  /** Wheel down from the top of the page to the Data column (header clear), in under 2 s. */
+  async function readOn(page: Page) {
+    const target = await page
+      .locator('#group-data')
+      .evaluate((column) => column.getBoundingClientRect().top + scrollY - 90);
+    const started = Date.now();
+    await page.mouse.move(720, 450);
+    for (let y = 0; y < target; y += 300) {
+      await page.mouse.wheel(0, Math.min(300, target - y));
+      await page.waitForTimeout(60);
+    }
+    await expect
+      .poll(() => page.evaluate(() => scrollY))
+      .toBeGreaterThan(target - 40);
+    expect(Date.now() - started).toBeLessThan(2000);
+  }
+
+  // Design critique of the integrated build, round 2: wheeling from the top down to the columns at
+  // 1.5 s, the stage scrolled away under the header and the story ran on out of sight, Modeling's
+  // column blank until about 8 s and UI's until about 15 s, each with only "Group forming" and a
+  // caret. Reading on into the columns now takes the story to its end: every column typed.
+  test('reading on into the columns mid-story finds every column typed within a second', async ({
+    page,
+  }) => {
+    await openOrbit(page);
+    const figure = page.locator(FIGURE);
+    await page.waitForTimeout(1500);
+    await readOn(page);
+    await expect.poll(() => allTyped(page), { timeout: 1000 }).toBe(true);
+    await expect(figure).toHaveAttribute('data-scene-state', 'playing');
+    expect(
+      await page.evaluate(() => window.__motion!.time('orbit')),
+    ).toBeGreaterThanOrEqual(T.story);
+    // Back up at the stage the crews work in the idle loops, and Replay plays the story again.
+    await figure.evaluate((element) =>
+      element.scrollIntoView({ block: 'start', behavior: 'instant' }),
+    );
+    await page
+      .getByRole('button', { name: 'Replay the orbit animation' })
+      .click();
+    await expect(figure).toHaveAttribute('data-scene-state', 'playing');
+    await page.waitForTimeout(300);
+    expect(
+      await page.evaluate(() => window.__motion!.time('orbit')),
+    ).toBeLessThan(T.story);
+  });
+
+  test('paused mid-story, reading on into the columns shows them typed and stays paused', async ({
+    page,
+  }) => {
+    await openOrbit(page);
+    const figure = page.locator(FIGURE);
+    await figure.evaluate((element) =>
+      element.scrollIntoView({ block: 'start', behavior: 'instant' }),
+    );
+    await expect(figure).toHaveAttribute('data-scene-state', 'playing');
+    await expect
+      .poll(() => page.evaluate(() => window.__motion!.time('orbit')))
+      .toBeGreaterThan(T.dataMoon + 1000);
+    const toggle = page.getByRole('button', {
+      name: 'Pause the orbit animation',
+    });
+    await toggle.click();
+    await expect(figure).toHaveAttribute('data-scene-state', 'paused');
+    expect(await allTyped(page)).toBe(false);
+    await page
+      .locator('#group-modeling')
+      .evaluate((column) =>
+        column.scrollIntoView({ block: 'start', behavior: 'instant' }),
+      );
+    await expect.poll(() => allTyped(page), { timeout: 1000 }).toBe(true);
+    await expect(figure).toHaveAttribute('data-scene-state', 'paused');
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await page.waitForTimeout(100);
+    const at = await page.evaluate(() => window.__motion!.time('orbit'));
+    expect(at).toBeGreaterThanOrEqual(T.story);
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => window.__motion!.time('orbit'))).toBe(at);
   });
 
   test('takes its own layout on a tablet, labels at 13 px or more', async ({

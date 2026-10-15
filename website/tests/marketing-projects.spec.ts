@@ -132,7 +132,7 @@ test('the threshold slider changes the count and its spoken value', async ({
     /^[\d,]+ confidently above, [\d,]+ possibly above$/,
   );
   await expect(figure.locator('.hbs__slider-label')).toHaveText(
-    'Show areas where 15% or more of births are AS',
+    'Show areas where AS births are at least 15%',
   );
 
   await slider.focus();
@@ -746,9 +746,11 @@ test('the HbS figure says plainly it is simplified, and links the live map', asy
 /** Survey 2's state, read from the page. */
 const surveyTwo = (page: Page) =>
   page.locator('figure[data-graphic="counts"]').evaluate((figure) => {
-    const places = [
-      ...figure.querySelectorAll('[data-grid="2"] use[data-s]'),
-    ].map((use) => use.getAttribute('href'));
+    const uses = [...figure.querySelectorAll('[data-grid="2"] use[data-s]')];
+    const places = uses.map((use) => use.getAttribute('href'));
+    const grid = figure
+      .querySelector('[data-grid="2"]')!
+      .getBoundingClientRect();
     const bar = figure.querySelector<HTMLElement>('[data-bar="2"]')!;
     const range = bar.querySelector('.cf-bar__range')!.getBoundingClientRect();
     const track = bar.getBoundingClientRect();
@@ -757,6 +759,21 @@ const surveyTwo = (page: Page) =>
       tested: places.filter((href) => href?.startsWith('#micro-face-tested-'))
         .length,
       untested: places.filter((href) => href === '#micro-untested').length,
+      // Places not drawn (past the next stop's room), and the faint ones drawn.
+      off: uses.filter((use) => use.hasAttribute('data-off')).length,
+      faint: uses.filter(
+        (use) =>
+          use.getAttribute('href') === '#micro-untested' &&
+          getComputedStyle(use).display !== 'none',
+      ).length,
+      // Every drawn place sits inside the grid's box, and the box ends at its last row.
+      gridHeight: grid.height,
+      lastBottom:
+        Math.max(
+          ...uses
+            .filter((use) => getComputedStyle(use).display !== 'none')
+            .map((use) => use.getBoundingClientRect().bottom),
+        ) - grid.top,
       label: figure.querySelector('[data-count-n]')!.textContent,
       value: bar.querySelector('.cf-bar__value')!.textContent,
       side: bar.dataset.side,
@@ -790,6 +807,10 @@ test('the counts slider updates survey 2’s people, bar, sentence and spoken va
   ] as const;
   let previous = Infinity;
   for (const [index, [people, upper]] of STOPS.entries()) {
+    // The slider stays where it is as the grid's room grows (the page scrolls with it).
+    const top = () =>
+      slider.evaluate((input) => input.getBoundingClientRect().top);
+    const before = await top();
     await slider.fill(String(index));
     await expect(slider).toHaveAttribute(
       'aria-valuetext',
@@ -804,6 +825,16 @@ test('the counts slider updates survey 2’s people, bar, sentence and spoken va
     expect(state.places, `${people}`).toBe(500);
     expect(state.tested, `${people}`).toBe(people);
     expect(state.untested, `${people}`).toBe(500 - people);
+    // Drawn: the people tested, and faint, the people the next stop adds; no more (design
+    // critique of the integrated build, round 2: ten people over a void of 490 dots).
+    const room = STOPS[Math.min(index + 1, STOPS.length - 1)][0];
+    expect(state.off, `${people}`).toBe(500 - room);
+    expect(state.faint, `${people}`).toBe(room - people);
+    expect(state.lastBottom, `${people}`).toBeLessThanOrEqual(
+      state.gridHeight + 0.5,
+    );
+    expect(state.gridHeight - state.lastBottom, `${people}`).toBeLessThan(12);
+    expect(Math.abs((await top()) - before), `${people}`).toBeLessThan(1);
     expect(state.label).toBe(String(people));
     expect(state.value).toBe(`0–${upper}%`);
     expect(state.side).toBe('right');
@@ -1059,7 +1090,7 @@ test('the Atlas chapter opens on an overview: the essentials in about 80 words, 
   ).toBeVisible();
   await expect(
     overview.getByRole('link', { name: 'Open the genomeOS Atlas' }),
-  ).toHaveAttribute('href', '/app/');
+  ).toHaveAttribute('href', '/app/?entity=hbs-rs334&palette=genome');
   await expect(overview.locator('data')).toHaveText(['4,392', '6.69M', '2']);
   // The one picture is the product itself, loaded and drawn (design critique of the integrated
   // build), not the index's mark again.
@@ -1075,6 +1106,12 @@ test('the Atlas chapter opens on an overview: the essentials in about 80 words, 
   await expect(still).toHaveAccessibleName(
     /^The genomeOS Atlas showing the sickle-cell variant HbS/,
   );
+  // The picture opens the map it shows (design critique of the integrated build, round 2).
+  await expect(
+    overview.getByRole('link', {
+      name: /^The genomeOS Atlas showing the sickle-cell variant HbS/,
+    }),
+  ).toHaveAttribute('href', '/app/?entity=hbs-rs334&palette=genome');
   await expect(overview.locator('.atlas-mark')).toHaveCount(0);
   // "How we count" stays folded: its definition is there for whoever asks.
   const method = overview.locator('details');

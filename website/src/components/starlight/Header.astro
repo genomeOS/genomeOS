@@ -8,11 +8,15 @@
  *
  * The Atlas link is the site header's pill (design critique of the integrated build: the docs bar
  * had a plain outline with no globe, no arrow and no glow): SiteHeader.astro's .launch-atlas-cta,
- * a black pill in an aurora rim with a globe and the arrow, its aurora's glow held still where the
- * site's comes to rest (no motion on the docs), in the site's compact form where room is short.
- * The globe is the kit's line globe, inline, not the favicon artwork (a 6 KB image past the docs'
- * budget). The phone bar's menu is the
- * site's "Menu +" (MobileMenuToggle.astro).
+ * a black pill in an aurora rim with the colour globe and the arrow, its aurora's glow held still
+ * where the site's comes to rest (no motion on the docs). It takes the site's compact form (no
+ * arrow) exactly where the site's does, from 72em to 87em, and its arrow everywhere else. The
+ * globe is the favicon's, drawn small and inline (atlas-globe.ts; the favicon image itself is 6 KB
+ * past the docs' budget). Round 2 of the critique: the bar carried a line globe and dropped the
+ * arrow at 1440 px. The phone bar's menu is the site's "Menu +" (MobileMenuToggle.astro), and
+ * between 50em and 72em, where site pages show "Menu +" beside the pill, so does this bar: the
+ * site's disclosure of the four page links (Starlight's sidebar, beside the page there, keeps the
+ * docs' own pages).
  *
  * Design review, round 2: it reads in the site header's order and type, so going from a site page
  * to Docs the primary nav neither jumps across the row nor changes weight: the lockup, the nav
@@ -48,8 +52,8 @@ import Search from '@astrojs/starlight/components/Search.astro';
 import GitHubLink from '../GitHubLink.astro';
 import ThemeSelect from './ThemeSelect.astro';
 import EncodingStyle from '../kit/EncodingStyle.astro';
+import { atlasGlobe } from './atlas-globe';
 import { PRIMARY_NAV } from '../../data/nav';
-import { ICON_PATHS } from '../kit/icons';
 import { sitePath } from '../../lib/paths';
 import '../../styles/tokens.css';
 ---
@@ -91,12 +95,11 @@ import '../../styles/tokens.css';
   <a class="docs-header__atlas print:hidden" href={sitePath('/app/')}>
     <svg
       class="docs-header__atlas-mark"
-      viewBox="0 0 24 24"
+      viewBox="0 0 100 100"
       aria-hidden="true"
       focusable="false"
-    >
-      <path d={ICON_PATHS.globe}></path>
-    </svg>
+      set:html={atlasGlobe('docs-atlas-globe')}
+    />
     <span class="docs-header__atlas-label">
       <span class="brand-name">genomeOS</span> Atlas
     </span>
@@ -109,8 +112,51 @@ import '../../styles/tokens.css';
       <path d="M5 12h13M13 6l6 6-6 6"></path>
     </svg>
   </a>
+  <details class="docs-menu print:hidden">
+    <summary>Menu</summary>
+    <nav aria-label="Site navigation">
+      <ul>
+        {
+          PRIMARY_NAV.map(({ label, href }) => (
+            <li>
+              <a
+                href={sitePath(href)}
+                aria-current={href === '/docs/' ? 'page' : undefined}
+              >
+                {label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+  </details>
 </div>
 <EncodingStyle />
+
+<script is:inline>
+  /* The Menu closes on Escape (focus back to its summary from inside it), and on a press or a focus
+     outside it, as the site's does (SiteHeader.astro). */
+  (() => {
+    const menu = document.querySelector('details.docs-menu');
+    if (!menu) return;
+    const outside = (event) => {
+      if (menu.open && !menu.contains(event.target)) menu.open = false;
+    };
+    addEventListener(
+      'keydown',
+      (event) => {
+        if (event.key !== 'Escape' || !menu.open) return;
+        const inside = menu.contains(document.activeElement);
+        menu.open = false;
+        if (inside) menu.querySelector('summary').focus();
+      },
+      true,
+    );
+    document.addEventListener('pointerdown', outside, true);
+    document.addEventListener('focusin', outside);
+  })();
+</script>
 
 <style>
   @layer starlight.core {
@@ -263,27 +309,20 @@ import '../../styles/tokens.css';
         0.6rem 0 1.3rem -0.1rem rgb(138 92 255 / 55%);
     }
 
-    /* The kit's line globe in ion, drawn inline: the site pill's favicon artwork would add a 6 KB
-       image to every docs page, past the docs' budget (spec §7: Starlight's baseline plus the
-       theme's CSS). */
+    /* The favicon's colour globe, drawn inline at the site pill's compact size (atlas-globe.ts). */
     .docs-header__atlas-mark {
       flex: none;
       width: 1.2rem;
       height: 1.2rem;
-      fill: none;
-      stroke: #70e6ff;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      stroke-width: 1.7;
     }
 
     .docs-header__atlas-label .brand-name {
       font-weight: 400;
     }
 
-    /* The arrow shows where the bar has room for the site's whole pill (below). */
+    /* The arrow shows wherever the site pill's does: everywhere but the site's compact range (below). */
     .docs-header__atlas-arrow {
-      display: none;
+      display: block;
       flex: none;
       width: 1rem;
       height: 1rem;
@@ -317,8 +356,7 @@ import '../../styles/tokens.css';
         background: Canvas;
       }
 
-      .docs-header__atlas-arrow,
-      .docs-header__atlas-mark {
+      .docs-header__atlas-arrow {
         stroke: ButtonText;
       }
     }
@@ -376,15 +414,133 @@ import '../../styles/tokens.css';
       }
     }
 
-    /* The site's whole pill, with its arrow, where Search keeps its label and key hint beside it:
-       with only GitHub in the nav (56em to 72em), and once the bar is wide again (from 92em). */
-    @media (56em <= width < 72em), (min-width: 92em) {
+    /* The site's whole pill, with its arrow, wherever the site's pill is whole: below 72em and from
+       87em (global.css, .launch-atlas-cta). Between, its compact form, as the site's: the globe and
+       the label. Search, a size container, gives the arrow its room. */
+    .docs-header__atlas {
+      padding-right: 0.95rem;
+    }
+
+    @media (72em <= width <= 87em) {
       .docs-header__atlas {
-        padding-right: 0.95rem;
+        padding-right: 0.75rem;
       }
 
       .docs-header__atlas-arrow {
+        display: none;
+      }
+    }
+
+    /* "Menu +" from 50em to 72em, where site pages show it beside the pill: the site's disclosure
+       (global.css, .mobile-nav) with the four page links, at the bar's right edge. */
+    .docs-menu {
+      position: relative;
+      display: none;
+      flex: none;
+    }
+
+    @media (50em <= width < 72em) {
+      .docs-menu {
         display: block;
+      }
+    }
+
+    /* Where the bar is narrowest beside the sidebar (50em to 56em), GitHub keeps its mark and its
+       name ("View genomeOS on GitHub") and gives its word's room to Search, which "Menu +" and the
+       pill's arrow would otherwise squeeze below its 44 px target. */
+    @media (50em <= width < 56em) {
+      .docs-header__nav :global(.github-link) {
+        justify-content: center;
+        min-width: 2.75rem;
+        min-height: 2.75rem;
+      }
+
+      .docs-header__nav :global(.github-link span) {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+      }
+    }
+
+    .docs-menu summary {
+      display: flex;
+      align-items: center;
+      min-height: 2.75rem;
+      padding-inline: 0.15rem;
+      color: var(--color-starlight);
+      font-size: 1rem;
+      font-weight: 650;
+      list-style: none;
+      cursor: pointer;
+    }
+
+    .docs-menu summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .docs-menu summary::after {
+      margin-left: 0.5rem;
+      color: var(--color-ion);
+      content: '+' / '';
+    }
+
+    .docs-menu[open] summary::after {
+      content: '−' / '';
+    }
+
+    .docs-menu nav {
+      position: absolute;
+      top: 2.9rem;
+      right: 0;
+      width: 19rem;
+      padding: 1.2rem;
+      border: 1px solid var(--color-line);
+      background: var(--color-orbit);
+      box-shadow: 0 1.4rem 4rem rgb(0 0 0 / 44%);
+    }
+
+    .docs-menu ul {
+      display: grid;
+      gap: 0.8rem;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    /* 44 px targets made of padding that takes no room, as the site's: the link is inline. */
+    .docs-menu a {
+      position: relative;
+      padding-block: 0.6rem;
+      color: var(--color-starlight);
+      font-size: 1rem;
+      text-decoration: none;
+    }
+
+    .docs-menu a:hover {
+      color: var(--color-ion);
+    }
+
+    /* The current page, as the site's Menu marks it: ion, with a square side rule at the panel's
+       inner edge. */
+    .docs-menu a[aria-current='page'] {
+      color: var(--color-ion);
+    }
+
+    .docs-menu a[aria-current='page']::before {
+      position: absolute;
+      top: 0.4rem;
+      bottom: 0.4rem;
+      left: -1.2rem;
+      border-left: 3px solid var(--color-ion);
+      content: '';
+    }
+
+    @media (forced-colors: active) {
+      .docs-menu summary::after {
+        color: ButtonText;
       }
     }
 

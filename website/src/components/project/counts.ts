@@ -15,8 +15,13 @@
  * absence, and bar 2 never collapses below 2 px.
  *
  * The grids are `<use>`s of the kit's micro astronaut symbols (src/graphics/astro/micro.ts), one per
- * person: 206 in survey 1 and the room for 500 in survey 2, 706 in all, positioned by CSS for the
- * wide and narrow layouts (counts.css), so the slider only swaps `href`s on nodes that exist.
+ * person: 206 in survey 1 and 500 in survey 2, 706 in all, positioned by CSS for the wide and narrow
+ * layouts (counts.css), so the slider only swaps `href`s on nodes that exist. Survey 2 draws the
+ * people tested and, as faint places, the people the next stop would add (`roomAt`); the places
+ * past that are not drawn, and the grid is only as tall as the room it draws. Room for all 500 at
+ * every stop left ten astronauts over a void of 490 dots at the default stop (design critique of the
+ * integrated build, round 2). As the room grows or shrinks the page scrolls with it, so the slider
+ * and the bar under the grid stay where the visitor is looking.
  */
 
 import {
@@ -51,8 +56,14 @@ export const geneCopiesOf = (survey: GenotypeCounts) => 2 * survey.tested;
 
 /** People tested in survey 2: six stops on a log scale (spec §4.2.5). */
 export const PEOPLE_STOPS = [10, 20, 50, 100, 200, 500] as const;
-/** Survey 2's grid keeps room for the largest stop, so the slider never moves the page. */
+/** Survey 2's places: one node for each person at the largest stop. */
 export const ROW_2_ROOM = PEOPLE_STOPS[PEOPLE_STOPS.length - 1];
+/**
+ * The places survey 2 draws at stop `index`: the people the next stop would test (the faint ones
+ * not yet), all of them at the last stop.
+ */
+export const roomAt = (index: number): number =>
+  PEOPLE_STOPS[Math.min(Math.max(index, 0) + 1, PEOPLE_STOPS.length - 1)];
 /** The shared axis runs from 0 to 40%, ticked at 0, 20 and 40. */
 export const AXIS_MAX = 0.4;
 export const AXIS_TICKS = [0, 0.2, 0.4] as const;
@@ -240,6 +251,17 @@ export const clientStop = (stop: CountsStop): ClientStop => ({
 export const placeHref = (tested: boolean, skin: string) =>
   tested ? `#micro-face-tested-${skin}` : '#micro-untested';
 
+/** Survey 2's grid style for a room of `room` places (counts.css reads it). */
+export const roomStyle = (room: number) => {
+  const box = gridBox(room);
+  return {
+    '--wide-h': String(box.height.wide),
+    '--narrow-h': String(box.height.narrow),
+    '--wide-rows': String(box.rows.wide),
+    '--narrow-rows': String(box.rows.narrow),
+  };
+};
+
 /**
  * The island: the entrance (CSS, counts.css, once at 35%, under 1.6 s) and the slider. Moving the
  * slider ends the entrance at once, then updates survey 2's count, bar, value, sentence, output
@@ -261,10 +283,12 @@ export function initCounts(
   const bar = figure.querySelector<HTMLElement>('[data-bar="2"]');
   const value = bar?.querySelector<HTMLElement>('.cf-bar__value');
   const sentence = figure.querySelector<HTMLElement>('[data-row-sentence="2"]');
+  const grid = figure.querySelector<SVGSVGElement>('[data-grid="2"]');
   const places = [
     ...figure.querySelectorAll<SVGUseElement>('[data-grid="2"] use[data-s]'),
   ];
   let shown = stops[Number(slider.value)]?.tested ?? stops[0].tested;
+  let room = roomAt(Number(slider.value));
 
   const controller = new FigureController(
     figure,
@@ -285,7 +309,12 @@ export function initCounts(
     output.textContent = stop.output;
     slider.setAttribute('aria-valuetext', stop.valuetext);
     const fade = !prefersReducedMotion();
+    const next = roomAt(Number(slider.value));
+    // Where the slider stands before the room changes: the page scrolls back to it after.
+    const before = next === room ? 0 : slider.getBoundingClientRect().top;
     places.forEach((place, index) => {
+      const drawn = index < next;
+      if (drawn !== index < room) place.toggleAttribute('data-off', !drawn);
       const tested = index < stop.tested;
       if (tested === index < shown) return;
       place.setAttribute('href', placeHref(tested, place.dataset.s!));
@@ -295,6 +324,14 @@ export function initCounts(
           easing: 'cubic-bezier(0.2, 0.75, 0.25, 1)',
         });
     });
+    if (next !== room && grid) {
+      for (const [name, value] of Object.entries(roomStyle(next)))
+        grid.style.setProperty(name, value);
+      const moved = slider.getBoundingClientRect().top - before;
+      if (Math.abs(moved) >= 0.5)
+        window.scrollBy({ top: moved, behavior: 'instant' });
+    }
+    room = next;
     shown = stop.tested;
   };
   slider.addEventListener('input', update);

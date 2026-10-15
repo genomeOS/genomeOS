@@ -184,9 +184,13 @@ const mutedSwatch = muteColor(ENC.mean[2]);
   <Fragment slot="readout">
     <div class="hbs__controls" data-figure-chrome>
       <label class="hbs__slider-label" for={id('threshold')}>
-        Show areas where <output data-hbs-threshold for={id('threshold')}
-          >{stopText(stop)}%</output
-        > or more of births are <span data-hbs-genotype-name>{SHOWN}</span>
+        Show areas where <span data-hbs-genotype-name>{SHOWN}</span> births are{
+          ' '
+        }<span class="hbs__at-least"
+          >at least <output data-hbs-threshold for={id('threshold')}
+            >{stopText(stop)}%</output
+          ></span
+        >
       </label>
       <input
         id={id('threshold')}

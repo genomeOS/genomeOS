@@ -22,6 +22,7 @@ import {
   copiesOf,
   geneCopiesOf,
   labelSide,
+  roomAt,
 } from '../src/components/project/counts';
 import { microSkins } from '../src/graphics/astro/micro';
 import { jeffreys } from '../src/graphics/jeffreys';
@@ -37,6 +38,17 @@ function figure(): string {
   const start = projects.lastIndexOf('<figure', at);
   return projects.slice(start, projects.indexOf('</figure>', at) + 9);
 }
+
+describe('survey 2’s room', () => {
+  it('draws the people tested and the people the next stop adds, all of them at the last stop', () => {
+    expect(PEOPLE_STOPS.map((_, index) => roomAt(index))).toEqual([
+      20, 50, 100, 200, 500, 500,
+    ]);
+    PEOPLE_STOPS.forEach((tested, index) =>
+      expect(roomAt(index)).toBeGreaterThanOrEqual(tested),
+    );
+  });
+});
 
 describe('the worked example, in people', () => {
   it('adds up as genotypes do: 55 with one copy and 3 with two are 58 carriers and 61 copies', () => {
@@ -171,7 +183,7 @@ describe.skipIf(!projects)('the counts figure on the built page', () => {
       /<div class="layout-figure-split__text proj-counts__text">([\s\S]*?)<\/div>/,
     )![1];
     const words = column.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
-    expect(words).toContain('Counts, not guesses.');
+    expect(words).toContain('Counts, not guesses');
     expect(words).toContain('Zero is weak evidence, not absence.');
     expect(words).toContain(
       'Each person carries two copies of the gene; the Atlas counts copies.',
@@ -189,6 +201,9 @@ describe.skipIf(!projects)('the counts figure on the built page', () => {
     expect(
       people.filter((use) => /href="#micro-untested"/.test(use)),
     ).toHaveLength(490 + 1);
+    // Drawn: the 10 tested and the 10 more the next stop tests; the other 480 places are not
+    // (design critique of the integrated build, round 2).
+    expect(people.filter((use) => /\sdata-off\b/.test(use))).toHaveLength(480);
     // The kit's symbols, defined once in the figure.
     expect(html.match(/<symbol\b/g) ?? []).toHaveLength(13);
     expect(html).not.toMatch(/class="astro\b/);

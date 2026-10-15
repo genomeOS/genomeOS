@@ -68,6 +68,11 @@
     scale(var(--ps));
 }
 
+/* Survey 2's places past the next stop's room: not drawn (counts.ts roomAt). */
+.cf-grid use[data-off] {
+  display: none;
+}
+
 @container cf (max-width: 33.99rem) {
   .cf-grid {
     aspect-ratio: 800 / var(--narrow-h);

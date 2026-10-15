@@ -113,7 +113,7 @@ export const stopText = (stop: number): string =>
 
 /** The threshold control's label, true for the measure shown. */
 export const thresholdLabel = (genotype: Genotype, stop: number): string =>
-  `Show areas where ${stopText(stop)}% or more of births are ${genotype}`;
+  `Show areas where ${genotype} births are at least ${stopText(stop)}%`;
 
 /* ---------- the muted state ---------- */
 

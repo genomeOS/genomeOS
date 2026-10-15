@@ -93,7 +93,10 @@
 }
 
 /* A short laptop screen (1366 × 768, 1280 × 800): the intro's padding and lede step down further
-   (the H1 keeps the site's size), so the globe and the first moon still show on the first screen. */
+   (the H1 keeps the site's size), so the globe and the first moon still show on the first screen.
+   The plate tightens too: its top bar and the columns' heads, so that where the story starts (the
+   stage and the first typed line on screen, orbit.ts startWhen) the bar's heading and its Pause
+   still show under the site's header (design critique of the integrated build, round 2). */
 @media (min-width: 52rem) and (max-height: 52rem) {
   .contribute-intro .page-intro--split .page-intro__inner {
     padding-block: 1.6rem 1.25rem;
@@ -105,6 +108,23 @@
 
   .band.wg-section {
     padding-top: 1rem;
+  }
+
+  .wg-section .orbit__bar {
+    padding-block: 0.45rem 0.4rem;
+  }
+
+  .wg-section .orbit__kicker {
+    margin-bottom: 0.15rem;
+  }
+
+  .wg-section .orbit__title {
+    font-size: clamp(1.55rem, 2.3vw, 2.15rem);
+  }
+
+  .wg-section .orbit-col {
+    gap: 0.4rem;
+    padding-top: 0.85rem;
   }
 }
 

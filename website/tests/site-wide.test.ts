@@ -9,7 +9,10 @@
  * - no marketing page announces a limitation: no "not yet validated", "plausible map" or
  *   "validated" in its visible text (ruling 37);
  * - React (react-dom) is in the Atlas app's chunks only, and no marketing page reaches a chunk
- *   holding it, statically or through a lazy import (ruling 44).
+ *   holding it, statically or through a lazy import (ruling 44);
+ * - one punctuation rule per heading level on the marketing pages: a visible H1 or H2 is a
+ *   sentence and ends with a period (a name, the Atlas's chapter, is not a sentence), and an H3 or
+ *   below is a label without one (rulings item 27; design critique of the integrated build, round 2).
  *
  * The runtime side (axe at any instant, visible control text after scripts run, overflow) is
  * tests/marketing-sitewide.spec.ts.
@@ -153,5 +156,34 @@ describe('React stays in the Atlas app (ruling 44)', () => {
     expect(
       reached.filter((chunk) => read(chunk).includes('react-dom')),
     ).toEqual([]);
+  });
+});
+
+describe('one punctuation rule per heading level (marketing pages)', () => {
+  /** Headings that are names, not sentences. */
+  const NAMES = new Set(['genomeOS Atlas']);
+  const headings = (html: string) =>
+    [...html.matchAll(/<h([1-6])\b([^>]*)>([\s\S]*?)<\/h\1>/g)]
+      .filter(([, , attributes]) => !/\bvisually-hidden\b/.test(attributes!))
+      .map(([, level, , inner]) => ({
+        level: Number(level),
+        text: visibleText(inner!)
+          .replace(/&amp;/g, '&')
+          .replace(/&#39;|&rsquo;/g, '’')
+          .trim(),
+      }))
+      .filter(({ text }) => text !== '');
+
+  it('finds the headings it checks', () => {
+    expect(
+      marketing.flatMap((file) => headings(read(file))).length,
+    ).toBeGreaterThan(30);
+  });
+
+  it.each(marketing)('%s', (file) => {
+    const wrong = headings(read(file)).filter(({ level, text }) =>
+      level <= 2 ? !NAMES.has(text) && !/[.?!]$/.test(text) : /\.$/.test(text),
+    );
+    expect(wrong).toEqual([]);
   });
 });

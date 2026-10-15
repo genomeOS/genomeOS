@@ -2537,7 +2537,11 @@ test('the address and Email us come first in view, then the template section in 
     );
   }
   await expect(
-    page.getByRole('heading', { level: 2, name: 'Or start from a template' }),
+    page.getByRole('heading', {
+      level: 2,
+      name: 'Or start from a template.',
+      exact: true,
+    }),
   ).toBeVisible();
   // The old controls are gone.
   for (const name of ['Copy draft', 'Blank email', 'Show email address'])
