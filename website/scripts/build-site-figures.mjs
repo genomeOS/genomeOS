@@ -64,9 +64,12 @@ const VISIBLE_COSC = 0.35;
 const CALLOUT_SURVEY = { lon: 8, lat: 9, withinKm: 600 };
 /**
  * The No-estimate label's area: the unknown area nearest 45°N 70°E (Central Asia) whose centre is
- * within `withinDeg` of the view centre at rest. The Atlas preview draws each label on the globe
- * beside its point and only while the point faces the viewer (round 2 build ruling 23: whole within
- * 60° of the centre), so every label shows at the starting view and stays a while as the globe turns.
+ * within `withinDeg` of the view centre at rest and whose six neighbours are all unknown too, so
+ * its ring lands inside the stripes, never on their edge beside coloured cells (design critique of
+ * the integrated build; R2-16, as the Modeled rule asks for estimated neighbours). The Atlas
+ * preview draws each label on the globe beside its point and only while the point faces the viewer
+ * (round 2 build ruling 23: whole within 60° of the centre), so every label shows at the starting
+ * view and stays a while as the globe turns.
  */
 const CALLOUT_UNKNOWN = { lon: 70, lat: 45, withinDeg: 55 };
 /**
@@ -352,10 +355,17 @@ const visibleGlobe = decodedGlobe
   .map((area, index) => ({ area, index, rest: atRest(...area.center) }))
   .filter(({ rest }) => rest.cosc >= VISIBLE_COSC);
 const unknownFaceOn = Math.cos((CALLOUT_UNKNOWN.withinDeg * Math.PI) / 180);
+const unknownAreas = new Set(
+  globe
+    .filter((_, index) => decodedGlobe[index].support === 'unknown')
+    .map((area) => area.h3),
+);
 const unknownCallout = visibleGlobe
   .filter(
-    ({ area, rest }) =>
-      area.support === 'unknown' && rest.cosc >= unknownFaceOn,
+    ({ area, index, rest }) =>
+      area.support === 'unknown' &&
+      rest.cosc >= unknownFaceOn &&
+      gridDisk(globe[index].h3, 1).every((cell) => unknownAreas.has(cell)),
   )
   .map((candidate) => ({
     ...candidate,
@@ -451,7 +461,7 @@ const callouts = [
   },
   {
     kind: 'unknown',
-    rule: `the unknown area nearest 45°N 70°E within ${CALLOUT_UNKNOWN.withinDeg}° of the view centre at rest`,
+    rule: `the unknown area nearest 45°N 70°E within ${CALLOUT_UNKNOWN.withinDeg}° of the view centre at rest, with every neighbour unknown`,
     distance_km: unknownCallout.area.distanceKm,
     area_index: unknownCallout.index,
     ...restPoint(...unknownCallout.area.center),

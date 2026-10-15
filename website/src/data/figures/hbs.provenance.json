@@ -131,18 +131,18 @@
     },
     {
       "kind": "unknown",
-      "rule": "the unknown area nearest 45°N 70°E within 55° of the view centre at rest",
-      "distance_km": 1559,
-      "area_index": 566,
-      "lon": 59.67,
-      "lat": 47.02,
+      "rule": "the unknown area nearest 45°N 70°E within 55° of the view centre at rest, with every neighbour unknown",
+      "distance_km": 1808,
+      "area_index": 498,
+      "lon": 60.77,
+      "lat": 50.02,
       "poster": [
-        456,
-        123.9
+        450.9,
+        112
       ],
       "disc": [
-        0.4532,
-        -0.6536
+        0.4363,
+        -0.6932
       ]
     }
   ],

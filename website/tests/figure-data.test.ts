@@ -21,6 +21,8 @@ import {
   STUD_RING,
   vsupColor,
 } from '../src/graphics/encoding';
+import { gridDisk, latLngToCell } from 'h3-js';
+
 import { haversineKm, orthographic } from '../src/graphics/projection';
 
 const website = path.resolve(import.meta.dirname, '..');
@@ -280,6 +282,28 @@ describe('committed figure data', () => {
       if (c > 0) nearest = Math.min(nearest, Math.hypot(x - ax, y - ay));
     }
     expect(nearest).toBeGreaterThanOrEqual(24);
+  });
+
+  // Design critique of the integrated build: the No-estimate pin sat on the edge of the stripes,
+  // beside coloured cells. Its area is inside them: all six neighbours are unknown as well.
+  it('anchors the No-estimate label inside the stripes, every neighbour unknown', () => {
+    const unknown = (provenance.callouts as Record<string, unknown>[]).find(
+      (callout) => callout.kind === 'unknown',
+    )!;
+    const res = (provenance.resolutions as { globe: number }).globe;
+    const globe = decodeAreas(file('globe'));
+    const byCell = new Map(
+      globe.map((area) => [
+        latLngToCell(area.center[1], area.center[0], res),
+        area,
+      ]),
+    );
+    const area = globe[unknown.area_index as number];
+    const cell = latLngToCell(area.center[1], area.center[0], res);
+    const neighbours = gridDisk(cell, 1).filter((other) => other !== cell);
+    expect(neighbours).toHaveLength(6);
+    for (const other of neighbours)
+      expect(byCell.get(other)?.support, other).toBe('unknown');
   });
 
   // R2-16 and round 2 spec §11.1: the Modeled label names modeling, so no survey lies within the
