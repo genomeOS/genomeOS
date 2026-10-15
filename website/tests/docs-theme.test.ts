@@ -213,6 +213,10 @@ describe('the "Docs" kicker', () => {
       /<p\b[^>]*class="docs-kicker"[^>]*>Docs<\/p>\s*<h1\b/,
     );
     expect(html.match(/class="docs-kicker"/g)).toHaveLength(1);
+    // Search leaves it out (review of T6): a search for "docs" must not match every guide.
+    expect(titleArea(html)).toMatch(
+      /<p\b[^>]*class="docs-kicker"[^>]*data-pagefind-ignore[^>]*>Docs<\/p>/,
+    );
   });
 
   it('is left off the landing, whose title already says Docs', () => {

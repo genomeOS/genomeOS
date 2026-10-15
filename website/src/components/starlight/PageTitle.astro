@@ -4,12 +4,19 @@
  * docs-light.md §3.4; #454): the site's kicker (spec §2.3), naming the part of the site the reader
  * is in. Below 72em the header's nav, which marks Docs as current, is hidden, so on tablets and
  * phones this is the one visible "you are in Docs" on a guide. The landing's H1 already says Docs,
- * so it has none. Styles: starlight.css (.docs-kicker).
+ * so it has none. Styles: starlight.css (.docs-kicker). The kicker sits inside Starlight's
+ * data-pagefind-body, so it is marked data-pagefind-ignore.
  */
 import Default from '@astrojs/starlight/components/PageTitle.astro';
 
 const isLanding = Astro.locals.starlightRoute.id === 'docs';
 ---
 
-{!isLanding && <p class="docs-kicker">Docs</p>}
+{
+  !isLanding && (
+    <p class="docs-kicker" data-pagefind-ignore>
+      Docs
+    </p>
+  )
+}
 <Default />
