@@ -11,8 +11,14 @@
  *   reduced motion.
  * - Only a contribution's opening and subject change words, for its offers; the island and the
  *   pre-paint script write those two spans (`data-offer-list`, `data-offer-subject`).
- * - To is the address, which the pre-paint script writes before the first paint (contact-paint.ts);
- *   "genomeOS Foundation" stands in only until it has.
+ * - To is the address, served spelled out and joined by the island at the first sign of a person,
+ *   in the spelled-out form's box (contact.css), so nothing moves.
+ * - Its copy button (owner, 2026-10-15: "add a copy icon to the upper right of the rendered
+ *   template") is a glyph in the plate's top-right corner, above the To line, which starts below
+ *   it. It copies the draft's text, as a copy of the whole letter does, and turns into a check with
+ *   "Copied" beside it, at its own size. Where the clipboard is blocked the letter is selected
+ *   instead, and a line at its top says which keys copy it. It is outside the letter's text
+ *   (`[data-letter]`), so neither a selection of the letter nor its typing sees it.
  * - The stage is a labelled region, read as text and never announced on a change.
  * - It types itself out the first time it is in view, and retypes only what a choice changes
  *   (letter-typing.ts). That is display only, and only while it types: at rest the letter is this
@@ -33,6 +39,7 @@
 import BrandName from '../BrandName.astro';
 import Plate from '../kit/Plate.astro';
 import ContactIcon from './ContactIcon.astro';
+import { SPELLED_OUT } from './contact-paint';
 import {
   GREETING,
   letterList,
@@ -76,14 +83,25 @@ const sections: { id: SectionId; offer: boolean }[] = [
   region
   labelledby="contact-letter-title"
 >
+  <button
+    type="button"
+    class="letter-copy"
+    data-action="copy-letter"
+    aria-label="Copy the letter"
+  >
+    <span class="letter-copy__word">Copied</span>
+    <ContactIcon name="copy" class="letter-copy__idle" />
+    <ContactIcon name="check" class="letter-copy__check" />
+  </button>
+  <p class="contact-hint letter-hint" data-hint="letter" hidden></p>
   <div class="letter" data-letter>
     <dl class="letter__head">
       <div class="letter__row">
         <dt>To</dt>
         <dd>
-          <span data-to-name><BrandName /> Foundation</span><span
-            class="letter__address"
-            data-to-address></span>
+          <span class="letter__address" data-spelled={SPELLED_OUT}
+            ><span data-to-address>{SPELLED_OUT}</span></span
+          >
         </dd>
       </div>
       <div class="letter__row">
