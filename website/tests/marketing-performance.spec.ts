@@ -8,7 +8,11 @@
  * downloads by when:
  *
  *   initial   everything from navigation until network idle without scrolling, the film left
- *             out: first-load JS (`jsKbGz`), images (`imagesKbGz`), the total (`transferKbGz`)
+ *             out: first-load JS (`jsKbGz`), images (`imagesKbGz`), the total (`transferKbGz`).
+ *             First-load JS is the page's own: a lazy module the manifest names, and the chunks
+ *             only it brings (the scene kit), count as lazy even when their figure is in the first
+ *             view and loads them at once (Contribute's orbit, spec §7: "orbit ≤ 40" beside a
+ *             10 KB page); the initial transfer still counts every byte of them.
  *   lazy      each module imported as its figure approaches, by chunk name (`lazyJsKbGz`); every
  *             one the manifest names must load once every figure has been in view (a page not
  *             enforced yet only logs the ones that did not)
@@ -41,8 +45,13 @@ import {
 import { marketingRoutes } from './site-routes';
 
 interface Measured {
-  /** First-load first-party JS (before any scrolling), without the cookie control (ruling 11). */
+  /**
+   * First-load first-party JS (before any scrolling), without the cookie control (ruling 11) and
+   * without the manifest's lazy modules and the chunks only they import (`lazyAtLoadKb`).
+   */
   jsKb: number;
+  /** The manifest's lazy modules, and the chunks only they import, that loaded before scrolling. */
+  lazyAtLoadKb: number;
   /** JS by chunk name (the file name before its hash), wherever in the visit it loaded. */
   chunksKb: Record<string, number>;
   /** The cookie control's module and the modules it imports. */
@@ -92,6 +101,7 @@ async function measure(
   page: Page,
   route: string,
   profile: keyof typeof PROFILES,
+  lazyChunks: string[] = [],
 ): Promise<Measured> {
   const { viewport, cpu, network } = PROFILES[profile];
   await page.setViewportSize(viewport);
@@ -157,100 +167,148 @@ async function measure(
       { timeout: 45_000 },
     );
   const filmReason = film?.reason ?? null;
-  const measured = await page.evaluate(async (initialCount) => {
-    const kb = (bytes: number) => Math.round((bytes / 1024) * 10) / 10;
-    // Read the timing first: fetching the control's sources below adds entries of its own.
-    const entries = performance.getEntriesByType(
-      'resource',
-    ) as PerformanceResourceTiming[];
-    const initialEntries = new Set(entries.slice(0, initialCount));
-    // The cookie control: its module script and, transitively, the modules it imports.
-    const control = document.querySelector<HTMLScriptElement>(
-      'script[type="module"][src*="CookieControl.astro_astro_type_script"]',
-    );
-    if (!control)
-      throw new Error(
-        'This build has no cookie control, so it loads no analytics: the budgets measure the deployed build (ruling 10). Build with `npm run build:deployed`.',
+  const measured = await page.evaluate(
+    async ([initialCount, lazyChunks]) => {
+      const kb = (bytes: number) => Math.round((bytes / 1024) * 10) / 10;
+      // Read the timing first: fetching the control's sources below adds entries of its own.
+      const entries = performance.getEntriesByType(
+        'resource',
+      ) as PerformanceResourceTiming[];
+      const initialEntries = new Set(entries.slice(0, initialCount));
+      /** These module URLs and, transitively, every module they import statically (no import()). */
+      const closure = async (roots: string[]) => {
+        const urls = new Set<string>();
+        const pending = [...roots];
+        while (pending.length) {
+          const url = pending.pop()!;
+          if (urls.has(url)) continue;
+          urls.add(url);
+          const source = await (await fetch(url)).text();
+          for (const [, specifier] of source.matchAll(
+            /(?:\bfrom|\bimport)\s*["'](\.{0,2}\/[^"']+)["']/g,
+          ))
+            pending.push(new URL(specifier!, url).href);
+        }
+        return urls;
+      };
+      // The cookie control: its module script and, transitively, the modules it imports.
+      const control = document.querySelector<HTMLScriptElement>(
+        'script[type="module"][src*="CookieControl.astro_astro_type_script"]',
       );
-    const cookieUrls = new Set<string>();
-    const pending = [control.src];
-    while (pending.length) {
-      const url = pending.pop()!;
-      if (cookieUrls.has(url)) continue;
-      cookieUrls.add(url);
-      const source = await (await fetch(url)).text();
-      for (const [, specifier] of source.matchAll(
-        /(?:\bfrom|\bimport)\s*["'](\.{1,2}\/[^"']+)["']/g,
-      ))
-        pending.push(new URL(specifier!, url).href);
-    }
-    const [navigation] = performance.getEntriesByType(
-      'navigation',
-    ) as PerformanceNavigationTiming[];
-    const firstParty = entries.filter(
-      (entry) =>
-        new URL(entry.name).origin === location.origin &&
-        !entry.name.includes('googletagmanager'),
-    );
-    const sum = (list: PerformanceResourceTiming[]) =>
-      list.reduce(
-        (total, entry) => total + (entry.transferSize || entry.encodedBodySize),
-        0,
-      );
-    const scripts = firstParty.filter((entry) =>
-      /\.m?js(\?|$)/.test(entry.name),
-    );
-    const cookie = scripts.filter((entry) => cookieUrls.has(entry.name));
-    const js = scripts.filter(
-      (entry) => !cookieUrls.has(entry.name) && initialEntries.has(entry),
-    );
-    const chunks: Record<string, number> = {};
-    for (const entry of scripts) {
-      const name = new URL(entry.name).pathname
-        .split('/')
-        .pop()!
-        .replace(/\.[\w-]+\.m?js$/, '');
-      chunks[name] =
-        (chunks[name] ?? 0) + (entry.transferSize || entry.encodedBodySize);
-    }
-    const data = firstParty.filter((entry) =>
-      /\/_astro\/hbs-[^/]+\.bin(\?|$)/.test(entry.name),
-    );
-    const images = firstParty.filter(
-      (entry) => entry.initiatorType === 'img' && initialEntries.has(entry),
-    );
-    // The hero film: deferred past the load event, budgeted on its own, out of the total.
-    const videos = firstParty.filter(
-      (entry) => entry.initiatorType === 'video',
-    );
-    const initial = firstParty.filter(
-      (entry) => !videos.includes(entry) && initialEntries.has(entry),
-    );
-    const state = (
-      window as unknown as { __perf: { lcp: number; cls: number } }
-    ).__perf;
-    return {
-      jsKb: kb(sum(js)),
-      chunksKb: Object.fromEntries(
-        Object.entries(chunks).map(([name, bytes]) => [name, kb(bytes)]),
-      ),
-      cookieKb: kb(sum(cookie)),
-      cookieUrls: [...cookieUrls],
-      dataKb: kb(sum(data)),
-      imageKb: kb(sum(images)),
-      videoKb: kb(sum(videos)),
-      videos: videos.map((entry) => ({
-        name: new URL(entry.name).pathname,
-        afterLoadMs: Math.round(
-          entry.startTime - (navigation?.loadEventEnd ?? 0),
+      if (!control)
+        throw new Error(
+          'This build has no cookie control, so it loads no analytics: the budgets measure the deployed build (ruling 10). Build with `npm run build:deployed`.',
+        );
+      const cookieUrls = await closure([control.src]);
+      // The page's own modules: its module scripts and what they, and its inline module scripts,
+      // import statically.
+      const inline = [
+        ...document.querySelectorAll<HTMLScriptElement>(
+          'script[type="module"]:not([src])',
         ),
-      })),
-      totalKb: kb(sum(initial) + (navigation?.transferSize ?? 0)),
-      lcpMs: Math.round(state.lcp),
-      cls: Math.round(state.cls * 1000) / 1000,
-      urls: entries.map((entry) => entry.name),
-    };
-  }, initialCount);
+      ].flatMap((script) =>
+        [
+          ...(script.textContent ?? '').matchAll(
+            /(?:\bfrom|\bimport)\s*["'](\.{0,2}\/[^"']+)["']/g,
+          ),
+        ].map(([, specifier]) => new URL(specifier!, location.href).href),
+      );
+      const pageUrls = await closure([
+        ...[
+          ...document.querySelectorAll<HTMLScriptElement>(
+            'script[type="module"][src]',
+          ),
+        ]
+          .map((script) => script.src)
+          .filter((url) => !cookieUrls.has(url)),
+        ...inline,
+      ]);
+      const chunkName = (url: string) =>
+        new URL(url).pathname
+          .split('/')
+          .pop()!
+          .replace(/\.[\w-]+\.m?js$/, '');
+      const [navigation] = performance.getEntriesByType(
+        'navigation',
+      ) as PerformanceNavigationTiming[];
+      const firstParty = entries.filter(
+        (entry) =>
+          new URL(entry.name).origin === location.origin &&
+          !entry.name.includes('googletagmanager'),
+      );
+      const sum = (list: PerformanceResourceTiming[]) =>
+        list.reduce(
+          (total, entry) =>
+            total + (entry.transferSize || entry.encodedBodySize),
+          0,
+        );
+      const scripts = firstParty.filter((entry) =>
+        /\.m?js(\?|$)/.test(entry.name),
+      );
+      const cookie = scripts.filter((entry) => cookieUrls.has(entry.name));
+      // The named lazy modules that loaded before any scrolling, and what only they import.
+      const lazyUrls = await closure(
+        scripts
+          .filter(
+            (entry) =>
+              initialEntries.has(entry) &&
+              lazyChunks.includes(chunkName(entry.name)),
+          )
+          .map((entry) => entry.name),
+      );
+      const lazyOnly = (entry: PerformanceResourceTiming) =>
+        lazyUrls.has(entry.name) && !pageUrls.has(entry.name);
+      const atLoad = scripts.filter(
+        (entry) => !cookieUrls.has(entry.name) && initialEntries.has(entry),
+      );
+      const js = atLoad.filter((entry) => !lazyOnly(entry));
+      const chunks: Record<string, number> = {};
+      for (const entry of scripts) {
+        const name = chunkName(entry.name);
+        chunks[name] =
+          (chunks[name] ?? 0) + (entry.transferSize || entry.encodedBodySize);
+      }
+      const data = firstParty.filter((entry) =>
+        /\/_astro\/hbs-[^/]+\.bin(\?|$)/.test(entry.name),
+      );
+      const images = firstParty.filter(
+        (entry) => entry.initiatorType === 'img' && initialEntries.has(entry),
+      );
+      // The hero film: deferred past the load event, budgeted on its own, out of the total.
+      const videos = firstParty.filter(
+        (entry) => entry.initiatorType === 'video',
+      );
+      const initial = firstParty.filter(
+        (entry) => !videos.includes(entry) && initialEntries.has(entry),
+      );
+      const state = (
+        window as unknown as { __perf: { lcp: number; cls: number } }
+      ).__perf;
+      return {
+        jsKb: kb(sum(js)),
+        lazyAtLoadKb: kb(sum(atLoad.filter(lazyOnly))),
+        chunksKb: Object.fromEntries(
+          Object.entries(chunks).map(([name, bytes]) => [name, kb(bytes)]),
+        ),
+        cookieKb: kb(sum(cookie)),
+        cookieUrls: [...cookieUrls],
+        dataKb: kb(sum(data)),
+        imageKb: kb(sum(images)),
+        videoKb: kb(sum(videos)),
+        videos: videos.map((entry) => ({
+          name: new URL(entry.name).pathname,
+          afterLoadMs: Math.round(
+            entry.startTime - (navigation?.loadEventEnd ?? 0),
+          ),
+        })),
+        totalKb: kb(sum(initial) + (navigation?.transferSize ?? 0)),
+        lcpMs: Math.round(state.lcp),
+        cls: Math.round(state.cls * 1000) / 1000,
+        urls: entries.map((entry) => entry.name),
+      };
+    },
+    [initialCount, lazyChunks] as const,
+  );
   return { ...measured, filmReason };
 }
 
@@ -335,7 +393,12 @@ for (const manifest of fullyEnforced.filter((page) => !page.redirect))
       // The hero film streams as it plays (about a minute at a quarter speed), so it arrives whole
       // well after the load event; measure() waits for it.
       test.setTimeout(90_000);
-      const measured = await measure(page, manifest.route, profile);
+      const measured = await measure(
+        page,
+        manifest.route,
+        profile,
+        Object.keys(manifest.lazyJsKbGz ?? {}),
+      );
       console.log(
         `budgets ${manifest.route} ${profile}: ${JSON.stringify({ ...measured, urls: undefined, cookieUrls: undefined })}`,
       );
