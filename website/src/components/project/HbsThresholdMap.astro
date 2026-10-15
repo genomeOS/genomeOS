@@ -4,9 +4,12 @@
  * HbS (rs334) v3 surface, coarsened to res 3 over West Africa to India in an equal-area projection,
  * with every survey in the window as a white stud. A threshold slider outlines the areas whose
  * estimate is above t (dashed) and, inside them, the areas whose whole 95% range is above t
- * (solid); `unknown` areas stay hatched and are never counted. This is the only map on Project.
+ * (solid); `unknown` areas stay hatched and are never counted. This is the only map on Projects.
  *
- * The figure is tagged "Not yet validated" and cites its provenance. Everything a reader needs
+ * Round 2 (spec §4.2.2; R2-14, R2-16): no status tag. A plain note under the stage says the map is
+ * simplified from the Atlas's HbS data and links the live map; the footnote is provenance only.
+ * Survey readouts count people tested (AN/2: HBB is autosomal) and keep the copies as counts; the
+ * stud key reads "Survey, sized by people tested". Everything a reader needs
  * without the canvas is in the server HTML: the build-time description of the data, the count at
  * the default threshold, and a table of the counts at 5, 10 and 15%. The page's island
  * (projects.astro) starts the map (hbs-map.ts) and loads its data once the figure is near view.
@@ -17,7 +20,6 @@ import path from 'node:path';
 import Figure from '../kit/Figure.astro';
 import Glyph from '../kit/Glyph.astro';
 import Readout from '../kit/Readout.astro';
-import StatusTag from '../kit/StatusTag.astro';
 import provenance from '../../data/figures/hbs.provenance.json';
 import { decodeAreas, decodeSurveys } from '../../graphics/figure-data';
 import { sitePath } from '../../lib/paths';
@@ -81,14 +83,10 @@ const rows = provenance.table.region_thresholds;
 <Figure
   graphic="hbs-threshold"
   interactive
-  label="Genotypes of haemoglobin S, and where its modeled frequency is above a threshold"
+  label="Genotypes of hemoglobin S, and where its modeled frequency is above a threshold"
   class="hbs"
   id={id('figure')}
 >
-  <Fragment slot="toolbar">
-    <StatusTag kind="not-validated" />
-  </Fragment>
-
   <GenotypeTriad idPrefix={id('genotype')} />
   <div
     class="hbs__map"
@@ -138,6 +136,12 @@ const rows = provenance.table.region_thresholds;
       </p>
     </div>
     <Readout class="hbs__readout" idle="Tap to inspect." />
+    <div class="figure-note hbs__note" data-figure-chrome>
+      <p>Simplified from the Atlas’s HbS data.</p>
+      <a href={sitePath('/app/?entity=hbs-rs334&palette=genome')}
+        >See it live in the Atlas<span aria-hidden="true">&nbsp;→</span></a
+      >
+    </div>
   </Fragment>
 
   <Fragment slot="legend">
@@ -171,7 +175,7 @@ const rows = provenance.table.region_thresholds;
       </li>
       <li>
         <Glyph name="stud-md" />
-        <span>Survey (AC of AN)</span>
+        <span>Survey, sized by people tested</span>
       </li>
     </ul>
   </Fragment>
@@ -179,10 +183,7 @@ const rows = provenance.table.region_thresholds;
   <Fragment slot="footnote">
     {provenance.label} · model {provenance.model_version} · data {
       provenance.data_version
-    } · revision {revision} · coarsened for display ·{' '}
-    <a href={sitePath('/app/?entity=hbs-rs334&palette=genome')}
-      >Open in the Atlas</a
-    >
+    } · revision {revision} · coarsened for display
   </Fragment>
 
   <table slot="table">

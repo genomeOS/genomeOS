@@ -1,4 +1,4 @@
-/** The Project HbS threshold map (site redesign spec §4.2, HbS, §6; #454).
+/** The Projects HbS threshold map (site redesign spec §4.2, HbS, §6; round 2 spec §4.2.2; #454).
  *
  * The real HbS (rs334) v3 surface, coarsened to res 3 for a window from West Africa to India, in a
  * Lambert azimuthal equal-area projection (so an area's share of the map is its share of the
@@ -10,7 +10,7 @@
  *
  * The outlines are drawn as contours around each set (edges with the set on one side only), so a
  * solid line rings the confident areas inside a dashed line ringing every area whose estimate is
- * above t: the uncertainty-aware threshold a screening programme would use. Nothing is fitted
+ * above t: the uncertainty-aware threshold a screening program would use. Nothing is fitted
  * here; every number comes from the pinned, coarsened figure data.
  *
  * Measured and modeled stay apart: the surface and the studs are two HexFields on two canvases,
@@ -27,6 +27,10 @@ import {
   type Survey,
 } from '../../graphics/figure-data';
 import { HexField, type HexHit } from '../../graphics/hexfield';
+import {
+  MOTION_HOOKS,
+  frozenAt as frozenFromUrl,
+} from '../../graphics/motion-hooks';
 import { linear, tween, type Tween } from '../../graphics/tween';
 import {
   lambertAzimuthal,
@@ -111,23 +115,28 @@ export function formatPercent(share: number): string {
 }
 
 const km = (value: number) => `${whole(value)} km`;
-const counts = (survey: Survey) => `${whole(survey.ac)} of ${whole(survey.an)}`;
+/**
+ * People tested in a survey: AN gene copies are AN/2 people, exactly, because HBB is autosomal
+ * (round 2 R2-16). The pinned surveys all have an even AN (tests/content-projects.test.ts). No
+ * carrier count is derived from AC, which counts copies, not people.
+ */
+const people = (survey: Survey) => whole(survey.an / 2);
 
 /**
- * The readout for what is under the pointer or reticle, word for word as the Home hero's (copy
- * deck): an area's estimate with its 95% range and its distance from surveys, a survey's counts,
- * or "No estimate". A coarsened area carries its children's median distance, so every distance
- * is "about": a minority child can sit nearer a survey.
+ * The readout for what is under the pointer or reticle (copy deck): an area's estimate with its 95%
+ * range and its distance from surveys, a survey's people tested with its copies kept as counts, or
+ * "No estimate". A coarsened area carries its children's median distance, so every distance is
+ * "about": a minority child can sit nearer a survey.
  */
 export function describeHit(hit: HexHit | null): string | null {
   if (!hit) return null;
   if (hit.type === 'surveys') {
     const [first] = hit.surveys;
     if (hit.surveys.length === 1)
-      return `Measured survey · ${counts(first)} alleles carry HbS · Location within ±${km(first.radiusKm)}`;
+      return `Measured survey · ${people(first)} people tested; ${whole(first.ac)} of their ${whole(first.an)} gene copies carry HbS · Location within ±${km(first.radiusKm)}`;
     const listed = hit.surveys
       .slice(0, 3)
-      .map((survey, index) => counts(survey) + (index ? '' : ' alleles'));
+      .map((survey, index) => people(survey) + (index ? '' : ' people tested'));
     return [
       `${hit.surveys.length} surveys here`,
       ...listed,
@@ -299,12 +308,13 @@ export function surveyWindow(
   };
 }
 
-/** Dev captures hold the entrance at `?t=<ms>` (FigureController's freeze hook). */
+/**
+ * Captures hold the entrance at `?t=<ms>[&scene=hbs-threshold]` (FigureController's freeze hook),
+ * in dev and the e2e build only (motion hooks, round 2 spec §3.4); never in the deployed build.
+ */
 function frozenAt(): number | null {
-  if (!import.meta.env.DEV) return null;
-  const value = new URLSearchParams(location.search).get('t');
-  const t = value === null ? NaN : Number(value);
-  return Number.isFinite(t) && t >= 0 ? t : null;
+  if (!MOTION_HOOKS) return null;
+  return frozenFromUrl(location.search, 'hbs-threshold');
 }
 
 async function bytes(url: string): Promise<ArrayBuffer> {
