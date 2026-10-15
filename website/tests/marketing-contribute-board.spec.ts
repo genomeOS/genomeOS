@@ -108,6 +108,61 @@ const boardState = (page: Page) =>
     };
   }, BOARD);
 
+/**
+ * How crowded the floor is at this instant: whether each astronaut's face is on top at its helmet's
+ * centre (nobody stands in front of it), how far each helmet sits inside its column's borders, how
+ * many of the wall's cells nobody covers, and whether the pull request's row fits its card.
+ */
+const crowding = (page: Page, which = '.floor-svg--live') =>
+  page.evaluate(
+    ([selector, floorSvg]) => {
+      const figure = document.querySelector<HTMLElement>(selector)!;
+      const floor = figure.querySelector<HTMLElement>('.gh-floor')!;
+      const svg = floor.querySelector(floorSvg)!;
+      const columns = [...figure.querySelectorAll('[data-col]')].map((column) =>
+        column.getBoundingClientRect(),
+      );
+      // The floor ignores the pointer; let it be hit-tested for the measurement only.
+      floor.style.pointerEvents = 'auto';
+      const top = (x: number, y: number) =>
+        document
+          .elementsFromPoint(x, y)
+          .find((element) => svg.contains(element));
+      // Every astronaut drawn (the live cast, or each appearance in the storyboard).
+      const faces = [...svg.querySelectorAll('.astro')].map((astro) => {
+        const helmet = astro
+          .querySelector('circle[fill="url(#wb-kHelm)"]')!
+          .getBoundingClientRect();
+        const x = helmet.left + helmet.width / 2;
+        const column = columns.find((box) => x >= box.left && x <= box.right);
+        const hit = top(x, helmet.top + helmet.height / 2);
+        return {
+          id: astro.getAttribute('data-cast')!,
+          shows: !!hit && astro.contains(hit),
+          inside: column
+            ? Math.round(
+                Math.min(
+                  helmet.left - column.left,
+                  column.right - helmet.right,
+                ),
+              )
+            : -999,
+        };
+      });
+      const wall = [...svg.querySelectorAll('.wall-cell')].filter((cell) => {
+        const box = cell.getBoundingClientRect();
+        const hit = top(box.left + box.width / 2, box.top + box.height / 2);
+        return !!hit && !hit.closest('.who');
+      }).length;
+      floor.style.pointerEvents = '';
+      const row = figure.querySelector<HTMLElement>(
+        '[data-example="home"] .ex-pr',
+      )!;
+      return { faces, wall, rowFits: row.scrollWidth <= row.clientWidth };
+    },
+    [BOARD, which] as const,
+  );
+
 /** Only the named bubble shows (opacity 1); every other is hidden. */
 function onlyBubble(bubbles: Record<string, number>, text: string | null) {
   for (const [said, value] of Object.entries(bubbles))
@@ -360,6 +415,43 @@ test.describe('the story at the seek table @desktop-chromium', () => {
   });
 });
 
+// From the narrowest desktop (64rem, iPad landscape: 177 px columns) to 1440, the story keeps the
+// same composition: every face shows, nobody crosses a column's border, the finished wall shines
+// through the celebration, and the pull request's status word is never clipped.
+for (const width of [1024, 1100, 1152, 1440]) {
+  test.describe(`the floor at ${width} px @desktop-chromium`, () => {
+    test.use({ viewport: { width, height: 900 } });
+
+    test('keeps every face in view, every helmet inside its column and every word whole', async ({
+      page,
+    }) => {
+      await openBoard(page);
+      // Discussion, the pick, a strike, the question, Approved, the hand-off, the fit, the
+      // celebration, the end.
+      for (const t of [
+        2750, 10640, 13620, 21880, 25730, 28390, 31110, 33400, 36000,
+      ]) {
+        await seek(page, t);
+        const c = await crowding(page);
+        expect(c.faces).toHaveLength(5);
+        for (const { id, shows, inside } of c.faces) {
+          expect(shows, `${id}'s face shows at ${t} ms`).toBe(true);
+          expect(
+            inside,
+            `${id}'s helmet inside its column at ${t} ms`,
+          ).toBeGreaterThanOrEqual(0);
+        }
+        expect(c.rowFits, `the pull request row fits at ${t} ms`).toBe(true);
+        if (t === 36000)
+          expect(
+            c.wall,
+            'wall cells in view at the end',
+          ).toBeGreaterThanOrEqual(11);
+      }
+    });
+  });
+}
+
 test.describe('the phone camera @mobile-chromium', () => {
   /** The column centred in the board's window, and the pressed column button. */
   const camera = (page: Page) =>
@@ -488,6 +580,31 @@ test.describe('reduced motion', () => {
     expect(s.status).toEqual(['Merged']);
     await shot(page, 'reduced');
   });
+
+  for (const width of [1024, 1440])
+    test(`at ${width} px the storyboard keeps every face in view and inside its column @desktop-chromium`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/contribute/');
+      await page
+        .locator(BOARD)
+        .evaluate((figure) =>
+          figure.scrollIntoView({ block: 'center', behavior: 'instant' }),
+        );
+      const c = await crowding(page, '.floor-svg--sb');
+      // A3 once per column; the newcomers; the experts in review and at the wall.
+      expect(c.faces).toHaveLength(11);
+      for (const { id, shows, inside } of c.faces) {
+        expect(shows, `${id}'s face shows`).toBe(true);
+        expect(
+          inside,
+          `${id}'s helmet inside its column`,
+        ).toBeGreaterThanOrEqual(0);
+      }
+      expect(c.wall, 'wall cells in view').toBeGreaterThanOrEqual(11);
+      expect(c.rowFits).toBe(true);
+    });
 
   test('on a phone the track scrolls natively and the column buttons scroll it @mobile-chromium', async ({
     page,

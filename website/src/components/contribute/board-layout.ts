@@ -237,8 +237,22 @@ export const FIG_SCALE = 1.05;
 /** The floor band's height (px) and the floor line's height above the band's bottom. */
 export const FLOOR_H = 206;
 export const FLOOR_LIFT = 22;
+/**
+ * The column width (px) the floor is composed for: 1440's columns, and the phone track's. Narrower
+ * desktop columns (64rem up to about 1,430 px; 177 px at 1024) draw the whole floor smaller by
+ * `sceneScale`, figures, props, the wall and every spot's px offset alike, so every width shows
+ * the same composition: faces clear of each other, everyone inside their column, the wall shining
+ * through the celebration. Speech bubbles keep their 14 px words. how-work-moves.css scales the
+ * storyboard by the same rule (`--wb-k`).
+ */
+export const COL_REF = 248;
 
-/** A column-relative spot: column `c`, a fraction `fr` across it, then `dx` px. */
+/** The floor's scale for a column `w` px wide: 1 at COL_REF and wider. */
+export function sceneScale(w: number): number {
+  return Math.min(1, w / COL_REF);
+}
+
+/** A column-relative spot: column `c`, a fraction `fr` across it, then `dx` px (at scale 1). */
 export interface Spot {
   c: number;
   fr: number;
@@ -251,13 +265,16 @@ export interface Geo {
   H: number;
   /** the floor line, from the band's top */
   F: number;
+  /** the scene's scale (`sceneScale` of the column width) */
+  k: number;
+  /** the figures' scale, FIG_SCALE × k */
   s: number;
   cols: { x0: number; w: number }[];
 }
 
 export function spotX(geo: Geo, p: Spot): number {
   const col = geo.cols[p.c];
-  return col.x0 + p.fr * col.w + (p.dx ?? 0);
+  return col.x0 + p.fr * col.w + (p.dx ?? 0) * geo.k;
 }
 
 /**
@@ -273,13 +290,15 @@ export function spotPct(p: Spot): { pct: number; px: number } {
 }
 
 /** The geometry of an ideal track `W` px wide (tests and the server's checks). */
-export function gridGeo(W: number, H = FLOOR_H, s = FIG_SCALE): Geo {
+export function gridGeo(W: number, H = FLOOR_H): Geo {
   const w = (W - 2 * PAD - 4 * GAP) / 5;
+  const k = sceneScale(w);
   return {
     W,
     H,
     F: H - FLOOR_LIFT,
-    s,
+    k,
+    s: FIG_SCALE * k,
     cols: Array.from({ length: 5 }, (_, c) => ({ x0: PAD + c * (w + GAP), w })),
   };
 }
@@ -356,6 +375,7 @@ export interface Plan {
 /** The whole story against one geometry: pose keys per astronaut, prop tracks, bubbles, the card. */
 export function plan(geo: Geo): Plan {
   const s = geo.s;
+  const k = geo.k;
   const X = (c: number, fr: number) => geo.cols[c].x0 + fr * geo.cols[c].w;
   const u = (px: number) => px / s; // px to astronaut units (.j-move)
   const K = Object.fromEntries(
@@ -997,9 +1017,9 @@ export function plan(geo: Geo): Plan {
   const tFit = e1m + 150;
   const fitHi: PoseKeySpec = {
     pose: 'fit',
-    block: (g) => [g.tw / 2 + 20, u(SOCKET[1])],
-    handN: (g) => [g.tw / 2 + 11, u(SOCKET[1]) + 5],
-    handF: (g) => [g.tw / 2 + 9, u(SOCKET[1]) - 4],
+    block: (g) => [g.tw / 2 + 20, u(SOCKET[1] * k)],
+    handN: (g) => [g.tw / 2 + 11, u(SOCKET[1] * k) + 5],
+    handF: (g) => [g.tw / 2 + 9, u(SOCKET[1] * k) - 4],
   };
   key(
     'E1',
@@ -1007,7 +1027,7 @@ export function plan(geo: Geo): Plan {
     { pose: 'carry', ...carry, blockLit: true, x: u(ME1), face: 1 },
     EASE.inOut,
   );
-  key('E1', tFit + 400, { ...fitHi, x: u(ME1 - 8), face: 1 }, EASE.inOut);
+  key('E1', tFit + 400, { ...fitHi, x: u(ME1 - 8 * k), face: 1 }, EASE.inOut);
   key(
     'E1',
     tFit + 800,
@@ -1025,7 +1045,7 @@ export function plan(geo: Geo): Plan {
   key(
     'E1',
     tIn + 500,
-    { pose: 'stand', x: u(ME1 + 6), face: 1, expr: 'happy' },
+    { pose: 'stand', x: u(ME1 + 6 * k), face: 1, expr: 'happy' },
     EASE.inOut,
   );
   props.push([
@@ -1100,7 +1120,7 @@ export function plan(geo: Geo): Plan {
   const tC = Math.max(t, tIn + 900) + 100;
   const crew = [
     ['A3', MA3, 1, 0],
-    ['E1', ME1 + 6, 1, 140],
+    ['E1', ME1 + 6 * k, 1, 140],
     ['E2', ME2, -1, 280],
   ] as const;
   for (const [id, x, face, d] of crew) {
@@ -1154,7 +1174,7 @@ export function plan(geo: Geo): Plan {
     A5: { pose: 'chat', x: u(D5), face: -1 },
     A3: { pose: 'stand', x: u(MA3), face: 1, expr: 'happy' },
     E2: { pose: 'clipboard', x: u(ME2), face: -1 },
-    E1: { pose: 'stand', x: u(ME1 + 6), face: 1, expr: 'happy' },
+    E1: { pose: 'stand', x: u(ME1 + 6 * k), face: 1, expr: 'happy' },
   };
   // A2 and A5 keep the Discussion going after A3 leaves
   key('A2', 7200, { pose: 'listen', x: u(D2), face: 1 }, EASE.inOut);
@@ -1326,13 +1346,16 @@ const bench = (g3: Geom) => stool(g3.hipY + g3.sitDrop + 1);
  */
 export function renderFloor(geo: Geo, P: Plan): string {
   const s = geo.s;
+  const k = geo.k;
   const F = geo.F;
+  /** ` scale(k)` when the floor is drawn smaller (narrow desktop columns). */
+  const sk = k === 1 ? '' : ` scale(${f(k)})`;
   const at = (x: number, inner: string, cls = '') =>
     `<g class="${cls}" transform="translate(${f(x)} ${f(F)}) scale(${s})">${inner}</g>`;
   const { pos } = P;
   const wallH = WALL_ROWS * CELL;
   const wallG =
-    `<g class="wall-g" transform="translate(${f(pos.wall)} ${f(F)})">${wallMarkup(true)}` +
+    `<g class="wall-g" transform="translate(${f(pos.wall)} ${f(F)})${sk}">${wallMarkup(true)}` +
     `<g class="wall-fill" transform="translate(${SOCKET[0]} ${SOCKET[1]})"><g class="j-wf">${socketBlock()}</g></g>` +
     `<clipPath id="wallclip"><rect x="-6" y="${-wallH - 6}" width="${WALL_W + 12}" height="${wallH + 6}" rx="3"/></clipPath>` +
     `<g clip-path="url(#wallclip)"><g class="wall-sweep" opacity="0"><rect x="0" y="${-wallH - 10}" width="26" height="${wallH + 14}" fill="#f2fdff" transform="skewX(-18)"/></g></g></g>`;
@@ -1364,9 +1387,9 @@ export function renderFloor(geo: Geo, P: Plan): string {
     at(pos.P3, `<g class="crate-g">${crate}${litBlock}${spark}${litSpark}</g>`);
   // the bulb above the contributor in the Backlog
   const idea = anchors('A3', resolveKey('A3', { pose: 'idea' })).headTop;
-  const bulbG = `<g transform="translate(${f(pos.B3 + idea[0] * s + 2)} ${f(F + idea[1] * s - 26)})"><g class="bulb" opacity="0" style="transform-box:fill-box;transform-origin:50% 100%">${PROP.lightbulb()}</g></g>`;
+  const bulbG = `<g transform="translate(${f(pos.B3 + idea[0] * s + 2 * k)} ${f(F + idea[1] * s - 26 * k)})${sk}"><g class="bulb" opacity="0" style="transform-box:fill-box;transform-origin:50% 100%">${PROP.lightbulb()}</g></g>`;
   // confetti over the Merge crew (seeded)
-  const conf = `<g transform="translate(${f((pos.MA3 + pos.ME2) / 2)} ${f(F - 118)})"><g class="confetti" opacity="0">${confetti(26, mulberry32(SEED), geo.cols[4].w * 0.9, 60)}</g></g>`;
+  const conf = `<g transform="translate(${f((pos.MA3 + pos.ME2) / 2)} ${f(F - 118 * k)})${sk}"><g class="confetti" opacity="0">${confetti(26, mulberry32(SEED), (geo.cols[4].w * 0.9) / k, 60)}</g></g>`;
   // the figures in their story-end poses
   const figs = (['A2', 'A5', 'E2', 'E1', 'A3'] as const)
     .map((id) => {
@@ -1408,17 +1431,36 @@ export function renderFloor(geo: Geo, P: Plan): string {
   );
 }
 
-/** A group placed at a spot on the floor line, with nested SVG at a percentage of the track. */
+/**
+ * A group placed at a spot on the floor line. Two nested SVG viewports put its origin at the spot
+ * (a percentage of the track, then the column's px), so `.sb-k` there scales it about its own
+ * floor point in every browser (how-work-moves.css, `--wb-k`); the spot's `dx` scales with it.
+ */
 function placed(spot: Spot, F: number, inner: string, scale = 1): string {
-  const { pct, px } = spotPct(spot);
-  return `<svg x="${pct}%" overflow="visible"><g transform="translate(${px} ${F})${scale === 1 ? '' : ` scale(${scale})`}">${inner}</g></svg>`;
+  const { pct, px } = spotPct({ ...spot, dx: 0 });
+  const move = [
+    spot.dx ? `translate(${f(spot.dx)} 0)` : '',
+    scale === 1 ? '' : `scale(${scale})`,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return (
+    `<svg x="${pct}%" y="${F}" overflow="visible"><svg x="${px}" overflow="visible"><g class="sb-k">` +
+    (move ? `<g transform="${move}">${inner}</g>` : inner) +
+    `</g></svg></svg>`
+  );
 }
+
+/** A speech bubble at a point of a placed group, its words kept at full size (`.sb-unk`). */
+const unscaled = (at: Point, inner: string) =>
+  `<svg x="${f(at[0])}" y="${f(at[1])}" overflow="visible"><g class="sb-unk">${inner}</g></svg>`;
 
 /**
  * The storyboard frame (reduced motion and no JavaScript; spec §4.3.4): one static picture that
  * tells the whole story, column by column, like a comic strip. The contributor appears once per
  * column, joined by faint dotted hop arcs; the experts think it over in review and celebrate at the
- * shining wall. Placed by percentages, so it fits every width without a script.
+ * shining wall. Placed by percentages, so it fits every width without a script, and drawn smaller
+ * on narrow desktop columns by CSS (the same `sceneScale` the live floor uses).
  */
 export function renderStoryboard(H = FLOOR_H, s = FIG_SCALE): string {
   const F = H - FLOOR_LIFT;
@@ -1448,6 +1490,8 @@ export function renderStoryboard(H = FLOOR_H, s = FIG_SCALE): string {
       return `<svg x="${f(a)}%" y="${F - 126}" width="${f(b - a)}%" height="118" viewBox="0 0 100 100" preserveAspectRatio="none" overflow="visible"><path d="M0 100 Q50 -4 100 100" fill="none" stroke="#7d8590" stroke-width="1.5" stroke-dasharray="2 6" stroke-linecap="round" opacity=".6" vector-effect="non-scaling-stroke"/></svg>`;
     })
     .join('');
+  // the arcs flatten toward the floor line with the figures (`.sb-arcs`)
+  const arcsG = `<g class="sb-arcs" style="transform-origin:0 ${F}px">${arcs}</g>`;
   const hello = headTop('A3', 'chat', 1);
   const ok = headTop('E1', 'chat', -1);
   const bulb = headTop('A3', 'idea', 1);
@@ -1464,7 +1508,7 @@ export function renderStoryboard(H = FLOOR_H, s = FIG_SCALE): string {
   return scopeIds(
     `<svg class="floor-svg floor-svg--sb" width="100%" height="${H}" aria-hidden="true" focusable="false" overflow="visible">` +
       defs() +
-      arcs +
+      arcsG +
       wallG +
       placed(SPOTS.P3, F, bench(g3) + workCrate(g3, true, false), s) +
       // 1 Discussion: three newcomers say hello
@@ -1474,11 +1518,10 @@ export function renderStoryboard(H = FLOOR_H, s = FIG_SCALE): string {
       placed(
         SPOTS.D3,
         F,
-        bubble(hello[0], hello[1], SAY.hello[1], {
-          tail: 'c',
-          lift: 4,
-          size: 14,
-        }),
+        unscaled(
+          hello,
+          bubble(0, 0, SAY.hello[1], { tail: 'c', lift: 4, size: 14 }),
+        ),
       ) +
       // 2 Backlog: the idea
       fig('A3', 'idea', SPOTS.B3, 1, 'open') +
@@ -1496,7 +1539,7 @@ export function renderStoryboard(H = FLOOR_H, s = FIG_SCALE): string {
       placed(
         SPOTS.RE1,
         F,
-        bubble(ok[0], ok[1], SAY.ok[1], { tail: 'r', lift: 4, size: 14 }),
+        unscaled(ok, bubble(0, 0, SAY.ok[1], { tail: 'r', lift: 4, size: 14 })),
       ) +
       // 5 Merge: fitted, shining, celebrating
       fig('E1', 'stand', { ...SPOTS.ME1, dx: SPOTS.ME1.dx + 6 }, 1, 'happy') +

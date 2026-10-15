@@ -78,6 +78,7 @@
 .gh-scroll {
   position: relative;
   overflow: hidden;
+  container-type: inline-size;
 }
 
 .gh-pan,
@@ -265,6 +266,13 @@
   }
 }
 
+/* At 64rem (iPad landscape) the status word needs the dot's room; the word keeps its colour. */
+@container (width < 150px) {
+  .st i {
+    display: none;
+  }
+}
+
 .ex-pr {
   display: flex;
   align-items: center;
@@ -333,6 +341,11 @@
 }
 
 .gh-floor {
+  /* The floor is composed for 248 px columns (board-layout.ts COL_REF). Narrower desktop columns
+     draw it smaller, k = column / 248 = (track − 2 × 12 − 4 × 8) / (5 × 248): board.ts computes
+     the same for the live floor; the storyboard reads it here. */
+  --wb-k: min(1, tan(atan2(100cqw - 56px, 1240px)));
+
   position: absolute;
   right: 0;
   bottom: 12px;
@@ -345,6 +358,19 @@
 .floor-svg {
   display: block;
   overflow: visible;
+}
+
+.floor-svg--sb .sb-k {
+  scale: var(--wb-k);
+}
+
+/* Speech bubbles keep their 14 px words. */
+.floor-svg--sb .sb-unk {
+  scale: calc(1 / var(--wb-k));
+}
+
+.floor-svg--sb .sb-arcs {
+  scale: 1 var(--wb-k);
 }
 
 .floor-svg text {
@@ -388,6 +414,10 @@
 
   .gh-cols {
     grid-template-columns: repeat(5, 300px);
+  }
+
+  .gh-floor {
+    --wb-k: 1;
   }
 
   .gh-col {

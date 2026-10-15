@@ -36,6 +36,7 @@ import {
   cameraOffset,
   plan,
   renderFloor,
+  sceneScale,
   type Geo,
   type Plan,
 } from './board-layout';
@@ -71,18 +72,22 @@ export function initBoard(figure: HTMLElement): void {
   let geo: Geo;
   let P: Plan;
 
-  /** The board as it is laid out now: the floor band spans the track, columns relative to it. */
+  /** The board as it is laid out now: the floor band spans the track, columns relative to it;
+   * narrow desktop columns draw the floor smaller (board-layout.ts `sceneScale`). */
   const measure = (): Geo => {
     const band = floor.getBoundingClientRect();
+    const cols = columns.map((column) => {
+      const box = column.getBoundingClientRect();
+      return { x0: box.left - band.left, w: box.width };
+    });
+    const k = sceneScale(cols[0].w);
     return {
       W: band.width,
       H: band.height,
       F: band.height - FLOOR_LIFT,
-      s: FIG_SCALE,
-      cols: columns.map((column) => {
-        const box = column.getBoundingClientRect();
-        return { x0: box.left - band.left, w: box.width };
-      }),
+      k,
+      s: FIG_SCALE * k,
+      cols,
     };
   };
 
