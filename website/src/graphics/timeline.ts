@@ -258,7 +258,13 @@ export function timeline(options: TimelineOptions): Timeline {
     pause() {
       flush();
       time = now();
-      for (const animation of all()) animation.pause();
+      // A running animation's pause completes on the next frame, and its clock (so `time` and the
+      // motion hooks) runs on until then. Setting the time completes it now, on this moment
+      // (review of T4; kit.spec drifted a frame under load).
+      for (const animation of all()) {
+        animation.pause();
+        animation.currentTime = time;
+      }
     },
     seek(ms) {
       flush();
