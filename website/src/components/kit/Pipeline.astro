@@ -55,6 +55,12 @@ interface Props {
   stageBrackets?: boolean;
   /** Unique per page: prefixes every id this instance renders. */
   idPrefix: string;
+  /**
+   * The figure's `data-graphic`, and so its scene name with the motion hooks (spec §3.4). One
+   * Pipeline a page keeps the default; a page showing several (the /kit/ gallery) names each, so
+   * every scene has its own name (ruling 33).
+   */
+  graphic?: string;
   /** Ship the island with the figure (default). False: the page imports `./pipeline` itself when
    * the figure is needed (Projects, when the section holding it opens). */
   island?: boolean;
@@ -68,6 +74,7 @@ const {
   stageBrackets = true,
   idPrefix,
   island = true,
+  graphic = 'pipeline',
   class: className,
 } = Astro.props;
 
@@ -198,7 +205,7 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
 ---
 
 <Plate
-  graphic="pipeline"
+  graphic={graphic}
   class:list={['kit-pipeline', className]}
   interactive
   labelledby={id('title')}
