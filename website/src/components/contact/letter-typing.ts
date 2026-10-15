@@ -24,6 +24,9 @@
  *   load whole on Contact's first view, where the letter already is on a desktop, for a few lines
  *   of keyframes (11.2 KB of JavaScript against the page's 6). The caret is a box-shadow, not the
  *   kit's positioned `::after`, which moves the breaks of a wrapped, balanced line.
+ * - It types whichever form of the address the To line holds: spelled out, until a person is
+ *   here. Joined while the To line types (contact.ts), the address shows whole at once
+ *   (`settle`), and the To line is never typed again; the rest of the letter types on.
  * - A field's dotted leader draws out once its line is typed; an offer's icon shows with its
  *   heading's first character (contact.css).
  * - Reduced motion, forced colours and print show the letter whole (contact.css), and a switch to
@@ -111,6 +114,8 @@ export interface LetterTyping {
   snapshot(): Map<Element, Seen>;
   /** After a change (the draft redrawn): type what it changed. */
   retype(before: Map<Element, Seen>): void;
+  /** A line whose words were replaced while it types (the address, joined): whole now, at rest. */
+  settle(line: HTMLElement): void;
 }
 
 export function letterTyping(
@@ -354,6 +359,12 @@ export function letterTyping(
         if (keep < text.length) todo.push({ line, keep });
       }
       type(todo, Math.max(CHANGE_MS, left));
+    },
+    // Its twin went with its old words; its timing carries on, with nothing left to show.
+    settle(line) {
+      if (!lines.delete(line)) return;
+      line.querySelector(':scope > .visually-hidden')?.remove();
+      line.removeAttribute('data-typing-line');
     },
   };
 }
