@@ -1106,6 +1106,17 @@ test('the Atlas chapter opens on an overview: the essentials in about 80 words, 
   await expect(still).toHaveAccessibleName(
     /^The genomeOS Atlas showing the sickle-cell variant HbS/,
   );
+  // The globe's disc on the band, with no black box and no frame round it (design critique 3).
+  expect(
+    await still.evaluate((image) => {
+      const style = getComputedStyle(image);
+      return {
+        border: style.borderTopWidth,
+        radius: style.borderTopLeftRadius,
+        background: style.backgroundColor,
+      };
+    }),
+  ).toEqual({ border: '0px', radius: '50%', background: 'rgba(0, 0, 0, 0)' });
   // The picture opens the map it shows (design critique of the integrated build, round 2).
   await expect(
     overview.getByRole('link', {

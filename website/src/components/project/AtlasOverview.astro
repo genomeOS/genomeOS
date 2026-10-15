@@ -10,11 +10,15 @@
  *   visual   the product itself: a still of the live Atlas on its HbS map (src/assets/projects/
  *            atlas-hbs.webp, captured from /app/?entity=hbs-rs334 with the published data, day/night
  *            lighting off, place labels and country outlines off, on the public-domain Natural
- *            Earth II basemap, cropped to the globe), so the page's one picture is the real thing,
- *            not a second copy of the index's mark or of Home's toy globe (design critique of the
- *            integrated build). Round 2 of that critique: nothing in it looks clickable but is not.
- *            No app controls or attribution bar are baked in, no label debris at the limb; the
- *            picture itself links to the same map, and its key is one line of HTML under it.
+ *            Earth II basemap, cut to the globe's disc as a WebP with alpha), so the page's one
+ *            picture is the real thing, not a second copy of the index's mark or of Home's toy globe
+ *            (design critique of the integrated build). Round 2 of that critique: nothing in it
+ *            looks clickable but is not. No app controls or attribution bar are baked in, no label
+ *            debris at the limb; the picture itself links to the same map, and its key is one line
+ *            of HTML under it. Round 3: no black box and no frame, the disc sits on the band as
+ *            Home's preview does, and the key's ramp is sampled from the still's own rendered land
+ *            colours (the Atlas draws its surface over the basemap, so the drawn colours are not
+ *            the palette's), low to high.
  *   facts    three totals from the pinned corpus revision (src/data/corpusMetrics.ts), the people
  *            total marked "not deduplicated", and "How we count" behind a disclosure
  *
@@ -92,8 +96,8 @@ const FACTS = [
         src={atlasStill}
         formats={['webp']}
         fallbackFormat="webp"
-        widths={[560, 840, 1120, 1600]}
-        sizes="(min-width: 52rem) 56vw, 100vw"
+        widths={[480, 720, 960, 1143]}
+        sizes="(min-width: 52rem) 558px, calc(100vw - 2.5rem)"
         quality={72}
         loading="lazy"
         decoding="async"

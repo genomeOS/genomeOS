@@ -275,46 +275,57 @@
   margin-top: clamp(1.5rem, 3vw, 2.1rem);
 }
 
-/* The product still, framed like a plate: a hairline, square corners, a caption under it. Its box
-   is reserved by the image's own width and height, so nothing shifts while it loads. */
+/* The product still: the live Atlas's globe alone, cut to its disc (a WebP with alpha), with no
+   frame, so it sits on the band as Home's preview does (design critique 3: a black rectangle with
+   a hairline read as a pasted screenshot). The globe and its caption are centred in their column.
+   Its box is reserved by the image's own width and height, so nothing shifts while it loads. */
 .atlas-ov__visual {
   grid-column: 6 / span 7;
   display: grid;
-  gap: 0.75rem;
+  justify-items: center;
+  gap: 0.9rem;
   margin: 0;
+}
+
+/* The picture opens the map it shows: a soft ion halo round the disc on hover, the site's ion ring
+   on focus. */
+.atlas-ov__still-link {
+  display: block;
+  width: min(100%, 31rem);
+  border-radius: 50%;
 }
 
 .atlas-ov__still {
   display: block;
   width: 100%;
   height: auto;
-  border: 1px solid var(--color-line-strong);
-  background: var(--color-void);
-  transition: border-color var(--dur-micro) var(--ease-ui);
-}
-
-/* The picture opens the map it shows: the rim lights on hover, the site's ion ring on focus. */
-.atlas-ov__still-link {
-  display: block;
+  border-radius: 50%;
+  transition: box-shadow var(--dur-ui) var(--ease-ui);
 }
 
 .atlas-ov__still-link:hover .atlas-ov__still {
-  border-color: var(--color-ion);
+  box-shadow:
+    0 0 0 1px rgb(112 230 255 / 55%),
+    0 0 2.2rem rgb(112 230 255 / 18%);
 }
 
 .atlas-ov__still-link:focus-visible {
   outline: 2px solid var(--color-ion);
-  outline-offset: 3px;
+  outline-offset: 4px;
 }
 
 .atlas-ov__caption {
   margin: 0;
   color: var(--color-muted);
   font-size: var(--type-legend);
+  text-align: center;
 }
 
-/* The map's key, in one line of the caption: the Atlas's own HbS ramp (palette "genome",
-   src/atlas/encoding-tokens.ts) from low to high, in a hairline so its dark end reads on the page. */
+/* The map's key, in one line of the caption: the colours the still draws, low to high. The Atlas
+   lays its "genome" ramp over the basemap and lights the globe, so the land comes out grey-blue to
+   aqua, not the palette's navy to aqua (design critique 3). The stops are the still's own land
+   pixels at the 5th, 50th, 90th and 99th luminance percentiles (ocean, no-estimate areas and the
+   rim left out); the ocean, a deeper blue, matches none of them. */
 .atlas-ov__key {
   display: inline-flex;
   align-items: center;
@@ -327,7 +338,13 @@
   width: 4.5rem;
   height: 0.55rem;
   border: 1px solid var(--color-line-strong);
-  background: linear-gradient(90deg, #10213e, #27a9d0, #72e7c1);
+  background: linear-gradient(
+    90deg,
+    #627e8f,
+    #6b9dae 45%,
+    #81cddd 78%,
+    #9ce2de
+  );
 }
 
 .atlas-ov__facts {

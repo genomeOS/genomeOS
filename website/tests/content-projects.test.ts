@@ -13,6 +13,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
+import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -257,6 +258,41 @@ describe('projects page content', () => {
     );
     expect(visual).toMatch(/<span class="atlas-ov__ramp">/);
     expect(overviewHtml()).not.toContain('atlas-mark');
+  });
+
+  // Design critique 3: the still sat in a black box. It is the globe's disc now, with alpha, so it
+  // sits on the band with no rectangle round it.
+  it('cuts the still to the globe’s disc: clear corners, a whole globe', async () => {
+    const { data, info } = await sharp(
+      path.resolve(
+        import.meta.dirname,
+        '../src/assets/projects/atlas-hbs.webp',
+      ),
+    )
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    expect(info.width).toBe(info.height);
+    const alpha = (x: number, y: number) =>
+      data[(y * info.width + x) * info.channels + 3];
+    const last = info.width - 1;
+    for (const [x, y] of [
+      [0, 0],
+      [last, 0],
+      [0, last],
+      [last, last],
+    ])
+      expect(alpha(x, y), `corner ${x},${y}`).toBe(0);
+    const middle = Math.floor(info.width / 2);
+    expect(alpha(middle, middle)).toBe(255);
+    // The disc reaches its box: opaque a few pixels in from each edge's midpoint.
+    for (const [x, y] of [
+      [middle, 4],
+      [middle, last - 4],
+      [4, middle],
+      [last - 4, middle],
+    ])
+      expect(alpha(x, y), `edge ${x},${y}`).toBe(255);
   });
 
   it('gives three key facts, pinned to the corpus revision, and how they are counted', () => {
