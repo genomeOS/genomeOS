@@ -557,6 +557,59 @@ test.describe('the orbit scene @desktop-chromium', () => {
     expect(paints.filter((paint) => paint.moon)).toEqual([]);
   });
 
+  test('stays armed on a slow device whose scene builds after the 1.2 s check', async ({
+    page,
+  }) => {
+    // A slow phone (review of T4, finding 2): the module has loaded, but the scene's tracks are
+    // still being created when the head script looks at 1,200 ms. Idle callbacks wait until
+    // 1.6 s here, so the build ends well after that check.
+    await page.addInitScript(() => {
+      const idle = window.requestIdleCallback.bind(window);
+      window.requestIdleCallback = (callback, options) =>
+        performance.now() < 1600
+          ? window.setTimeout(
+              () => callback({ didTimeout: true, timeRemaining: () => 0 }),
+              1600 - performance.now(),
+            )
+          : idle(callback, options);
+      const paints: NonNullable<Window['__orbitPaints']> = [];
+      window.__orbitPaints = paints;
+      const sample = () => {
+        const figure = document.querySelector('[data-graphic="orbit"]');
+        const svg = [
+          ...(figure?.querySelectorAll<SVGSVGElement>('.orbit-svg') ?? []),
+        ].find((item) => item.getClientRects().length > 0);
+        const disc = svg?.querySelector(
+          '.orbiter--moon[data-moon="data"] .moon > circle:nth-of-type(2)',
+        );
+        if (figure && disc)
+          paints.push({
+            state: figure.getAttribute('data-scene-state'),
+            moon: disc.getBoundingClientRect().width > 2,
+          });
+        if (performance.now() < 3500) requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
+    await page.goto('/contribute/');
+    await expect(page.locator(FIGURE)).toHaveAttribute(
+      'data-scene-state',
+      'armed',
+      { timeout: 6000 },
+    );
+    await page.waitForTimeout(800);
+    const paints = await page.evaluate(() => window.__orbitPaints ?? []);
+    // The build really did outlast the head script's check …
+    expect(paints.some((paint) => paint.state === null)).toBe(true);
+    expect(
+      await page.evaluate(() =>
+        document.documentElement.hasAttribute('data-arm-orbit'),
+      ),
+    ).toBe(true);
+    // … and the stage stayed empty all along: no last frame painted, then emptied.
+    expect(paints.filter((paint) => paint.moon)).toEqual([]);
+  });
+
   test('takes its own layout on a tablet, labels at 13 px or more', async ({
     page,
   }) => {

@@ -61,8 +61,8 @@ const starts = [
      * paints, mark the orbit armed, so it paints its story's first moment (contribute.css: an
      * empty stage, every column waiting), never its last frame emptying for the story. Only with
      * motion allowed and the page arriving within 1,200 ms; if the scene has neither begun loading
-     * (data-orbit-loading, set by the page's script) nor been built (data-scene-state) by then,
-     * stand down to the last frame.
+     * (data-orbit-loading, set by the page's script and kept until the scene has a state) nor been
+     * built (data-scene-state) by then, stand down to the last frame.
      */
   }
   <script is:inline slot="head">

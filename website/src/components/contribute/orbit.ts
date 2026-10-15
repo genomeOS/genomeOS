@@ -1012,14 +1012,21 @@ export function initOrbit(figure: HTMLElement): SceneController {
   const armed = document.documentElement.hasAttribute('data-arm-orbit');
   let builtFor: LayoutId | null = null;
   const build = (tl: Timeline) => {
-    const svg = drawnSvg(figure);
-    if (svg) {
-      builtFor = svg.dataset.layout as LayoutId;
-      const L = LAYOUTS[builtFor];
-      animate(svg, tl, L);
-      if (L.id === 'phone') cameraTracks(tl, svg, L);
+    try {
+      const svg = drawnSvg(figure);
+      if (svg) {
+        builtFor = svg.dataset.layout as LayoutId;
+        const L = LAYOUTS[builtFor];
+        animate(svg, tl, L);
+        if (L.id === 'phone') cameraTracks(tl, svg, L);
+      }
+      columnTracks(tl, figure);
+    } catch (error) {
+      // Never leave the stage armed and empty: the last frame stands.
+      document.documentElement.removeAttribute('data-arm-orbit');
+      figure.removeAttribute('data-orbit-loading');
+      throw error;
     }
-    columnTracks(tl, figure);
   };
   const controller = sceneController(figure, build, {
     name: 'orbit',
@@ -1029,7 +1036,21 @@ export function initOrbit(figure: HTMLElement): SceneController {
       replay: figure.querySelector<HTMLButtonElement>('[data-scene-replay]'),
     },
   });
-  figure.removeAttribute('data-orbit-loading');
+  // The page marked the scene loading before importing this module. It stays so until the
+  // controller has a state (built, or resting), which on a slow phone is several hundred ms after
+  // this point: the head script's 1,200 ms check must not stand down in that gap and paint the
+  // last frame, only for the build to empty it (spec §2.7 rule 5; review of T4, finding 2).
+  const loaded = () => figure.removeAttribute('data-orbit-loading');
+  if (figure.hasAttribute('data-scene-state')) loaded();
+  else
+    new MutationObserver((_, observer) => {
+      if (!figure.hasAttribute('data-scene-state')) return;
+      observer.disconnect();
+      loaded();
+    }).observe(figure, {
+      attributes: true,
+      attributeFilter: ['data-scene-state'],
+    });
 
   // The stage changed layout (a rotated tablet, a resized window): rebuild the tracks on the
   // layout now drawn, at the same moment of the clock, playing or paused as before.
