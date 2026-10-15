@@ -346,13 +346,17 @@ const ways = [
 
   /*
    * "Your spot" fills while any of the band's three calls to action is hovered or focused: a
-   * newcomer lands in it (CSS, home.css); leaving or blurring sends it back out.
+   * newcomer lands in it (CSS, home.css); leaving or blurring sends it back out. Filling tells the
+   * crew's scene (crew.ts), which lands any astronaut still hopping in first.
    */
   for (const figure of document.querySelectorAll<HTMLElement>(
     'figure[data-graphic="crew"]',
   )) {
     const band = figure.closest('section') ?? document;
-    const fill = (on: boolean) => figure.toggleAttribute('data-filled', on);
+    const fill = (on: boolean) => {
+      if (on) figure.dispatchEvent(new Event('crew:fill'));
+      figure.toggleAttribute('data-filled', on);
+    };
     const focused = () =>
       document.activeElement?.hasAttribute('data-crew-cta') === true;
     for (const cta of band.querySelectorAll<HTMLElement>('[data-crew-cta]')) {

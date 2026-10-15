@@ -8,7 +8,9 @@
  *
  * The newcomer who fills "Your spot" on a card's hover or focus is not part of the story: it is a
  * CSS transition on `data-filled` (home.css), so it works before this module loads and under
- * reduced motion (instantly).
+ * reduced motion (instantly). A card hovered or focused before the crew has landed (tabbing
+ * straight to the cards scrolls them into view and starts the hop-in) lands the crew at once, so
+ * the newcomer never drops in among astronauts still in the air (review of T2).
  */
 import type { CastId } from '../../graphics/astro/cast';
 import type { PoseName } from '../../graphics/astro/poses';
@@ -19,7 +21,7 @@ export const CREW_STORY = 2200;
 const STAGGER = 220;
 
 export function initCrew(figure: HTMLElement): void {
-  sceneController(
+  const controller = sceneController(
     figure,
     (tl) => {
       const layout = [
@@ -62,4 +64,10 @@ export function initCrew(figure: HTMLElement): void {
     },
     { name: 'crew', timeline: { story: CREW_STORY } },
   );
+  // index.astro sends crew:fill as a card fills the spot; it may have filled before this loaded.
+  const land = () => {
+    if (controller.state !== 'rest') void controller.seek(CREW_STORY);
+  };
+  figure.addEventListener('crew:fill', land);
+  if (figure.hasAttribute('data-filled')) land();
 }

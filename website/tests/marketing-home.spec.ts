@@ -648,6 +648,32 @@ test('focusing each card fills "Your spot", and moving on empties it', async ({
   }
 });
 
+// Review of T2: tabbing straight to the cards scrolls them into view, which started the crew's
+// hop-in just as the newcomer dropped into "Your spot", among astronauts still in the air.
+test('a card focused before the crew has landed lands it at once', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const figure = crew(page);
+  await page.locator('#join [data-crew-cta]').first().focus();
+  await expect(figure).toHaveAttribute('data-filled', '');
+  await page.evaluate(() => window.__motion!.ready('crew'));
+  // The story takes 2.2 s: landed within a second means it never played around the newcomer.
+  await expect
+    .poll(() => page.evaluate(() => window.__motion!.time('crew')), {
+      timeout: 1000,
+    })
+    .toBeGreaterThanOrEqual(2200);
+  for (const member of await shown(figure, '.crew__layout')
+    .locator('.crew__member')
+    .all())
+    expect(
+      await member.evaluate((element) =>
+        Number(getComputedStyle(element).opacity),
+      ),
+    ).toBe(1);
+});
+
 // Hover is a pointer interaction.
 test('hovering each card fills "Your spot", and leaving empties it @desktop-chromium', async ({
   page,
