@@ -11,6 +11,7 @@
  *   window.__motion.seek(name, ms)     fonts loaded, the scene built, every track at ms, paused
  *   window.__motion.pauseAll()         the visitor's Pause on every scene
  *   window.__motion.time(name)         a scene's clock, ms
+ *   window.__motion.story(name)        the length of a scene's story (or entrance), ms
  */
 
 export const MOTION_HOOKS: boolean =
@@ -35,6 +36,7 @@ export interface MotionHooks {
   seek(name: string, ms: number): Promise<void>;
   pauseAll(): void;
   time(name: string): number;
+  story(name: string): number;
 }
 
 declare global {
@@ -125,6 +127,7 @@ function install(): Registry {
       for (const scene of state.scenes.values()) scene.pause();
     },
     time: (name) => state.scenes.get(name)?.time ?? NaN,
+    story: (name) => state.scenes.get(name)?.story ?? NaN,
   };
   return state;
 }
