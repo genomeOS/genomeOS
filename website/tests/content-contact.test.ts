@@ -13,7 +13,10 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { contactPaintScript } from '../src/components/contact/contact-paint';
+import {
+  contactDirectScript,
+  contactPaintScript,
+} from '../src/components/contact/contact-paint';
 import { OFFERS, SECTIONS, TOPICS } from '../src/lib/contact-draft';
 import { builtHtml, dist } from './helpers/dist';
 
@@ -60,7 +63,23 @@ describe('the built Contact page', () => {
       expect(readFileSync(file, 'utf8'), file).not.toMatch(/href="mailto:/i);
   });
 
-  it('renders the composer hidden, shows it from the inline script, and spells the address out without JavaScript', () => {
+  it('renders Email us, the address and the composer hidden, shows them from inline scripts, and spells the address out without JavaScript', () => {
+    // The address with Email us, then its script, before anything below it paints.
+    expect(main).toMatch(
+      /<div class="contact-direct"[^>]*data-contact-direct[^>]*hidden/,
+    );
+    const directEnd = main.indexOf(
+      '<script>',
+      main.indexOf('data-contact-direct'),
+    );
+    expect(main.slice(directEnd, directEnd + 200)).toContain(
+      contactDirectScript().slice(0, 80),
+    );
+    // Email us holds no mailto: in the page as served: the island sets it when a visitor reaches.
+    expect(main).toMatch(/<a [^>]*data-email-us[^>]*>/);
+    expect(main.match(/<a [^>]*data-email-us[^>]*>/)![0]).not.toMatch(
+      /mailto:/i,
+    );
     expect(main).toMatch(
       /<div class="contact" id="contact-composer"[^>]*hidden/,
     );

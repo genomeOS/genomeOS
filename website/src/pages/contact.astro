@@ -3,24 +3,30 @@
  * Contact (Contact page spec; part of the site redesign, #454): write to the genomeOS Foundation
  * without the site ever holding or sending a message.
  *
- *   intro      the shared PageIntro, split: note, H1, lede
- *   composer   purpose (radios) and, for a contribution, what you'd offer (toggle buttons);
- *              the live letter (the lead figure, ContactLetter); the actions: open the draft in
- *              the visitor's email app, copy it, or start a blank email; show and copy the address;
- *              on a phone, a dock that holds the primary action while the letter is read
- *   problem    a secondary link: problems go to GitHub Issues, not email
+ *   intro      the shared PageIntro, split: note, H1, lede; then the plainest way to write, first
+ *              on every screen (owner request, 2026-10-14): Email us, a plain mailto:, and the
+ *              address itself in view, with a button that copies it
+ *   templates  a band of its own, "Or start from a template": 1 what it's about (purposes, real
+ *              radios), 2 what you'd offer (for a contribution, toggle buttons), 3 send it (open
+ *              the composed draft in the visitor's email app); the live letter beside them, or
+ *              after them on a phone
+ *   problem    last, a secondary link: problems go to GitHub Issues, not email
  *
- * The address is in no served file (src/lib/contact-address.ts): it is joined only on a visitor's
- * action, and every draft is built then (src/lib/contact-draft.ts) and handed to the visitor's own
- * email app through `mailto:`. Nothing is sent, stored or tracked. Without JavaScript the composer
- * stays hidden and a `<noscript>` line spells the address out for a person to type; if JavaScript
- * runs but the island never does, the pre-paint script puts the page back that way at `load`.
+ * The address is in no served file (src/lib/contact-address.ts): the browser joins it from stored
+ * parts, and an inline script writes it into the page before the first paint (contact-paint.ts).
+ * No `mailto:` is in the page until a visitor reaches for Email us (contact.ts), and every draft is
+ * built then (src/lib/contact-draft.ts) and handed to the visitor's own email app. Nothing is
+ * sent, stored or tracked. Without JavaScript Email us and the templates stay hidden and a
+ * `<noscript>` line spells the address out for a person to type; if JavaScript runs but the island
+ * never does, the pre-paint script puts the page back that way at `load`.
  *
  * `?topic=contribute&offer=data,funding` (or `?topic=question|partner|press`) preselects, before the
  * first paint (contact-paint.ts); choosing in the page keeps the query in step for sharing.
  */
+import ContactIcon from '../components/contact/ContactIcon.astro';
 import ContactLetter from '../components/contact/ContactLetter.astro';
 import {
+  contactDirectScript,
   contactPaintScript,
   TOPIC_INPUT,
 } from '../components/contact/contact-paint';
@@ -37,7 +43,7 @@ import '../styles/pages/contact.css';
 
 const ROOT = 'contact-composer';
 const ISSUES = `${GITHUB_REPOSITORY}/issues/new/choose`;
-/** The address as a person reads it, for a page whose composer cannot run. */
+/** The address as a person reads it, for a page whose scripts cannot run. */
 const SPELLED_OUT = 'info [at] genome-os [dot] org';
 ---
 
@@ -46,13 +52,14 @@ const SPELLED_OUT = 'info [at] genome-os [dot] org';
   description="Write to the genomeOS Foundation: offer code, data, expertise or funding, ask a question, propose a partnership or make a press inquiry."
 >
   <div class="contact-page" data-concept>
+    <ContactIcon sprite />
     <PageIntro
       layout="split"
       note="Contact"
       title="Start the conversation."
-      lede="Choose what you’re writing about and this page drafts the email. Your own email app sends it, so nothing passes through this site."
+      lede="Email us, or let this page draft the email for you. Your own email app sends it, so nothing passes through this site."
     >
-      <div slot="figure" class="contact-layout">
+      <div slot="figure" class="contact-reach">
         <noscript>
           <p class="contact-noscript">
             Email us at <strong>{SPELLED_OUT}</strong>.
@@ -62,6 +69,53 @@ const SPELLED_OUT = 'info [at] genome-os [dot] org';
           Email us at <strong>{SPELLED_OUT}</strong>.
         </p>
 
+        {
+          /*
+           * The plainest way to write, first: the Atlas pill's look at call-to-action size, whose
+           * mailto: the island sets when a visitor reaches for it, and the address in view.
+           */
+        }
+        <div class="contact-direct" data-contact-direct hidden>
+          <a class="contact-email" href="#contact-address" data-email-us>
+            <ContactIcon name="mail" class="contact-email__icon" />
+            Email us
+          </a>
+          <p class="contact-address">
+            <span
+              class="contact-address__value"
+              id="contact-address"
+              data-address></span>
+            <button
+              type="button"
+              class="contact-copy"
+              data-action="copy-address"
+              aria-label="Copy email address"
+              aria-describedby="contact-address"
+            >
+              <span class="contact-copy__swap">
+                <span class="contact-copy__idle">
+                  <ContactIcon name="copy" />
+                  <span class="contact-copy__word">Copy</span>
+                </span>
+                <span class="contact-copy__done" data-copied>
+                  <ContactIcon name="check" />
+                  <span class="contact-copy__word">Copied</span>
+                </span>
+              </span>
+            </button>
+          </p>
+          <p class="contact-hint" data-hint="address" hidden></p>
+          <p class="visually-hidden" role="status" data-status></p>
+        </div>
+        <script is:inline set:html={contactDirectScript()} />
+      </div>
+    </PageIntro>
+
+    <section
+      class="band band--orbit contact-templates"
+      aria-labelledby="contact-templates-title"
+    >
+      <div class="section-shell">
         <div
           class="contact"
           id={ROOT}
@@ -69,9 +123,18 @@ const SPELLED_OUT = 'info [at] genome-os [dot] org';
           data-offers=""
           hidden
         >
+          <h2 class="contact-templates__title" id="contact-templates-title">
+            Or start from a template
+          </h2>
+
           <div class="contact__controls">
-            <fieldset class="contact-field">
-              <legend class="contact-field__label">Purpose</legend>
+            <fieldset class="contact-step" data-step="purpose">
+              <legend class="contact-step__label">
+                <span
+                  class="contact-step__number"
+                  aria-hidden="true"
+                  data-number="1"></span>What it’s about
+              </legend>
               <div class="contact-choices">
                 {
                   TOPICS.map((topic) => (
@@ -82,6 +145,7 @@ const SPELLED_OUT = 'info [at] genome-os [dot] org';
                         value={topic}
                         checked={topic === 'contribute'}
                       />
+                      <ContactIcon name={topic} class="contact-choice__icon" />
                       <span>{TOPIC_LABELS[topic]}</span>
                     </label>
                   ))
@@ -92,13 +156,17 @@ const SPELLED_OUT = 'info [at] genome-os [dot] org';
             <div class="contact-offers" data-offers-field>
               <div class="contact-offers__clip">
                 <div
-                  class="contact-field"
+                  class="contact-step"
                   role="group"
                   aria-labelledby="contact-offers-label"
                   data-select="multiple"
+                  data-step="offers"
                 >
-                  <p class="contact-field__label" id="contact-offers-label">
-                    What you’d offer
+                  <p class="contact-step__label" id="contact-offers-label">
+                    <span
+                      class="contact-step__number"
+                      aria-hidden="true"
+                      data-number="2"></span>What you’d offer
                   </p>
                   <div class="contact-toggles">
                     {
@@ -109,14 +177,9 @@ const SPELLED_OUT = 'info [at] genome-os [dot] org';
                           aria-pressed="false"
                           data-offer={offer}
                         >
-                          <svg
-                            class="contact-toggle__hex"
-                            viewBox="0 0 16 16"
-                            aria-hidden="true"
-                            focusable="false"
-                          >
-                            <path d="M15 8 11.5 14.06h-7L1 8l3.5-6.06h7z" />
-                          </svg>
+                          <span class="contact-toggle__mark">
+                            <ContactIcon name={offer} />
+                          </span>
                           {OFFER_LABELS[offer]}
                         </button>
                       ))
@@ -125,84 +188,34 @@ const SPELLED_OUT = 'info [at] genome-os [dot] org';
                 </div>
               </div>
             </div>
+
+            <div class="contact-step" data-step="send">
+              <p class="contact-step__label">
+                <span
+                  class="contact-step__number"
+                  aria-hidden="true"
+                  data-number="3"></span>Send it
+              </p>
+              <button
+                type="button"
+                class="contact-button contact-button--primary"
+                data-action="open"
+              >
+                Open draft in your email app
+                <svg
+                  class="contact-button__arrow"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path d="M4.5 12h14M13.5 6.5 19 12l-5.5 5.5"></path>
+                </svg>
+              </button>
+              <p class="contact-hint" data-hint="draft" hidden></p>
+            </div>
           </div>
 
           <ContactLetter />
-
-          <div class="contact__actions">
-            <button
-              type="button"
-              class="contact-button contact-button--primary"
-              data-action="open"
-            >
-              Open draft in your email app
-              <svg
-                class="contact-button__arrow"
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-                focusable="false"
-              >
-                <path d="M4.5 12h14M13.5 6.5 19 12l-5.5 5.5"></path>
-              </svg>
-            </button>
-            <div class="contact__pair">
-              <button
-                type="button"
-                class="contact-button"
-                data-action="copy-draft">Copy draft</button
-              >
-              <button type="button" class="contact-button" data-action="blank"
-                >Blank email</button
-              >
-            </div>
-            <div class="contact-address">
-              <button
-                type="button"
-                class="contact-text-button"
-                data-action="reveal">Show email address</button
-              >
-              <span class="contact-address__shown" data-address-shown hidden>
-                <span
-                  class="contact-address__value"
-                  id="contact-address"
-                  data-address></span>
-                <button
-                  type="button"
-                  class="contact-text-button"
-                  data-action="copy-address"
-                  aria-describedby="contact-address">Copy</button
-                >
-              </span>
-            </div>
-            <p class="contact-status" role="status" data-status></p>
-          </div>
-
-          {
-            /*
-             * The phone dock (contact.ts): the primary action at the foot of the screen while the
-             * letter is read and the button above is still well below it. A pointer shortcut to
-             * that button, so keyboards and screen readers keep to that one, and it can take the
-             * short label, one line on every phone (design critique 2, I-1).
-             */
-          }
-          <div class="contact-dock" data-dock aria-hidden="true">
-            <button
-              type="button"
-              class="contact-button contact-button--primary"
-              data-action="open"
-              tabindex="-1"
-            >
-              Open draft
-              <svg
-                class="contact-button__arrow"
-                viewBox="0 0 24 24"
-                aria-hidden="true"
-                focusable="false"
-              >
-                <path d="M4.5 12h14M13.5 6.5 19 12l-5.5 5.5"></path>
-              </svg>
-            </button>
-          </div>
         </div>
         <script is:inline set:html={contactPaintScript(ROOT)} />
 
@@ -215,7 +228,7 @@ const SPELLED_OUT = 'info [at] genome-os [dot] org';
           >
         </p>
       </div>
-    </PageIntro>
+    </section>
   </div>
 </SiteLayout>
 
