@@ -1,7 +1,7 @@
 ---
 /**
- * The Contact page's lead figure (Contact page spec §4): the draft, set like a letter on a plate
- * (kit Plate anatomy), live as the visitor chooses. Every word comes from the draft builder
+ * The Contact page's template preview (Contact page spec §4): the draft, set like a letter on a
+ * plate (kit Plate anatomy), live as the visitor chooses. Every word comes from the draft builder
  * (src/lib/contact-draft.ts), so the letter shown is the letter sent.
  *
  * - The server renders every part a draft can have: each purpose's opening and subject, About me,
@@ -10,10 +10,11 @@
  *   grows in and a released one collapses, in --dur-ui, or at once under reduced motion.
  * - Only a contribution's opening and subject change words, for its offers; the island and the
  *   pre-paint script write those two spans (`data-offer-list`, `data-offer-subject`).
- * - To reads "genomeOS Foundation" until the visitor asks for the address.
+ * - To is the address, which the pre-paint script writes before the first paint (contact-paint.ts);
+ *   "genomeOS Foundation" stands in only until it has.
  * - The stage is a labelled region, read as text and never announced on a change.
  *
- * Offer sections carry the kit's hex, the mark the offer buttons fill when pressed. Each field is
+ * Offer sections carry their offer's icon, the one on its toggle (contact-icons.ts). Each field is
  * its dash, then its label with the dotted leader that ends the label's last line (contact.css),
  * written as one expression so no space falls between the last word and the leader. The greeting
  * and the opening, short lines that may wrap once or twice, break evenly (`letter__para--balanced`),
@@ -26,6 +27,7 @@
  */
 import BrandName from '../BrandName.astro';
 import Plate from '../kit/Plate.astro';
+import ContactIcon from './ContactIcon.astro';
 import {
   GREETING,
   letterList,
@@ -35,6 +37,7 @@ import {
   SIGN_OFF,
   SUBJECTS,
   TOPICS,
+  type Offer,
   type SectionId,
 } from '../../lib/contact-draft';
 
@@ -153,14 +156,7 @@ const sections: { id: SectionId; offer: boolean }[] = [
               <p class="letter__para" data-letter-block>
                 <span class="letter__line letter__heading" data-letter-line>
                   {offer && (
-                    <svg
-                      class="letter__hex"
-                      viewBox="0 0 16 16"
-                      aria-hidden="true"
-                      focusable="false"
-                    >
-                      <path d="M15 8 11.5 14.06h-7L1 8l3.5-6.06h7z" />
-                    </svg>
+                    <ContactIcon name={id as Offer} class="letter__icon" />
                   )}
                   {SECTIONS[id].heading}
                 </span>

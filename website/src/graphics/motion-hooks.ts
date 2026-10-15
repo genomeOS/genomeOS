@@ -61,10 +61,21 @@ const frames = (count: number) =>
     step(count);
   });
 
-/** Register a scene with the hooks; does nothing unless MOTION_HOOKS. */
+/**
+ * Register a scene with the hooks; does nothing unless MOTION_HOOKS. A second scene under a name
+ * already taken replaces the first, so `window.__motion` reaches only the last one: dev and the
+ * e2e build warn about it, once per name (the deployed build has none of this).
+ */
 export function registerScene(scene: Scrubbable): void {
   if (!MOTION_HOOKS || typeof window === 'undefined') return;
   const registry = install();
+  const taken = registry.scenes.get(scene.name);
+  if (taken && taken !== scene && !registry.warned.has(scene.name)) {
+    registry.warned.add(scene.name);
+    console.warn(
+      `[motion hooks] Two scenes are registered as "${scene.name}"; window.__motion reaches only the last one. Give each scene its own name.`,
+    );
+  }
   registry.scenes.set(scene.name, scene);
   registry.waiters.get(scene.name)?.forEach((resolve) => resolve(scene));
   registry.waiters.delete(scene.name);
@@ -76,13 +87,19 @@ export function registerScene(scene: Scrubbable): void {
 interface Registry {
   scenes: Map<string, Scrubbable>;
   waiters: Map<string, ((scene: Scrubbable) => void)[]>;
+  /** Names already warned about as shared by two scenes. */
+  warned: Set<string>;
 }
 
 let registry: Registry | null = null;
 
 function install(): Registry {
   if (registry) return registry;
-  const state: Registry = { scenes: new Map(), waiters: new Map() };
+  const state: Registry = {
+    scenes: new Map(),
+    waiters: new Map(),
+    warned: new Set(),
+  };
   registry = state;
   const find = (name: string) =>
     new Promise<Scrubbable>((resolve) => {

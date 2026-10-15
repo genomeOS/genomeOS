@@ -20,8 +20,9 @@
  *
  * `sceneController` runs a scene's life (spec §3.2 items 4–7): build when near the viewport, start
  * the story at 35% visible, pause off screen or in a hidden tab, a sticky Pause, Replay, the end
- * state for print, and under `prefers-reduced-motion: reduce` nothing at all (zero Animations: the
- * server-rendered end state stays and the controls stay hidden).
+ * state for print (and back to where it was after printing), and under
+ * `prefers-reduced-motion: reduce` nothing at all (zero Animations: the server-rendered end state
+ * stays and the controls stay hidden).
  */
 import { registerScene } from './motion-hooks';
 
@@ -386,9 +387,11 @@ export function sceneController(
     return built;
   };
   let restTimer = 0;
+  /** The clock when printing began, while the printout shows the story's end; else null. */
+  let printedFrom: number | null = null;
   const sync = () => {
     window.clearTimeout(restTimer);
-    if (!tl || !started) return;
+    if (!tl || !started || printedFrom !== null) return;
     const run = !userPaused && onScreen && !document.hidden;
     if (run && !tl.playing) tl.play();
     if (!run && tl.playing) tl.pause();
@@ -427,9 +430,20 @@ export function sceneController(
   near.observe(figure);
   seen.observe(figure);
   document.addEventListener('visibilitychange', sync);
-  // Printing shows the story's end (spec §8).
+  // Printing shows the story's end (spec §8). Afterwards every track goes back to where it was and
+  // the scene carries on: a playing scene resumes, a paused one stays paused, and one the visitor
+  // has not reached yet keeps its story for them.
   window.addEventListener('beforeprint', () => {
-    if (tl) tl.seek(tl.storyMs);
+    if (!tl || printedFrom !== null) return;
+    printedFrom = tl.time;
+    tl.seek(tl.storyMs);
+    if (started) setState('paused');
+  });
+  window.addEventListener('afterprint', () => {
+    if (!tl || printedFrom === null) return;
+    tl.seek(printedFrom);
+    printedFrom = null;
+    sync();
   });
 
   toggle?.addEventListener('click', () => {

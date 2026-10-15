@@ -2,7 +2,8 @@
  * The scene timeline and the astronaut rig in the browser (round 2 spec §3.2, §3.4, §11.2), on the
  * /kit/ gallery's test scene (e2e build only): A3 hops 160 units across in a 2 s story, then hops
  * in place in every 2 s loop. Scrubbed through window.__motion, never on wall-clock sleeps, except
- * where the point is real time (an offscreen pause).
+ * where the point is real time (a pause off screen, in a hidden tab, on the visitor's Pause or
+ * after printing).
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -37,7 +38,37 @@ async function open(page: Page) {
 }
 const seek = (page: Page, ms: number) =>
   page.evaluate((t) => window.__motion!.seek('kit-scene', t), ms);
+const time = (page: Page) =>
+  page.evaluate(() => window.__motion!.time('kit-scene'));
 const expected = (spec: PoseSpec) => solve('A3', spec);
+
+/** The tab hidden or shown, as a browser reports it: both properties, then the event. */
+const tabHidden = (page: Page, hidden: boolean) =>
+  page.evaluate((value) => {
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      get: () => value,
+    });
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => (value ? 'hidden' : 'visible'),
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, hidden);
+/** Two frames: the IntersectionObservers have reported a scroll by then. */
+const settle = (page: Page) =>
+  page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      ),
+  );
+const scrollAway = (page: Page) =>
+  page.evaluate(() =>
+    window.scrollTo(0, document.documentElement.scrollHeight),
+  );
+const printing = (page: Page, event: 'beforeprint' | 'afterprint') =>
+  page.evaluate((name) => window.dispatchEvent(new Event(name)), event);
 
 test('seeking puts the astronaut’s joints at the angles its poses commit to', async ({
   page,
@@ -114,6 +145,129 @@ test('a scene paused off screen resumes where it was, never replaying its story'
   expect(resumed).toBeGreaterThanOrEqual(paused);
   // Still standing where the story left it: the story was not played again.
   expect((await joint(page, '.j-move')).x).toBeCloseTo(160, 0);
+});
+
+test('a hidden tab pauses the scene, and showing the tab again resumes it', async ({
+  page,
+}) => {
+  await open(page);
+  const scene = page.locator(SCENE);
+  await expect.poll(() => time(page), { timeout: 8_000 }).toBeGreaterThan(300);
+  await tabHidden(page, true);
+  await expect(scene).toHaveAttribute('data-scene-state', 'paused');
+  const paused = await time(page);
+  await page.waitForTimeout(400);
+  expect(await time(page)).toBe(paused);
+  expect(
+    await scene.evaluate(
+      (element) =>
+        element
+          .getAnimations({ subtree: true })
+          .filter((animation) => animation.playState === 'running').length,
+    ),
+  ).toBe(0);
+  await tabHidden(page, false);
+  await expect(scene).toHaveAttribute('data-scene-state', 'playing');
+  await expect.poll(() => time(page)).toBeGreaterThan(paused);
+});
+
+test('the visitor’s Pause stays pressed through scrolling away and back and a hidden tab', async ({
+  page,
+}) => {
+  await open(page);
+  const scene = page.locator(SCENE);
+  const toggle = page.getByRole('button', { name: 'Pause the test animation' });
+  await expect.poll(() => time(page), { timeout: 8_000 }).toBeGreaterThan(300);
+  await toggle.click();
+  await expect(scene).toHaveAttribute('data-scene-state', 'paused');
+  const paused = await time(page);
+
+  await scrollAway(page);
+  await settle(page);
+  await scene.scrollIntoViewIfNeeded();
+  await settle(page);
+  await tabHidden(page, true);
+  await settle(page);
+  await tabHidden(page, false);
+  await settle(page);
+  await page.waitForTimeout(400);
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(toggle).toHaveAttribute('data-state', 'paused');
+  await expect(scene).toHaveAttribute('data-scene-state', 'paused');
+  expect(await time(page)).toBe(paused);
+
+  // Only Play ends it.
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(scene).toHaveAttribute('data-scene-state', 'playing');
+  await expect.poll(() => time(page)).toBeGreaterThan(paused);
+});
+
+test('printing shows the story’s end, and afterprint resumes the scene where it was', async ({
+  page,
+}) => {
+  await open(page);
+  const scene = page.locator(SCENE);
+  // Real time: into the loops, where the astronaut hops in place.
+  await expect.poll(() => time(page), { timeout: 8_000 }).toBeGreaterThan(2300);
+  // The clock read in the same task as the event, so nothing moves in between.
+  const before = await page.evaluate(() => {
+    const at = window.__motion!.time('kit-scene');
+    window.dispatchEvent(new Event('beforeprint'));
+    return at;
+  });
+  // The page as printed: the story's end, standing at x 160, and nothing moving.
+  await expect(scene).toHaveAttribute('data-scene-state', 'paused');
+  expect(await time(page)).toBe(2000);
+  expect((await joint(page, '.j-move')).x).toBeCloseTo(160, 1);
+  expect((await joint(page, '.j-hop')).y).toBeCloseTo(0, 1);
+  await page.waitForTimeout(400);
+  expect(await time(page)).toBe(2000);
+
+  await printing(page, 'afterprint');
+  await expect(scene).toHaveAttribute('data-scene-state', 'playing');
+  expect(await time(page)).toBeGreaterThanOrEqual(before);
+  await expect.poll(() => time(page)).toBeGreaterThan(before);
+  // The loops went on; the story did not play again.
+  expect((await joint(page, '.j-move')).x).toBeCloseTo(160, 0);
+
+  // Paused by the visitor, it prints its end and stays paused where it was.
+  const toggle = page.getByRole('button', { name: 'Pause the test animation' });
+  await toggle.click();
+  await expect(scene).toHaveAttribute('data-scene-state', 'paused');
+  const paused = await time(page);
+  await printing(page, 'beforeprint');
+  expect(await time(page)).toBe(2000);
+  await printing(page, 'afterprint');
+  await page.waitForTimeout(400);
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(scene).toHaveAttribute('data-scene-state', 'paused');
+  expect(await time(page)).toBe(paused);
+});
+
+test('printing a scene that has not started keeps its story for the visitor', async ({
+  page,
+}) => {
+  await page.goto('/kit/');
+  const scene = page.locator(SCENE);
+  // Just below the fold: near enough to build, not seen yet.
+  await scene.evaluate((figure) =>
+    window.scrollTo(
+      0,
+      figure.getBoundingClientRect().top + window.scrollY - innerHeight - 40,
+    ),
+  );
+  await expect(scene).toHaveAttribute('data-scene-state', 'armed');
+  await printing(page, 'beforeprint');
+  expect(await time(page)).toBe(2000);
+  await printing(page, 'afterprint');
+  expect(await time(page)).toBe(0);
+  await expect(scene).toHaveAttribute('data-scene-state', 'armed');
+
+  await scene.scrollIntoViewIfNeeded();
+  await expect(scene).toHaveAttribute('data-scene-state', 'playing');
+  // The story plays from its start, not from the end the printout showed.
+  expect(await time(page)).toBeLessThan(1500);
 });
 
 test('the controls pause, play and replay, and say what they act on', async ({

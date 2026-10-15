@@ -1,29 +1,26 @@
 /**
- * The Contact page's island (Contact page spec §2, §3, §5, §6): the composer's state, the live
- * letter, and the actions that hand a draft to the visitor's own email app.
+ * The Contact page's island (Contact page spec §2, §3, §5, §6): Email us and the address, the
+ * template composer's state, the live letter, and the action that hands a draft to the visitor's
+ * own email app.
  *
- * - State is a purpose and a set of offers. The pre-paint script (contact-paint.ts) has already
- *   drawn the `?topic=…&offer=…` preselect; this takes over from the same `parseQuery`. The
- *   composer's `data-topic` and `data-offers` drive what the letter shows (contact.css), and a
- *   choice keeps the query in step with `history.replaceState`, so the page's link can be shared.
- *   Transitions exist only once the visitor has changed something (`data-live`), so nothing moves
- *   on load.
- * - The address is joined only on a visitor's action (contact-address.ts): Show email address,
- *   or any of the three draft actions, which also show it, so a visitor whose email app does not
- *   open still has it. No `<a href="mailto:…">` sits in the page: the draft buttons build the
- *   link when pressed and navigate to it.
- * - Feedback (shown, copied, how to carry on) goes through the one polite status line. "Email
- *   address shown" is for screen readers only: the address is in view and focus is on its Copy
- *   (design critique 1, m-2). Where the clipboard is blocked, the text to copy is selected
- *   instead: the address, or the letter. The letter as laid out is not the draft's text (To and
- *   Subject lose their colons, each dash breaks from its field, and hidden sections leave blank
- *   lines), so while that selection stands a copy carries `draftText`, exactly what Copy draft
- *   would have copied.
- * - On a phone the letter runs on below the controls and the actions below the letter, so while
- *   the letter is read and the button in the page is still well below it, a dock at the foot of
- *   the screen holds the primary action (design critiques 1, m-5, and 2, I-1; contact.css). It is
- *   a pointer shortcut to that button, which keyboards and screen readers use: hidden from both.
- *   It hands over before the button comes into view, so the action never shows twice.
+ * - The address is joined in the browser (contact-address.ts); the pre-paint script has already
+ *   written it into the page (contact-paint.ts). Email us is a link whose `mailto:` this sets only
+ *   when a visitor reaches for it (a pointer over it or down on it, a touch, or focus), so the page
+ *   as loaded holds no `mailto:` link. Its copy button confirms in place: it reads "Copied" for a
+ *   moment, at its own size.
+ * - State is a purpose and a set of offers. The pre-paint script has already drawn the
+ *   `?topic=…&offer=…` preselect; this takes over from the same `parseQuery`. The composer's
+ *   `data-topic` and `data-offers` drive what the letter shows (contact.css), and a choice keeps
+ *   the query in step with `history.replaceState`, so the page's link can be shared. Transitions
+ *   exist only once the visitor has changed something (`data-live`), so nothing moves on load.
+ * - Open draft in your email app builds the draft and navigates to its `mailto:`.
+ * - Feedback goes through the page's one polite live region, which stays out of sight. Guidance on
+ *   how to carry on (no email app opened; the clipboard is blocked) also shows as a line under the
+ *   control it follows, and keeps it until that control's next message, so nothing moves by
+ *   itself. Where the clipboard is blocked, the address is selected instead, ready to copy by hand.
+ * - The whole letter selected (by hand) copies as the draft's text, exactly what the email app
+ *   would get: the letter as laid out is not the draft's text (To and Subject lose their colons,
+ *   each dash breaks from its field, and hidden sections leave blank lines).
  * - The composer is marked `data-ready` once this has run; the pre-paint script falls back to the
  *   spelled-out address if it never does.
  * - Nothing is sent or stored: no request, no storage, no analytics event. (A browser test reads
@@ -45,18 +42,19 @@ import {
 } from '../../lib/contact-draft';
 import { TOPIC_INPUT } from './contact-paint';
 
-/** How long a status message stays up. */
+/** How long a message only read out stays in the live region. */
 const STATUS_MS = 6000;
+/** How long the copy button reads "Copied". */
+const CONFIRM_MS = 2000;
 
-/** The phone dock goes this far before the button in the page would come into view... */
-const DOCK_HANDOFF_PX = 24;
-/** ...and comes back only once that button is this share of a screen below the fold. */
-const DOCK_RETURN_SHARE = 0.25;
+const DRAFT_HINT =
+  'If no email app opens, copy the letter and send it to the address above.';
 
 export function initContact(root: HTMLElement): void {
   root.hidden = false;
   const find = <T extends Element>(selector: string) =>
     root.querySelector<T>(selector);
+  const page = document;
   const radios = [
     ...root.querySelectorAll<HTMLInputElement>(`input[name="${TOPIC_INPUT}"]`),
   ];
@@ -65,14 +63,22 @@ export function initContact(root: HTMLElement): void {
   ];
   const offerListText = find('[data-offer-list]');
   const offerSubject = find('[data-offer-subject]');
-  const toAddress = find('[data-to-address]');
-  const status = find<HTMLElement>('[data-status]');
-  const revealButton = find<HTMLButtonElement>('[data-action="reveal"]');
-  const shown = find<HTMLElement>('[data-address-shown]');
   const letter = find('[data-letter]');
-  const addressText = find('[data-address]');
-  const copyAddress = find<HTMLButtonElement>('[data-action="copy-address"]');
-  const dock = find<HTMLElement>('[data-dock]');
+  const status = page.querySelector<HTMLElement>('[data-status]');
+  const emailUs = page.querySelector<HTMLAnchorElement>('[data-email-us]');
+  const addressText = page.querySelector('[data-address]');
+  const hints = {
+    address: page.querySelector<HTMLElement>('[data-hint="address"]'),
+    draft: page.querySelector<HTMLElement>('[data-hint="draft"]'),
+  };
+
+  // Written by the pre-paint script already; written again, so the page holds it either way.
+  const address = contactAddress();
+  for (const place of page.querySelectorAll(
+    '[data-address], [data-to-address]',
+  ))
+    place.textContent = address;
+  root.dataset.revealed = '';
 
   let { topic, offers } = parseQuery(location.search);
   const state = () => ({ topic, offers });
@@ -117,20 +123,19 @@ export function initContact(root: HTMLElement): void {
       changed();
     });
 
-  // One polite status line for every piece of feedback. The same message twice is cleared first,
-  // so it is announced again. A message that only repeats what is in view is read, not shown.
+  // The one polite live region, out of sight. A message is cleared after a while; the same one
+  // twice is cleared first, so it is announced again. Guidance also shows under the control it
+  // follows (`hint`), and stays there until that control's next message.
   let statusTimer = 0;
-  const say = (message: string, { shown = true } = {}) => {
+  const say = (message: string, hint?: HTMLElement | null) => {
+    if (hint) {
+      hint.textContent = message;
+      hint.hidden = false;
+    }
     if (!status) return;
     window.clearTimeout(statusTimer);
     const write = () => {
-      if (shown) status.textContent = message;
-      else {
-        const line = document.createElement('span');
-        line.className = 'visually-hidden';
-        line.textContent = message;
-        status.replaceChildren(line);
-      }
+      status.textContent = message;
       statusTimer = window.setTimeout(() => {
         status.textContent = '';
       }, STATUS_MS);
@@ -141,53 +146,50 @@ export function initContact(root: HTMLElement): void {
     } else write();
   };
 
-  let address = '';
-  const reveal = (): string => {
-    if (address) return address;
-    address = contactAddress();
-    if (addressText) addressText.textContent = address;
-    if (toAddress) toAddress.textContent = address;
-    root.dataset.revealed = '';
-    if (revealButton) revealButton.hidden = true;
-    if (shown) shown.hidden = false;
-    return address;
+  // Email us: the address's mailto:, set when a visitor reaches for the link, never before.
+  if (emailUs) {
+    const reach = () => {
+      emailUs.href = mailtoUrl(address);
+    };
+    for (const type of ['pointerover', 'pointerdown', 'touchstart', 'focus'])
+      emailUs.addEventListener(type, reach, { once: true, passive: true });
+    // A click that came with none of those (a script, an assistive tool) still opens it.
+    emailUs.addEventListener('click', reach);
+  }
+
+  // The copy button reads "Copied" for a moment: both its labels share one cell (contact.css), so
+  // it keeps its size.
+  let confirmTimer = 0;
+  const confirmCopy = (button: HTMLElement) => {
+    window.clearTimeout(confirmTimer);
+    button.toggleAttribute('data-confirmed', true);
+    confirmTimer = window.setTimeout(
+      () => button.removeAttribute('data-confirmed'),
+      CONFIRM_MS,
+    );
   };
 
-  // Each draft action has already shown the address, so a visitor whose email app does not open
-  // is told what still works: the draft to copy, or the address just above this line.
-  const open = (url: string, otherwise: string) => {
-    window.location.href = url;
-    say(`If no email app opens, ${otherwise}`);
-  };
-
-  // `what` names the text `selection` holds: where the clipboard is blocked, it is selected,
-  // ready to copy by hand.
-  const copy = async (
-    text: string,
-    done: string,
-    selection: Element | null,
-    what: string,
-  ) => {
+  const copyAddress = async (button: HTMLElement) => {
     try {
-      await navigator.clipboard.writeText(text);
-      say(done);
+      await navigator.clipboard.writeText(address);
+      if (hints.address) hints.address.hidden = true;
+      confirmCopy(button);
+      say('Copied');
     } catch {
-      if (selection) window.getSelection()?.selectAllChildren(selection);
+      if (addressText) window.getSelection()?.selectAllChildren(addressText);
       say(
-        selection
-          ? `Copying is blocked here. The ${what} is selected, ready to copy.`
-          : 'Copying is blocked here.',
+        'Copying is blocked here. The address is selected, ready to copy.',
+        hints.address,
       );
     }
   };
 
-  const draft = () => draftText(reveal(), buildDraft(state()));
+  const draft = () => draftText(address, buildDraft(state()));
 
-  // The whole letter selected (as `copy` selects it, or by hand), once the address is shown: a
-  // hand copy of it (keys, menu) carries the draft as Copy draft writes it, for the choices as
-  // they now stand. Any other selection copies as the browser copies it. The ends are compared by
-  // the text between them and the letter's own ends, since a browser may move a selection's ends
-  // onto the nearest text.
+  // The whole letter selected (by hand, or as a browser moves a selection's ends onto the nearest
+  // text): a copy of it (keys, menu) carries the draft as the email app would get it, for the
+  // choices as they now stand. Any other selection copies as the browser copies it. The ends are
+  // compared by the text between them and the letter's own ends.
   const textBetween = (
     start: Node,
     startOffset: number,
@@ -201,7 +203,7 @@ export function initContact(root: HTMLElement): void {
   };
   const holdsLetter = () => {
     const selection = window.getSelection();
-    if (!letter || !address || selection?.rangeCount !== 1) return false;
+    if (!letter || selection?.rangeCount !== 1) return false;
     const held = selection.getRangeAt(0);
     return (
       letter.contains(held.startContainer) &&
@@ -221,82 +223,20 @@ export function initContact(root: HTMLElement): void {
     event.preventDefault();
   });
 
-  const actions: Record<string, () => void> = {
-    open: () =>
-      open(mailtoUrl(reveal(), buildDraft(state())), 'use Copy draft.'),
-    blank: () => open(mailtoUrl(reveal()), 'write to the address above.'),
-    'copy-draft': () => void copy(draft(), 'Draft copied', letter, 'draft'),
-    reveal: () => {
-      reveal();
-      copyAddress?.focus();
-      say('Email address shown', { shown: false });
+  const actions: Record<string, (button: HTMLElement) => void> = {
+    open: () => {
+      window.location.href = mailtoUrl(address, buildDraft(state()));
+      say(DRAFT_HINT, hints.draft);
     },
-    'copy-address': () => void copy(reveal(), 'Copied', addressText, 'address'),
+    'copy-address': (button) => void copyAddress(button),
   };
-  root.addEventListener('click', (event) => {
+  page.addEventListener('click', (event) => {
     const button = (event.target as Element | null)?.closest<HTMLElement>(
-      'button[data-action]',
+      '.contact-page button[data-action]',
     );
     const action = button && actions[button.dataset.action ?? ''];
-    if (action) action();
+    if (button && action) action(button);
   });
-
-  // The phone dock (contact.css; design critiques 1, m-5, and 2, I-1): the primary action at the
-  // foot of the screen while the letter is read.
-  // - It comes in once the letter's whole head (To and Subject, however they wrap) has risen above
-  //   it, which the letter's body reaching the dock's top marks, while the button in the page is
-  //   more than a quarter of a screen below the fold.
-  // - It goes DOCK_HANDOFF_PX before that button would come into view, so the two are never on
-  //   screen together, and stays away until the button is a quarter of a screen below again.
-  // - The observers only say when to look: each report decides from where the letter and the
-  //   button are now, with the observers' own edges (an edge touched counts as reached), so a jump
-  //   (End, a link) past an observer's line leaves no stale state.
-  // - Its first state lands at once, so nothing moves on load; later changes move. Above 60rem
-  //   contact.css never shows it.
-  const letterBody = find('.letter__body');
-  const inPage = find('.contact__actions [data-action="open"]');
-  if (dock && letterBody && inPage && 'IntersectionObserver' in window) {
-    let reach = -1;
-    let shown = false;
-    let watchers: IntersectionObserver[] = [];
-    const reported = new Set<IntersectionObserver>();
-    const update = (watcher: IntersectionObserver) => {
-      const fold = window.innerHeight;
-      const button = inPage.getBoundingClientRect().top;
-      const headClear = letterBody.getBoundingClientRect().top <= fold - reach;
-      if (!headClear || button <= fold + DOCK_HANDOFF_PX) shown = false;
-      else if (button > fold * (1 + DOCK_RETURN_SHARE)) shown = true;
-      dock.toggleAttribute('data-shown', shown);
-      reported.add(watcher);
-      if (reported.size < watchers.length || dock.hasAttribute('data-motion'))
-        return;
-      // Every watcher has reported: commit that state as it stands, then let changes move.
-      void getComputedStyle(dock).opacity;
-      dock.toggleAttribute('data-motion', true);
-    };
-    const observe = (target: Element, bottom: string) => {
-      const watcher = new IntersectionObserver(() => update(watcher), {
-        rootMargin: `0px 0px ${bottom} 0px`,
-      });
-      watcher.observe(target);
-      return watcher;
-    };
-    const watch = () => {
-      // How far up from the foot of the screen the dock reaches (offsetTop leaves out its rise).
-      const next = Math.max(0, Math.round(window.innerHeight - dock.offsetTop));
-      if (next === reach) return;
-      reach = next;
-      for (const watcher of watchers) watcher.disconnect();
-      reported.clear();
-      watchers = [
-        observe(letterBody, `-${reach}px`),
-        observe(inPage, `${DOCK_HANDOFF_PX}px`),
-        observe(inPage, `${DOCK_RETURN_SHARE * 100}%`),
-      ];
-    };
-    watch();
-    window.addEventListener('resize', watch, { passive: true });
-  }
 
   render();
   root.dataset.ready = '';
