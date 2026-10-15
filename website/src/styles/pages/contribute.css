@@ -92,15 +92,11 @@
   padding-top: clamp(1.25rem, 2.2vw, 1.75rem);
 }
 
-/* A short laptop screen (1366 × 768, 1280 × 800): the intro steps down further, so the globe and
-   the first moon still show on the first screen. */
+/* A short laptop screen (1366 × 768, 1280 × 800): the intro's padding and lede step down further
+   (the H1 keeps the site's size), so the globe and the first moon still show on the first screen. */
 @media (min-width: 52rem) and (max-height: 52rem) {
   .contribute-intro .page-intro--split .page-intro__inner {
     padding-block: 1.6rem 1.25rem;
-  }
-
-  .contribute-intro .page-intro--split h1 {
-    font-size: clamp(2.4rem, 7.6vh, 4.8rem);
   }
 
   .contribute-intro .page-intro--split .page-intro__lede {
