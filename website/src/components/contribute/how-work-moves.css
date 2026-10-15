@@ -492,6 +492,21 @@
     grid-column: span 3;
   }
 
+  /* The narrowest phones (320 px): a little more room a button and a step smaller type (13.5 px,
+     above the mock's 13 px floor), so "Discussion" keeps padding inside its border instead of
+     filling it edge to edge, and "In progress" stays on one line (design critique 4). */
+  @media (max-width: 21.99rem) {
+    .wb-colnav:not([hidden]) {
+      gap: 4px;
+      padding-inline: 8px;
+    }
+
+    .wb-colnav button {
+      padding-inline: 0.3rem;
+      font-size: 0.75rem;
+    }
+  }
+
   @media (min-width: 45rem) {
     .wb-colnav:not([hidden]) {
       grid-template-columns: repeat(5, minmax(0, 1fr));

@@ -799,6 +799,46 @@ test.describe('the phone track at 320 px @mobile-chromium', () => {
     }
   });
 
+  // Design critique 4: "Discussion" filled its button from border to border at 320 px.
+  test('every column button keeps its words inside, with room either side, at 13 px or more', async ({
+    page,
+  }) => {
+    await openBoard(page);
+    const buttons = await page
+      .locator(`${BOARD} .wb-colnav button`)
+      .evaluateAll((all) =>
+        all.map((button) => {
+          const box = button.getBoundingClientRect();
+          const range = document.createRange();
+          range.selectNodeContents(button);
+          const lines = [...range.getClientRects()];
+          const size = parseFloat(getComputedStyle(button).fontSize);
+          return {
+            name: button.textContent!.trim(),
+            size,
+            // The room between the words and the border, at the tighter side, in em.
+            room:
+              Math.min(
+                ...lines.map((line) =>
+                  Math.min(line.left - box.left, box.right - line.right),
+                ),
+              ) / size,
+          };
+        }),
+      );
+    expect(buttons.map(({ name }) => name)).toEqual([
+      'Discussion',
+      'Backlog',
+      'In progress',
+      'In review',
+      'Merge',
+    ]);
+    for (const { name, size, room } of buttons) {
+      expect(size, name).toBeGreaterThanOrEqual(13);
+      expect(room, name).toBeGreaterThanOrEqual(0.3);
+    }
+  });
+
   test('under reduced motion each column scrolls fully into the window', async ({
     page,
   }) => {
