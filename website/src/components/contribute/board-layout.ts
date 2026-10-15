@@ -1132,12 +1132,14 @@ export function plan(geo: Geo): Plan {
   const tJ = tIn + 200;
   t = hop('A3', tJ, R3, X(3, 0.7), { dur: 520, h: -40, chain: true });
   t = hop('A3', t - 150, X(3, 0.7), MA3, { dur: 600, h: -40, from: 'crouch' });
-  // celebrate: three bounces each, staggered, happy; confetti
+  // celebrate: three bounces each, staggered, happy; confetti. E2 bounces a step nearer the
+  // others, since her arms-up pose leans her helmet back toward Merge's border; she steps back to
+  // her spot with the clipboard as the story ends.
   const tC = Math.max(t, tIn + 900) + 100;
   const crew = [
     ['A3', MA3, 1, 0],
     ['E1', ME1 + 6 * k, 1, 140],
-    ['E2', ME2, -1, 280],
+    ['E2', ME2 - 7 * k, -1, 280],
   ] as const;
   for (const [id, x, face, d] of crew) {
     for (let i = 0; i < 3; i++) {

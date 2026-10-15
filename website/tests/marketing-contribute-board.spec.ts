@@ -418,7 +418,7 @@ test.describe('the story at the seek table @desktop-chromium', () => {
 // From the narrowest desktop (64rem, iPad landscape: 177 px columns) to 1440, the story keeps the
 // same composition: every face shows, nobody crosses a column's border, the finished wall shines
 // through the celebration, and the pull request's status word is never clipped.
-for (const width of [1024, 1100, 1152, 1440]) {
+for (const width of [1024, 1100, 1152, 1280, 1440]) {
   test.describe(`the floor at ${width} px @desktop-chromium`, () => {
     test.use({ viewport: { width, height: 900 } });
 
