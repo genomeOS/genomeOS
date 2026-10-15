@@ -174,10 +174,6 @@ export function encodingCss(): string {
     ]),
     ['--enc-mean-weak', ENC.meanWeak],
     ['--enc-fog', ENC.fog],
-    ...ENC.evidence.map((value, index): [string, string] => [
-      `--enc-evidence-${index + 1}`,
-      value,
-    ]),
     ['--enc-hatch', ENC.hatch],
     ['--enc-hatch-alpha', String(ENC.hatchAlpha)],
     ['--enc-prior-mix', `${Math.round(ENC.priorMix * 100)}%`],

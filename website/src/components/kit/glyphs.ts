@@ -21,10 +21,6 @@ export const GLYPHS = {
   'issue-card': [24, 20],
   pr: [20, 20],
   speech: [22, 20],
-  'scale-earth': [40, 40],
-  'scale-population': [40, 40],
-  'scale-chromosome': [40, 40],
-  'scale-cell': [40, 40],
 } as const;
 export type GlyphName = keyof typeof GLYPHS;
 
@@ -77,8 +73,4 @@ export const GLYPH_SYMBOLS: Record<GlyphName, string> = {
   'issue-card': `<rect x="2.5" y="3" width="19" height="14" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="7" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M11 8h7M6 13h12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>`,
   pr: `<circle cx="5" cy="4.5" r="2" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="5" cy="15.5" r="2" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="15" cy="15.5" r="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5 6.5v7M15 13.5V8a3 3 0 0 0-3-3H9.5m1.8-2-2 2 2 2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>`,
   speech: `<path d="M3 4.5h16v9H10l-4 3.5v-3.5H3z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>`,
-  'scale-earth': `<circle cx="20" cy="20" r="15" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5 20h30M20 5c6 4.5 6 25.5 0 30M20 5c-6 4.5-6 25.5 0 30" fill="none" stroke="currentColor" stroke-width="1" opacity=".55"/>`,
-  'scale-population': `<circle cx="20" cy="20" r="15" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="2 3" opacity=".55"/><circle cx="14" cy="16" r="2.4" fill="currentColor"/><circle cx="23" cy="13" r="2.4" fill="currentColor"/><circle cx="25" cy="24" r="2.4" fill="currentColor"/><circle cx="15" cy="26" r="2.4" fill="currentColor"/>`,
-  'scale-chromosome': `<path d="M14 6c-3 0-4 3-4 6v4c0 2 2 4 2 4s-2 2-2 4v4c0 3 1 6 4 6s4-3 4-6v-4c0-2-2-4-2-4s2-2 2-4v-4c0-3-1-6-4-6zM26 6c-3 0-4 3-4 6v4c0 2 2 4 2 4s-2 2-2 4v4c0 3 1 6 4 6s4-3 4-6v-4c0-2-2-4-2-4s2-2 2-4v-4c0-3-1-6-4-6z" fill="none" stroke="var(--color-genome)" stroke-width="1.4" stroke-dasharray="2.5 2"/>`,
-  'scale-cell': `<ellipse cx="20" cy="20" rx="16" ry="13" fill="none" stroke="var(--color-genome)" stroke-width="1.4" stroke-dasharray="2.5 2"/><circle cx="20" cy="20" r="6.5" fill="none" stroke="var(--color-genome)" stroke-width="1.2" stroke-dasharray="2 2"/>`,
 };

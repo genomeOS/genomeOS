@@ -176,12 +176,13 @@ describe('the site encoding derived from it (spec §2.2)', () => {
       ['--enc-mean-partial-3', '#50a6a2'],
       ['--enc-mean-weak', '#3c6a7e'],
       ['--enc-fog', '#3d4a5c'],
-      ['--enc-evidence-1', '#c3d0e0'],
-      ['--enc-evidence-3', '#5a6b84'],
       ['--enc-hatch', '#a8b5c9'],
       ['--enc-gate', 'var(--color-signal)'],
     ])
       expect(css).toContain(`${name}:${value};`);
+    // No page draws the Evidence layer from CSS any more (Home's Evidence view is gone, R2-2):
+    // the hex field reads ENC.evidence directly.
+    expect(css).not.toContain('--enc-evidence');
   });
 
   it('never reuses a status colour, and never tops a ramp as light as stud white', () => {
