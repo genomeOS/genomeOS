@@ -1083,3 +1083,151 @@ test.describe('the orbit scene on a phone @mobile-chromium', () => {
     expect(pod.top).toBeGreaterThan(shot.svg.top);
   });
 });
+
+/**
+ * Reached by its columns (review of T4 round 3, finding 1): a link to a group's column, a reload
+ * that restores the scroll to the columns, or a jump straight to them, with the stage off screen.
+ * The visitor sees the text they came for at once, every word typed, and the scene rests in its
+ * idle loops (Replay plays the story); it never blanks the columns to type them again out of sight.
+ */
+test.describe('the orbit scene reached by its columns', () => {
+  /** Every column lit, every typed sentence in full, the clock past the story, the loops on. */
+  async function resting(page: Page) {
+    const figure = page.locator(FIGURE);
+    await expect(figure).toHaveAttribute('data-scene-state', 'playing', {
+      timeout: 6000,
+    });
+    expect(
+      await page.evaluate(() => window.__motion!.time('orbit')),
+    ).toBeGreaterThanOrEqual(T.story);
+    const shot = await page.evaluate(snapshot);
+    expect(shot.columns.map(({ id }) => id)).toEqual([...COLUMNS]);
+    for (const column of shot.columns) {
+      expect(column.title, column.id).toBe(STARLIGHT);
+      expect(column.typed.length, column.id).toBe(2);
+      for (const line of column.typed)
+        expect(line.shown, column.id).toBe(line.length);
+    }
+    return shot;
+  }
+
+  /**
+   * The browser's own scroll to the fragment or the restored position has landed: the site sets
+   * scroll-behavior: smooth, so it glides there after the load event, past the stage.
+   */
+  async function landed(page: Page) {
+    let last = -1;
+    await expect
+      .poll(
+        async () => {
+          const y = await page.evaluate(() => scrollY);
+          const still = y === last;
+          last = y;
+          return still && y > 0;
+        },
+        { intervals: [250], timeout: 6000 },
+      )
+      .toBe(true);
+  }
+
+  /** The columns show and the stage hardly does (under 120 px below the header). */
+  async function stageOffScreen(page: Page) {
+    const shown = await page.evaluate(() => {
+      const header = document
+        .querySelector('[data-site-header]')!
+        .getBoundingClientRect().bottom;
+      const seen = (selector: string) => {
+        const box = document.querySelector(selector)!.getBoundingClientRect();
+        return Math.max(
+          0,
+          Math.min(box.bottom, innerHeight) - Math.max(box.top, header, 0),
+        );
+      };
+      return {
+        stage: seen('[data-graphic="orbit"] [data-figure-stage]'),
+        columns: seen('[data-graphic="orbit"] .orbit__cols'),
+      };
+    });
+    expect(shown.stage).toBeLessThan(120);
+    expect(shown.columns).toBeGreaterThan(0);
+  }
+
+  for (const [link, id] of [
+    ['/working-groups/#ui', 'group-ui'],
+    ['/working-groups/#modeling', 'group-modeling'],
+    ['/contribute/#group-data', 'group-data'],
+  ] as const)
+    test(`${link} shows its column’s text typed out from the first frame`, async ({
+      page,
+    }) => {
+      await page.addInitScript(recordFrames, 4000);
+      await page.goto(link);
+      await expect(page).toHaveURL(new RegExp(`/contribute/#${id}$`));
+      await page.evaluate(() => document.fonts.ready);
+      await page.evaluate(() => window.__motion!.ready('orbit'));
+      await landed(page);
+      await stageOffScreen(page);
+      // The head script never armed: the server's last frame, every word, painted first.
+      expect(
+        await page.evaluate(() =>
+          document.documentElement.hasAttribute('data-arm-orbit'),
+        ),
+      ).toBe(false);
+      const shot = await resting(page);
+      // Frame by frame since the first paint, the UI column was never dimmed or untyped.
+      await page.waitForTimeout(500);
+      const frames = await page.evaluate(() => window.__orbitFrames ?? []);
+      expect(frames.length).toBeGreaterThan(5);
+      const length = shot.columns[2].typed[0].length;
+      expect(
+        frames.filter(
+          (frame) => frame.ui.wait !== 0 || frame.ui.typed < length,
+        ),
+      ).toEqual([]);
+    });
+
+  test('a reload that restores the scroll to the columns keeps their text', async ({
+    page,
+  }) => {
+    await openOrbit(page);
+    const y = await page
+      .locator(`${FIGURE} .orbit__cols`)
+      .evaluate((columns) => {
+        columns.scrollIntoView({ block: 'start', behavior: 'instant' });
+        return scrollY;
+      });
+    expect(y).toBeGreaterThan(0);
+    await page.reload();
+    await page.evaluate(() => window.__motion!.ready('orbit'));
+    await landed(page);
+    expect(await page.evaluate(() => scrollY)).toBeGreaterThan(y - 4);
+    await stageOffScreen(page);
+    await resting(page);
+  });
+
+  test('jumping from the top straight to the columns shows their text in full', async ({
+    page,
+  }) => {
+    await openOrbit(page);
+    const figure = page.locator(FIGURE);
+    // At the top the scene is armed: less than 35% of it shows, and its story has not begun.
+    await expect(figure).toHaveAttribute('data-scene-state', 'armed');
+    await figure
+      .locator('.orbit__cols')
+      .evaluate((columns) =>
+        columns.scrollIntoView({ block: 'start', behavior: 'instant' }),
+      );
+    await stageOffScreen(page);
+    await resting(page);
+    // Back at the stage, Replay still plays the story from its start.
+    await figure.evaluate((element) =>
+      element.scrollIntoView({ block: 'start', behavior: 'instant' }),
+    );
+    await page
+      .getByRole('button', { name: 'Replay the orbit animation' })
+      .click();
+    await expect
+      .poll(() => page.evaluate(() => window.__motion!.time('orbit')))
+      .toBeLessThan(T.story);
+  });
+});

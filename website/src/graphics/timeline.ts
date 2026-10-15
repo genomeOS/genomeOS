@@ -303,6 +303,9 @@ export function timeline(options: TimelineOptions): Timeline {
 
 export type SceneState = 'idle' | 'armed' | 'playing' | 'paused' | 'rest';
 
+/** How a scene begins (SceneOptions.begin): its story from the start, or resting at its end. */
+export type SceneBegin = 'story' | 'rest';
+
 export interface SceneOptions {
   /** Registered with the motion hooks (motion-hooks.ts): orbit, board, crew, steps, people … */
   name: string;
@@ -317,6 +320,14 @@ export interface SceneOptions {
     toggle?: HTMLButtonElement | null;
     replay?: HTMLButtonElement | null;
   };
+  /**
+   * Asked once, when the story would start (at `threshold`): 'story' plays it from its start,
+   * 'rest' begins at its end, in the idle loops, for a visitor who arrives past what the story
+   * shows (a link to the text under a stage). It may take its time, for instance until the
+   * browser's own scroll to a link's fragment ends; the scene holds still meanwhile, and Replay or
+   * a seek decides at once. Default 'story'.
+   */
+  begin?: () => SceneBegin | Promise<SceneBegin>;
 }
 
 export interface SceneController {
@@ -395,9 +406,11 @@ export function sceneController(
   let restTimer = 0;
   /** The clock when printing began, while the printout shows the story's end; else null. */
   let printedFrom: number | null = null;
+  /** options.begin is still deciding how the story starts: nothing plays until it has. */
+  let deciding = false;
   const sync = () => {
     window.clearTimeout(restTimer);
-    if (!tl || !started || printedFrom !== null) return;
+    if (!tl || !started || deciding || printedFrom !== null) return;
     const run = !userPaused && onScreen && !document.hidden;
     if (run && !tl.playing) tl.play();
     if (!run && tl.playing) tl.pause();
@@ -409,7 +422,22 @@ export function sceneController(
   const start = () => {
     if (started) return;
     started = true;
-    void ensure().then(sync);
+    const { begin } = options;
+    if (!begin) {
+      void ensure().then(sync);
+      return;
+    }
+    deciding = true;
+    const how = Promise.resolve()
+      .then(begin)
+      .catch((): SceneBegin => 'story');
+    void Promise.all([ensure(), how]).then(([timeline, chosen]) => {
+      // Replay or a seek came first and decided.
+      if (!deciding) return;
+      deciding = false;
+      if (chosen === 'rest') timeline.seek(timeline.storyMs);
+      sync();
+    });
   };
 
   const near = new IntersectionObserver(
@@ -463,6 +491,7 @@ export function sceneController(
     label();
     void ensure().then((timeline) => {
       started = true;
+      deciding = false;
       timeline.seek(0);
       sync();
     });
@@ -496,6 +525,7 @@ export function sceneController(
     async seek(ms) {
       const timeline = await ensure();
       started = true;
+      deciding = false;
       userPaused = true;
       label();
       timeline.seek(ms);

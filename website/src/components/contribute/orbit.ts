@@ -35,6 +35,7 @@ import {
   sceneController,
   type Frame,
   type Phase,
+  type SceneBegin,
   type SceneController,
   type Timeline,
 } from '../../graphics/timeline';
@@ -1040,14 +1041,115 @@ const drawnSvg = (figure: HTMLElement) =>
     (svg) => svg.getClientRects().length > 0,
   ) ?? null;
 
+/** How many px of `element` show on screen, below the site's sticky header. */
+function shownHeight(element: Element | null): number {
+  if (!element) return 0;
+  const box = element.getBoundingClientRect();
+  const header =
+    document.querySelector('[data-site-header]')?.getBoundingClientRect()
+      .bottom ?? 0;
+  return Math.max(
+    0,
+    Math.min(box.bottom, innerHeight) - Math.max(box.top, header, 0),
+  );
+}
+
+/**
+ * The group columns show, but the stage where the story plays does not (less than a third of it,
+ * and under 120 px): a link to a column, a reload that restores the scroll, or a visitor coming
+ * back up the page. Playing the story there would blank the very text the visitor is reading for
+ * as long as the story takes to type it again (7–20 s), with Pause and Replay out of sight (review
+ * of T4 round 3).
+ */
+function columnsWithoutStage(figure: HTMLElement): boolean {
+  const stage = figure.querySelector('[data-figure-stage]');
+  const shown = shownHeight(stage);
+  const height = stage?.getBoundingClientRect().height ?? 0;
+  return (
+    shownHeight(figure.querySelector('.orbit__cols')) > 0 &&
+    shown < Math.min(height / 3, 120)
+  );
+}
+
+/** A link to one group's column (#group-ui; /working-groups/#ui redirects to it). */
+const GROUP_LINK = /^#group-/;
+/** In the visit's first moments the browser may still be scrolling the page itself (carried). */
+const CARRY_MS = 3000;
+/** The browser's own scroll has ended once the page has been still this long. */
+const QUIET_MS = 150;
+
+/**
+ * The browser itself is moving the page: to a link's fragment, or back to where a reload or a
+ * back/forward visit left it. It does so smoothly (the site sets scroll-behavior: smooth), so on
+ * the way the stage passes through view and would start the story, only for the page to land on
+ * the columns, blanked to be typed again.
+ */
+function carried(): boolean {
+  if (performance.now() > CARRY_MS) return false;
+  const [navigation] = performance.getEntriesByType(
+    'navigation',
+  ) as PerformanceNavigationTiming[];
+  return (
+    location.hash !== '' ||
+    navigation?.type === 'reload' ||
+    navigation?.type === 'back_forward'
+  );
+}
+
+/** Resolves once the page has been still for QUIET_MS (and at the latest 1.5 s on). */
+function scrollSettled(): Promise<void> {
+  return new Promise((resolve) => {
+    let quiet = 0;
+    const done = () => {
+      removeEventListener('scroll', moved);
+      window.clearTimeout(quiet);
+      window.clearTimeout(latest);
+      resolve();
+    };
+    const moved = () => {
+      window.clearTimeout(quiet);
+      quiet = window.setTimeout(done, QUIET_MS);
+    };
+    const latest = window.setTimeout(done, 1500);
+    addEventListener('scroll', moved, { passive: true });
+    moved();
+  });
+}
+
+/** Resolves once `share` of the figure shows, or it fills that share of the viewport. */
+function shows(figure: HTMLElement, share: number): Promise<void> {
+  return new Promise((resolve) => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (
+          !entry.isIntersecting ||
+          (entry.intersectionRatio < share &&
+            entry.intersectionRect.height < share * innerHeight)
+        )
+          return;
+        observer.disconnect();
+        resolve();
+      },
+      { threshold: [0, 0.1, 0.2, share, 0.5] },
+    );
+    observer.observe(figure);
+  });
+}
+
 /** Start the orbit scene on its figure (the page calls this once the module has loaded). */
 export function initOrbit(figure: HTMLElement): SceneController {
   // Did the head script arm the stage (its first moment painted), or stand down to the last frame?
   // Not armed and on screen (a slow page: the HTML or this module came after the 1,200 ms check),
   // the server's last frame is what the visitor sees, so the scene rests there (spec §2.7 rule 5).
+  // So it does for a link to a group's column, for which the head script never arms: the visitor
+  // came for that text. And so it does when only the columns show, the stage off screen
+  // (columnsWithoutStage), now or when the story would start (begin, below).
   const armed = document.documentElement.hasAttribute('data-arm-orbit');
   const box = figure.getBoundingClientRect();
-  const rest = !armed && box.top < innerHeight && box.bottom > 0;
+  const rest =
+    (!armed && box.top < innerHeight && box.bottom > 0) ||
+    GROUP_LINK.test(location.hash) ||
+    columnsWithoutStage(figure);
   let builtFor: LayoutId | null = null;
   /** Never leave the stage armed and empty if building throws: the last frame stands. */
   const guard = (queue: () => void) => {
@@ -1091,8 +1193,22 @@ export function initOrbit(figure: HTMLElement): SceneController {
     if (rest) tl.seek(T.story);
     build(tl)(tl);
   };
+  // The story starts once 35% of the figure shows (sceneController). If at that moment only the
+  // columns show, rest instead: the story's end, then the idle loops. While the browser is still
+  // carrying the page to a fragment or a restored scroll, wait until it lands (and, landed
+  // elsewhere, until the figure shows again) before deciding.
+  const START = 0.35;
+  const begin = async (): Promise<SceneBegin> => {
+    if (carried()) {
+      await scrollSettled();
+      await shows(figure, START);
+    }
+    return columnsWithoutStage(figure) ? 'rest' : 'story';
+  };
   const controller = sceneController(figure, first, {
     name: 'orbit',
+    threshold: START,
+    begin,
     timeline: { story: T.story, loop: T.loop },
     controls: {
       toggle: figure.querySelector<HTMLButtonElement>('[data-scene-toggle]'),

@@ -63,7 +63,9 @@ const starts = [
      * motion allowed, colours not forced (spec §8.9: there the scene shows its end state) and the
      * page arriving within 1,200 ms; if the scene has neither begun loading
      * (data-orbit-loading, set by the page's script and kept until the scene has a state) nor been
-     * built (data-scene-state) by then, stand down to the last frame.
+     * built (data-scene-state) by then, stand down to the last frame. Never for a link to a group's
+     * column (#group-ui, and /working-groups/#ui, which redirects there): the visitor came for
+     * that text, so the columns keep it typed out and the scene rests (orbit.ts).
      */
   }
   <script is:inline slot="head">
@@ -72,6 +74,7 @@ const starts = [
         if (
           matchMedia('(prefers-reduced-motion: reduce)').matches ||
           matchMedia('(forced-colors: active)').matches ||
+          /^#group-/.test(location.hash) ||
           performance.now() > 1200
         )
           return;
