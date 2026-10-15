@@ -392,6 +392,27 @@ describe('starlight.css', () => {
     expect(starlightCss).not.toContain('!important');
   });
 
+  // Design critique 4: Chromium on macOS knows neither ui-monospace nor SFMono-Regular by name, so
+  // the old stack fell through to its generic monospace, Courier.
+  it('names a code face for every platform before the generic monospace', () => {
+    const source = starlightCss.replace(/\/\*[\s\S]*?\*\//g, '');
+    const stack = /--sl-font-system-mono:\s*([^;]+);/
+      .exec(source)![1]
+      .split(',')
+      .map((face) => face.trim().replace(/^'|'$/g, ''));
+    expect(stack.at(-1)).toBe('monospace');
+    for (const face of [
+      'ui-monospace',
+      'SF Mono',
+      'Menlo',
+      'Monaco',
+      'Cascadia Mono',
+      'Consolas',
+      'Liberation Mono',
+    ])
+      expect(stack.slice(0, -1), face).toContain(face);
+  });
+
   it('meets its contrast table: text 4.5:1, marks 3:1 (docs-light.md §7)', () => {
     const t = tokens(":root:not([data-theme='dark'])");
     const [paper, band, code, bar, raised] = [
