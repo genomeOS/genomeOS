@@ -18,11 +18,11 @@
  *   compact  a square globe
  *
  * Controls: one Measured · Modeled toggle, and the kit's Pause glyph for the rotation (WCAG 2.2.2:
- * it moves for more than 5 s; ruling 22), shown only while the globe can turn.
+ * it moves for more than 5 s; ruling 22), shown only while the globe can turn. Its markup is the
+ * kit's SceneControls with the preview's own hook (`data-spin-toggle`), which motion.spec reads.
  */
 import Figure from '../kit/Figure.astro';
 import Glyph from '../kit/Glyph.astro';
-import SceneControls from '../kit/SceneControls.astro';
 import Segmented from '../kit/Segmented.astro';
 import provenance from '../../data/figures/hbs.provenance.json';
 import { sitePath } from '../../lib/paths';
@@ -146,7 +146,7 @@ const tierRows = [
   ['No estimate', provenance.table.model_cell_share_by_tier.none],
 ] as const;
 const revision = provenance.hf_revision.slice(0, 7);
-// Home's one island, in src/pages/index.astro, starts this figure with initAtlasPreview.
+// Home's island, in src/pages/index.astro, starts this figure with initAtlasPreview.
 ---
 
 <Figure
@@ -167,8 +167,29 @@ const revision = provenance.hf_revision.slice(0, 7);
       ]}
       selected="modeled"
     />
-    {/* Shown only while the globe can turn by itself (atlas-preview.ts). */}
-    <SceneControls object="the rotation" />
+    {
+      /* The kit's scene-control glyph (SceneControls.astro's markup and styles, ruling 22), with
+         the preview's own hook: shown only while the globe can turn by itself (atlas-preview.ts). */
+    }
+    <div class="kit-scene-controls" data-scene-controls data-select="multiple">
+      <button
+        type="button"
+        class="kit-scene-control"
+        data-scene-toggle
+        data-spin-toggle
+        data-state="playing"
+        aria-pressed="false"
+        hidden
+      >
+        <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+          <path
+            class="kit-scene-control__pause"
+            d="M5 3.5h3.2v13H5zM11.8 3.5H15v13h-3.2z"></path>
+          <path class="kit-scene-control__play" d="M6 3.3v13.4L16.4 10z"></path>
+        </svg>
+        <span class="visually-hidden">Pause the rotation</span>
+      </button>
+    </div>
   </Fragment>
 
   <div

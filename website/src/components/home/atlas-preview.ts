@@ -858,12 +858,14 @@ interface Label {
 }
 
 export function initAtlasPreview(figure: HTMLElement): void {
+  // One island per figure, whoever starts it (AtlasPreview.astro's loader, or a page script).
+  if (figure.hasAttribute('data-island')) return;
+  figure.setAttribute('data-island', '');
   const globe = figure.querySelector<HTMLElement>('.hg-globe');
   const canvas = globe?.querySelector<HTMLCanvasElement>('.hg-canvas');
   const stage = figure.querySelector<HTMLElement>('[data-figure-stage]');
-  const spinToggle = figure.querySelector<HTMLButtonElement>(
-    '[data-scene-toggle]',
-  );
+  const spinToggle =
+    figure.querySelector<HTMLButtonElement>('[data-spin-toggle]');
   if (!globe || !canvas || !stage || !spinToggle) return;
 
   const config = JSON.parse(globe.dataset.config ?? '{}') as PreviewConfig;
@@ -982,11 +984,6 @@ export function initAtlasPreview(figure: HTMLElement): void {
         !placement.fits || (!allShown && label.order > lit),
       );
     });
-  };
-
-  const setLit = (count: number) => {
-    lit = count;
-    renderLabels();
   };
 
   /* ---- the rotation and its control ---- */
