@@ -852,6 +852,8 @@ interface Label {
   plate: SVGRectElement;
   lines: SVGTSpanElement[];
   side: LabelSide;
+  /** The side the build placed it on for the starting view. */
+  restSide: LabelSide;
   width: number;
   /** Its object, [lon, lat], once the data are in. */
   target: [number, number] | null;
@@ -905,6 +907,7 @@ export function initAtlasPreview(figure: HTMLElement): void {
     plate: group.querySelector<SVGRectElement>('.hg-label__plate')!,
     lines: [...group.querySelectorAll<SVGTSpanElement>('tspan')],
     side: group.dataset.side as LabelSide,
+    restSide: group.dataset.side as LabelSide,
     width: Number(group.dataset.width),
     target: null,
   }));
@@ -962,7 +965,10 @@ export function initAtlasPreview(figure: HTMLElement): void {
         cosc,
         width: label.width,
         height: label.lines.length * LABEL_GEOMETRY.line,
-        side: label.side,
+        // During the entrance and at the starting view a label prefers the side the build gave
+        // it, so the rest picture is the same with motion or without; as the globe turns it keeps
+        // the side it is on, so it does not jump back and forth.
+        side: atRest() || entering ? label.restSide : label.side,
         shown: allShown || layer === 'modeled' || label.kind === 'survey',
       };
     });
