@@ -44,8 +44,17 @@ useSiteFixtures();
 
 const FIGURE = '[data-graphic="orbit"]';
 const KINDS = ['data', 'model', 'ui'] as const;
-/** orbit-layouts.ts T: the story, one revolution of the idle orbit and Data's moon pop, ms. */
-const T = { story: 32000, orbit: 240000, dataMoon: 800 } as const;
+/**
+ * orbit-layouts.ts T: the story, one revolution of the idle orbit, Data's moon pop and each pod's
+ * approach (touchdown 2 s later, TOUCHDOWN_MS), ms.
+ */
+const T = {
+  story: 32000,
+  orbit: 240000,
+  dataMoon: 800,
+  ship: { data: 19400, model: 21600, ui: 23800 },
+  touchdown: 2000,
+} as const;
 const COLUMNS = ['group-data', 'group-modeling', 'group-ui'] as const;
 /** --color-faint, --color-starlight and --color-ion, as painted (snapshot's `rgb`). */
 const FAINT = 'rgb(127, 147, 174)';
@@ -1161,6 +1170,98 @@ for (const { width, height, layout } of [
           story: T.story,
           until: T.story + T.orbit,
           step: 1000,
+        }),
+      ).toEqual([]);
+    });
+  });
+
+/**
+ * The landings inside the stage (brief: "nothing clips: the top moon's crew and a landing ship stay
+ * inside the stage"): every `step` ms from Data's pod slowing to its hover to the story's end, the
+ * drawn art of each pod, from its hover until it lifts off, and of each crew once it shows, inside
+ * the stage's box (which clips). One evaluate for the whole sweep.
+ */
+async function landings({
+  ship,
+  touchdown,
+  story,
+  step,
+}: {
+  ship: Record<string, number>;
+  touchdown: number;
+  story: number;
+  step: number;
+}) {
+  const found: string[] = [];
+  const stage = document
+    .querySelector('[data-graphic="orbit"] [data-figure-stage]')!
+    .getBoundingClientRect();
+  for (let t = ship.data + 1300; t <= story; t += step) {
+    await window.__motion!.seek('orbit', t);
+    const svg = [
+      ...document.querySelectorAll<SVGSVGElement>(
+        '[data-graphic="orbit"] .orbit-svg',
+      ),
+    ].find((item) => item.getClientRects().length > 0)!;
+    for (const kind of ['data', 'model', 'ui']) {
+      const moon = svg.querySelector(`.orbiter--moon[data-moon="${kind}"]`)!;
+      const flying =
+        t >= ship[kind] + 1300 && t <= ship[kind] + touchdown + 1300;
+      for (const part of [
+        ...moon.querySelectorAll('.crew'),
+        ...(flying ? [moon.querySelector('.ship-g')!] : []),
+      ])
+        for (const art of part.querySelectorAll(
+          'path, circle, ellipse, rect, line, use',
+        )) {
+          if (
+            !art.checkVisibility({
+              opacityProperty: true,
+              visibilityProperty: true,
+            })
+          )
+            continue;
+          const box = art.getBoundingClientRect();
+          if (!box.width && !box.height) continue;
+          const out = Math.max(
+            stage.top - box.top,
+            box.bottom - stage.bottom,
+            stage.left - box.left,
+            box.right - stage.right,
+          );
+          if (out > 0.5)
+            found.push(
+              `${t} ms: the ${kind} ${part.matches('.crew') ? 'crew' : 'pod'} ${Math.round(out)} px out`,
+            );
+        }
+    }
+  }
+  return [...new Set(found)];
+}
+
+for (const { width, height, layout } of [
+  { width: 1440, height: 900, layout: 'desktop' },
+  { width: 1024, height: 768, layout: 'tablet' },
+])
+  test.describe(`the landings at ${width} px @desktop-chromium`, () => {
+    test.use({ viewport: { width, height } });
+
+    test('keep every pod and crew inside the stage, the top moon’s too', async ({
+      page,
+    }) => {
+      await openOrbit(page);
+      expect(await page.evaluate(snapshot)).toMatchObject({ layout });
+      await page
+        .locator(FIGURE)
+        .evaluate((element) =>
+          element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+        );
+      expect(
+        await page.evaluate(landings, {
+          ship: T.ship,
+          touchdown: T.touchdown,
+          story: T.story,
+          step: 125,
         }),
       ).toEqual([]);
     });

@@ -50,8 +50,10 @@ import {
   LAYOUTS,
   SAY,
   T,
+  LEAP,
   TOUCHDOWN_MS,
   depth,
+  landingReach,
   moonCenter,
   surf,
   theta,
@@ -277,6 +279,8 @@ function landing(
   const td = ta + TOUCHDOWN_MS;
   const cs = L.cs;
   const top = -r + 1;
+  // How high the pod hovers and the crew leap: lower on the top moon, under the stage's top edge.
+  const reach = landingReach(L, kind);
   // The pod comes in from the moon's outer side, never across the globe, swings upright,
   // settles, then leaves.
   const [mx] = moonCenter(L, kind, td);
@@ -285,7 +289,7 @@ function landing(
       ? 0.4 * Math.sign(mx - L.cx || 1)
       : Math.sign(mx - L.cx);
   const from = [side * 300, -360];
-  const mid = [from[0] * 0.25, top - 120];
+  const mid = [from[0] * 0.25, top - reach.hover];
   const tiltIn = from[0] < 0 ? 34 : -34;
   tl.story(m.querySelector('.ship-g'), [
     [ta, { opacity: 0 }],
@@ -366,8 +370,8 @@ function landing(
     ]);
     const face = c.deg >= startDeg ? 1 : -1;
     addStory(beats, c.id, [
-      [te, { pose: 'hop', y: -70, face }, EASE.up],
-      [te + 640, { pose: 'hop', y: -118, face }, EASE.down],
+      [te, { pose: 'hop', y: LEAP.out * reach.leap, face }, EASE.up],
+      [te + 640, { pose: 'hop', y: LEAP.apex * reach.leap, face }, EASE.down],
       [te + 1220, { pose: 'hop', y: 0, sq: 0 }, EASE.out],
       [te + 1320, { pose: 'crouch', y: 3, sq: -0.07 }, EASE.back],
       [te + 1560, { pose: 'stand' }],

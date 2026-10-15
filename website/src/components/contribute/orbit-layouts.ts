@@ -111,9 +111,9 @@ export interface OrbitLayout {
  *
  * The desktop and tablet stages are as tall as the orbit needs and no taller (owner, 2026-10-15:
  * the section "just needs to be maybe 20% less tall so we can fit both the graphics and text panels
- * on the screen at once"): the top moon's crew, mid-hop, reaches 3 units under the top edge, and on
- * the desktop the front moon's label fades out as it would cross the bottom edge (labelCover), so
- * the stage ends just under the front moon. The desktop's 21-unit labels let its drawing narrow to
+ * on the screen at once"): the top moon's crew, mid-hop, reaches 3 units under the top edge (and
+ * lands there lower, landingReach), and on the desktop the front moon's label fades out as it would
+ * cross the bottom edge (labelCover), so the stage ends just under the front moon. The desktop's 21-unit labels let its drawing narrow to
  * 818 px on a short laptop screen (1366 × 768), labels still 13 px, so the plate's text shows under
  * it; the moons and crews keep their sizes in units.
  */
@@ -302,6 +302,27 @@ export function toMoon(
 export function surf(r: number, deg: number, h = 0): [number, number] {
   const a = (deg * Math.PI) / 180;
   return [(r + h) * Math.sin(a), -(r + h) * Math.cos(a)];
+}
+
+/** The crews' leap out of the hatch (orbit.ts landing): its height off the hatch, then at the top. */
+export const LEAP = { out: -70, apex: -118 } as const;
+
+/**
+ * How high a landing reaches over its moon (orbit.ts plays it): the pod slows to a hover `hover`
+ * units over the moon's top before it settles, and its crew leap out at `leap` times the full
+ * height (LEAP, in an astronaut's units: the crew scale applies). The Modeling moon lands at the
+ * top of its orbit, just under the top edge of the desktop's and the tablet's stage (each as tall
+ * as its orbit needs, LAYOUTS), so there its pod hovers low and its crew leap under half as high,
+ * heads and shoulders over the pod, and neither leaves the stage (brief: "nothing clips"; review
+ * of the orbit's hover, finding 1). The phone's camera closes in on each landing.
+ */
+export function landingReach(
+  L: OrbitLayout,
+  kind: MoonKind,
+): { hover: number; leap: number } {
+  return kind === 'model' && L.id !== 'phone'
+    ? { hover: 20, leap: 0.44 }
+    : { hover: 120, leap: 1 };
 }
 
 /* ------------------------------------------------------------------- what covers a label */
