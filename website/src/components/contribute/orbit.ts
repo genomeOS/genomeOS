@@ -1009,7 +1009,11 @@ const drawnSvg = (figure: HTMLElement) =>
 /** Start the orbit scene on its figure (the page calls this once the module has loaded). */
 export function initOrbit(figure: HTMLElement): SceneController {
   // Did the head script arm the stage (its first moment painted), or stand down to the last frame?
+  // Not armed and on screen (a slow page: the HTML or this module came after the 1,200 ms check),
+  // the server's last frame is what the visitor sees, so the scene rests there (spec §2.7 rule 5).
   const armed = document.documentElement.hasAttribute('data-arm-orbit');
+  const box = figure.getBoundingClientRect();
+  const rest = !armed && box.top < innerHeight && box.bottom > 0;
   let builtFor: LayoutId | null = null;
   const build = (tl: Timeline) => {
     try {
@@ -1028,7 +1032,15 @@ export function initOrbit(figure: HTMLElement): SceneController {
       throw error;
     }
   };
-  const controller = sceneController(figure, build, {
+  // The timeline creates each idle chunk of tracks at its own time, and a chunk is painted
+  // before the next is made. Resting, that time must be the story's end from the first chunk on:
+  // created at 0, the tracks made so far would empty the last frame for several frames before the
+  // seek below (review of T4 round 2, finding 1).
+  const first = (tl: Timeline) => {
+    if (rest) tl.seek(T.story);
+    build(tl);
+  };
+  const controller = sceneController(figure, first, {
     name: 'orbit',
     timeline: { story: T.story, loop: T.loop },
     controls: {
@@ -1093,8 +1105,6 @@ export function initOrbit(figure: HTMLElement): SceneController {
   // The head script stood down (a slow page) and the last frame is already on screen: emptying it
   // for the story would flash (spec §2.7 rule 5). Rest on the last frame and run the idle loops;
   // Replay plays the story.
-  const box = figure.getBoundingClientRect();
-  if (!armed && box.top < innerHeight && box.bottom > 0)
-    void controller.seek(T.story).then(() => controller.play());
+  if (rest) void controller.seek(T.story).then(() => controller.play());
   return controller;
 }

@@ -38,10 +38,56 @@ const FAINT = 'rgb(127, 147, 174)';
 const STARLIGHT = 'rgb(242, 248, 255)';
 const ION = 'rgb(112, 230, 255)';
 
+/** One painted frame of the drawn layout (recordFrames). */
+interface OrbitFrame {
+  layout: string | null;
+  /** The head script armed the stage (its first moment painted). */
+  armed: boolean;
+  state: string | null;
+  /** The globe's opacity. */
+  globe: number;
+  /** Which moons show. */
+  moons: Record<(typeof KINDS)[number], boolean>;
+}
+
 declare global {
   interface Window {
     __orbitPaints?: { state: string | null; moon: boolean }[];
+    __orbitFrames?: OrbitFrame[];
   }
+}
+
+/**
+ * Record every frame of the drawn layout for `ms` ms (into `window.__orbitFrames`): an init
+ * script, or evaluated in a running page. Self-contained, as both need.
+ */
+function recordFrames(ms: number) {
+  const frames: OrbitFrame[] = [];
+  window.__orbitFrames = frames;
+  const until = performance.now() + ms;
+  const sample = () => {
+    const figure = document.querySelector('[data-graphic="orbit"]');
+    const svg = [
+      ...(figure?.querySelectorAll<SVGSVGElement>('.orbit-svg') ?? []),
+    ].find((item) => item.getClientRects().length > 0);
+    const globe = svg?.querySelector('.globe');
+    const shown = (kind: string) =>
+      (svg
+        ?.querySelector(
+          `.orbiter--moon[data-moon="${kind}"] .moon > circle:nth-of-type(2)`,
+        )
+        ?.getBoundingClientRect().width ?? 0) > 2;
+    if (figure && svg && globe)
+      frames.push({
+        layout: svg.dataset.layout ?? null,
+        armed: document.documentElement.hasAttribute('data-arm-orbit'),
+        state: figure.getAttribute('data-scene-state'),
+        globe: Math.round(Number(getComputedStyle(globe).opacity) * 100) / 100,
+        moons: { data: shown('data'), model: shown('model'), ui: shown('ui') },
+      });
+    if (performance.now() < until) requestAnimationFrame(sample);
+  };
+  requestAnimationFrame(sample);
 }
 
 async function seek(page: Page, ms: number) {
@@ -280,6 +326,45 @@ async function openOrbit(page: Page) {
   await page.goto('/contribute/');
   await page.evaluate(() => document.fonts.ready);
   await page.evaluate(() => window.__motion!.ready('orbit'));
+}
+
+/**
+ * A slow connection (review of T4 round 2, finding 1): the HTML reaches the head script after
+ * 1,200 ms, so it never arms, and the server's last frame is on screen while the scene builds. No
+ * frame of the build may empty it.
+ */
+async function lateArrival(page: Page) {
+  await page.route('**/contribute/', async (route) => {
+    const response = await route.fetch();
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await route.fulfill({ response });
+  });
+  await page.addInitScript(recordFrames, 5000);
+  await page.goto('/contribute/');
+  const figure = page.locator(FIGURE);
+  await expect(figure).toHaveAttribute('data-scene-state', 'playing', {
+    timeout: 6000,
+  });
+  await page.waitForTimeout(800);
+  const frames = await page.evaluate(() => window.__orbitFrames ?? []);
+  expect(frames.length).toBeGreaterThan(5);
+  expect(frames.filter((frame) => frame.armed)).toEqual([]);
+  // The build really happened while it was on screen …
+  expect(frames.some((frame) => frame.state === null)).toBe(true);
+  // … and every frame, before, during and after it, is the last frame: the globe and all
+  // three moons.
+  const all = { data: true, model: true, ui: true };
+  expect(
+    frames.filter(
+      (frame) =>
+        frame.globe !== 1 ||
+        JSON.stringify(frame.moons) !== JSON.stringify(all),
+    ),
+  ).toEqual([]);
+  // It carries on from there, into the idle loops.
+  expect(
+    await page.evaluate(() => window.__motion!.time('orbit')),
+  ).toBeGreaterThanOrEqual(T.story);
 }
 
 test.describe('the orbit scene @desktop-chromium', () => {
@@ -627,6 +712,10 @@ test.describe('the orbit scene @desktop-chromium', () => {
     expect(paints.filter((paint) => paint.moon)).toEqual([]);
   });
 
+  test('rests on the last frame it painted when the page arrives after the 1.2 s check', ({
+    page,
+  }) => lateArrival(page));
+
   test('carries on across a layout switch, its state and clock intact', async ({
     page,
   }) => {
@@ -854,6 +943,10 @@ test.describe('the orbit scene in forced colours', () => {
 });
 
 test.describe('the orbit scene on a phone @mobile-chromium', () => {
+  test('rests on the last frame it painted when the page arrives after the 1.2 s check', ({
+    page,
+  }) => lateArrival(page));
+
   test('closes in on each landing, labels hidden, then pulls back', async ({
     page,
   }, info) => {
