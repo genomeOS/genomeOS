@@ -553,8 +553,8 @@ describe('orbit scene', () => {
 
   it('keeps every landing inside the desktop and tablet stages: each pod from its hover, each crew through its leap', () => {
     // orbit.ts landing: a pod slows to its hover 1300 ms after it comes in and settles at
-    // touchdown; each crew member leaps out 420 + 260 i ms after touchdown, tops out 640 ms later and
-    // is down at 1220, then crouches and stands (the work spots, partsAt, take over). Between two
+    // touchdown; each crew member leaps out 420 + 260 i ms after touchdown, tops out 640 ms later
+    // and is down at 1220, then crouches and stands (the work spots, partsAt, take over). Between two
     // keys neither reaches past the higher one (EASE.up, down and inOut never overshoot), so each
     // moment is checked at the higher key's height, the figure at full scale. The Modeling moon
     // lands at the top of its orbit, under the stage's top edge (landingReach). The phone's camera

@@ -117,9 +117,9 @@ export interface OrbitLayout {
  * the section "just needs to be maybe 20% less tall so we can fit both the graphics and text panels
  * on the screen at once"): the top moon's crew, mid-hop, reaches 3 units under the top edge (and
  * lands there lower, landingReach), and on the desktop the front moon's label fades out as it would
- * cross the bottom edge (labelCover), so the stage ends just under the front moon. The desktop's 21-unit labels let its drawing narrow to
- * 818 px on a short laptop screen (1366 × 768), labels still 13 px, so the plate's text shows under
- * it; the moons and crews keep their sizes in units.
+ * cross the bottom edge (labelCover), so the stage ends just under the front moon. The desktop's
+ * 21-unit labels let its drawing narrow to 818 px on a short laptop screen, labels still 13 px, so
+ * the plate's text shows under it (contribute.css); the moons and crews keep their sizes in units.
  */
 export const LAYOUTS: Record<LayoutId, OrbitLayout> = {
   desktop: {
@@ -308,7 +308,7 @@ export function surf(r: number, deg: number, h = 0): [number, number] {
   return [(r + h) * Math.sin(a), -(r + h) * Math.cos(a)];
 }
 
-/** The crews' leap out of the hatch (orbit.ts landing): its height off the hatch, then at the top. */
+/** The crews' leap out of the hatch (orbit.ts landing): off the hatch, then at its top. */
 export const LEAP = { out: -70, apex: -118 } as const;
 
 /**

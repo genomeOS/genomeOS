@@ -333,8 +333,8 @@
  * with no tab stop. Only the moon's own art takes the pointer, and only while it shows: its disc
  * and engraving (not the glow round it), its crew once landed and its props once set up, and its
  * label while it shows. orbit.ts hides each of those with `visibility` as well as opacity until
- * then, as the pointer ignores opacity (review of the orbit's hover, finding 9). The sky, the orbit,
- * the globe, and a pod or a bubble passing over, let it through.
+ * then, as the pointer ignores opacity (review of the orbit's hover, finding 9). The sky, the
+ * orbit, the globe, and a pod or a bubble passing over, let it through.
  *
  * Hovered, the moon wakes: its engraving lights to full ion with a faint glow, its rim brightens, a
  * dotted ring like the orbit's own draws round it, the crew's suits and visors catch the light,
