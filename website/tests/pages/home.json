@@ -9,7 +9,7 @@
     "#why": 106,
     "#how": 106,
     "#atlas": 122,
-    "#join": 58
+    "#join": 70
   },
   "jsKbGz": 7.8,
   "lazyJsKbGz": {
@@ -32,5 +32,5 @@
     "phone": 2500
   },
   "cls": 0.02,
-  "budgetNote": "Round 2 integration (T7), measured on build:deployed by marketing-performance.spec, each budget the larger of the two profiles plus at most 10%, within spec §7's caps: first-load JS 7.1 (the page's own; the people, steps, crew and preview modules and the shared scene and hex kits are lazy), lazy atlas-preview 6.0, how-it-works 2.0, crew 1.1, people 1.2, scene-kit 12.9, hex-kit 5.5, figure data 49.4 (globe and surveys, desktop), initial images 89.9 (the poster, the header lockup, the favicon and the preview's poster), initial transfer 217.6, the film 3,629.8 KB desktop (1080p AV1) and 1,802.6 KB phone (720p AV1). LCP and CLS keep the spec's caps."
+  "budgetNote": "Round 2 integration (T7), measured on build:deployed by marketing-performance.spec, each budget the larger of the two profiles plus at most 10%, within spec §7's caps: first-load JS 7.1 (the page's own; the people, steps, crew and preview modules and the shared scene and hex kits are lazy), lazy atlas-preview 6.0, how-it-works 2.0, crew 1.1, people 1.2, scene-kit 12.9, hex-kit 5.5, figure data 49.4 (globe and surveys, desktop), initial images 89.9 (the poster, the header lockup, the favicon and the preview's poster), initial transfer 217.6, the film 3,629.8 KB desktop (1080p AV1) and 1,802.6 KB phone (720p AV1). LCP and CLS keep the spec's caps. #join 70 words (58 before), measured on the owner's Join us copy of 2026-10-15 (\"All skillsets and backgrounds are welcome: …\" in its own paragraph); the page total, 412, stays within 425."
 }
