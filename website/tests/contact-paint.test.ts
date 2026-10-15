@@ -1,10 +1,11 @@
 /**
  * The Contact page's pre-paint script (Contact page spec §2, §3.1): before the first paint it shows
- * the address with Email us and the composer, writes the address, joined from its parts, and
- * applies a `?topic=…&offer=…` preselect. It repeats `parseQuery`'s rule in plain ES5, so every
- * case here runs it against a fake page and compares it with `parseQuery` and the draft builder's
- * own wording: the two cannot drift. At `load`, a page the island never marked ready goes back to
- * the no-JavaScript page: hidden, with the address spelled out instead of written.
+ * the address with Email us and the composer, and applies a `?topic=…&offer=…` preselect. It writes
+ * no address: the page is served with it spelled out, and only the island joins it, once a person
+ * is here (owner, 2026-10-15). It repeats `parseQuery`'s rule in plain ES5, so every case here runs
+ * it against a fake page and compares it with `parseQuery` and the draft builder's own wording: the
+ * two cannot drift. At `load`, a page the island never marked ready goes back to the
+ * no-JavaScript page: hidden, with the address spelled out in a line of its own.
  */
 import { runInNewContext } from 'node:vm';
 
@@ -16,7 +17,7 @@ import {
   offerWording,
   TOPIC_INPUT,
 } from '../src/components/contact/contact-paint';
-import { contactAddress } from '../src/lib/contact-address';
+import { ADDRESS_PARTS } from '../src/lib/contact-address';
 import {
   OFFERS,
   TOPICS,
@@ -33,9 +34,8 @@ interface Painted {
   hidden: boolean;
   /** Whether the address with Email us is hidden. */
   directHidden: boolean;
-  /** The address as written into each of its places (the line, the letter's To). */
+  /** Whatever was written into the address's places (the line, the letter's To). */
   addresses: string[];
-  revealed: boolean;
   /** Whether the spelled-out address line is hidden, after `load`. */
   fallbackHidden: boolean;
   topic?: string;
@@ -70,7 +70,6 @@ function paint(
     hidden: true,
     directHidden: true,
     addresses: [],
-    revealed: false,
     fallbackHidden: true,
     checked: [],
     pressed: {},
@@ -188,7 +187,6 @@ function paint(
   // The island marks the composer ready before `load`, when it runs at all.
   if (islandRan) attributes['data-ready'] = '';
   for (const listener of onLoad) listener();
-  painted.revealed = 'data-revealed' in attributes;
   return painted;
 }
 
@@ -217,10 +215,9 @@ describe('the pre-paint composer script', () => {
     expect(paint('').fallbackHidden).toBe(true);
   });
 
-  it('writes the address, joined from its parts, into the line and the letter before the first paint', () => {
-    const painted = paint('');
-    expect(painted.addresses).toEqual([contactAddress(), contactAddress()]);
-    expect(painted.revealed).toBe(true);
+  it('writes no address into the line or the letter: they are served spelled out, and only the island joins it', () => {
+    expect(paint('').addresses).toEqual([]);
+    expect(paint('?topic=press').addresses).toEqual([]);
   });
 
   it('goes back to the spelled-out address at load if the island never ran', () => {
@@ -228,9 +225,8 @@ describe('the pre-paint composer script', () => {
     expect(painted.hidden).toBe(true);
     expect(painted.directHidden).toBe(true);
     expect(painted.fallbackHidden).toBe(false);
-    // The joined address leaves the page with them.
-    expect(painted.addresses).toEqual(['', '']);
-    expect(painted.revealed).toBe(false);
+    // Nothing was joined, so nothing is left to take out.
+    expect(painted.addresses).toEqual([]);
   });
 
   it.each(QUERIES)('agrees with parseQuery on "%s"', (search) => {
@@ -281,8 +277,11 @@ describe('the pre-paint composer script', () => {
     ]);
   });
 
-  it('is plain ES5 with no address in it', () => {
+  it('is plain ES5 with no address in it, nor its stored parts', () => {
     expect(SCRIPT).not.toMatch(/=>|\blet\b|\bconst\b|`/);
     expect(SCRIPT).not.toContain('@');
+    expect(SCRIPT).not.toContain('fromCharCode');
+    for (const codes of [ADDRESS_PARTS.mailbox, ADDRESS_PARTS.domain])
+      expect(SCRIPT).not.toContain(JSON.stringify(codes));
   });
 });

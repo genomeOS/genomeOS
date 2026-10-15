@@ -31,6 +31,9 @@ const FORMS = [
   PARTS.join('\\x40'),
 ];
 const TEXT = /\.(?:html|js|mjs|css|json|xml|txt|svg|webmanifest)$/;
+/** The address as a person reads it, before one is here to read it. */
+const SPELLED = 'info [at] genome-os [dot] org';
+const escape = (text: string) => text.replace(/[[\]]/g, '\\$&');
 
 function textFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -94,6 +97,40 @@ describe('the built Contact page', () => {
     expect(main).toMatch(
       /<noscript>[\s\S]*info \[at\] genome-os \[dot\] org[\s\S]*<\/noscript>/,
     );
+  });
+
+  // Owner, 2026-10-15: the address is spelled out until a person is here (no CAPTCHA, by the
+  // controller's ruling); the island joins it then.
+  it('serves the address spelled out in both its places, each holding the spelled-out box for the address to come', () => {
+    const slots = [
+      ...main.matchAll(/<span [^>]*data-spelled="([^"]*)"[^>]*>(.*?)<\/span>/g),
+    ];
+    expect(slots).toHaveLength(2);
+    for (const [, spelled, inner] of slots) {
+      expect(spelled).toBe(SPELLED);
+      expect(inner).toMatch(
+        new RegExp(`^<span [^>]*data-(?:to-)?address[^>]*>${escape(SPELLED)}$`),
+      );
+    }
+    expect(slots.map(([, , inner]) => /data-to-address/.test(inner))).toEqual([
+      false,
+      true,
+    ]);
+  });
+
+  it('serves Gmail and Outlook links that hold no compose URL until a visitor reaches for one', () => {
+    const links = [...main.matchAll(/<a [^>]*data-webmail="([a-z]+)"[^>]*>/g)];
+    expect(links.map(([, service]) => service)).toEqual([
+      'gmail',
+      'outlook',
+      'gmail',
+      'outlook',
+    ]);
+    for (const [link] of links) {
+      expect(link).toContain('target="_blank"');
+      expect(link).toContain('rel="noopener noreferrer"');
+      expect(link).not.toMatch(/mailto:|view=cm|deeplink|compose|[?&]to=/i);
+    }
   });
 
   it('writes every purpose, offer and section of the letter from the draft builder', () => {
