@@ -134,12 +134,13 @@ export function describeHit(hit: HexHit | null): string | null {
     const [first] = hit.surveys;
     if (hit.surveys.length === 1)
       return `Measured survey · ${people(first)} people tested; ${whole(first.ac)} of their ${whole(first.an)} gene copies carry HbS · Location within ±${km(first.radiusKm)}`;
-    const listed = hit.surveys
-      .slice(0, 3)
-      .map((survey, index) => people(survey) + (index ? '' : ' people tested'));
+    // The nearest three, as one list that says what its numbers count: "553, 2,013 and 1,342
+    // people tested" (design review, round 3); "…" when more share the spot.
+    const listed = hit.surveys.slice(0, 3).map(people);
+    const tested = `${listed.slice(0, -1).join(', ')} and ${listed.at(-1)} people tested`;
     return [
       `${hit.surveys.length} surveys here`,
-      ...listed,
+      tested,
       ...(hit.surveys.length > 3 ? ['…'] : []),
     ].join(' · ');
   }

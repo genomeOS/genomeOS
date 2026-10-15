@@ -522,7 +522,7 @@ describe('HbS readouts', () => {
         x: 0,
         y: 0,
       }),
-    ).toBe('2 surveys here · 50 people tested · 1,000');
+    ).toBe('2 surveys here · 50 and 1,000 people tested');
     expect(
       describeHit({
         type: 'surveys',
@@ -530,7 +530,16 @@ describe('HbS readouts', () => {
         x: 0,
         y: 0,
       }),
-    ).toBe('4 surveys here · 25 people tested · 25 · 25 · …');
+    ).toBe('4 surveys here · 25, 25 and 25 people tested · …');
+    // Every number a multi-survey readout lists says what it counts (design review, round 3).
+    expect(
+      describeHit({
+        type: 'surveys',
+        surveys: [survey(3, 1106), survey(5, 4026), survey(1, 2684)],
+        x: 0,
+        y: 0,
+      }),
+    ).toBe('3 surveys here · 553, 2,013 and 1,342 people tested');
     for (const line of [
       describeHit({ type: 'surveys', surveys: [survey(1, 4)], x: 0, y: 0 }),
     ])
