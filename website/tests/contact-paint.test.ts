@@ -44,13 +44,28 @@ interface Painted {
   pressed: Record<string, string>;
   list?: string;
   suffix?: string;
+  /** The letter's typing state, if the script set one: `pending` until the letter is in view. */
+  typing?: string;
+}
+
+/** The browser the script runs in: its motion preference, forced colours, `@property`. */
+interface Browser {
+  reducedMotion?: boolean;
+  forcedColors?: boolean;
+  registerProperty?: boolean;
 }
 
 /**
  * Run the inline script against a fake composer, fire `load` (with the island having run or not),
  * and read back what it drew.
  */
-function paint(search: string, { islandRan = true } = {}): Painted {
+function paint(
+  search: string,
+  {
+    islandRan = true,
+    browser,
+  }: { islandRan?: boolean; browser?: Browser } = {},
+): Painted {
   const painted: Painted = {
     hidden: true,
     directHidden: true,
@@ -103,6 +118,19 @@ function paint(search: string, { islandRan = true } = {}): Painted {
       painted.suffix = text;
     },
   };
+  const letter = {
+    setAttribute: (name: string, value: string) => {
+      if (name === 'data-typing') painted.typing = value;
+    },
+  };
+  // A media query as the script asks it: no reduced motion, and no forced colours.
+  const matchMedia = (query: string) => ({
+    matches:
+      query ===
+        '(prefers-reduced-motion: no-preference) and (forced-colors: none)' &&
+      !browser!.reducedMotion &&
+      !browser!.forcedColors,
+  });
   const root = {
     set hidden(value: boolean) {
       painted.hidden = value;
@@ -121,6 +149,7 @@ function paint(search: string, { islandRan = true } = {}): Painted {
       if (radio) return radios.find(({ value }) => value === radio[1]) ?? null;
       if (selector === '[data-offer-list]') return list;
       if (selector === '[data-offer-subject]') return suffix;
+      if (selector === '[data-letter]') return letter;
       return null;
     },
     querySelectorAll: (selector: string) =>
@@ -142,6 +171,12 @@ function paint(search: string, { islandRan = true } = {}): Painted {
       addEventListener: (type: string, listener: () => void) => {
         if (type === 'load') onLoad.push(listener);
       },
+      // A browser of old, without either, unless the case gives them.
+      ...(browser && {
+        matchMedia,
+        CSS:
+          browser.registerProperty === false ? {} : { registerProperty() {} },
+      }),
     },
     location: { search },
     URLSearchParams,
@@ -211,6 +246,23 @@ describe('the pre-paint composer script', () => {
     );
     expect(painted.list).toBe(letterList(state.offers));
     expect(painted.suffix).toBe(subjectSuffix(state.offers));
+  });
+
+  it('sets the letter waiting to type itself out only where it can, so it never shows whole and then empties', () => {
+    expect(paint('', { browser: {} }).typing).toBe('pending');
+    expect(paint('?topic=press', { browser: {} }).typing).toBe('pending');
+    // Reduced motion and forced colours: the letter is whole at once.
+    expect(
+      paint('', { browser: { reducedMotion: true } }).typing,
+    ).toBeUndefined();
+    expect(
+      paint('', { browser: { forcedColors: true } }).typing,
+    ).toBeUndefined();
+    // Without `@property` the twin's characters cannot step, nor without matchMedia.
+    expect(
+      paint('', { browser: { registerProperty: false } }).typing,
+    ).toBeUndefined();
+    expect(paint('').typing).toBeUndefined();
   });
 
   it('carries the wording for every set of offers, from the draft builder', () => {

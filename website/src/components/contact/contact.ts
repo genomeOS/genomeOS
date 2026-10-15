@@ -21,6 +21,9 @@
  * - The whole letter selected (by hand) copies as the draft's text, exactly what the email app
  *   would get: the letter as laid out is not the draft's text (To and Subject lose their colons,
  *   each dash breaks from its field, and hidden sections leave blank lines).
+ * - The letter types itself out the first time it is in view, and retypes what a choice changes
+ *   (letter-typing.ts), where the pre-paint script set it waiting: not under reduced motion or
+ *   forced colours. Typing is display only: every draft is built here, from the state, as before.
  * - The composer is marked `data-ready` once this has run; the pre-paint script falls back to the
  *   spelled-out address if it never does.
  * - Nothing is sent or stored: no request, no storage, no analytics event. (A browser test reads
@@ -41,6 +44,7 @@ import {
   type Offer,
 } from '../../lib/contact-draft';
 import { TOPIC_INPUT } from './contact-paint';
+import { letterTyping } from './letter-typing';
 
 /** How long a message only read out stays in the live region. */
 const STATUS_MS = 6000;
@@ -63,7 +67,7 @@ export function initContact(root: HTMLElement): void {
   ];
   const offerListText = find('[data-offer-list]');
   const offerSubject = find('[data-offer-subject]');
-  const letter = find('[data-letter]');
+  const letter = find<HTMLElement>('[data-letter]');
   const status = page.querySelector<HTMLElement>('[data-status]');
   const emailUs = page.querySelector<HTMLAnchorElement>('[data-email-us]');
   const addressText = page.querySelector('[data-address]');
@@ -96,9 +100,18 @@ export function initContact(root: HTMLElement): void {
     if (offerSubject) offerSubject.textContent = subjectSuffix(offers);
   };
 
+  // The letter's typing reads the letter before a redraw and retypes what it changed after it.
+  const plate = letter?.closest<HTMLElement>('figure');
+  const typing =
+    letter?.dataset.typing === 'pending' && plate
+      ? letterTyping(letter, plate)
+      : undefined;
+
   const changed = () => {
     root.dataset.live = '';
+    const before = typing?.snapshot();
     render();
+    if (typing && before) typing.retype(before);
     history.replaceState(
       history.state,
       '',

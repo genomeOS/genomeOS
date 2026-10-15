@@ -8,6 +8,10 @@
  *   as the draft builder writes it; Open draft navigates to the right `mailto:` (read as the
  *   request Chromium makes for it; no mail app answers); the query preselects, before the island
  *   runs too, and keeps in step for sharing.
+ * - The letter types itself out once in view, To first and the sign-off last, in at most 3.5 s, and
+ *   retypes only what a choice changes; assistive tech reads it whole at every instant, axe finds
+ *   nothing mid-typing, and no line moves. Reduced motion, no JavaScript, print and forced colours
+ *   show it whole at once.
  * - The order (the address and Email us first, the template steps 1 to 3, the problem link last),
  *   keyboard only, phones at 390 and 320 px, no JavaScript, an island that never loads, a blocked
  *   clipboard, print, forced colours, and reduced motion.
@@ -712,16 +716,19 @@ test('the letter is a labelled region that is not announced on every change', as
   ).toHaveCount(1);
 });
 
-test('sections grow in and collapse within 240 ms, and at once under reduced motion', async ({
+test('sections open and close within 240 ms, and at once under reduced motion', async ({
   page,
 }) => {
   await page.goto('/contact/');
   const data = page.locator('.letter__section[data-section="data"]');
   await expect(data).toBeHidden();
-  // Nothing moves on load.
+  // No section moves on load (where it is in view, the letter may be typing itself out).
   expect(
     await composer(page).evaluate(
-      (root) => root.getAnimations({ subtree: true }).length,
+      (root) =>
+        root
+          .getAnimations({ subtree: true })
+          .filter((animation) => animation instanceof CSSTransition).length,
     ),
   ).toBe(0);
   // Press and read in one turn of the page, so a slow round trip cannot miss the transitions.
@@ -747,6 +754,658 @@ test('sections grow in and collapse within 240 ms, and at once under reduced mot
   await page.emulateMedia({ reducedMotion: 'reduce' });
   expect(await pressAndTime()).toEqual([]);
   await expect(data).toBeHidden();
+});
+
+// The owner's request (2026-10-15): "in the preview email template, letters should be written out
+// with a typing animation" (Contact page spec §4, "The letter"). Scrubbed through the e2e build's
+// motion hooks where an instant matters, and timed on the real clock where the point is time.
+test.describe('the letter types itself out', () => {
+  /** The name the motion hooks know the letter by. */
+  const SCENE = 'contact-letter';
+  const ALL_OFFERS = '?topic=contribute&offer=code,data,expertise,funding';
+  const plate = (page: Page) => page.locator('.contact-letter');
+  /** `pending` until the letter is in view, then `typing`, then `rest`. */
+  const typingState = (page: Page) => letter(page).getAttribute('data-typing');
+  /** Once the letter's typing has registered with the e2e build's motion hooks. */
+  const typingLoaded = async (page: Page) => {
+    await page.waitForFunction(() => window.__motion !== undefined);
+    await page.evaluate((name) => window.__motion!.ready(name), SCENE);
+  };
+  /** The letter as it stands `ms` into its current typing, paused there (past the end: at rest). */
+  const typeAt = (page: Page, ms: number) =>
+    page.evaluate(([name, at]) => window.__motion!.seek(name, at), [
+      SCENE,
+      ms,
+    ] as const);
+  const toCentre = (page: Page) =>
+    plate(page).evaluate((figure) =>
+      figure.scrollIntoView({ block: 'center', behavior: 'instant' }),
+    );
+
+  /**
+   * Each line of the letter on screen, top to bottom: what it says (as assistive tech reads it),
+   * how many of its characters show (`null`: plain text, all of it showing), and the carets drawn
+   * in it. Runs in the page.
+   */
+  const LINES_ON_SCREEN = (root: Element) =>
+    [
+      ...root.querySelectorAll<HTMLElement>(
+        '.letter__row dd, [data-letter-line]',
+      ),
+    ]
+      .filter((line) =>
+        line.checkVisibility({
+          opacityProperty: true,
+          visibilityProperty: true,
+        }),
+      )
+      .map((line) => {
+        // A character that is not laid out (the space that opens a field's label) draws nothing,
+        // typed or not: it neither ends the run of shown characters nor carries the caret.
+        const chars = [
+          ...line.querySelectorAll<HTMLElement>('.letter__typed > span'),
+        ].map((char) => ({
+          laid: char.getBoundingClientRect().width > 0,
+          look: getComputedStyle(char),
+        }));
+        const drawn = chars.filter(({ laid }) => laid);
+        const hidden = chars.findIndex(
+          ({ laid, look }) => laid && look.opacity !== '1',
+        );
+        const carets = drawn.filter(({ look }) => {
+          const offset = /\)\s+(-?[\d.]+)px/.exec(look.boxShadow);
+          return offset !== null && Number(offset[1]) > 0;
+        }).length;
+        // A line being typed says its words once, out of sight; a plain one in its own text,
+        // less any part not shown (another purpose's subject, the To line's stand-in).
+        const sr = line.querySelector(':scope > .visually-hidden');
+        let words = sr?.textContent ?? '';
+        if (!sr) {
+          const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+          for (let node = walker.nextNode(); node; node = walker.nextNode())
+            if (node.parentElement!.getClientRects().length)
+              words += node.nodeValue;
+        }
+        return {
+          text: words.replace(/\s+/g, ' ').trim(),
+          length: chars.length || [...words].length,
+          // The characters shown from the line's start, up to the first one still to type.
+          shown: chars.length ? (hidden < 0 ? chars.length : hidden) : null,
+          // None shows after that one: shown characters run from the line's start, with no gap.
+          prefix: chars
+            .slice(hidden < 0 ? chars.length : hidden)
+            .every(({ laid, look }) => !laid || look.opacity !== '1'),
+          carets,
+          typing: line.hasAttribute('data-typing-line'),
+        };
+      });
+  const linesOnScreen = (page: Page) => letter(page).evaluate(LINES_ON_SCREEN);
+
+  test('it waits until it is in view, then types itself out and ends complete', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/contact/');
+    await typingLoaded(page);
+    await page.waitForTimeout(600);
+    // Below the fold it only waits, and shows none of its words, so it never shows whole and then
+    // empties when its typing starts.
+    expect(await typingState(page)).toBe('pending');
+    expect(
+      await letter(page).evaluate(
+        (root) => root.getAnimations({ subtree: true }).length,
+      ),
+    ).toBe(0);
+    await expect(page.locator('.letter__typed')).toHaveCount(0);
+    for (const part of ['.letter__body', '.letter__row dd'])
+      await expect(letter(page).locator(part).first()).toHaveCSS(
+        'opacity',
+        '0',
+      );
+
+    await toCentre(page);
+    await expect.poll(() => typingState(page)).toBe('typing');
+    const early = await linesOnScreen(page);
+    expect(
+      early.some(({ shown, length }) => shown !== null && shown < length),
+    ).toBe(true);
+    await expect.poll(() => typingState(page)).toBe('rest');
+    await expectLetter(page, { topic: 'contribute', offers: [] }, 'typed');
+    expect((await readLetter(page)).to).toBe(ADDRESS);
+    // At rest the letter is plain text again, exactly as served.
+    await expect(
+      page.locator('.letter__typed, [data-typing-line]'),
+    ).toHaveCount(0);
+    await expect(letter(page).locator('.visually-hidden')).toHaveCount(0);
+  });
+
+  test('it types top to bottom, To first and the sign-off last, with one steady caret', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/contact/?topic=contribute&offer=data');
+    await typingLoaded(page);
+    let before = -1;
+    for (const ms of [0, 120, 400, 800, 1200, 1600, 2000, 2400]) {
+      await typeAt(page, ms);
+      const lines = await linesOnScreen(page);
+      const where = `${ms} ms`;
+      // Every line of the letter is typed, To first (the address) and the sign-off last.
+      expect(
+        lines.every(({ typing }) => typing),
+        where,
+      ).toBe(true);
+      expect(lines[0].text, where).toBe(ADDRESS);
+      expect(lines.at(-1)!.text, where).toBe('[Your name]');
+      for (const { text, prefix } of lines)
+        expect(prefix, `${where}: ${text}`).toBe(true);
+      // Lines above the one being typed are whole, lines below it not begun.
+      const at = lines.findIndex(({ shown, length }) => shown! < length);
+      if (at >= 0)
+        for (const [index, { shown, length, text }] of lines.entries())
+          if (index < at) expect(shown, `${where}: ${text}`).toBe(length);
+          else if (index > at) expect(shown, `${where}: ${text}`).toBe(0);
+      const shown = lines.reduce((sum, line) => sum + line.shown!, 0);
+      const carets = lines.reduce((sum, line) => sum + line.carets, 0);
+      if (ms === 0) expect(shown, where).toBe(0);
+      else {
+        expect(shown, where).toBeGreaterThan(before);
+        // One caret, after the last character typed.
+        expect(carets, where).toBe(1);
+      }
+      before = shown;
+    }
+    // Past its end the letter is at rest: whole, and plain text again.
+    await typeAt(page, 60_000);
+    await expect.poll(() => typingState(page)).toBe('rest');
+    await expectLetter(page, { topic: 'contribute', offers: ['data'] }, 'rest');
+    await expect(page.locator('.letter__typed')).toHaveCount(0);
+  });
+
+  test('the whole letter types in within 3.5 s, the longest draft too, and a change within 1.3 s', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const changes: [string, number][] = [];
+      (window as unknown as { __typing: typeof changes }).__typing = changes;
+      new MutationObserver((records) => {
+        for (const record of records) {
+          const state = (record.target as HTMLElement).dataset.typing;
+          if (state) changes.push([state, performance.now()]);
+        }
+      }).observe(document, { subtree: true, attributeFilter: ['data-typing'] });
+    });
+    const changes = () =>
+      page.evaluate(
+        () => (window as unknown as { __typing: [string, number][] }).__typing,
+      );
+    /** How long each typing took, from its start to its rest. */
+    const spans = async () => {
+      const list = await changes();
+      return list.flatMap(([state, at], index) =>
+        state === 'typing' && list[index + 1]?.[0] === 'rest'
+          ? [Math.round(list[index + 1][1] - at)]
+          : [],
+      );
+    };
+    await page.setViewportSize({ width: 1440, height: 900 });
+    for (const query of ['', ALL_OFFERS]) {
+      await page.goto(`/contact/${query}`);
+      await typingLoaded(page);
+      await toCentre(page);
+      await expect.poll(() => typingState(page)).toBe('rest');
+      const [whole] = await spans();
+      expect(
+        whole,
+        `${query || 'default'}: the whole letter`,
+      ).toBeLessThanOrEqual(3500);
+      // Typed, not shown at once.
+      expect(whole, `${query || 'default'}: the whole letter`).toBeGreaterThan(
+        1500,
+      );
+    }
+    // A change: Data's section typed in, with the subject's and the opening's new words.
+    await page.goto('/contact/');
+    await typingLoaded(page);
+    await toCentre(page);
+    await expect.poll(() => typingState(page)).toBe('rest');
+    await offer(page, 'data').click();
+    await expect.poll(async () => (await spans()).length).toBe(2);
+    const [, change] = await spans();
+    expect(change, 'a change').toBeLessThanOrEqual(1300);
+    expect(change, 'a change').toBeGreaterThan(400);
+  });
+
+  test('a new purpose retypes only the lines it changes; the others stay on screen throughout', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/contact/');
+    await typingLoaded(page);
+    await toCentre(page);
+    await expect.poll(() => typingState(page)).toBe('rest');
+    // Every frame of the change, from the press to the letter's rest: the lines being typed, and
+    // whether each other line was whole on screen.
+    await letter(page).evaluate((root, linesOnScreen) => {
+      const read = new Function(`return (${linesOnScreen})`)() as (
+        root: Element,
+      ) => {
+        text: string;
+        shown: number | null;
+        length: number;
+        typing: boolean;
+      }[];
+      const frames: ReturnType<typeof read>[] = [];
+      (window as unknown as { __frames: typeof frames }).__frames = frames;
+      const sample = () => {
+        frames.push(read(root));
+        if (frames.length < 2 || root.getAttribute('data-typing') !== 'rest')
+          requestAnimationFrame(sample);
+      };
+      // The press, then the first reading in the same turn: the letter as the press left it.
+      document
+        .querySelector<HTMLInputElement>(
+          'input[name="contact-topic"][value="partner"]',
+        )!
+        .click();
+      sample();
+    }, LINES_ON_SCREEN.toString());
+    await expect.poll(() => typingState(page)).toBe('rest');
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as unknown as { __frames: unknown[] }).__frames.length > 1,
+        ),
+      )
+      .toBe(true);
+    const frames = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __frames: {
+              text: string;
+              shown: number | null;
+              length: number;
+              typing: boolean;
+            }[][];
+          }
+        ).__frames,
+    );
+    const draft = buildDraft({ topic: 'partner', offers: [] });
+    const retyped = new Set(
+      frames.flatMap((lines) =>
+        lines.filter(({ typing }) => typing).map(({ text }) => text),
+      ),
+    );
+    expect([...retyped]).toEqual([
+      draft.subject,
+      "I'd like to discuss a partnership or collaboration with genomeOS.",
+      'Proposal',
+      '- Organization:',
+      "- What we'd like to do together:",
+      '- Timeline:',
+    ]);
+    // The first reading: the new subject not begun, the opening keeping the words it shares with
+    // the old one ("I'd like to "), Proposal not begun.
+    const first = frames[0];
+    const line = (text: string) => first.find((entry) => entry.text === text)!;
+    expect(line(draft.subject).shown).toBe(0);
+    expect(
+      line("I'd like to discuss a partnership or collaboration with genomeOS.")
+        .shown,
+    ).toBe("I'd like to ".length);
+    expect(line('Proposal').shown).toBe(0);
+    // Every other line stayed whole on screen in every frame.
+    const kept = [
+      ADDRESS,
+      'Dear genomeOS Foundation team,',
+      'About me',
+      '- Name:',
+      '- Affiliation:',
+      '- Role:',
+      'Best regards,',
+      '[Your name]',
+    ];
+    for (const [index, lines] of frames.entries())
+      for (const text of kept) {
+        const entry = lines.find((candidate) => candidate.text === text);
+        expect(entry, `frame ${index}: ${text}`).toBeDefined();
+        expect(entry!.shown, `frame ${index}: ${text}`).toBeNull();
+      }
+    // And the opening never lost "I'd like to ".
+    for (const [index, lines] of frames.entries()) {
+      const opening = lines.find(({ text }) =>
+        text.startsWith("I'd like to discuss"),
+      )!;
+      expect(
+        opening.shown ?? opening.length,
+        `frame ${index}`,
+      ).toBeGreaterThanOrEqual("I'd like to ".length);
+    }
+    await expectLetter(page, { topic: 'partner', offers: [] }, 'partner');
+  });
+
+  test('an offer pressed types its section in; released, its section goes at once and closes', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/contact/');
+    await typingLoaded(page);
+    await toCentre(page);
+    await expect.poll(() => typingState(page)).toBe('rest');
+    const press = (which: Offer) =>
+      letter(page).evaluate(
+        (root, [offer, read]) => {
+          document
+            .querySelector<HTMLButtonElement>(`button[data-offer="${offer}"]`)!
+            .click();
+          return (
+            new Function(`return (${read})`)() as (root: Element) => unknown
+          )(root);
+        },
+        [which, LINES_ON_SCREEN.toString()] as const,
+      ) as Promise<Awaited<ReturnType<typeof linesOnScreen>>>;
+    const typedOf = (lines: Awaited<ReturnType<typeof linesOnScreen>>) =>
+      lines
+        .filter(({ typing }) => typing)
+        .map(({ text, shown }) => [text, shown]);
+
+    const opening = (offers: Offer[]) =>
+      buildDraft({ topic: 'contribute', offers }).body.split('\n\n')[1];
+    const kept = "I'd like to contribute to genomeOS by providing ".length;
+    // Pressed: the subject keeps its words and types ": data", the opening keeps everything up to
+    // its offers, and Data's section types in from nothing.
+    expect(typedOf(await press('data'))).toEqual([
+      ['Contributing to genomeOS: data', 'Contributing to genomeOS'.length],
+      [opening(['data']), kept],
+      ['Data', 0],
+      ['- Dataset (name or publication):', 0],
+      ['- Populations and sample size:', 0],
+      ['- Data type (genotypes, allele counts, phenotypes):', 0],
+      ['- Consent and access terms:', 0],
+    ]);
+    await expect.poll(() => typingState(page)).toBe('rest');
+    await expectLetter(page, { topic: 'contribute', offers: ['data'] }, 'data');
+
+    // Released: the section leaves the screen at once and closes, the subject loses ": data"
+    // with nothing to type, and the opening types its placeholder back.
+    const section = page.locator('.letter__section[data-section="data"]');
+    const released = await press('data');
+    expect(released.some(({ text }) => text === 'Data')).toBe(false);
+    expect(typedOf(released)).toEqual([[opening([]), kept]]);
+    await expect
+      .poll(() =>
+        section.evaluate((element) => element.getBoundingClientRect().height),
+      )
+      .toBeLessThan(1);
+    await expect.poll(() => typingState(page)).toBe('rest');
+    await expectLetter(page, { topic: 'contribute', offers: [] }, 'released');
+  });
+
+  test('assistive tech reads the whole letter at every instant, never a character at a time', async ({
+    page,
+  }) => {
+    const region = () => page.getByRole('region', { name: 'Your draft.' });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    // The letter as it reads at rest, with nothing typed.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/contact/');
+    const whole = await region().ariaSnapshot();
+    await offer(page, 'funding').click();
+    const funding = await region().ariaSnapshot();
+    expect(funding).not.toBe(whole);
+
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/contact/');
+    await typingLoaded(page);
+    // Waiting below the fold.
+    expect(await typingState(page)).toBe('pending');
+    expect(await region().ariaSnapshot()).toBe(whole);
+    for (const ms of [0, 300, 900, 1700, 2500]) {
+      await typeAt(page, ms);
+      expect(await region().ariaSnapshot(), `${ms} ms`).toBe(whole);
+    }
+    await typeAt(page, 60_000);
+    await offer(page, 'funding').click();
+    for (const ms of [0, 250, 600]) {
+      await typeAt(page, ms);
+      expect(await region().ariaSnapshot(), `funding, ${ms} ms`).toBe(funding);
+    }
+  });
+
+  for (const viewport of [
+    { tag: '@desktop-chromium', width: 1440, height: 900 },
+    { tag: '@mobile-chromium', width: 390, height: 844 },
+  ] as const)
+    test(`axe finds nothing serious mid-typing, at ${viewport.width} px ${viewport.tag}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize(viewport);
+      await page.goto('/contact/?topic=contribute&offer=code');
+      await typingLoaded(page);
+      const blocking = async (where: string) =>
+        expect(
+          (
+            await new AxeBuilder({ page })
+              .include('main')
+              .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+              .analyze()
+          ).violations.filter(({ impact }) =>
+            ['serious', 'critical'].includes(impact ?? ''),
+          ),
+          where,
+        ).toEqual([]);
+      for (const ms of [150, 900, 1800]) {
+        await typeAt(page, ms);
+        await blocking(`${ms} ms`);
+      }
+      await typeAt(page, 60_000);
+      await offer(page, 'funding').click();
+      await typeAt(page, 300);
+      await blocking('mid-change');
+    });
+
+  test('typing moves nothing: each line keeps its box from the first character to rest', async ({
+    page,
+  }) => {
+    for (const [width, height] of [
+      [1440, 900],
+      [320, 640],
+    ] as const)
+      for (const query of ['', ALL_OFFERS, '?topic=partner']) {
+        const where = `${width} px ${query || 'default'}`;
+        await page.setViewportSize({ width, height });
+        await page.goto(`/contact/${query}`);
+        await page.evaluate(() => document.fonts.ready);
+        await typingLoaded(page);
+        const boxes = () =>
+          letter(page).evaluate((root) => [
+            Math.round(
+              root.closest('figure')!.getBoundingClientRect().height * 100,
+            ) / 100,
+            ...[...root.querySelectorAll('.letter__row dd, [data-letter-line]')]
+              .filter((line) =>
+                line.checkVisibility({ visibilityProperty: true }),
+              )
+              .map((line) => {
+                const box = line.getBoundingClientRect();
+                return [
+                  box.left,
+                  box.top + window.scrollY,
+                  box.width,
+                  box.height,
+                ]
+                  .map((value) => Math.round(value * 100) / 100)
+                  .join(' ');
+              }),
+          ]);
+        const waiting = await boxes();
+        for (const ms of [0, 700, 1500]) {
+          await typeAt(page, ms);
+          expect(await boxes(), `${where}, ${ms} ms`).toEqual(waiting);
+        }
+        await typeAt(page, 60_000);
+        await expect.poll(() => typingState(page)).toBe('rest');
+        expect(await boxes(), `${where}, at rest`).toEqual(waiting);
+      }
+  });
+
+  test('on load it shifts nothing: the letter types in where it already stands @desktop-chromium', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const shifts: { value: number; recent: boolean; inLetter: boolean }[] =
+        [];
+      (window as unknown as { __shifts: typeof shifts }).__shifts = shifts;
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries() as (PerformanceEntry & {
+          value: number;
+          hadRecentInput: boolean;
+          sources: { node?: Node }[];
+        })[])
+          shifts.push({
+            value: entry.value,
+            recent: entry.hadRecentInput,
+            inLetter: entry.sources.some(({ node }) =>
+              Boolean(
+                (node instanceof Element ? node : node?.parentElement)?.closest(
+                  '#contact-composer',
+                ),
+              ),
+            ),
+          });
+      }).observe({ type: 'layout-shift', buffered: true });
+    });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/contact/');
+    // In view from the start, so it types on load.
+    await expect.poll(() => typingState(page)).toBe('typing');
+    await expect.poll(() => typingState(page)).toBe('rest');
+    // A change, then its whole retyping: only the moves right after the press may shift.
+    await offer(page, 'expertise').click();
+    await expect.poll(() => typingState(page)).toBe('typing');
+    await expect.poll(() => typingState(page)).toBe('rest');
+    const shifts = await page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            __shifts: { value: number; recent: boolean; inLetter: boolean }[];
+          }
+        ).__shifts,
+    );
+    const unprompted = shifts.filter(({ recent }) => !recent);
+    expect(unprompted.filter(({ inLetter }) => inLetter)).toEqual([]);
+    expect(
+      unprompted.reduce((sum, { value }) => sum + value, 0),
+    ).toBeLessThanOrEqual(0.02);
+  });
+
+  test('under reduced motion the letter is whole at once: nothing waits, types or moves', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/contact/');
+    await expectLetter(page, { topic: 'contribute', offers: [] }, 'at once');
+    expect(await typingState(page)).toBeNull();
+    await page.waitForTimeout(500);
+    await offer(page, 'code').click();
+    await expectLetter(
+      page,
+      { topic: 'contribute', offers: ['code'] },
+      'a change',
+    );
+    await expect(
+      page.locator('.letter__typed, [data-typing-line]'),
+    ).toHaveCount(0);
+    expect(
+      await composer(page).evaluate(
+        (root) => root.getAnimations({ subtree: true }).length,
+      ),
+    ).toBe(0);
+    // Nor is the typing loaded at all.
+    expect(
+      await page.evaluate(() => window.__motion?.names() ?? []),
+    ).not.toContain(SCENE);
+  });
+
+  test('without JavaScript the letter is served whole, with nothing in it waiting to be typed', async ({
+    browser,
+  }) => {
+    const context = await (browser as Browser).newContext({
+      javaScriptEnabled: false,
+    });
+    const page = await context.newPage();
+    await page.goto('/contact/');
+    expect(await typingState(page)).toBeNull();
+    await expect(
+      page.locator('.letter__typed, [data-typing-line]'),
+    ).toHaveCount(0);
+    // The template section stays hidden without JavaScript (spec §2); shown, its letter is whole.
+    await composer(page).evaluate((root) => root.removeAttribute('hidden'));
+    await expectLetter(
+      page,
+      { topic: 'contribute', offers: [] },
+      'no JavaScript',
+    );
+    for (const part of ['.letter__body', '.letter__row dd'])
+      await expect(letter(page).locator(part).last()).toHaveCSS('opacity', '1');
+    await context.close();
+  });
+
+  test('printed, or in forced colours, the letter is whole and has no caret', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const whole = async (where: string) => {
+      const lines = await linesOnScreen(page);
+      for (const { text, shown, length, carets } of lines) {
+        expect(shown ?? length, `${where}: ${text}`).toBe(length);
+        expect(carets, `${where}: ${text}`).toBe(0);
+      }
+      const leaders = await letter(page).evaluate((root) =>
+        [...root.querySelectorAll('.letter__leader')]
+          .filter((leader) =>
+            leader.checkVisibility({ visibilityProperty: true }),
+          )
+          .map((leader) => leader.getBoundingClientRect().width),
+      );
+      for (const width of leaders)
+        expect(width, `${where}: a leader`).toBeGreaterThan(20);
+    };
+    // Mid-typing, printed: every character and leader on the sheet.
+    await page.goto('/contact/?topic=contribute&offer=funding');
+    await typingLoaded(page);
+    await typeAt(page, 700);
+    await page.emulateMedia({ media: 'print' });
+    await whole('printed mid-typing');
+    // Before it is in view: the printout has the letter all the same.
+    await page.emulateMedia({ media: 'screen' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/contact/');
+    await typingLoaded(page);
+    expect(await typingState(page)).toBe('pending');
+    await page.emulateMedia({ media: 'print' });
+    await expect(letter(page).locator('.letter__body')).toHaveCSS(
+      'opacity',
+      '1',
+    );
+    // Forced colours from the start: no typing at all.
+    await page.emulateMedia({ media: 'screen', forcedColors: 'active' });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/contact/');
+    expect(await typingState(page)).toBeNull();
+    await whole('forced colours');
+    // Forced colours turned on mid-typing: the letter is whole at once.
+    await page.emulateMedia({ forcedColors: 'none' });
+    await page.goto('/contact/');
+    await typingLoaded(page);
+    await typeAt(page, 500);
+    await page.emulateMedia({ forcedColors: 'active' });
+    await whole('forced colours mid-typing');
+  });
 });
 
 test('a keyboard alone emails, copies, chooses, presses and opens the draft, in the page’s order', async ({
@@ -821,6 +1480,13 @@ test('a keyboard alone emails, copies, chooses, presses and opens the draft, in 
 // Design critique 1: the letter's typesetting at every width.
 test.describe('the letter is set like a letter', () => {
   const ALL_OFFERS = '?topic=contribute&offer=code,data,expertise,funding';
+
+  // The letter as it settles: mid-typing its words are also a visually hidden copy and a twin of
+  // one span a character, which text ranges read too. Typing moves none of its lines ('the letter
+  // types itself out').
+  test.beforeEach(async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+  });
 
   test('each field’s leader runs on from the last word of its label, at 320 and 390 px', async ({
     page,

@@ -10,7 +10,10 @@
  *   when a visitor reaches for it.
  * - `contactPaintScript`, after the composer: shows it, writes the address into the letter's To,
  *   and applies a `?topic=…&offer=…` preselect at the same moment, so a link from Contribute never
- *   paints the default letter and then grows (a module script runs too late for that).
+ *   paints the default letter and then grows (a module script runs too late for that). Where the
+ *   letter will type itself out (letter-typing.ts: no reduced motion, no forced colours, and
+ *   `@property` for its characters to step), it sets it waiting, its words hidden
+ *   (`data-typing="pending"`, contact.css), so it never shows whole and then empties.
  *
  * It repeats `parseQuery`'s rule in plain ES5, with the purposes and offers from contact-draft.ts,
  * and carries the offer wording for every set of offers as a table built here from `letterList`
@@ -88,6 +91,17 @@ export function contactPaintScript(rootId: string): string {
     var to = document.querySelectorAll('[data-to-address]');
     for (var j = 0; j < to.length; j += 1) to[j].textContent = address;
     root.setAttribute('data-revealed', '');
+  } catch (error) {}
+  try {
+    var letter = root.querySelector('[data-letter]');
+    if (
+      letter &&
+      window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: no-preference) and (forced-colors: none)').matches &&
+      window.CSS &&
+      window.CSS.registerProperty
+    )
+      letter.setAttribute('data-typing', 'pending');
   } catch (error) {}
   try {
     var topics = ${json(TOPICS)};

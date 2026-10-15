@@ -8,9 +8,11 @@
  *                      then the letter; the problem link last
  *   .letter*           the live letter inside the kit Plate (ContactLetter.astro)
  *
- * What the letter shows follows the composer's `data-topic` and `data-offers`. A section grows in
- * or collapses in --dur-ui, only once the visitor has changed something (`data-live`), and at once
- * under reduced motion.
+ * What the letter shows follows the composer's `data-topic` and `data-offers`. A section opens or
+ * closes in --dur-ui, only once the visitor has changed something (`data-live`), and at once under
+ * reduced motion. The letter types itself out (letter-typing.ts): its words wait hidden until it is
+ * in view, then show a character at a time behind a caret; reduced motion, forced colours and
+ * print show it whole.
  */
 
 /* ---------- the intro ---------- */
@@ -23,15 +25,21 @@
   overflow: hidden;
 }
 
-/* The only one-line H1 of the split intros: beside a lede of four or five lines (52rem to 72rem)
-   it breaks evenly in two, so the kicker and the lede start level, as on /privacy/ (design
-   critique 2, m-2). */
+/* The only one-line H1 of the split intros: from 52rem to 72rem, where it may or may not fit its
+   seven columns, it always breaks evenly in two, so the intro keeps one shape across those widths
+   (design critique 2, m-2). */
 @media (width > 52rem) and (width <= 72rem) {
   .contact-page .page-intro h1 {
     /* 12ch in Raleway, in em so a fallback font breaks it where Raleway does (pages.css). */
     max-width: 7.34em;
     text-wrap: balance;
   }
+}
+
+/* The lede is one short sentence (owner, 2026-10-15): its two lines break evenly beside the H1,
+   not a full line over two words. */
+.contact-page .page-intro--split .page-intro__lede {
+  text-wrap: balance;
 }
 
 /* The template band's own hairline is the one rule under the intro, not the intro's doubling it. */
@@ -800,13 +808,67 @@
   display: none;
 }
 
-/* Motion only once the visitor has changed something: sections and the offers grow and collapse
-   (visibility flips at the end of a collapse, at the start of a growth). */
-.contact[data-live] :is(.letter__section, .contact-offers) {
+/* Motion only once the visitor has changed something: the offers grow and collapse, and the
+   letter's sections open and close (visibility flips at the end of a closing, at the start of an
+   opening). A section's words are typed in, or leave at once as it closes: none fades, as a word
+   half faded is text at low contrast (ruling 25). */
+.contact[data-live] .contact-offers {
   transition:
     grid-template-rows var(--dur-ui) var(--ease-ui),
     opacity var(--dur-ui) var(--ease-ui),
     visibility 0s linear var(--contact-reveal-delay);
+}
+
+.contact[data-live] .letter__section {
+  transition:
+    grid-template-rows var(--dur-ui) var(--ease-ui),
+    visibility 0s linear var(--contact-reveal-delay);
+}
+
+/* ---------- the letter typing itself out (letter-typing.ts) ---------- */
+
+/* Until it is in view, the letter waits with its words hidden, the head's labels and rules an empty
+   draft to type into; it takes its full size from the start. */
+.letter[data-typing='pending'] :is(.letter__row dd, .letter__body) {
+  opacity: 0;
+}
+
+/* A character shows once its line's --n passes it; the caret, a 2 px ion bar after the last one
+   shown, is a box-shadow, not the kit's positioned ::after (scenes.css), so a typing line breaks
+   exactly where its plain text does. Each character is shown or not: none is ever half faded. */
+.letter__typed > span {
+  --shown: clamp(0, calc(var(--n) - var(--i)), 1);
+  --caret: clamp(0, calc(2 - var(--n) + var(--i)), 1);
+  opacity: var(--shown);
+  box-shadow: calc((2px + 0.1em) * var(--shown) * var(--caret)) 0 0 -0.1em
+    var(--color-ion);
+}
+
+/* An offer's icon shows with its heading's first character; a field's leader draws out from the
+   left once its label is typed (letter-typing.ts animates it). */
+[data-typing-line] .letter__icon {
+  opacity: clamp(0, var(--n), 1);
+}
+
+.letter__leader {
+  transform-origin: 0 50%;
+}
+
+/* Reduced motion, forced colours and print: the letter whole, without a caret, at any moment. */
+@media (prefers-reduced-motion: reduce), (forced-colors: active), print {
+  .letter[data-typing] :is(.letter__row dd, .letter__body),
+  .letter__typed > span,
+  [data-typing-line] .letter__icon {
+    opacity: 1;
+  }
+
+  .letter__typed > span {
+    box-shadow: none;
+  }
+
+  [data-typing-line] .letter__leader {
+    transform: none !important;
+  }
 }
 
 /* ---------- reduced motion, forced colours, print ---------- */
