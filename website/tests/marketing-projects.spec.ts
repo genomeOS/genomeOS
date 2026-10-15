@@ -923,9 +923,11 @@ test('the counts figure draws people as micro astronauts, wide and narrow, from 
   expect(layout.perRow).toBe(narrow ? 25 : 40);
   expect(layout.rows).toBe(narrow ? 9 : 6);
   // Big enough to read as a person (the drawn figure, helmet to boots, inside its 16 × 20 glyph):
-  // about 14 px tall on a phone, 19 at desktop widths.
-  expect(layout.glyph.height).toBeGreaterThanOrEqual(narrow ? 13 : 18);
-  expect(layout.glyph.width).toBeGreaterThanOrEqual(narrow ? 8.5 : 12);
+  // about 13 px tall on a phone, 18 at desktop widths. The owner's micro astronaut with arms and
+  // legs (2026-10-15, cdb3e6f), drawn here as on Home, fills a little less of its glyph than the
+  // one before it: 8.1 × 13.2 px on a phone, 11.1 × 18.0 at 1280.
+  expect(layout.glyph.height).toBeGreaterThanOrEqual(narrow ? 13 : 17.5);
+  expect(layout.glyph.width).toBeGreaterThanOrEqual(narrow ? 8 : 10.5);
   // Every person sits inside the grid's box: none is cut off by the layout switch.
   expect(layout.lastBottom).toBeLessThanOrEqual(layout.gridBottom + 0.5);
   await info.attach(`counts-${info.project.name}`, {
