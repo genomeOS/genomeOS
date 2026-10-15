@@ -30,6 +30,8 @@ interface Props {
   id?: string;
   class?: string;
   tableSummary?: string;
+  /** Hooks such as `data-motion-exception` (round 2 spec §2.3) pass through to the figure. */
+  [key: `data-${string}`]: string | undefined;
 }
 
 const {
@@ -42,6 +44,7 @@ const {
   id,
   class: className,
   tableSummary = 'View as table',
+  ...data
 } = Astro.props;
 // A slot passed inside a false expression still counts as present, so each optional part is drawn
 // only when its slot renders something (as in Plate.astro): no empty chrome bars.
@@ -57,6 +60,7 @@ const [toolbar, readout, footnote, table] = await Promise.all(
   data-graphic={graphic}
   data-kind="data"
   id={id}
+  {...data}
 >
   {
     toolbar && (

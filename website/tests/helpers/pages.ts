@@ -13,7 +13,22 @@ export interface PageManifest {
   route: string;
   /** Visible words in <main> at 1440×900 (spec §10). */
   words: number;
+  /**
+   * The page total is enforced (or with FORCE_WORDS=1). Round 2 (plan I-14): false for Home,
+   * Projects and Contribute until the integration task, which turns them on.
+   */
   wordsEnforced: boolean;
+  /**
+   * Round 2 (spec §10): per-section word budgets, keyed by a CSS selector in <main> ("#why",
+   * ".page-intro"), so parallel tasks on one page cannot overrun each other. Enforced for every
+   * section the page has, unless it is listed in `sectionsPending`.
+   */
+  sections?: Record<string, number>;
+  /**
+   * Sections that still hold their round-1 copy (the task that rewrites them has not landed):
+   * their counts are reported, and enforced only with FORCE_WORDS=1 or once `wordsEnforced`.
+   */
+  sectionsPending?: string[];
   /** Every [data-concept] holds one figure, and the figure contract holds (spec §9.2). */
   conceptsEnforced: boolean;
   /** How many [data-concept] sections the page has (spec §10: Home 7, Project 6, Contribute 2,
@@ -26,16 +41,24 @@ export interface PageManifest {
   redirect?: string;
   /** The first figure's top is above the fold (Project, Contribute, Privacy). */
   leadFigure?: boolean;
-  /** Gzip budgets in KB; null is "no budget of its own" (Starlight baseline, redirect). */
+  /**
+   * Gzip budgets in KB; null is "no budget of its own" (Starlight baseline, redirect). Round 2
+   * (spec §7): `jsKbGz` is first-load JS (before any scrolling) and `transferKbGz` the initial
+   * transfer (from navigation until network idle, without scrolling, the film left out).
+   */
   jsKbGz: number | null;
   dataKbGz: number | null;
   transferKbGz: number | null;
+  /** Round 2 (spec §7): each lazily imported module, by its chunk name ("orbit", "atlas-preview"). */
+  lazyJsKbGz?: Record<string, number>;
+  /** Round 2 (spec §7): images in the initial transfer (Home's poster). */
+  imagesKbGz?: number;
   /**
-   * A deferred hero film's own budget, KB as transferred (video is not gzipped): the rendition a
-   * profile loads, which must start after the load event and is left out of `transferKbGz`
-   * (Home's film, round 2 ruling R2-1: the 1080p AV1 ≤ 4 MB).
+   * Round 2 (spec §7): a deferred hero film's own budget per profile, KB as transferred (video is
+   * not gzipped): the rendition a profile loads, which must start after the load event and is left
+   * out of `transferKbGz` (Home's film, ruling R2-1).
    */
-  videoKb?: number;
+  deferredMediaKb?: { desktop: number; phone: number };
   lcpMs: { desktop: number; phone: number } | null;
   cls: number;
 }
@@ -53,7 +76,11 @@ const KEYS = new Set([
   'jsKbGz',
   'dataKbGz',
   'transferKbGz',
-  'videoKb',
+  'lazyJsKbGz',
+  'imagesKbGz',
+  'deferredMediaKb',
+  'sections',
+  'sectionsPending',
   'lcpMs',
   'cls',
 ]);
@@ -78,6 +105,21 @@ function load(file: string): PageManifest {
     throw new Error(`${file}: route must be a site path`);
   if (!Number.isInteger(raw.concepts) || (raw.concepts as number) < 0)
     throw new Error(`${file}: concepts must be a whole number`);
+  const sections = raw.sections as Record<string, unknown> | undefined;
+  for (const [selector, budget] of Object.entries(sections ?? {}))
+    if (!Number.isInteger(budget) || (budget as number) <= 0)
+      throw new Error(
+        `${file}: section "${selector}" needs a whole-number budget`,
+      );
+  for (const pending of (raw.sectionsPending as string[] | undefined) ?? [])
+    if (!sections || !(pending in sections))
+      throw new Error(`${file}: pending section "${pending}" has no budget`);
+  const media = raw.deferredMediaKb as Record<string, unknown> | undefined;
+  if (
+    media &&
+    !(typeof media.desktop === 'number' && typeof media.phone === 'number')
+  )
+    throw new Error(`${file}: deferredMediaKb needs desktop and phone`);
   return { name: file.replace(/\.json$/, ''), ...raw } as PageManifest;
 }
 

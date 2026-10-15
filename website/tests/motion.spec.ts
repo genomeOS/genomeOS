@@ -1,15 +1,17 @@
 /**
- * Motion rules (site redesign spec §2.7, §9.2; #454), for every page whose manifest enforces its
- * figures:
+ * Motion rules (site redesign spec §2.7, §9.2; round 2 spec §2.3, §11.2; #454), for every page with
+ * a manifest:
  *
  * - reduced motion: 1.2 s after load nothing is running and every figure shows its final state;
  * - otherwise: once every figure has been scrolled into view and 6.5 s have passed, nothing runs
- *   but the genomeOS Atlas pill's aurora, and no animation frame is scheduled. Two motions the
- *   owner asked for move past rest, and both stop off screen, which is where this test ends:
- *   Home's hero film (a video, not an animation; it pauses off screen) and the Atlas preview's
- *   slow rotation (round 2 rulings R2-1 and R2-2; marketing-home.spec drives it on a fake clock).
- *   Scroll-driven animations (the hero's scroll fade) are not counted: they move only while the
- *   visitor scrolls, and never under reduced motion;
+ *   but the named exceptions of round 2 spec §2.3, each marked `data-motion-exception` (the
+ *   genomeOS Atlas pill's aurora, Home's hero film, the Atlas preview's rotation, Contribute's
+ *   orbit and board loops), and no animation frame is scheduled where the test ends. Each
+ *   exception stops off screen, in a hidden tab and on its Pause; scroll-driven animations (the
+ *   hero's scroll fade) are not counted: they move only while the visitor scrolls, and never
+ *   under reduced motion;
+ * - pressing every visible Pause leaves nothing running 6.5 s later but the Atlas pill's aurora,
+ *   and no frame scheduled (WCAG 2.2.2);
  * - a figure scrolled offscreen in the middle of its entrance stops scheduling frames;
  * - printing shows every figure in its final state, even one never scrolled into view (spec §8).
  */
@@ -17,7 +19,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { useSiteFixtures } from './helpers/marketing';
 import { openManifestPage } from './helpers/manifest-page';
-import { conceptEnforced } from './helpers/pages';
+import { pageManifests } from './helpers/pages';
 
 useSiteFixtures();
 
@@ -56,13 +58,18 @@ const frames = (page: Page) =>
     pending: window.__frames?.pending.size ?? 0,
   }));
 
+/** The Atlas pill's aurora: the one motion that never rests (round 1). */
+const PILL = '[data-motion-exception="launch-atlas-cta"]';
+/** Every named exception of round 2 spec §2.3 (pill, hero film, preview, orbit, board). */
+const EXCEPTIONS = '[data-motion-exception]';
+
 /**
- * Running animations and transitions, leaving out the Atlas pill's aurora curtains and, unless
+ * Running animations and transitions, leaving out those inside `exempt` and, unless
  * `scrollLinked`, animations on a scroll or view timeline (they move only while the page scrolls).
  */
-const running = (page: Page, scrollLinked = false) =>
+const running = (page: Page, scrollLinked = false, exempt = PILL) =>
   page.evaluate(
-    (countScrollLinked) =>
+    ([countScrollLinked, exemptSelector]) =>
       document
         .getAnimations()
         .filter((animation) => animation.playState === 'running')
@@ -72,9 +79,7 @@ const running = (page: Page, scrollLinked = false) =>
         )
         .filter((animation) => {
           const target = (animation.effect as KeyframeEffect | null)?.target;
-          return !(
-            target instanceof Element && target.closest('.launch-atlas-cta')
-          );
+          return !(target instanceof Element && target.closest(exemptSelector));
         })
         .map((animation) => {
           const target = (animation.effect as KeyframeEffect | null)?.target;
@@ -86,7 +91,7 @@ const running = (page: Page, scrollLinked = false) =>
                 : 'script';
           return `${name} on ${target instanceof Element ? target.className || target.localName : '?'}`;
         }),
-    scrollLinked,
+    [scrollLinked, exempt] as const,
   );
 
 async function expectFramesStop(page: Page, label: string): Promise<void> {
@@ -97,7 +102,7 @@ async function expectFramesStop(page: Page, label: string): Promise<void> {
   expect(after.pending, `${label}: pending frames`).toBe(0);
 }
 
-for (const manifest of conceptEnforced) {
+for (const manifest of pageManifests) {
   test(`${manifest.route} rests at once under reduced motion`, async ({
     page,
   }) => {
@@ -137,7 +142,7 @@ for (const manifest of conceptEnforced) {
       await page.waitForTimeout(400);
     }
     await page.waitForTimeout(6500);
-    expect(await running(page)).toEqual([]);
+    expect(await running(page, false, EXCEPTIONS)).toEqual([]);
     await expectFramesStop(page, 'after rest');
     // A figure that schedules nothing can still be stuck mid-entrance (the FigureController race
     // the page tasks worked around): every figure scrolled to above must have reached rest.
@@ -154,6 +159,36 @@ for (const manifest of conceptEnforced) {
         ),
     );
     for (const state of states) expect(state).toMatch(/: rest$/);
+  });
+
+  test(`${manifest.route} rests on every Pause, but for the Atlas pill`, async ({
+    page,
+  }) => {
+    await instrumentFrames(page);
+    await openManifestPage(page, manifest);
+    const count = await page.locator('main figure[data-graphic]').count();
+    for (let index = 0; index < count; index += 1) {
+      await page
+        .locator('main figure[data-graphic]')
+        .nth(index)
+        .evaluate((figure) =>
+          figure.scrollIntoView({ block: 'center', behavior: 'instant' }),
+        );
+      await page.waitForTimeout(300);
+    }
+    // Every visible Pause the page offers (the hero film, the preview's rotation, the scenes),
+    // pressed where it sits; a toggle already showing Play is left alone.
+    // Collected first: a pressed toggle may rename itself to Play.
+    const pauses = await page.getByRole('button', { name: /^Pause\b/ }).all();
+    for (const pause of pauses) {
+      if (!(await pause.isVisible())) continue;
+      if ((await pause.getAttribute('aria-pressed')) === 'true') continue;
+      await pause.scrollIntoViewIfNeeded();
+      await pause.click();
+    }
+    await page.waitForTimeout(6500);
+    expect(await running(page)).toEqual([]);
+    await expectFramesStop(page, 'after every Pause');
   });
 
   test(`${manifest.route} stops a figure that leaves the viewport mid-entrance`, async ({

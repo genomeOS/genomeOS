@@ -1,13 +1,30 @@
 {
   "route": "/",
   "words": 425,
-  "wordsEnforced": true,
-  "conceptsEnforced": true,
-  "concepts": 7,
+  "wordsEnforced": false,
+  "conceptsEnforced": false,
+  "concepts": 4,
+  "sections": {
+    "#hero": 36,
+    "#why": 106,
+    "#how": 106,
+    "#atlas": 122,
+    "#join": 58
+  },
   "jsKbGz": 24,
+  "lazyJsKbGz": {
+    "atlas-preview": 18,
+    "how-it-works": 8,
+    "crew": 6,
+    "people": 3
+  },
   "dataKbGz": 60,
-  "transferKbGz": 300,
-  "videoKb": 4096,
+  "imagesKbGz": 110,
+  "transferKbGz": 360,
+  "deferredMediaKb": {
+    "desktop": 4000,
+    "phone": 2000
+  },
   "lcpMs": {
     "desktop": 1200,
     "phone": 2500
