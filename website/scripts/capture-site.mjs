@@ -8,7 +8,8 @@
  *   --routes /,/projects/     routes to capture (default: every top-level route and the 404)
  *   --profiles desktop,phone  desktop is 1440×900 at DPR 1; phone is 390×844 at DPR 2, touch
  *   --frames 300,1000,2400    also capture the first viewport frozen at these entrance times
- *                             (the `?t=<ms>` hook exists only in dev builds: astro dev)
+ *                             (the `?t=<ms>` motion hook exists only in astro dev and the e2e
+ *                             build, round 2 spec §3.4)
  *   --element <css>           capture only this element (e.g. the header) instead of the page
  *   --prefix after            prepended to every file name
  *
