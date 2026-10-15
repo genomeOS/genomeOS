@@ -6,7 +6,6 @@
  *
  *   buildDraft({ topic, offers })  → { subject, body }   the letter, lines joined with \n
  *   mailtoUrl(address, draft?)     → mailto:…            RFC 6068, CRLF line breaks
- *   webmailUrl(service, address, draft?) → https://…     Gmail's or Outlook's compose page
  *   draftText(address, draft)      → To / Subject / body as plain text (a copy of the letter)
  *   parseQuery(search) / toQuery(state)                  ?topic=contribute&offer=data,funding
  *
@@ -214,33 +213,6 @@ export function mailtoUrl(address: string, draft?: Draft): string {
   if (!draft) return `mailto:${address}`;
   const body = draft.body.replace(/\r?\n/g, '\r\n');
   return `mailto:${address}?subject=${encodeURIComponent(draft.subject)}&body=${encodeURIComponent(body)}`;
-}
-
-/** Webmail that composes from a link, for a visitor whose `mailto:` opens no app of its own. */
-export const WEBMAILS = ['gmail', 'outlook'] as const;
-export type Webmail = (typeof WEBMAILS)[number];
-
-/** Each service's compose link up to the address, and its name for the subject. */
-const COMPOSE: Readonly<Record<Webmail, [string, string]>> = {
-  gmail: ['https://mail.google.com/mail/?view=cm&fs=1&to=', 'su'],
-  outlook: ['https://outlook.live.com/mail/0/deeplink/compose?to=', 'subject'],
-};
-
-/**
- * Gmail's or Outlook's compose page in a browser: to, subject and body, each percent-encoded, line
- * breaks as %0A (a web form's, not RFC 6068's CRLF). Without a draft, a blank email to the address.
- * The longest draft stays within `MAILTO_MAX_LENGTH`, as the `mailto:` does (a unit test pins it).
- */
-export function webmailUrl(
-  service: Webmail,
-  address: string,
-  draft?: Draft,
-): string {
-  const [base, subjectKey] = COMPOSE[service];
-  const to = `${base}${encodeURIComponent(address)}`;
-  return draft
-    ? `${to}&${subjectKey}=${encodeURIComponent(draft.subject)}&body=${encodeURIComponent(draft.body)}`
-    : to;
 }
 
 /** The draft as plain text, for webmail: To, Subject, a blank line, the body. */

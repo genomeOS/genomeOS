@@ -1,6 +1,6 @@
 /**
  * The Contact page's line icons (owner request, 2026-10-14): one for Email us, the copy buttons and
- * their confirmation, the webmail links' new tab, each purpose and each offer. Drawn as the kit's interface icons are
+ * their confirmation, each purpose and each offer. Drawn as the kit's interface icons are
  * (components/kit/icons.ts): a 24 px grid, round caps and joins, no fills, in currentColor; set at
  * about 20 px, so a 1.8 stroke draws 1.5 px. Kept here, not in the kit, as only this page uses them.
  * `ContactIcon.astro` renders them as one sprite per page; every icon is decoration (aria-hidden),
@@ -12,8 +12,6 @@ export const CONTACT_ICON_PATHS = {
   mail: 'M3.5 6h17v12h-17zM4 6.5l8 6.5 8-6.5',
   copy: 'M9 9h10.5v10.5H9zM15 9V4.5H4.5V15H9',
   check: 'M5 12.5l4.5 4.5L19 7.5',
-  // Gmail and Outlook open in a new tab: the kit's external-link arrow (components/kit/icons.ts).
-  external: 'M8 5.5H5.5v13h13V16M12.5 4.5h7v7M19.5 4.5 10.5 13.5',
   // Purposes: a plus to add to the project; a question in a speech bubble; two linked rings; a
   // microphone.
   contribute: 'M12 3.5a8.5 8.5 0 1 1 0 17 8.5 8.5 0 0 1 0-17zM12 8v8M8 12h8',
@@ -30,9 +28,6 @@ export const CONTACT_ICON_PATHS = {
     'M9.5 17.5h5M10.5 20.5h3M12 3.5a5.5 5.5 0 0 0-3.3 9.9c.6.5.8 1.1.8 1.8v2.3h5v-2.3c0-.7.2-1.3.8-1.8A5.5 5.5 0 0 0 12 3.5z',
   funding:
     'M3.5 7h17v10h-17zM12 9.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM6.5 10v4M17.5 10v4',
-} as const satisfies Record<
-  Topic | Offer | 'mail' | 'copy' | 'check' | 'external',
-  string
->;
+} as const satisfies Record<Topic | Offer | 'mail' | 'copy' | 'check', string>;
 
 export type ContactIconName = keyof typeof CONTACT_ICON_PATHS;

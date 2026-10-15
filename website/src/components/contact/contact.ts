@@ -11,13 +11,12 @@
  *   form's box in each place (contact.css), once, and this stops listening. Events a script
  *   dispatches are no person. A press of a copy button copies the address whatever stands.
  * - Email us is a link whose `mailto:` this sets only when a visitor reaches for it (a pointer over
- *   it or down on it, a touch, or focus), so the page as loaded holds no `mailto:` link. Gmail and
- *   Outlook, under it and under Open draft, are set the same way, from the draft as it stands
- *   (contact-draft.ts `webmailUrl`), and open in a new tab. The copy buttons confirm in place: a
- *   check, and "Copied", for a moment, at their own size.
+ *   it or down on it, a touch, or focus), so the page as loaded holds no `mailto:` link. The copy
+ *   glyphs (the address's, the letter's) confirm in place: a check, and "Copied", for a moment, at
+ *   their own size.
  * - A `mailto:` click (Email us, Open draft) with the page still in front 1.5 s on, neither blurred
- *   nor hidden, opened no email app (a computer whose mail is webmail): a hint next to the control
- *   says what still works. Its line is taken at the click, unseen, so showing it moves nothing.
+ *   nor hidden, opened no email app: a hint next to the control says to copy the address or the
+ *   letter. Its line is taken at the click, unseen, so showing it moves nothing.
  * - State is a purpose and a set of offers. The pre-paint script has already drawn the
  *   `?topic=…&offer=…` preselect; this takes over from the same `parseQuery`. The composer's
  *   `data-topic` and `data-offers` drive what the letter shows (contact.css), and a choice keeps
@@ -53,9 +52,7 @@ import {
   parseQuery,
   subjectSuffix,
   toQuery,
-  webmailUrl,
   type Offer,
-  type Webmail,
 } from '../../lib/contact-draft';
 import { TOPIC_INPUT } from './contact-paint';
 import { letterTyping } from './letter-typing';
@@ -67,7 +64,7 @@ const CONFIRM_MS = 2000;
 /** How long after a `mailto:` click a page still in front means no email app opened. */
 const NOTHING_MS = 1500;
 
-const NOTHING = 'Nothing opened? Use Gmail or Outlook, or copy the ';
+const NOTHING = 'Nothing opened? Copy the ';
 const BLOCKED_ADDRESS =
   'Copying is blocked here. The address is selected, ready to copy.';
 const BLOCKED_LETTER = 'Press Ctrl+C or Cmd+C to copy.';
@@ -80,7 +77,7 @@ const SIGNS = [
   'wheel',
   'focusin',
 ];
-/** A visitor reaching for a link; a click with none of those (a script, an assistive tool) too. */
+/** A visitor reaching for Email us; a click with none of those (a script, an assistive tool) too. */
 const REACH = ['pointerover', 'pointerdown', 'touchstart', 'focus', 'click'];
 
 export function initContact(root: HTMLElement): void {
@@ -231,27 +228,18 @@ export function initContact(root: HTMLElement): void {
     signal.addEventListener('abort', () => clearTimeout(timer));
   };
 
-  // Each link set when a visitor reaches for it, never before.
-  const reach = (link: HTMLAnchorElement | null, href: () => string) => {
+  // Email us: the address's mailto:, a blank email, set when a visitor reaches for it.
+  if (emailUs) {
     for (const type of REACH)
-      link?.addEventListener(type, () => (link.href = href()), {
-        passive: true,
-      });
-  };
-  // Email us: the address's mailto:, a blank email.
-  reach(emailUs, () => mailtoUrl(address));
-  emailUs?.addEventListener('click', () =>
-    watch(hints.address, `${NOTHING}address.`),
-  );
-  // Gmail and Outlook: under Email us a blank email, under Open draft the draft as it stands.
-  for (const link of page.querySelectorAll<HTMLAnchorElement>('[data-webmail]'))
-    reach(link, () =>
-      webmailUrl(
-        link.dataset.webmail as Webmail,
-        address,
-        root.contains(link) ? buildDraft(state()) : undefined,
-      ),
+      emailUs.addEventListener(
+        type,
+        () => (emailUs.href = mailtoUrl(address)),
+        { passive: true },
+      );
+    emailUs.addEventListener('click', () =>
+      watch(hints.address, `${NOTHING}address.`),
     );
+  }
 
   // A copy button reads "Copied" for a moment, at its own size (contact.css).
   const confirms = new WeakMap<HTMLElement, number>();

@@ -2,8 +2,7 @@
  * Contact (Contact page spec §4, #454). Owned by the Contact page; loaded after the shared CSS.
  *
  *   .contact-direct    under the intro, first on every screen: Email us (the Atlas pill's look at
- *                      call-to-action size) and the address in view, with its copy button; under
- *                      them, quietly, Gmail and Outlook (.contact-alt), as under Open draft
+ *                      call-to-action size) and the address in view, with its copy button
  *   .contact-templates the template section, a band of its own: the steps (1 what it's about,
  *                      2 what you'd offer, 3 send it) left, the letter right; on a phone the steps,
  *                      then the letter; the problem link last
@@ -141,8 +140,7 @@
   grid-area: 1 / 1;
 }
 
-/* Beside Email us (under it on a phone): the address with its copy button, then Gmail and Outlook,
-   so the row stays about the pill's height. */
+/* Beside Email us (under it on a phone): the address with its copy button. */
 .contact-direct__aside {
   display: grid;
   justify-items: start;
@@ -227,37 +225,6 @@
 .contact-copy[data-confirmed] .contact-copy__done {
   visibility: visible;
   color: var(--color-ion);
-}
-
-/* Gmail and Outlook, quietly, under the address and under Open draft. */
-.contact-alt {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 0.9rem;
-  line-height: 1.5;
-}
-
-/* In the body text's colour, not the link ion, so the top stays calm: Email us and the address
-   lead. */
-.contact-alt__link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  color: var(--color-text-soft);
-  font-weight: 620;
-}
-
-.contact-alt__icon {
-  flex: none;
-  width: 0.95em;
-  height: 0.95em;
-}
-
-@media (width <= 60rem) {
-  /* 44 px targets on touch screens, as the problem link's. */
-  .contact-alt__link {
-    min-height: 2.75rem;
-  }
 }
 
 /* Guidance on how to carry on, under the control it follows, only when there is some. After a
@@ -677,7 +644,7 @@
   translate: 0.15rem 0;
 }
 
-[data-step='send'] :is(.contact-alt, .contact-hint) {
+[data-step='send'] .contact-hint {
   margin-top: 0.6rem;
 }
 
@@ -1113,7 +1080,6 @@
 
   .contact-email,
   .contact-copy,
-  .contact-alt,
   .letter-copy,
   .contact-hint,
   .contact-templates__title,

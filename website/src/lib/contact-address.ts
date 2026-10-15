@@ -6,8 +6,8 @@
  * It is stored as two runs of character codes, the part before the @ and the domain, each
  * reversed and shifted by a key. A minifier cannot fold them back into a string, and they are
  * joined only in the browser, by the island (contact.ts): the page shows the address spelled out
- * until the first sign of a person (owner, 2026-10-15), and builds each `mailto:` and webmail link
- * from it when a visitor reaches for one. A harvester that runs JavaScript and acts like a person
+ * until the first sign of a person (owner, 2026-10-15), and builds each `mailto:` from it when a
+ * visitor reaches for one. A harvester that runs JavaScript and acts like a person
  * can still read it; the mailbox's own spam filtering is the backstop (Contact page spec §2).
  */
 
