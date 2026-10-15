@@ -94,9 +94,11 @@ describe('page manifests', () => {
 
   it('budgets Projects by what shows before a section opens (rulings 40 and 42)', () => {
     const projects = pageManifests.find((entry) => entry.name === 'projects')!;
+    // Each section its copy deck plus 3: the slim index (44) and the overview with its still's
+    // caption (76) since the design critique of the integrated build.
     expect(projects.sections).toEqual({
-      '#projects': 62,
-      '.atlas-ov': 75,
+      '#projects': 47,
+      '.atlas-ov': 79,
       '.acc-list': 61,
     });
     // A closed section loads nothing: its figures' modules and data wait for it to open.
