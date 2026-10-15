@@ -18,8 +18,12 @@
  *   compact  a square globe
  *
  * Controls: one Measured · Modeled toggle, and the kit's Pause glyph for the rotation (WCAG 2.2.2:
- * it moves for more than 5 s; ruling 22), shown only while the globe can turn. Its markup is the
- * kit's SceneControls with the preview's own hook (`data-spin-toggle`), which motion.spec reads.
+ * it moves for more than 5 s; ruling 22), shown only while the globe can turn, in the toggle's row
+ * right after it (design critique 3). Its markup is the kit's SceneControls with the preview's own
+ * hook (`data-spin-toggle`), which motion.spec reads.
+ *
+ * Order (design critique 3): the globe, its key, then the note and the Atlas pill, then the
+ * provenance and the table, so the call to action never stands between the globe and its key.
  */
 import Figure from '../kit/Figure.astro';
 import Glyph from '../kit/Glyph.astro';
@@ -155,6 +159,7 @@ const revision = provenance.hf_revision.slice(0, 7);
   label="A preview of the genomeOS Atlas: the sickle-cell variant HbS on a globe, measured surveys and the modeled surface"
   class="hg"
   id="atlas-preview"
+  readoutAfterLegend
   data-motion-exception="atlas-preview"
 >
   <Fragment slot="toolbar">
@@ -262,7 +267,8 @@ const revision = provenance.hf_revision.slice(0, 7);
   </ul>
 
   {
-    /* The readout's slot, under the stage: what this is, and where the real thing is (R2-14). */
+    /* The readout's slot, under the key (readoutAfterLegend): what this is, and where the real
+       thing is (R2-14). */
   }
   <div slot="readout" class="figure-note hg-note" data-figure-chrome>
     <p>A simplified preview, made from a sample of real Atlas data.</p>

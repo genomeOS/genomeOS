@@ -5,7 +5,7 @@
  *
  *   toolbar   [status tag]                                  [segmented control]
  *   stage     canvas or SVG, box reserved by `aspect`       callouts in its margins
- *   readout   one docked strip (Readout.astro)
+ *   readout   one docked strip (Readout.astro); after the legend with `readoutAfterLegend`
  *   legend    the figcaption: glyph and words, bold lead-in
  *   footnote  provenance · Open in the Atlas
  *   table     a collapsed "View as table" twin
@@ -30,6 +30,12 @@ interface Props {
   id?: string;
   class?: string;
   tableSummary?: string;
+  /**
+   * Put the readout slot under the legend instead of under the stage: for a figure whose readout
+   * is a note and a call to action, not a reading of the stage, so the key stays beside what it
+   * explains (Home's Atlas preview: globe, key, then the note and the Atlas pill).
+   */
+  readoutAfterLegend?: boolean;
   /** Hooks such as `data-motion-exception` (round 2 spec §2.3) pass through to the figure. */
   [key: `data-${string}`]: string | undefined;
 }
@@ -44,6 +50,7 @@ const {
   id,
   class: className,
   tableSummary = 'View as table',
+  readoutAfterLegend = false,
   ...data
 } = Astro.props;
 // A slot passed inside a false expression still counts as present, so each optional part is drawn
@@ -101,10 +108,11 @@ const tableName =
   >
     <slot />
   </div>
-  {readout && <Fragment set:html={readout} />}
+  {readout && !readoutAfterLegend && <Fragment set:html={readout} />}
   <figcaption class="kit-figure__legend" data-figure-chrome>
     <slot name="legend" />
   </figcaption>
+  {readout && readoutAfterLegend && <Fragment set:html={readout} />}
   {
     footnote && (
       <p class="kit-figure__footnote" data-figure-chrome>

@@ -5,7 +5,8 @@
  * with the page.
  */
 
-/* The figure: toolbar, stage, the note with the Atlas button, legend, footnote, table. */
+/* The figure: toolbar, stage, legend, the note with the Atlas button, footnote, table (design
+   critique 3: the key sits under the globe it explains, and the pill after it). */
 .hg {
   container: hg / inline-size;
   display: grid;
@@ -14,7 +15,14 @@
 
 .hg .kit-figure__toolbar {
   justify-content: flex-start;
+  column-gap: 0;
   margin-bottom: 0.75rem;
+}
+
+/* The rotation's Pause sits in the toggle's row, right after it: no gap between the boxes, so the
+   glyph, centred in its 44 px target, starts 12 px after the toggle's edge (design critique 3). */
+.hg .kit-scene-controls {
+  margin-left: 0;
 }
 
 .hg .hg-layers {
