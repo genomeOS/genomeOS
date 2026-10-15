@@ -128,7 +128,7 @@ test('a lane label lights its own lane on the transit line', async ({
   const figure = page.locator(TRANSIT);
   await figure.scrollIntoViewIfNeeded();
   for (const lane of ['data', 'modeling', 'ui']) {
-    const hit = figure.locator(`svg:visible [data-lane-hit="${lane}"]`).first();
+    const hit = figure.locator(`[data-lane-button="${lane}"]:visible`).first();
     if (isMobile) await hit.tap();
     else await hit.hover();
     await expect(figure).toHaveAttribute('data-active', lane);
@@ -150,12 +150,67 @@ test('a lane label lights its own lane on the transit line', async ({
   }
   if (isMobile) {
     // A second tap on the pinned lane lets it go.
-    await figure.locator('svg:visible [data-lane-hit="ui"]').first().tap();
+    await figure.locator('[data-lane-button="ui"]:visible').first().tap();
     await expect(figure).not.toHaveAttribute('data-active');
   } else {
     await page.mouse.move(2, 2);
     await expect(figure).not.toHaveAttribute('data-active');
   }
+});
+
+test('the lanes light from the keyboard too: focus shows one, Enter pins it', async ({
+  page,
+}) => {
+  // Spec §4.3.3 "hover, focus, tap" (review of T4, finding 3): each lane label is a real button
+  // over the drawing, in the tab order right after the orbit's links.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/contribute/');
+  const figure = page.locator(TRANSIT);
+  const lane = (name: string) => page.getByRole('button', { name });
+  await page
+    .locator('#group-ui')
+    .getByRole('link', { name: 'Browse matching issues' })
+    .focus();
+  await page.keyboard.press('Tab');
+  await expect(lane('Data & Infrastructure')).toBeFocused();
+  await expect(figure).toHaveAttribute('data-active', 'data');
+  await expect(lane('Data & Infrastructure')).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  await page.keyboard.press('Enter');
+  await expect(lane('Data & Infrastructure')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await page.keyboard.press('Tab');
+  await expect(lane('Statistical & AI Modeling')).toBeFocused();
+  await expect(figure).toHaveAttribute('data-active', 'modeling');
+  await page.keyboard.press('Tab');
+  await expect(lane('UI & Applications')).toBeFocused();
+  await expect(figure).toHaveAttribute('data-active', 'ui');
+  // Leaving the lanes, the pinned one stays lit; Space on it lets it go.
+  await page.keyboard.press('Tab');
+  await expect(figure).toHaveAttribute('data-active', 'data');
+  await lane('Data & Infrastructure').focus();
+  await page.keyboard.press('Space');
+  await expect(lane('Data & Infrastructure')).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  await expect(figure).not.toHaveAttribute('data-active');
+  // The lanes are one labelled group, and no tab stop sits inside the drawing.
+  await expect(
+    page.getByRole('group', { name: 'Light a group’s lane on the line' }),
+  ).toBeVisible();
+  expect(
+    await figure.evaluate(
+      (element) =>
+        element.querySelectorAll(
+          'svg a, svg [tabindex], svg button, svg [focusable="true"]',
+        ).length,
+    ),
+  ).toBe(0);
 });
 
 test('both tokens reach the map: the hex joins the stud, never replaces it', async ({

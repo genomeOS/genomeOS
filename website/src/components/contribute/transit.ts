@@ -5,10 +5,11 @@
  *   stud riding its head; the teal hex joins at the model step and follows; both rest on the map's
  *   stretch. Stations light as the line reaches them. Then nothing runs. (It no longer opens the
  *   page, so it needs no pre-paint arming: FigureController arms it below the fold.)
- * - Hovering or tapping a lane's label lights that group's lane: its band tints, its stations and
- *   its own stretches of the line stay at full strength, and the other lanes' art drops to 32%. A
- *   tap pins the lane until the same label, or another, is tapped. Text only changes colour,
- *   never below 4.5:1. The figure's description names every lane's stations for assistive tech.
+ * - Hovering, tapping or focusing a lane's label (a button laid over it, TransitLine.astro) lights
+ *   that group's lane: its band tints, its stations and its own stretches of the line stay at full
+ *   strength, and the other lanes' art drops to 32%. A press (tap, click, Enter or Space) pins the
+ *   lane, pressed, until the same label or another is pressed. Text only changes colour, never
+ *   below 4.5:1. The figure's description names every lane's stations for assistive tech.
  *
  * The server markup is the final state of everything; FigureController arms and rests it.
  */
@@ -109,23 +110,40 @@ function initTransit(figure: HTMLElement): void {
   initLanes(figure);
 }
 
-/** Each lane's label lights its lane: hover for pointers, a tap pins it (and a second tap lets go). */
+/**
+ * Each lane's label lights its lane: hover for pointers and keyboard focus show it while they last;
+ * a press pins it (and a second press lets go). The buttons say which lane is pinned (aria-pressed).
+ */
 function initLanes(figure: HTMLElement): void {
   let pinned: Lane | null = null;
+  const buttons = [
+    ...figure.querySelectorAll<HTMLButtonElement>('[data-lane-button]'),
+  ];
   const show = (lane: Lane | null) => {
     if (lane) figure.dataset.active = lane;
     else delete figure.dataset.active;
   };
-  for (const hit of figure.querySelectorAll<SVGElement>('[data-lane-hit]')) {
-    const lane = hit.dataset.laneHit as Lane;
-    hit.addEventListener('pointerenter', (event) => {
+  /** The lane whose button has keyboard focus, if any. */
+  const focused = () =>
+    (buttons.find((button) => button === document.activeElement)?.dataset
+      .laneButton as Lane | undefined) ?? null;
+  for (const button of buttons) {
+    const lane = button.dataset.laneButton as Lane;
+    button.addEventListener('pointerenter', (event) => {
       if (event.pointerType !== 'touch') show(lane);
     });
-    hit.addEventListener('pointerleave', (event) => {
-      if (event.pointerType !== 'touch') show(pinned);
+    button.addEventListener('pointerleave', (event) => {
+      if (event.pointerType !== 'touch') show(focused() ?? pinned);
     });
-    hit.addEventListener('click', () => {
+    button.addEventListener('focus', () => show(lane));
+    button.addEventListener('blur', () => show(pinned));
+    button.addEventListener('click', () => {
       pinned = pinned === lane ? null : lane;
+      for (const other of buttons)
+        other.setAttribute(
+          'aria-pressed',
+          String(other.dataset.laneButton === pinned),
+        );
       show(pinned);
     });
   }

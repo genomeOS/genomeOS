@@ -416,27 +416,55 @@
   container: wg-transit / inline-size;
 }
 
+.wg-transit__layout {
+  position: relative;
+  margin-inline: auto;
+}
+
 .wg-transit__svg {
   display: block;
   width: 100%;
   height: auto;
-  margin-inline: auto;
   overflow: visible;
   font-family: var(--font-body);
 }
 
-.wg-transit__svg--h {
+.wg-transit__layout--h {
   display: none;
 }
 
 @container wg-transit (min-width: 870px) {
-  .wg-transit__svg--h {
+  .wg-transit__layout--h {
     display: block;
   }
 
-  .wg-transit__svg--v {
+  .wg-transit__layout--v {
     display: none;
   }
+}
+
+/* Each lane label's button (TransitLine.astro), laid over the label it names: no look of its own,
+   the lane lighting is its feedback; the site's ion ring when focused from the keyboard. The group
+   holding them covers the drawing without taking its pointer. */
+.wg-transit__lanes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.wg-lane-button {
+  pointer-events: auto;
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.wg-lane-button:focus-visible {
+  outline: 2px solid var(--color-ion);
+  outline-offset: 0;
 }
 
 .wg-lane__band {
@@ -461,11 +489,6 @@
   font-size: 15px;
   font-weight: 620;
   transition: fill var(--dur-ui) var(--ease-ui);
-}
-
-.wg-lane__hit {
-  fill: transparent;
-  pointer-events: all;
 }
 
 .wg-line {
