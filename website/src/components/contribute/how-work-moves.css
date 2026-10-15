@@ -94,6 +94,7 @@
 }
 
 .gh-col {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -323,14 +324,15 @@
 
 /* ---------- the floor: the storyboard, or the live scene ---------- */
 
+/* The floor's room under the cards. It paints nothing, so when the example card's pull-request
+   row opens above it in Merge nothing visible moves. */
 .gh-stage {
-  position: relative;
   flex: 1;
   min-height: var(--gh-floor-h);
 }
 
-/* The floor line in each column (the floor's figures stand on it). */
-.gh-stage::after {
+/* The floor line in each column (the floor's figures stand on it), kept at the column's foot. */
+.gh-col::after {
   position: absolute;
   right: 10px;
   bottom: 21px;
@@ -584,7 +586,7 @@
     border-color: CanvasText;
   }
 
-  .gh-stage::after {
+  .gh-col::after {
     background: CanvasText;
   }
 }

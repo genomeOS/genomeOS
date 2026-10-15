@@ -480,6 +480,40 @@ test.describe('the example card @desktop-chromium', () => {
     expect(await tail('[data-example="home"]')).toBeGreaterThan(30);
   });
 
+  test('opens its pull-request row without shifting anything on the board', async ({
+    page,
+  }) => {
+    await openBoard(page);
+    await seek(page, 18000);
+    await page.evaluate((selector) => {
+      const board = document.querySelector(selector)!;
+      const w = window as unknown as { boardShift: number };
+      w.boardShift = 0;
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries() as unknown as {
+          value: number;
+          sources: { node?: Node }[];
+        }[])
+          if (entry.sources.some((source) => board.contains(source.node!)))
+            w.boardShift += entry.value;
+      }).observe({ type: 'layout-shift' });
+    }, BOARD);
+    // The card arrives in In review and its row opens (about 18.6–19.1 s), frame by frame.
+    for (let t = 18400; t <= 19400; t += 40) {
+      await seek(page, t);
+      await page.evaluate(
+        () =>
+          new Promise((done) =>
+            requestAnimationFrame(() => requestAnimationFrame(done)),
+          ),
+      );
+    }
+    const shift = await page.evaluate(
+      () => (window as unknown as { boardShift: number }).boardShift,
+    );
+    expect(shift).toBeLessThan(0.0001);
+  });
+
   test('says each column’s count once to assistive tech', async ({ page }) => {
     await openBoard(page);
     await seek(page, 13620);
