@@ -310,6 +310,9 @@
 
 .orbit-col__what,
 .orbit-col__who {
+  /* About 65 characters a line where the columns stack under a wide plate (a 900 px window: ~105
+     without it). In em, not ch, so the measure holds while the web font swaps in (ruling 34). */
+  max-inline-size: 34em;
   margin: 0;
   text-wrap: pretty;
 }
