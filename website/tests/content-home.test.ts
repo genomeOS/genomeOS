@@ -12,7 +12,7 @@ const home = builtHtml('');
 describe('home page content', () => {
   it('leads with the higher-order mission and concrete applications', () => {
     expect(home).toContain(
-      'Make the world’s genetic diversity legible and useful',
+      'Data, models and tools built in the open, with anyone, for everyone.',
     );
     expect(home).toMatch(
       /Potential applications[\s\S]*Screening programmes[\s\S]*Diagnostic context[\s\S]*Trial planning[\s\S]*The map of what we don’t know[\s\S]*Medicines and drug response[\s\S]*Research and discovery/,

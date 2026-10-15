@@ -91,7 +91,9 @@ function section(pattern: RegExp): string {
 
 describe('homepage contract', () => {
   it('leads with the public-good mission and current evidence scale', () => {
-    expect(html).toMatch(/<h1[^>]*>Explore genomes across the world\.<\/h1>/);
+    expect(html).toMatch(
+      /<h1[^>]*>Open science for the benefit of all\.<\/h1>/,
+    );
     expect(html).toMatch(/open source/i);
     expect(html).toMatch(/global community/i);
     expect(html).toMatch(/public good/i);
