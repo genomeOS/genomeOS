@@ -1,0 +1,188 @@
+---
+/**
+ * Why it matters: the people figure (round 2 spec §4.1.3, §3.3, §6.1; R2-11; #454). Of every 100
+ * participants in genome-wide studies up to July 2021, 86 had European ancestry, 13 another
+ * ancestry or none recorded, and 1 African ancestry (the GWAS Catalog of 8 July 2021, in Fatumo et
+ * al., Nature Medicine, 2022; pinned in data/figures/gwas-ancestry.provenance.json).
+ *
+ * One closed-visor micro astronaut per participant (src/graphics/astro/micro.ts): no face, so
+ * ancestry is never drawn as skin colour, and no map, because where people were sampled is not
+ * where their ancestors lived (round 1 §6.1 rule 11). The suit tone carries the group: 86 in the
+ * tested grey, 13 in muted, and the one African-ancestry person last, in starlight, inside a square
+ * ring whose leader drops to the note.
+ *
+ *   wide    (figure ≥ 33rem, a container query) 20 × 5 on a 34 × 42 pitch, glyphs 24 × 30
+ *   narrow  10 × 10, the same pitch, at most 24rem wide (the people's size at 1440 px)
+ *
+ * Both layouts are server-rendered at rest; the 13 and the 1 sit over a tested-grey copy of
+ * themselves, which people.ts uses to settle them into their tones during the entrance. Labels are
+ * HTML. The stage is an image named in full; key, note and footnote are real text.
+ *
+ * Each person is placed by a `<g transform="translate(x y)">` and drawn at that group's origin.
+ * The entrance scales each glyph round its own centre (`transform-box: fill-box`), and Chromium
+ * takes a `<use>`'s fill box without its x/y, so a glyph placed by x/y would grow from the
+ * figure's top-left corner instead of in place.
+ */
+import Figure from '../kit/Figure.astro';
+import provenance from '../../data/figures/gwas-ancestry.provenance.json';
+import { microId, microSymbols } from '../../graphics/astro/micro';
+import { PEOPLE_TOTAL, ancestryCounts } from './people';
+
+const counts = ancestryCounts(provenance);
+type Group = keyof typeof counts;
+
+/** One entry per person, in reading order: European ancestry, all others, then African. */
+const people: Group[] = [
+  ...Array<Group>(counts.european).fill('european'),
+  ...Array<Group>(counts.other).fill('other'),
+  ...Array<Group>(counts.african).fill('african'),
+];
+if (people.length !== PEOPLE_TOTAL)
+  throw new Error(`The people figure draws ${people.length} people, not 100.`);
+
+const STATE = {
+  european: 'tested',
+  other: 'other',
+  african: 'carrier',
+} as const;
+const PITCH = { x: 34, y: 42 };
+const GLYPH = { w: 24, h: 30 };
+const RING = 4;
+const LEADER = 24;
+
+const layouts = (['wide', 'narrow'] as const).map((name) => {
+  const columns = name === 'wide' ? 20 : 10;
+  const rows = PEOPLE_TOTAL / columns;
+  const width = (columns - 1) * PITCH.x + GLYPH.w + RING + 2;
+  const ringBottom = (rows - 1) * PITCH.y + GLYPH.h + RING;
+  const height = ringBottom + LEADER;
+  const placed = people.map((group, index) => ({
+    group,
+    c: index % columns,
+    r: Math.floor(index / columns),
+    x: (index % columns) * PITCH.x,
+    y: Math.floor(index / columns) * PITCH.y,
+  }));
+  const last = placed[placed.length - 1];
+  return {
+    name,
+    viewBox: `0 0 ${width} ${height}`,
+    width,
+    height,
+    placed,
+    ring: {
+      x: last.x - RING,
+      y: last.y - RING,
+      w: GLYPH.w + 2 * RING,
+      h: GLYPH.h + 2 * RING,
+    },
+    leaderX: last.x + GLYPH.w / 2,
+    ringBottom,
+  };
+});
+
+const key: { group: Group; label: string }[] = [
+  { group: 'european', label: 'European ancestry' },
+  { group: 'other', label: 'All other ancestries, or not recorded' },
+  { group: 'african', label: 'African ancestry' },
+];
+const label = `Of every ${PEOPLE_TOTAL} participants in genome-wide studies up to July 2021, ${counts.european} had European ancestry, ${counts.african} had African ancestry, and ${counts.other} had another ancestry or none recorded. A person in several studies is counted in each.`;
+---
+
+<Figure graphic="people" label={label} class="people">
+  <p slot="toolbar" class="people__title">{provenance.claim}</p>
+
+  <svg
+    class="people__defs"
+    width="0"
+    height="0"
+    aria-hidden="true"
+    focusable="false"
+    style="position:absolute;width:0;height:0;overflow:hidden"
+  >
+    <defs set:html={microSymbols('closed')} />
+  </svg>
+  {
+    layouts.map((layout) => (
+      <svg
+        class="people__svg"
+        data-layout={layout.name}
+        viewBox={layout.viewBox}
+        width={layout.width}
+        height={layout.height}
+        aria-hidden="true"
+        focusable="false"
+      >
+        {layout.placed.map((person) => (
+          <g transform={`translate(${person.x} ${person.y})`}>
+            <use
+              class="people__p"
+              href={`#${microId('tested')}`}
+              width={GLYPH.w}
+              height={GLYPH.h}
+              data-c={person.c}
+              data-r={person.r}
+              data-person={person.group === 'european' ? 'european' : undefined}
+            />
+            {person.group !== 'european' && (
+              <use
+                class="people__tone"
+                href={`#${microId(STATE[person.group])}`}
+                width={GLYPH.w}
+                height={GLYPH.h}
+                data-person={person.group}
+              />
+            )}
+          </g>
+        ))}
+        <rect
+          class="people__ring"
+          x={layout.ring.x}
+          y={layout.ring.y}
+          width={layout.ring.w}
+          height={layout.ring.h}
+        />
+        <line
+          class="people__leader"
+          x1={layout.leaderX}
+          x2={layout.leaderX}
+          y1={layout.ringBottom}
+          y2={layout.height}
+        />
+      </svg>
+    ))
+  }
+
+  <p slot="readout" class="people__note" data-figure-chrome>
+    People of African ancestry carry the most human genetic diversity.
+  </p>
+
+  <Fragment slot="legend">
+    <ul class="people__key">
+      {
+        key.map(({ group, label: text }) => (
+          <li>
+            <svg
+              class="people__glyph"
+              viewBox="0 0 16 20"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <use href={`#${microId(STATE[group])}`} />
+            </svg>
+            <b>{counts[group]}</b>
+            <span>{text}</span>
+          </li>
+        ))
+      }
+    </ul>
+  </Fragment>
+
+  <Fragment slot="footnote">
+    Source: GWAS Catalog, July 2021, in <a
+      href={provenance.source.url}
+      target="_blank"
+      rel="noopener noreferrer">{provenance.source.short}</a
+    >. A person in several studies is counted in each.
+  </Fragment>
+</Figure>

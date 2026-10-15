@@ -1,0 +1,48 @@
+{
+  "figure": "people",
+  "claim": "Of every 100 participants in genome-wide studies, up to 2021",
+  "source": {
+    "citation": "Fatumo S, Chikowore T, Choudhury A, Ayub M, Martin AR, Kuchenbaecker K. A roadmap to increase diversity in genomic studies. Nature Medicine 28(2):243–250 (2022).",
+    "short": "Fatumo et al., Nature Medicine, 2022",
+    "journal": "Nature Medicine",
+    "year": 2022,
+    "doi": "10.1038/s41591-021-01672-4",
+    "url": "https://doi.org/10.1038/s41591-021-01672-4",
+    "pmcid": "PMC7614889",
+    "catalog": "NHGRI-EBI GWAS Catalog",
+    "catalog_date": "2021-07-08",
+    "locators": {
+      "shares": "Main text, section 1.0: European descent 86.3%, followed by East Asian 5.9%, African 1.1%, South Asian 0.8% and Hispanic/Latino 0.08%; studies with multiple ancestries 4.8%.",
+      "catalog_date": "Figure 1 legend: the proportion of samples from individuals cumulatively reported by the GWAS Catalog as of July 8, 2021.",
+      "diversity": "Main text: African populations have the most genetic diversity, followed by South Asians."
+    }
+  },
+  "unit": "participants (samples from individuals) reported by the GWAS Catalog, counted once per study and not deduplicated",
+  "shares_percent": {
+    "european": 86.3,
+    "east_asian": 5.9,
+    "african": 1.1,
+    "south_asian": 0.8,
+    "hispanic_latino": 0.08,
+    "multiple": 4.8
+  },
+  "remainder": "Other or not reported: what the listed shares leave of 100% (1.02%).",
+  "groups": {
+    "european": ["european"],
+    "african": ["african"],
+    "other": [
+      "east_asian",
+      "south_asian",
+      "hispanic_latino",
+      "multiple",
+      "remainder"
+    ]
+  },
+  "rounding": "Largest remainder over the three drawn groups (European ancestry, African ancestry, and all other ancestries or not recorded) to whole people out of 100.",
+  "drawn": {
+    "european": 86,
+    "african": 1,
+    "other": 13
+  },
+  "verified": "2026-10-14: shares, date and diversity sentence checked against the author manuscript (LSHTM repository) and the PMC copy (PMC7614889); citation metadata from the PMC record."
+}

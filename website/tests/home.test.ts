@@ -1,61 +1,22 @@
 /**
- * The Home page contract (site redesign spec §4.1, §9.1; round 2 rulings R2-1, R2-2, R2-14; #454),
- * read from the built page, plus the pure logic of its counts table. The hero film and the Atlas
- * preview have their own file, home-hero.test.ts (round 2 plan T0 step 3).
+ * The Home page contract (round 2 spec §4.1, §7, §11.1; R2-3, R2-14; #454), read from the built
+ * page: the order of its concepts, one figure each, what left Home for Projects, how its figures
+ * load (none of them is first-load JS), and the chrome every page shares. The hero film and the
+ * Atlas preview have their own file, home-hero.test.ts; the copy is in content-home.test.ts.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import {
-  COUNT_STOPS,
-  GRID,
-  TESTED_FILL,
-  buildCountsTable,
-} from '../src/components/project/counts';
-import { jeffreys } from '../src/graphics/jeffreys';
+import { dist } from './helpers/dist';
 
-const homepage = path.resolve(import.meta.dirname, '../dist/index.html');
+const homepage = path.join(dist, 'index.html');
 const html = existsSync(homepage) ? readFileSync(homepage, 'utf8') : '';
 const visibleText = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 const main = html.slice(html.indexOf('<main'), html.indexOf('</main>'));
-const tokens = readFileSync(
-  path.resolve(import.meta.dirname, '../src/styles/tokens.css'),
-  'utf8',
-);
 
-/** A colour token's hex value from tokens.css. */
-const token = (name: string) =>
-  tokens.match(new RegExp(`${name}:\\s*(#[0-9a-f]{6})`, 'i'))![1];
-
-/** WCAG 2 contrast ratio of two hex colours. */
-function contrast(a: string, b: string): number {
-  const luminance = (hex: string) => {
-    const [r, g, bl] = hex
-      .slice(1)
-      .match(/../g)!
-      .map((pair) => {
-        const c = parseInt(pair, 16) / 255;
-        return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-      });
-    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
-  };
-  const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (high + 0.05) / (low + 0.05);
-}
-
-/** The first mark inside a grid's `<pattern id="…{suffix}">`. */
-const pattern = (svg: string, suffix: string) =>
-  svg
-    .match(
-      new RegExp(
-        `<pattern\\b[^>]*id="[^"]*${suffix}"[^>]*>([\\s\\S]*?)</pattern>`,
-      ),
-    )?.[1]
-    .trim() ?? '';
-
-/** The opening tag and contents of the element whose opening tag matches `open`. */
+/** The markup of the section whose opening tag matches `pattern`, up to its close. */
 function section(pattern: RegExp): string {
   const start = main.search(pattern);
   if (start === -1) return '';
@@ -63,113 +24,249 @@ function section(pattern: RegExp): string {
   return main.slice(start, end);
 }
 
-describe('homepage contract', () => {
-  it('leads with the public-good mission and current evidence scale', () => {
-    expect(html).toMatch(
-      /<h1[^>]*>Open science for the benefit of all\.<\/h1>/,
-    );
-    expect(html).toMatch(/open source/i);
-    expect(html).toMatch(/global community/i);
-    expect(html).toMatch(/public good/i);
-    expect(html).toMatch(/4,392[\s\S]*6\.69M[\s\S]*disease/);
-    expect(html).toContain(
-      'Location matters because a genetic variant can be common',
-    );
-    expect(html).not.toContain(
-      'Place matters because a genetic variant can be common',
-    );
-  });
-
-  it('introduces the mission before explaining the delivery process', () => {
-    expect(visibleText).toMatch(
-      /Why genomeOS[\s\S]*How genomeOS works[\s\S]*Aggregate the evidence[\s\S]*Model what the evidence supports[\s\S]*Open it to the world[\s\S]*Potential applications[\s\S]*Built in the open/,
-    );
-  });
-
-  // Design review, round 2: the teaser's zoom squares sat on each frame's right edge over 40 px
-  // icons, so its wedges read as connectors. It now draws Project's ladder frames at teaser scale:
-  // the same art, zoom boxes on the content they magnify, and the same wedge geometry.
-  it('draws the vision teaser with the Project ladder’s frame art and zoom boxes', () => {
-    const vision = section(/<section\b[^>]*\bid="vision"/);
-    const project = readFileSync(
-      path.resolve(import.meta.dirname, '../dist/projects/index.html'),
-      'utf8',
-    );
-    const ladder = project.match(
-      /<figure\b[^>]*data-graphic="scale-ladder"[\s\S]*?<\/figure>/,
-    )![0];
-    const land = (markup: string) =>
-      new Set(
-        [...markup.matchAll(/<path class="ladder__land" d="([^"]+)"/g)].map(
-          ([, d]) => d,
-        ),
+describe('homepage structure', () => {
+  it('has four concept sections, why → how → atlas → join, each with one figure', () => {
+    const concepts = [
+      ...main.matchAll(/<section\b[^>]*\bdata-concept\b[^>]*>/g),
+    ].map((match) => match[0].match(/\bid="([^"]+)"/)?.[1] ?? '?');
+    expect(concepts).toEqual(['why', 'how', 'atlas', 'join']);
+    const parts = main.split(/<section\b[^>]*\bdata-concept\b[^>]*>/).slice(1);
+    for (const part of parts) {
+      const own = part.slice(0, part.indexOf('</section>'));
+      expect(own.match(/<figure\b[^>]*\bdata-graphic\b/g) ?? []).toHaveLength(
+        1,
       );
-    expect(land(vision).size).toBeGreaterThan(20);
-    expect(land(vision)).toEqual(land(ladder));
-    for (const svg of vision.match(/<svg\b[^>]*vs-svg[\s\S]*?<\/svg>/g)!) {
-      expect(svg.match(/class="ladder__zoom"/g)).toHaveLength(3);
-      expect(
-        svg.match(/<g class="vs-wedge [^"]*"[^>]*data-wedge="\d"/g),
-      ).toHaveLength(3);
     }
-    expect(vision).not.toContain('vs-frame__focus');
-    // Its studs and footprint look like data but hold none (spec §2.6).
-    expect(vision).toMatch(/class="kit-status-tag" data-status="schematic"/);
+    const graphics = [...main.matchAll(/<figure\b[^>]*data-graphic="([^"]+)"/g)]
+      .map(([, name]) => name)
+      .filter((name) => name !== 'hero-film');
+    expect(graphics).toEqual([
+      'people',
+      'how-it-works',
+      'atlas-preview',
+      'crew',
+    ]);
+    // The hero comes first and is not a concept: its film is decorative.
+    expect(main.indexOf('id="hero"')).toBeLessThan(main.indexOf('id="why"'));
+    expect(section(/<section\b[^>]*\bid="hero"/)).not.toContain('data-concept');
   });
 
-  // Design review, round 2: the closing field was a 650 × 290 px mass of saturated ramp hexes, a
-  // map with no data. It is small, mostly the grid's no-value footprint, and its focus is the
-  // hatched cell that a contribution fills.
-  it('keeps the closing field small and quiet, focused on the hatched cell', () => {
-    const open = section(/<section\b[^>]*\bid="open"/);
-    const svg = open.match(/<svg\b[^>]*>[\s\S]*?<\/svg>/)![0];
-    const cells = [
-      ...svg.matchAll(
-        /<path d="[^"]+" (?:fill="([^"]+)"|style="fill:([^"]+)")/g,
+  it('leaves the technical story to Projects (R2-3): no Pipeline, counts, totals or vision', () => {
+    for (const graphic of [
+      'pipeline',
+      'counts',
+      'evidence-base',
+      'applications',
+      'vision',
+      'open-field',
+      'scale-ladder',
+    ])
+      expect(main, graphic).not.toMatch(
+        new RegExp(`data-graphic="${graphic}"`),
+      );
+    expect(main).not.toContain('data-pipeline');
+    expect(main).not.toMatch(/\bid="(metrics|applications|vision|open)"/);
+    expect(visibleText).not.toContain('Counts, not guesses');
+    expect(visibleText).not.toContain('4,392');
+    expect(visibleText).not.toContain('Potential applications');
+  });
+
+  it('never says "Not yet validated" and never links the old /project/ route', () => {
+    expect(visibleText).not.toMatch(/not yet validated/i);
+    expect(main).not.toContain('data-status="not-validated"');
+    expect(html).not.toMatch(/href="\/project\/(#[^"]*)?"/);
+    expect(main).toMatch(/href="\/projects\/"/);
+  });
+
+  it('opens the Atlas from the preview’s pill, in the wordmark', () => {
+    const atlas = section(/<section\b[^>]*\bid="atlas"/);
+    const pill = atlas.match(/<a class="atlas-open" href="([^"]+)"/);
+    expect(pill?.[1]).toMatch(/^\/app\//);
+    expect(atlas).toMatch(
+      /class="atlas-open"[\s\S]*?<span class="brand-name">genomeOS<\/span>/,
+    );
+  });
+
+  it('sends the hero’s two calls to action to Contribute and down to How it works', () => {
+    const hero = section(/<section\b[^>]*\bid="hero"/);
+    const actions = [
+      ...hero.matchAll(
+        /<a class="(button-link[^"]*)" href="([^"]+)"[^>]*>([^<]+)</g,
       ),
-    ]
-      .map(([, fill, style]) => fill ?? style)
-      .filter((fill) => !fill.startsWith('url('));
-    const land = cells.filter((fill) => fill.includes('--enc-land')).length;
-    const ramp = cells.length - land;
-    expect(land / cells.length).toBeGreaterThanOrEqual(0.65);
-    expect(ramp).toBeGreaterThanOrEqual(3);
-    expect(ramp).toBeLessThanOrEqual(12);
-    expect(svg).toContain('url(#of-hatch)');
-    expect(open).toMatch(/class="kit-status-tag" data-status="schematic"/);
+    ].map(([, kind, href, label]) => ({ kind, href, label: label.trim() }));
+    expect(actions).toEqual([
+      { kind: 'button-link', href: '/contribute/', label: 'Get involved' },
+      {
+        kind: 'button-link button-link--quiet',
+        href: '#how',
+        label: 'How it works',
+      },
+    ]);
+    expect(main).toContain('id="how"');
+  });
+});
+
+describe('homepage figures', () => {
+  it('draws the people as closed-visor micro astronauts in one sprite, never skin tones', () => {
+    const why = section(/<section\b[^>]*\bid="why"/);
+    expect(why.match(/<symbol\b/g)).toHaveLength(4);
+    expect(why).not.toMatch(/micro-face-/);
+    // One <use> per person per layout (100) plus the 14 tone layers, never one drawing each.
+    expect(why.match(/<use\b[^>]*class="people__p"/g)).toHaveLength(200);
+    // Each person is placed by a group and drawn at its origin, so the entrance scales the glyph
+    // round its own centre: a <use> placed by x/y scales round the wrong point in Chromium.
+    const placed = [
+      ...why.matchAll(
+        /<g transform="translate\([\d.]+ [\d.]+\)">\s*<use\b([^>]*)class="people__p"([^>]*)>/g,
+      ),
+    ];
+    expect(placed).toHaveLength(200);
+    for (const [, before, after] of placed)
+      expect(before + after).not.toMatch(/\s(x|y)=/);
   });
 
-  it('leads into the larger vision with the scale strip, not images', () => {
-    expect(html).not.toContain('/images/vision-earth.webp');
-    expect(html).not.toContain(
-      'alt="A luminous globe showing genetic evidence',
+  it('builds the steps plate in two layouts with two lanes that never join', () => {
+    const how = section(/<section\b[^>]*\bid="how"/);
+    // Each layout's markup, up to the next (it nests the Atlas mark's own <svg>).
+    const layouts = how
+      .split(/(?=<svg\b[^>]*class="hiw-svg")/)
+      .slice(1)
+      .map((svg) => [svg, svg.match(/data-layout="(\w+)"/)![1]] as const);
+    expect(layouts.map(([, name]) => name)).toEqual(['wide', 'tall']);
+    for (const [svg, name] of layouts) {
+      for (const wire of [
+        'in0',
+        'in1',
+        'in2',
+        'to-model',
+        'measured',
+        'modeled',
+      ])
+        expect(svg, `${name} ${wire}`).toContain(`data-wire="${wire}"`);
+      // The measured lane is white, the modeled lane teal: separate paths, separate classes.
+      expect(svg).toMatch(
+        /class="hiw-wire hiw-wire--measured"[^>]*data-wire="measured"/,
+      );
+      expect(svg).toMatch(
+        /class="hiw-wire hiw-wire--modeled"[^>]*data-wire="modeled"/,
+      );
+      // The Atlas mark: hex cells (some hatched: gaps stay gaps) and six white studs on top.
+      expect(svg).toContain('atlas-mark--stage');
+      expect(svg).toMatch(/data-hatch/);
+      expect(
+        svg
+          .match(/class="atlas-mark__studs"[\s\S]*?<\/g>/)![0]
+          .match(/<circle\b/g),
+      ).toHaveLength(6);
+    }
+    // The stage is an image named by one sentence; Replay is the plate's only control.
+    expect(how).toMatch(
+      /data-figure-stage role="img" aria-label="Records from research papers, the community and partners are put into one format\./,
     );
-    expect(html).toContain('Explore the larger vision');
-    expect(html).toMatch(/href="\/projects\/#vision"/);
-    expect(html).not.toContain('/images/vision-cell.webp');
-    expect(html).not.toContain('/images/vision-bridge.webp');
+    expect(how).toMatch(/data-scene-replay hidden/);
+    expect(how.match(/<h3\b/g)).toHaveLength(3);
   });
 
-  it('does not duplicate detailed subpage content', () => {
-    expect(html).not.toContain('How work moves');
-    expect(html).not.toContain('What exists—and what comes later');
-    expect(html).not.toContain('Browse matching issues');
-    expect(html).not.toContain('Why haemoglobin S makes the mission tangible');
-    expect(html).not.toContain('Three groups are forming');
-    expect(html).not.toContain('Six rules the interface cannot hide');
-  });
-
-  it('makes the GitHub community entry points prominent', () => {
-    expect(html).toContain(
-      'https://github.com/genomeOS/genomeOS/discussions/76',
-    );
-    expect(html).toContain('https://github.com/genomeOS/genomeOS/issues');
-    expect(html).toContain('https://github.com/orgs/genomeOS/projects/1');
+  it('keeps the crew decorative, its words in a visually hidden caption', () => {
+    const join = section(/<section\b[^>]*\bid="join"/);
+    const crew = join.match(
+      /<figure\b[^>]*data-graphic="crew"[\s\S]*?<\/figure>/,
+    )![0];
+    expect(crew).toContain('data-kind="mechanism"');
+    expect(crew).toMatch(/role="img" aria-labelledby="crew-caption"/);
+    // One caption per layout, each naming only the people that layout draws; CSS hides the other.
+    const caption = crew.match(
+      /<figcaption class="visually-hidden" id="crew-caption">([\s\S]*?)<\/figcaption>/,
+    )![1];
     expect(
-      html.match(/class="[^"]*github-cta/g)?.length ?? 0,
-    ).toBeGreaterThanOrEqual(5);
+      [
+        ...caption.matchAll(
+          /<span class="crew__caption" data-layout="(\w+)">\s*([^<]+?)\s*<\/span>/g,
+        ),
+      ].map(([, layout, text]) => [layout, text]),
+    ).toEqual([
+      [
+        'wide',
+        'Four people at work: a coder, a builder, an expert thinking and a data person, with an empty spot for you.',
+      ],
+      [
+        'narrow',
+        'Three people at work: a coder, an expert thinking and a data person, with an empty spot for you.',
+      ],
+    ]);
+    for (const [layout, casts] of [
+      ['wide', ['A2', 'A6', 'E3', 'A4']],
+      ['narrow', ['A2', 'E3', 'A4']],
+    ] as const) {
+      const drawn = crew.match(
+        new RegExp(
+          `<div class="crew__layout" data-layout="${layout}">[\\s\\S]*?class="crew__newcomer"`,
+        ),
+      )![0];
+      expect(
+        [...drawn.matchAll(/class="crew__member" data-cast="(\w+)"/g)].map(
+          ([, cast]) => cast,
+        ),
+        layout,
+      ).toEqual(casts);
+    }
+    for (const svg of crew.match(/<svg\b[^>]*class="crew__svg"[^>]*>/g)!)
+      expect(svg).toContain('aria-hidden="true"');
+    expect(crew).toMatch(/<p class="crew__label" aria-hidden="true"/);
+    // The kit's astronauts: the four at work, then the newcomer who fills the spot.
+    expect(crew).toContain('data-cast="A2"');
+    expect(crew).toContain('data-cast="A6"');
+    expect(crew).toContain('data-cast="E3"');
+    expect(crew).toContain('data-cast="A4"');
+    expect(crew).toMatch(/class="crew__newcomer"[\s\S]*?data-cast="A8"/);
+    expect(crew).toContain('class="ghost"');
+    // Three cards fill the spot on hover or focus.
+    expect(join.match(/data-crew-cta/g)).toHaveLength(3);
   });
 
+  it('imports every figure’s module only as it approaches: none is first-load JS', () => {
+    const entries = [
+      ...html.matchAll(/<script type="module" src="([^"]+)"/g),
+    ].map(([, src]) => src);
+    const inline = [
+      ...html.matchAll(/<script type="module">([\s\S]*?)<\/script>/g),
+    ].map(([, code]) => code);
+    const code = [
+      ...inline,
+      ...entries.map((src) =>
+        readFileSync(path.join(dist, src.replace(/^\//, '')), 'utf8'),
+      ),
+    ].join('\n');
+    for (const chunk of ['how-it-works', 'people', 'crew', 'atlas-preview']) {
+      expect(code, chunk).toMatch(
+        new RegExp(`import\\([\`"']\\./${chunk}\\.[\\w-]+\\.js[\`"']\\)`),
+      );
+      expect(code, chunk).not.toMatch(
+        new RegExp(`from\\s*["']\\./${chunk}\\.[\\w-]+\\.js["']`),
+      );
+      expect(html, chunk).not.toMatch(
+        new RegExp(`rel="modulepreload"[^>]*${chunk}\\.`),
+      );
+    }
+  });
+
+  it('keeps repository part codes out of the raw HTML (text, ids, classes, labels)', () => {
+    expect(main).not.toMatch(/\bP[0-5]\b/);
+  });
+
+  it('never runs a word into the inline element after it', () => {
+    // copy-spacing.test checks the closing side ("</span>word"); this is the opening side, where
+    // a formatter's line break can vanish.
+    const glued = [
+      ...main.matchAll(/\p{L}<(?:abbr|a|b|em|strong|span)\b/gu),
+    ].map((match) =>
+      main.slice(Math.max(0, match.index - 30), match.index + 20),
+    );
+    expect(glued).toEqual([]);
+  });
+});
+
+describe('site chrome on Home', () => {
   it('names the header Atlas link genomeOS Atlas and describes it with its caption', () => {
     const link = html.match(/<a class="launch-atlas-cta"[^>]*>[\s\S]*?<\/a>/);
     expect(link?.[0]).toContain('href="/app/"');
@@ -181,12 +278,9 @@ describe('homepage contract', () => {
         .replace(/\s+/g, ' ')
         .trim(),
     ).toBe('genomeOS Atlas');
-    // The caption follows the link: the description only, hidden from the
-    // name and read once.
     expect(html).toMatch(
       /<\/a>\s*<span class="launch-atlas-cta__caption" id="launch-atlas-caption" aria-hidden="true">Explore the interactive app<\/span>/,
     );
-    // The Menu's copy, in the wordmark type like every visible genomeOS.
     expect(html).toMatch(
       /<li class="mobile-nav__launch"><a href="\/app\/">\s*<span class="brand-name">genomeOS<\/span> Atlas\s*<\/a><\/li>/,
     );
@@ -198,187 +292,5 @@ describe('homepage contract', () => {
     expect(html).toContain('aria-label="View genomeOS on GitHub"');
     expect(html).toContain('https://github.com/genomeOS/genomeOS');
     expect(visibleText).toMatch(/© \d{4} genomeOS/);
-    expect(html).not.toContain('Population geography is context');
-  });
-});
-
-describe('homepage figures', () => {
-  it('has seven concept sections, in the storyboard order, each with one figure', () => {
-    const concepts = [
-      ...main.matchAll(/<section\b[^>]*\bdata-concept\b[^>]*>/g),
-    ].map((match) => match[0].match(/\bid="([^"]+)"/)?.[1] ?? '?');
-    expect(concepts).toEqual([
-      'atlas',
-      'why',
-      'how',
-      'metrics',
-      'applications',
-      'vision',
-      'open',
-    ]);
-    const parts = main.split(/<section\b[^>]*\bdata-concept\b[^>]*>/).slice(1);
-    for (const part of parts) {
-      const own = part.slice(0, part.indexOf('</section>'));
-      expect(own.match(/<figure\b[^>]*\bdata-graphic\b/g) ?? []).toHaveLength(
-        1,
-      );
-    }
-  });
-
-  it('ships the counts figure its precomputed Jeffreys table, never a fitter', () => {
-    const why = section(/<section\b[^>]*\bid="why"/);
-    expect(why).toContain('>Example<');
-    expect(why).toContain('A · 61 of 412 alleles carry it');
-    expect(why).toContain('11.6–18.5%');
-    expect(why).toContain('0 of 20: up to 11.7% is still plausible.');
-    expect(why).toContain(
-      'aria-valuetext="20 alleles tested, none carry it, up to 11.7 percent"',
-    );
-    expect(why).toMatch(/class="mission-copy"[\s\S]*?<p[^>]*>Location matters/);
-    // Grids are pattern rects, never one node per allele.
-    expect((why.match(/<rect\b/g) ?? []).length).toBeLessThan(60);
-  });
-
-  it('keeps repository part codes out of the raw HTML (text, ids, classes, labels)', () => {
-    expect(main).not.toMatch(/\bP[0-5]\b/);
-  });
-
-  it('never runs a word into the inline element after it', () => {
-    // copy-spacing.test checks the closing side ("</span>word"); this is the opening side, where
-    // a formatter's line break can vanish: "Survey (AC of AN)" once rendered "ofAN".
-    const glued = [
-      ...main.matchAll(/\p{L}<(?:abbr|a|b|em|strong|span)\b/gu),
-    ].map((match) =>
-      main.slice(Math.max(0, match.index - 30), match.index + 20),
-    );
-    expect(glued).toEqual([]);
-    const atlas = section(/<section\b[^>]*\bid="atlas"/);
-    expect(atlas.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ')).toContain(
-      'Survey, sized by people tested',
-    );
-  });
-
-  it('shows each corpus total as its real value, never a count from zero', () => {
-    // A statistic never reads as zero on screen (design review, round 1): the totals are static
-    // text that sight and assistive technology read alike; only the composition bars animate.
-    const metrics = section(/<section\b[^>]*\bid="metrics"/);
-    const totals = [...metrics.matchAll(/<data\b([^>]*)>([^<]*)<\/data>/g)];
-    expect(totals.map((match) => match[2])).toEqual(['4,392', '6.69M', '2']);
-    for (const [, attributes] of totals) {
-      expect(attributes).not.toContain('aria-hidden');
-      expect(attributes).not.toContain('data-count-to');
-    }
-  });
-
-  it('draws row B’s untested alleles as faint dots, never an empty box', () => {
-    const why = section(/<section\b[^>]*\bid="why"/);
-    expect(why).not.toContain('cf-grid__room');
-    const grids = [
-      ...why.matchAll(/<svg\b[^>]*data-grid="b"[^>]*>[\s\S]*?<\/svg>/g),
-    ].map(([svg]) => svg);
-    expect(grids).toHaveLength(2);
-    for (const svg of grids) {
-      const columns = Number(svg.match(/data-columns="(\d+)"/)![1]);
-      const pitch = Number(svg.match(/data-pitch="([\d.]+)"/)![1]);
-      const ghost = svg.match(/<rect\b[^>]*data-ghost[^>]*>/)?.[0] ?? '';
-      // All 2,000 squares, as whole rows: the room the slider fills.
-      expect(Number(ghost.match(/\bwidth="([\d.]+)"/)?.[1])).toBe(
-        columns * pitch,
-      );
-      expect(Number(ghost.match(/\bheight="([\d.]+)"/)?.[1])).toBe(
-        Math.ceil(2000 / columns) * pitch,
-      );
-      // Each untested allele is a dot well inside its cell, not an outline that reads as a
-      // tested square (design review, round 2).
-      const mark = pattern(svg, '-ghost');
-      expect(mark).toMatch(/^<circle\b/);
-      expect(mark).not.toMatch(/stroke/);
-      expect(Number(mark.match(/\br="([\d.]+)"/)![1])).toBeLessThanOrEqual(
-        pitch / 8,
-      );
-    }
-  });
-
-  // Design review, round 2: tested non-carriers were --enc-land on orbit, about 1.25:1, and read
-  // as the same texture as the room for untested alleles. WCAG 1.4.11 asks 3:1 of a meaningful mark.
-  it('draws tested alleles at 3:1 or more on the band, distinct from carriers', () => {
-    const why = section(/<section\b[^>]*\bid="why"/);
-    const orbit = token('--color-orbit');
-    const starlight = token('--color-starlight');
-    expect(contrast(TESTED_FILL, orbit)).toBeGreaterThanOrEqual(3);
-    expect(contrast(TESTED_FILL, starlight)).toBeGreaterThanOrEqual(3);
-    const grids = [
-      ...why.matchAll(/<svg\b[^>]*data-grid="[ab]"[^>]*>[\s\S]*?<\/svg>/g),
-    ].map(([svg]) => svg);
-    expect(grids).toHaveLength(4);
-    for (const svg of grids) {
-      expect(pattern(svg, '-off')).toContain(`fill: ${TESTED_FILL}`);
-      expect(pattern(svg, '-off')).not.toContain('--enc-land');
-    }
-  });
-
-  it('sets one allele as a square big enough to count on a wide figure', () => {
-    // About 80 columns of 8 on a 10 pitch: single alleles read, not a barcode.
-    expect(GRID.wide).toEqual({ columns: 80, pitch: 10, size: 8 });
-    expect(GRID.narrow.size / GRID.narrow.pitch).toBeGreaterThanOrEqual(0.75);
-  });
-
-  it('colours each corpus source the same way in every tile', () => {
-    const metrics = section(/<section\b[^>]*\bid="metrics"/);
-    const marks = [
-      ...metrics.matchAll(
-        /<(?:span|i)\b[^>]*class="eb-(?:bar__segment|swatch)"[^>]*>/g,
-      ),
-    ].map(([tag]) => ({
-      source: tag.match(/data-source="([^"]+)"/)?.[1],
-      tone: tag.match(/data-tone="([^"]+)"/)?.[1],
-    }));
-    // Two bars and their two keys: 2 + 3 segments, 2 + 3 swatches.
-    expect(marks).toHaveLength(10);
-    const tones = new Map<string, Set<string>>();
-    for (const { source, tone } of marks) {
-      expect(source).toBeDefined();
-      expect(tone).toBeDefined();
-      tones.set(source!, (tones.get(source!) ?? new Set()).add(tone!));
-    }
-    expect([...tones.keys()].sort()).toEqual(['afnd', 'g6pd', 'hbs']);
-    for (const set of tones.values()) expect(set.size).toBe(1);
-    // AFND and HbS appear in both tiles; G6PD only among people.
-    expect(new Set([...tones.values()].map((set) => [...set][0])).size).toBe(3);
-  });
-});
-
-describe('counts figure table', () => {
-  const table = buildCountsTable(jeffreys);
-
-  it('matches the spec’s Jeffreys values at every stop', () => {
-    expect(COUNT_STOPS).toEqual([20, 50, 100, 200, 500, 1000, 2000]);
-    expect(table.stops.map((stop) => stop.upper)).toEqual([
-      '11.7%',
-      '4.9%',
-      '2.5%',
-      '1.2%',
-      '0.50%',
-      '0.25%',
-      '0.13%',
-    ]);
-    expect(table.stops[0].output).toBe(
-      '0 of 20: up to 11.7% is still plausible.',
-    );
-    expect(table.stops[6].output).toBe(
-      '0 of 2,000: up to 0.13% is still plausible.',
-    );
-    expect(table.stops[0].valuetext).toBe(
-      '20 alleles tested, none carry it, up to 11.7 percent',
-    );
-    expect(table.a.range).toBe('11.6–18.5%');
-    expect(table.a.mean).toBeCloseTo(0.1489, 4);
-  });
-
-  it('never lets an interval collapse to absence', () => {
-    for (const stop of table.stops) {
-      expect(stop.hi).toBeGreaterThan(0);
-      expect(stop.lo).toBe(0);
-    }
   });
 });

@@ -1,18 +1,743 @@
 /**
- * Home page browser checks (site redesign spec §4.1, §9.1; round 2 rulings R2-1, R2-2, R2-12,
- * R2-14; #454). Owned by the Home task. The cross-page suites (word-budget, figures, motion) check
- * the contracts every page shares; these check what is Home's own: the counts slider, the corpus
- * numerals and the application cards. The hero film and the Atlas preview have their own file,
- * marketing-home-hero.spec.ts (round 2 plan T0 step 3).
+ * Home page browser checks (round 2 spec §4.1, §11.2; R2-3, R2-7, rulings item 25; #454). Owned by
+ * the Home task. The cross-page suites (word-budget, figures, motion) check what every page shares;
+ * these check Home's own figures on the e2e build, scrubbed through the motion hooks
+ * (`window.__motion`, round 2 spec §3.4):
+ *
+ *   people        100 people, 86 · 13 · 1 in that order, the ring and its leader ending at the note
+ *   how-it-works  the storyboard at 700, 1600, 2600, 3400 and 4900 ms; the measured lane's studs
+ *                 never pass through the model; Replay
+ *   crew          the hop-in; each card fills "Your spot" while hovered or focused
+ *
+ * Screenshot comparisons need no stored baselines (they would differ by platform): a seek is
+ * deterministic (the same frame twice), and every story ends on exactly the figure that reduced
+ * motion and no JavaScript show. The frames are attached to the report, and taken with animations
+ * allowed (Playwright's `animations: 'disabled'` would fast-forward a seeked, paused story to its
+ * end). The hero film and the Atlas preview have their own file, marketing-home-hero.spec.ts.
  */
-import { expect, test, type Page } from '@playwright/test';
+import {
+  expect,
+  test,
+  type Locator,
+  type Page,
+  type TestInfo,
+} from '@playwright/test';
 
 import { useSiteFixtures } from './helpers/marketing';
 
 useSiteFixtures();
 
-const preview = (page: Page) =>
-  page.locator('figure[data-graphic="atlas-preview"]');
+// window.__motion: declared in src/graphics/motion-hooks.ts; the e2e build ships it.
+
+const VIEWPORT = {
+  desktop: { width: 1440, height: 900 },
+  phone: { width: 390, height: 844 },
+};
+const viewportFor = (isMobile: boolean) =>
+  isMobile ? VIEWPORT.phone : VIEWPORT.desktop;
+
+const people = (page: Page) => page.locator('figure[data-graphic="people"]');
+const steps = (page: Page) =>
+  page.locator('figure[data-graphic="how-it-works"]');
+const crew = (page: Page) => page.locator('figure[data-graphic="crew"]');
+
+/** Bring a figure into view (its module loads within 600 px) and put its scene at `ms`. */
+async function seek(figure: Locator, scene: string, ms: number): Promise<void> {
+  await figure.evaluate((element) =>
+    element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+  );
+  await figure
+    .page()
+    .evaluate(([name, at]) => window.__motion!.seek(name, at), [
+      scene,
+      ms,
+    ] as const);
+}
+
+/** The layout of a figure that is on screen (each figure renders two, one displayed). */
+const shown = (figure: Locator, selector: string) =>
+  figure.locator(`${selector}:visible`).first();
+
+/**
+ * The share of 4 × 4 CSS-pixel blocks whose average colour differs between two screenshots of the
+ * same size (any channel by more than 24 of 255). Averaging over blocks ignores edge antialiasing, which
+ * differs where an element is or is not on its own compositing layer, and keeps every real change
+ * (a stud, a cell, a lit node, a figure out of place). Decoded in a blank page.
+ */
+async function differingShare(
+  page: Page,
+  a: Buffer,
+  b: Buffer,
+): Promise<number> {
+  const ratio = await page.evaluate(() => devicePixelRatio);
+  const scratch = await page.context().newPage();
+  try {
+    return await scratch.evaluate(
+      async ([first, second, dpr]) => {
+        const pixels = async (data: string) => {
+          const image = new Image();
+          image.src = `data:image/png;base64,${data}`;
+          await image.decode();
+          const canvas = document.createElement('canvas');
+          canvas.width = image.width;
+          canvas.height = image.height;
+          const context = canvas.getContext('2d')!;
+          context.drawImage(image, 0, 0);
+          return context.getImageData(0, 0, image.width, image.height);
+        };
+        const [one, two] = await Promise.all([pixels(first), pixels(second)]);
+        if (one.width !== two.width || one.height !== two.height) return 1;
+        const block = Math.max(4, Math.round(4 * dpr));
+        const columns = Math.floor(one.width / block);
+        const rows = Math.floor(one.height / block);
+        let differing = 0;
+        for (let by = 0; by < rows; by += 1)
+          for (let bx = 0; bx < columns; bx += 1) {
+            const sum = [0, 0, 0];
+            for (let y = by * block; y < (by + 1) * block; y += 1)
+              for (let x = bx * block; x < (bx + 1) * block; x += 1) {
+                const i = (y * one.width + x) * 4;
+                for (let c = 0; c < 3; c += 1)
+                  sum[c] += one.data[i + c] - two.data[i + c];
+              }
+            if (Math.max(...sum.map((v) => Math.abs(v))) / (block * block) > 24)
+              differing += 1;
+          }
+        return differing / (columns * rows);
+      },
+      [a.toString('base64'), b.toString('base64'), ratio] as const,
+    );
+  } finally {
+    await scratch.close();
+  }
+}
+
+/**
+ * The figure's server-rendered final state, in the same page and place: every animation in it
+ * cancelled (its moving parts are drawn transparent until the story moves them).
+ */
+async function served(figure: Locator): Promise<Buffer> {
+  await figure.evaluate((element) =>
+    element
+      .getAnimations({ subtree: true })
+      .forEach((animation) => animation.cancel()),
+  );
+  return figure.locator('[data-figure-stage]').screenshot();
+}
+
+async function attach(info: TestInfo, name: string, png: Buffer) {
+  await info.attach(name, { body: png, contentType: 'image/png' });
+}
+
+/** Where each element is drawn: the centre of its box on screen, CSS px (for `evaluateAll`). */
+const centres = (elements: Element[]) =>
+  elements.map((element) => {
+    const box = element.getBoundingClientRect();
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  });
+
+test.beforeEach(async ({ page, isMobile }) => {
+  await page.setViewportSize(viewportFor(isMobile));
+});
+
+/* ------------------------------------------------------------------------- the people figure */
+
+test('the people figure draws 100 people, 86 · 13 · 1 in that order, the ring’s leader ending at the note', async ({
+  page,
+  isMobile,
+}) => {
+  await page.goto('/');
+  const figure = people(page);
+  await seek(figure, 'people', 2100);
+  const svg = shown(figure, 'svg[data-layout]');
+  await expect(svg).toHaveAttribute(
+    'data-layout',
+    isMobile ? 'narrow' : 'wide',
+  );
+  const groups = await svg
+    .locator('[data-person]')
+    .evaluateAll((uses) => uses.map((use) => use.getAttribute('data-person')));
+  expect(groups).toHaveLength(100);
+  expect(groups.filter((group) => group === 'european')).toHaveLength(86);
+  expect(groups.filter((group) => group === 'other')).toHaveLength(13);
+  expect(groups.filter((group) => group === 'african')).toHaveLength(1);
+  // Reading order: the one African-ancestry person is the last place in the grid (where each
+  // person is drawn, not how the markup places it).
+  const places = await svg.locator('.people__p').evaluateAll(centres);
+  const [african] = await svg
+    .locator('[data-person="african"]')
+    .evaluateAll(centres);
+  const last = places[99];
+  expect(Math.abs(african.x - last.x)).toBeLessThan(0.5);
+  expect(Math.abs(african.y - last.y)).toBeLessThan(0.5);
+  // The last place is the bottom row's right end.
+  expect(Math.max(...places.map(({ y }) => y))).toBeCloseTo(last.y, 1);
+  expect(Math.max(...places.map(({ x }) => x))).toBeCloseTo(last.x, 1);
+
+  const box = async (locator: Locator) => (await locator.boundingBox())!;
+  const person = await box(svg.locator('[data-person="african"]'));
+  const ring = await box(svg.locator('.people__ring'));
+  const leader = await box(svg.locator('.people__leader'));
+  const note = await box(figure.locator('.people__note'));
+  // The ring frames that person; the leader drops from the ring to the note, inside its width.
+  expect(ring.x).toBeLessThan(person.x);
+  expect(ring.x + ring.width).toBeGreaterThan(person.x + person.width);
+  expect(Math.abs(leader.y - (ring.y + ring.height))).toBeLessThan(2.5);
+  expect(Math.abs(leader.y + leader.height - note.y)).toBeLessThan(6);
+  expect(leader.x).toBeGreaterThan(note.x);
+  expect(leader.x).toBeLessThan(note.x + note.width);
+  // The stage is one image, named in full; the people are aria-hidden drawings.
+  await expect(figure.locator('[data-figure-stage]')).toHaveAttribute(
+    'role',
+    'img',
+  );
+  await expect(
+    figure.getByRole('img', {
+      name: /^Of every 100 participants in genome-wide studies up to July 2021, 86 had European ancestry, 1 had African ancestry, and 13 had another ancestry or none recorded\./,
+    }),
+  ).toBeVisible();
+});
+
+test('the people arrive in a diagonal wave, settle into their groups, and end on the final figure', async ({
+  page,
+}, info) => {
+  await page.goto('/');
+  const figure = people(page);
+  const svg = () => shown(figure, 'svg[data-layout]');
+  const opacity = (locator: Locator) =>
+    locator.evaluate((element) => Number(getComputedStyle(element).opacity));
+  await seek(figure, 'people', 300);
+  // The first person is in; the last, at the end of the diagonal, is not yet.
+  expect(await opacity(svg().locator('.people__p').first())).toBeGreaterThan(
+    0.9,
+  );
+  expect(await opacity(svg().locator('.people__p').last())).toBeLessThan(0.1);
+  // At 1.2 s everyone is in and the 13 and the 1 are settling into their tones; the note waits.
+  await seek(figure, 'people', 1200);
+  expect(await opacity(svg().locator('.people__p').last())).toBe(1);
+  const tone = await opacity(svg().locator('.people__tone').first());
+  expect(tone).toBeGreaterThan(0.05);
+  expect(tone).toBeLessThan(0.95);
+  expect(
+    await figure
+      .locator('.people__note')
+      .evaluate((note) => getComputedStyle(note).clipPath),
+  ).toMatch(/inset\(0px 0px 100%/);
+  for (const ms of [500, 1200, 2200]) {
+    await seek(figure, 'people', ms);
+    await attach(info, `people-${ms}`, await figure.screenshot());
+  }
+  // The story's last frame is the server-rendered figure, at rest.
+  await seek(figure, 'people', 2100);
+  const end = await figure.locator('[data-figure-stage]').screenshot();
+  expect(await differingShare(page, end, await served(figure))).toBe(0);
+});
+
+test('each person grows in place: mid-wave, every glyph is centred where it rests', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const figure = people(page);
+  const svg = () => shown(figure, 'svg[data-layout]');
+  const glyphs = () =>
+    svg()
+      .locator('.people__p')
+      .evaluateAll((uses) =>
+        uses.map((use) => {
+          const box = use.getBoundingClientRect();
+          return {
+            x: box.x + box.width / 2,
+            y: box.y + box.height / 2,
+            width: box.width,
+            shown: Number(getComputedStyle(use).opacity) > 0.02,
+          };
+        }),
+      );
+  await seek(figure, 'people', 2100);
+  const rest = await glyphs();
+  expect(rest).toHaveLength(100);
+  // 300 ms: the wave is half way across; 500 ms: everyone is in and many are still growing.
+  for (const ms of [300, 500]) {
+    await seek(figure, 'people', ms);
+    const now = await glyphs();
+    // The check has teeth: many people are visible and still growing at this instant.
+    const growing = now.filter(
+      ({ width, shown }, index) => shown && width < rest[index].width - 0.5,
+    );
+    expect(growing.length, `${ms} ms`).toBeGreaterThan(10);
+    const drift = now.map(({ x, y }, index) =>
+      Math.hypot(x - rest[index].x, y - rest[index].y),
+    );
+    expect(Math.max(...drift), `${ms} ms`).toBeLessThan(1.5);
+  }
+});
+
+test('the people keep their desktop size at every width, and “Why it matters” stacks until the wide grid fits beside its text @desktop-chromium', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  for (const width of [600, 700, 834, 900, 991, 992, 1024, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto('/');
+    const figure = people(page);
+    const svg = shown(figure, 'svg[data-layout]');
+    // The drawn glyph's box (a <use>'s client rect; Playwright's boundingBox() reports the
+    // larger box of the <use>'s viewport).
+    const glyph = await svg
+      .locator('.people__p')
+      .first()
+      .evaluate((use) => use.getBoundingClientRect().width);
+    // Never larger than at desktop widths (about 25 px), never too small to read as a person.
+    expect(glyph, `${width}`).toBeLessThanOrEqual(26.5);
+    expect(glyph, `${width}`).toBeGreaterThanOrEqual(16);
+    const stage = (await figure.locator('[data-figure-stage]').boundingBox())!;
+    expect(stage.height, `${width}`).toBeLessThanOrEqual(600);
+    // Beside its text only where the 20 × 5 grid fits; otherwise under it, at full width.
+    const text = (await page
+      .locator('#why .layout-figure-split__text')
+      .boundingBox())!;
+    const beside = (await figure.boundingBox())!.x > text.x + text.width;
+    expect(beside, `${width}`).toBe(width >= 992);
+    if (beside)
+      await expect(svg, `${width}`).toHaveAttribute('data-layout', 'wide');
+  }
+});
+
+/* ------------------------------------------------------------------------- how it works */
+
+const STORYBOARD = [
+  // Per seek: steps 2 and 3 lit; records, measured studs and estimate hexes on their wires; the
+  // cursor arrived. (At 2.6 s the first hex is only leaving the model, still transparent.)
+  {
+    ms: 700,
+    two: false,
+    three: false,
+    records: true,
+    studs: false,
+    hexes: false,
+    cursor: false,
+  },
+  {
+    ms: 1600,
+    two: false,
+    three: false,
+    records: true,
+    studs: true,
+    hexes: false,
+    cursor: false,
+  },
+  {
+    ms: 2600,
+    two: true,
+    three: false,
+    records: false,
+    studs: true,
+    hexes: false,
+    cursor: false,
+  },
+  {
+    ms: 3400,
+    two: true,
+    three: true,
+    records: false,
+    studs: false,
+    hexes: true,
+    cursor: false,
+  },
+  {
+    ms: 4900,
+    two: true,
+    three: true,
+    records: false,
+    studs: false,
+    hexes: false,
+    cursor: true,
+  },
+] as const;
+
+test('the steps play their storyboard: records in, studs on the measured lane past the model, estimates out', async ({
+  page,
+}, info) => {
+  await page.goto('/');
+  const figure = steps(page);
+  for (const frame of STORYBOARD) {
+    await seek(figure, 'how-it-works', frame.ms);
+    const state = await figure.evaluate((element) => {
+      const svg = [
+        ...element.querySelectorAll<SVGSVGElement>('svg[data-layout]'),
+      ].find((candidate) => candidate.getClientRects().length > 0)!;
+      const visible = (selector: string) =>
+        [...svg.querySelectorAll<SVGGraphicsElement>(selector)].filter(
+          (node) => Number(getComputedStyle(node).opacity) > 0.05,
+        );
+      const lit = (step: string) =>
+        Number(
+          getComputedStyle(
+            element.querySelector(`.hiw-step[data-step="${step}"]`)!,
+          ).getPropertyValue('--hiw-lit'),
+        );
+      const model = svg.querySelector('.hiw-model')!.getBoundingClientRect();
+      const inside = visible('.hiw-stud[data-lane="measured"]').filter(
+        (stud) => {
+          const box = stud.getBoundingClientRect();
+          return (
+            Math.min(box.right, model.right) - Math.max(box.left, model.left) >
+              0 &&
+            Math.min(box.bottom, model.bottom) - Math.max(box.top, model.top) >
+              0
+          );
+        },
+      );
+      const cells = [...svg.querySelectorAll('.atlas-mark__cells path')].map(
+        (cell) => Number(getComputedStyle(cell).opacity),
+      );
+      return {
+        two: lit('2'),
+        three: lit('3'),
+        records: visible('.hiw-record').length,
+        studs: visible('.hiw-stud[data-lane="measured"]').length,
+        hexes: visible('.hiw-tokens > path').length,
+        inside: inside.length,
+        cursor: Number(
+          getComputedStyle(svg.querySelector('.hiw-cursor')!).opacity,
+        ),
+        cellsIn: cells.filter((value) => value > 0.95).length,
+        cells: cells.length,
+      };
+    });
+    const at = `${frame.ms} ms`;
+    expect(state.two, `${at} step 2`).toBeCloseTo(frame.two ? 1 : 0, 2);
+    expect(state.three, `${at} step 3`).toBeCloseTo(frame.three ? 1 : 0, 2);
+    expect(state.records > 0, `${at} records`).toBe(frame.records);
+    expect(state.studs > 0, `${at} measured studs`).toBe(frame.studs);
+    expect(state.hexes > 0, `${at} hexes`).toBe(frame.hexes);
+    // A measurement on the measured lane never goes through the model (round 1 §6.1 rule 1).
+    expect(state.inside, `${at} studs inside the model`).toBe(0);
+    expect(state.cursor, `${at} cursor`).toBeCloseTo(frame.cursor ? 1 : 0, 2);
+    // The globe is empty before the estimates arrive and full at rest.
+    if (frame.ms <= 2600) expect(state.cellsIn, at).toBe(0);
+    if (frame.ms === 4900) expect(state.cellsIn, at).toBe(state.cells);
+    await attach(info, `steps-${frame.ms}`, await figure.screenshot());
+  }
+});
+
+test('a seek is deterministic: the same moment draws the same frame', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const figure = steps(page);
+  const stage = figure.locator('[data-figure-stage]');
+  for (const ms of [1600, 3400]) {
+    await seek(figure, 'how-it-works', ms);
+    const first = await stage.screenshot();
+    await seek(figure, 'how-it-works', 0);
+    await seek(figure, 'how-it-works', ms);
+    const second = await stage.screenshot();
+    expect(await differingShare(page, first, second), `${ms} ms`).toBe(0);
+  }
+});
+
+test('the steps end on the server-rendered figure, and a moment before it does not', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const figure = steps(page);
+  const stage = figure.locator('[data-figure-stage]');
+  // At 4.5 s the model is still lit and the cursor still gliding: the comparison sees it.
+  await seek(figure, 'how-it-works', 4500);
+  const before = await stage.screenshot();
+  await seek(figure, 'how-it-works', 4900);
+  const end = await stage.screenshot();
+  const rest = await served(figure);
+  expect(await differingShare(page, before, rest)).toBeGreaterThan(0);
+  expect(await differingShare(page, end, rest)).toBe(0);
+});
+
+test('the steps play once at 35% visible, rest, and Replay plays them again', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const figure = steps(page);
+  const replay = figure.getByRole('button', { name: 'Replay the three steps' });
+  await figure.evaluate((element) =>
+    element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+  );
+  await expect(figure).toHaveAttribute('data-scene-state', 'playing');
+  await expect(figure).toHaveAttribute('data-scene-state', 'rest', {
+    timeout: 8000,
+  });
+  // Replay is a white glyph with no label of its own (rulings item 22), 44 px square.
+  await expect(replay).toBeVisible();
+  const target = (await replay.boundingBox())!;
+  expect(target.width).toBeGreaterThanOrEqual(44);
+  expect(target.height).toBeGreaterThanOrEqual(44);
+  await replay.click();
+  await expect(figure).toHaveAttribute('data-scene-state', 'playing');
+  expect(
+    await page.evaluate(() => window.__motion!.time('how-it-works')),
+  ).toBeLessThan(1500);
+  // From the start again: step 3 is dim until 3 s.
+  expect(
+    await figure
+      .locator('.hiw-step[data-step="3"]')
+      .evaluate((step) =>
+        Number(getComputedStyle(step).getPropertyValue('--hiw-lit')),
+      ),
+  ).toBeLessThan(0.5);
+  // There is no Pause: the story is under 5 s and does not loop (WCAG 2.2.2).
+  await expect(figure.getByRole('button', { name: /^Pause\b/ })).toHaveCount(0);
+});
+
+test('each step’s number sits level with the first line of its title, also when a title wraps @desktop-chromium', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  // The number is the title's ::before; DevTools reports a pseudo-element's box.
+  const cdp = await page.context().newCDPSession(page);
+  type Node = {
+    nodeId: number;
+    pseudoType?: string;
+    children?: Node[];
+    pseudoElements?: Node[];
+  };
+  // At 1024 px "Explore the genomeOS Atlas" takes two lines; at 1440 every title takes one.
+  for (const width of [1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    await steps(page).scrollIntoViewIfNeeded();
+    const { root } = (await cdp.send('DOM.getDocument', { depth: -1 })) as {
+      root: Node;
+    };
+    const nodes = new Map<number, Node>();
+    const walk = (node: Node) => {
+      nodes.set(node.nodeId, node);
+      node.children?.forEach(walk);
+    };
+    walk(root);
+    const { nodeIds } = await cdp.send('DOM.querySelectorAll', {
+      nodeId: root.nodeId,
+      selector: '.hiw-step h3',
+    });
+    expect(nodeIds).toHaveLength(3);
+    const badges: { top: number; middle: number }[] = [];
+    for (const nodeId of nodeIds) {
+      const before = nodes
+        .get(nodeId)!
+        .pseudoElements!.find(({ pseudoType }) => pseudoType === 'before')!;
+      const { model } = await cdp.send('DOM.getBoxModel', {
+        nodeId: before.nodeId,
+      });
+      const [, top, , , , bottom] = model.border;
+      badges.push({ top, middle: (top + bottom) / 2 });
+    }
+    const lines = await steps(page)
+      .locator('.hiw-step h3')
+      .evaluateAll((titles) =>
+        titles.map((title) => {
+          // The text's own line boxes (not its wrapping span's box).
+          const walker = document.createTreeWalker(title, NodeFilter.SHOW_TEXT);
+          const rects: DOMRect[] = [];
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            rects.push(...range.getClientRects());
+          }
+          const first = rects[0];
+          return {
+            middle: first.y + first.height / 2,
+            lines: new Set(rects.map(({ y }) => Math.round(y))).size,
+          };
+        }),
+      );
+    if (width === 1024)
+      expect(lines[2].lines, 'step 3 wraps at 1024').toBeGreaterThan(1);
+    for (const [index, badge] of badges.entries())
+      expect(
+        Math.abs(badge.middle - lines[index].middle),
+        `${width}: step ${index + 1}`,
+      ).toBeLessThan(2);
+    // The three badges stand in one row.
+    expect(
+      Math.max(...badges.map(({ top }) => top)) -
+        Math.min(...badges.map(({ top }) => top)),
+      `${width}`,
+    ).toBeLessThan(1);
+  }
+});
+
+/* ------------------------------------------------------------------------------ the crew */
+
+test('the crew hops in one by one, then rests', async ({ page }, info) => {
+  await page.goto('/');
+  const figure = crew(page);
+  const members = () => shown(figure, '.crew__layout').locator('.crew__member');
+  const opacity = (locator: Locator) =>
+    locator.evaluate((element) => Number(getComputedStyle(element).opacity));
+  await seek(figure, 'crew', 300);
+  expect(await opacity(members().first())).toBe(1);
+  expect(await opacity(members().last())).toBe(0);
+  await attach(info, 'crew-300', await figure.screenshot());
+  await seek(figure, 'crew', 2200);
+  for (const member of await members().all())
+    expect(await opacity(member)).toBe(1);
+  const end = await figure.locator('[data-figure-stage]').screenshot();
+  await attach(info, 'crew-2200', end);
+  expect(await differingShare(page, end, await served(figure))).toBe(0);
+});
+
+test('the crew is named for the people drawn: four on a wide figure, three on a phone', async ({
+  page,
+  isMobile,
+}) => {
+  await page.goto('/');
+  const stage = crew(page).locator('[data-figure-stage]');
+  await expect(stage).toHaveAccessibleName(
+    isMobile
+      ? 'Three people at work: a coder, an expert thinking and a data person, with an empty spot for you.'
+      : 'Four people at work: a coder, a builder, an expert thinking and a data person, with an empty spot for you.',
+  );
+  const drawn = await shown(crew(page), '.crew__layout')
+    .locator('.crew__member')
+    .count();
+  expect(drawn).toBe(isMobile ? 3 : 4);
+});
+
+test('focusing each card fills "Your spot", and moving on empties it', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const figure = crew(page);
+  const newcomer = () =>
+    shown(figure, '.crew__layout').locator('.crew__newcomer');
+  const spot = () => shown(figure, '.crew__layout').locator('.crew__spot');
+  const opacity = (locator: Locator) =>
+    locator.evaluate((element) => Number(getComputedStyle(element).opacity));
+  await figure.evaluate((element) =>
+    element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+  );
+  const cards = page.locator('#join [data-crew-cta]');
+  await expect(cards).toHaveCount(3);
+  for (const card of await cards.all()) {
+    await card.focus();
+    await expect(figure).toHaveAttribute('data-filled', '');
+    await expect.poll(() => opacity(newcomer())).toBe(1);
+    await expect.poll(() => opacity(spot())).toBe(0);
+    await card.blur();
+    await expect(figure).not.toHaveAttribute('data-filled');
+    await expect.poll(() => opacity(newcomer())).toBe(0);
+    await expect.poll(() => opacity(spot())).toBe(1);
+  }
+});
+
+// Hover is a pointer interaction.
+test('hovering each card fills "Your spot", and leaving empties it @desktop-chromium', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const figure = crew(page);
+  const newcomer = shown(figure, '.crew__layout').locator('.crew__newcomer');
+  await figure.evaluate((element) =>
+    element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+  );
+  for (const card of await page.locator('#join [data-crew-cta]').all()) {
+    await card.hover();
+    await expect(figure).toHaveAttribute('data-filled', '');
+    await expect
+      .poll(() =>
+        newcomer.evaluate((element) =>
+          Number(getComputedStyle(element).opacity),
+        ),
+      )
+      .toBe(1);
+    await page.mouse.move(5, 5);
+    await expect(figure).not.toHaveAttribute('data-filled');
+  }
+});
+
+/* ------------------------------------------------------------- reduced motion, no script */
+
+test('reduced motion: every Home figure is whole at once, nothing is built, and the spot swaps instantly', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/');
+  for (const figure of [people(page), steps(page), crew(page)]) {
+    await figure.evaluate((element) =>
+      element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+    );
+    await page.waitForTimeout(250);
+    expect(
+      await figure.evaluate(
+        (element) => element.getAnimations({ subtree: true }).length,
+      ),
+    ).toBe(0);
+  }
+  // The modules were never imported, so no scene registered.
+  expect(
+    await page.evaluate(() =>
+      (window.__motion?.names() ?? []).filter((name) =>
+        ['people', 'how-it-works', 'crew'].includes(name),
+      ),
+    ),
+  ).toEqual([]);
+  for (const step of ['1', '2', '3'])
+    expect(
+      await steps(page)
+        .locator(`.hiw-step[data-step="${step}"]`)
+        .evaluate((element) =>
+          Number(getComputedStyle(element).getPropertyValue('--hiw-lit')),
+        ),
+    ).toBe(1);
+  await expect(steps(page).locator('[data-scene-replay]')).toBeHidden();
+  await expect(people(page).locator('.people__note')).toBeVisible();
+  await expect(
+    shown(people(page), 'svg[data-layout]').locator('.people__p'),
+  ).toHaveCount(100);
+  // The newcomer swaps in without a transition.
+  await page.locator('#join [data-crew-cta]').first().focus();
+  expect(
+    await shown(crew(page), '.crew__layout')
+      .locator('.crew__newcomer')
+      .evaluate((element) => Number(getComputedStyle(element).opacity)),
+  ).toBe(1);
+});
+
+test('in forced colours the scenes rest, their lines and labels in the system text colour', async ({
+  page,
+}) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await page.goto('/');
+  for (const figure of [people(page), steps(page), crew(page)]) {
+    await figure.evaluate((element) =>
+      element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+    );
+    await page.waitForTimeout(250);
+    expect(
+      await figure.evaluate(
+        (element) => element.getAnimations({ subtree: true }).length,
+      ),
+    ).toBe(0);
+  }
+  const text = await page.evaluate(() => {
+    const probe = document.createElement('span');
+    probe.style.color = 'CanvasText';
+    document.body.append(probe);
+    const value = getComputedStyle(probe).color;
+    probe.remove();
+    return value;
+  });
+  const stroke = (locator: Locator) =>
+    locator.evaluate((element) => getComputedStyle(element).stroke);
+  const fill = (locator: Locator) =>
+    locator.evaluate((element) => getComputedStyle(element).fill);
+  const svg = shown(people(page), 'svg[data-layout]');
+  expect(await stroke(svg.locator('.people__ring'))).toBe(text);
+  expect(await stroke(svg.locator('.people__leader'))).toBe(text);
+  const stage = shown(steps(page), 'svg[data-layout]');
+  expect(await stroke(stage.locator('[data-wire="measured"]'))).toBe(text);
+  expect(await fill(stage.locator('.hiw-label').first())).toBe(text);
+  await expect(steps(page).locator('.kit-plate__bar--top')).toBeHidden();
+});
 
 test('without JavaScript the hero shows its poster and every figure its final state', async ({
   browser,
@@ -20,9 +745,7 @@ test('without JavaScript the hero shows its poster and every figure its final st
 }) => {
   const context = await browser.newContext({
     javaScriptEnabled: false,
-    viewport: isMobile
-      ? { width: 390, height: 844 }
-      : { width: 1440, height: 900 },
+    viewport: viewportFor(isMobile),
   });
   const page = await context.newPage();
   await page.goto('/');
@@ -31,81 +754,50 @@ test('without JavaScript the hero shows its poster and every figure its final st
   await expect(heroPoster).toHaveJSProperty('complete', true);
   await expect(page.locator('.hero-media__video source')).toHaveCount(0);
   await expect(page.locator('[data-video-toggle]')).toBeHidden();
-
-  const figure = preview(page);
-  await figure.scrollIntoViewIfNeeded();
-  const poster = figure.locator('.hg-poster');
-  await expect(poster).toBeVisible();
-  await expect
-    .poll(() =>
-      poster.evaluate((image: HTMLImageElement) => image.naturalWidth),
-    )
-    .toBeGreaterThan(0);
-  for (const callout of await figure.locator('.hg-callout').all())
-    await expect(callout).toBeVisible();
-  for (const pin of await figure.locator('.hg-marker__badge').all())
-    await expect(pin).toBeVisible();
-  // Nothing turns without JavaScript, so there is no Pause and no layer control.
-  await expect(figure.locator('[data-spin-toggle]')).toBeHidden();
-  await expect(figure.locator('.hg-layers')).toBeHidden();
-  // The counts figure, the Pipeline and the corpus bars at rest.
-  const bar = page.locator('#why [data-bar="a"] .cf-bar__range');
-  expect((await bar.boundingBox())!.width).toBeGreaterThan(10);
-  await expect(page.locator('#why output')).toHaveText(
-    '0 of 20: up to 11.7% is still plausible.',
-  );
+  // The preview keeps its poster; nothing turns, so it offers no Pause.
+  const preview = page.locator('figure[data-graphic="atlas-preview"]');
+  await preview.scrollIntoViewIfNeeded();
+  await expect(preview.locator('.hg-poster')).toBeVisible();
+  await expect(preview.locator('[data-spin-toggle]')).toBeHidden();
+  // Home's own figures, whole: 100 people, the note, all three steps lit, the globe's cells and
+  // studs, the crew at work, and no Replay.
   await expect(
-    page.locator('#how [data-pipeline="interactive"]'),
-  ).not.toHaveClass(/is-armed/);
-  await expect(page.locator('.metric data')).toHaveText([
-    '4,392',
-    '6.69M',
-    '2',
-  ]);
-  for (const segment of await page.locator('.eb-bar__segment').all())
-    expect((await segment.boundingBox())!.width).toBeGreaterThanOrEqual(2);
+    shown(people(page), 'svg[data-layout]').locator('.people__p'),
+  ).toHaveCount(100);
+  await expect(people(page).locator('.people__note')).toBeVisible();
+  for (const step of ['1', '2', '3'])
+    expect(
+      await steps(page)
+        .locator(`.hiw-step[data-step="${step}"]`)
+        .evaluate((element) =>
+          Number(getComputedStyle(element).getPropertyValue('--hiw-lit')),
+        ),
+    ).toBe(1);
+  await expect(steps(page).locator('[data-scene-replay]')).toBeHidden();
+  const svg = shown(steps(page), 'svg[data-layout]');
+  await expect(svg.locator('.atlas-mark__studs circle')).toHaveCount(6);
+  for (const member of await shown(crew(page), '.crew__layout')
+    .locator('.crew__member')
+    .all())
+    await expect(member).toBeVisible();
   await context.close();
 });
 
-/* ------------------------------------------------------------------ the other figures */
-
-// A statistic never reads as zero on screen (design review, round 1): partly in view, short of
-// the 35% that plays an entrance, the tiles already show their totals.
-test('the evidence base shows its real totals while only partly in view', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const figure = page.locator('figure[data-graphic="evidence-base"]');
-  await figure.evaluate((element) => {
-    const box = element.getBoundingClientRect();
-    window.scrollTo({
-      top: window.scrollY + box.top - innerHeight + box.height * 0.2,
-      behavior: 'instant',
-    });
-  });
-  await page.waitForTimeout(1200);
-  const numbers = page.locator('.metric data');
-  expect(
-    await numbers.first().evaluate((element) => {
-      const box = element.getBoundingClientRect();
-      return box.top < innerHeight && box.bottom > 0;
-    }),
-  ).toBe(true);
-  expect(await numbers.allTextContents()).toEqual(['4,392', '6.69M', '2']);
-});
+/* ------------------------------------------------------------------- type and navigation */
 
 test('public typography keeps body and supporting text comfortably large', async ({
   page,
 }) => {
   await page.goto('/');
-
   const typeSizes = await page.evaluate(() => {
     const selectors = [
       'body',
       '.desktop-nav a',
       '.section-kicker',
       '.site-footer p',
-      '.mission-copy p',
+      '.home-lede',
+      '.hiw-step p',
+      '.people__key li',
     ];
     return Object.fromEntries(
       selectors.map((selector) => [
@@ -116,408 +808,57 @@ test('public typography keeps body and supporting text comfortably large', async
       ]),
     );
   });
-
   expect(typeSizes.body).toBeGreaterThanOrEqual(19);
-  for (const [selector, size] of Object.entries(typeSizes)) {
-    if (selector !== 'body') expect(size).toBeGreaterThanOrEqual(16);
-  }
+  for (const [selector, size] of Object.entries(typeSizes))
+    if (selector !== 'body') expect(size, selector).toBeGreaterThanOrEqual(16);
 });
 
-test('metric digits use a common height and baseline', async ({ page }) => {
-  await page.goto('/');
-
-  const numericStyle = await page
-    .locator('.metric data')
-    .first()
-    .evaluate((element) => ({
-      family: getComputedStyle(element).fontFamily,
-      variant: getComputedStyle(element).fontVariantNumeric,
-    }));
-  expect(numericStyle.family).toContain('Figtree');
-  expect(numericStyle.variant).toContain('lining-nums');
-  expect(numericStyle.variant).toContain('tabular-nums');
-  // The final values are in the page, as static text.
-  await page.locator('.metric').first().scrollIntoViewIfNeeded();
-  await expect(page.locator('.metric data')).toHaveText([
-    '4,392',
-    '6.69M',
-    '2',
-  ]);
-});
-
-// Hover is a pointer interaction.
-test('application cards reveal on scroll and respond to hover @desktop-chromium', async ({
+test('“How it works” takes the visitor down to the three steps, below the header', async ({
   page,
 }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/');
-
-  const card = page.locator('.application-card').first();
-  await card.scrollIntoViewIfNeeded();
-  await expect(card).toHaveClass(/is-visible/);
-  // Let the reveal slide finish: hovering a moving card makes Playwright re-scroll the page, and
-  // the smooth scroll then carries the card out from under the pointer.
-  await card.evaluate((element) =>
-    Promise.all(element.getAnimations().map((animation) => animation.finished)),
-  );
-  const restingTransform = await card.evaluate(
-    (element) => getComputedStyle(element).transform,
-  );
-  await card.hover();
-  await page.waitForTimeout(250);
-  const hoverTransform = await card.evaluate(
-    (element) => getComputedStyle(element).transform,
-  );
-  expect(hoverTransform).not.toBe(restingTransform);
+  await page
+    .locator('#hero')
+    .getByRole('link', { name: 'How it works' })
+    .click();
+  await expect(page).toHaveURL(/#how$/);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const header = document
+          .querySelector('[data-site-header]')!
+          .getBoundingClientRect().bottom;
+        const top = document.querySelector('#how')!.getBoundingClientRect().top;
+        return Math.abs(top - header) < 40;
+      }),
+    )
+    .toBe(true);
 });
 
-// Design review, round 3: the glyphs' drawings filled about 60% of their 96 × 64 box, each at its
-// own place in it. They are now drawn at one scale, at least 96 × 64 and about 128 × 80 a glyph,
-// each drawing on its card's text edge, with the title a spacing step under the glyph.
-test('the application glyphs read at card scale, on each card’s text edge', async ({
+test('Home fits every phone width without sideways scrolling, its figures inside the gutters @mobile-chromium', async ({
   page,
 }) => {
-  await page.goto('/');
-  const first = page.locator('.application-card').first();
-  await first.scrollIntoViewIfNeeded();
-  await expect(first).toHaveClass(/is-visible/);
-  const cards = await page.locator('.application-card').evaluateAll((list) =>
-    list.map((card) => {
-      const svg = card.querySelector<SVGSVGElement>('svg.ag')!;
-      const title = card.querySelector('h3')!.getBoundingClientRect();
-      const glyph = svg.getBoundingClientRect();
-      let left = Infinity;
-      let top = Infinity;
-      let bottom = -Infinity;
-      for (const mark of svg.querySelectorAll<SVGGraphicsElement>(
-        'path, circle, ellipse, rect, line',
-      )) {
-        if (mark.closest('defs, pattern, clipPath')) continue;
-        const rect = mark.getBoundingClientRect();
-        left = Math.min(left, rect.left);
-        top = Math.min(top, rect.top);
-        bottom = Math.max(bottom, rect.bottom);
-      }
-      return {
-        width: glyph.width,
-        height: glyph.height,
-        scale: svg.getScreenCTM()!.a,
-        markLeft: left - title.left,
-        markTop: top - glyph.top,
-        markBottom: glyph.bottom - bottom,
-        titleGap: title.top - glyph.bottom,
-      };
-    }),
-  );
-  expect(cards).toHaveLength(6);
-  for (const [index, card] of cards.entries()) {
-    const at = `glyph ${index + 1}`;
-    expect(card.width, at).toBeGreaterThanOrEqual(120);
-    expect(card.height, at).toBeGreaterThanOrEqual(80);
-    expect(card.scale, at).toBeCloseTo(cards[0]!.scale, 3);
-    // The drawing starts on the text edge (its stroke may sit a pixel either side).
-    expect(Math.abs(card.markLeft), at).toBeLessThan(2);
-    expect(card.markTop, at).toBeGreaterThanOrEqual(-0.5);
-    expect(card.markBottom, at).toBeGreaterThanOrEqual(-0.5);
-    expect(card.titleGap, at).toBeGreaterThanOrEqual(8);
-  }
-});
-
-test('on a phone the counts axis heads the bar it scales @mobile-chromium', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const why = page.locator('#why');
-  const grid = (await why
-    .locator('[data-row="a"] .cf-row__grid')
-    .boundingBox())!;
-  const axis = (await why.locator('.cf-axis').boundingBox())!;
-  const bar = (await why.locator('[data-bar="a"]').boundingBox())!;
-  // Label A, grid A, then the axis directly over bar A.
-  expect(axis.y).toBeGreaterThanOrEqual(grid.y + grid.height);
-  const gap = bar.y - (axis.y + axis.height);
-  expect(gap).toBeGreaterThanOrEqual(0);
-  expect(gap).toBeLessThan(16);
-});
-
-test('on a phone the vision teaser reads heading, figure, then its link @mobile-chromium', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const vision = page.locator('#vision');
-  const order = await Promise.all(
-    ['h2', 'figure[data-graphic="vision"]', '.home-vision__link'].map(
-      (selector) =>
-        vision
-          .locator(selector)
-          .evaluate((element) => element.getBoundingClientRect().top),
-    ),
-  );
-  expect([...order].sort((a, b) => a - b)).toEqual(order);
-});
-
-// Design review, round 2: each zoom square sits on the content it magnifies, inside its frame, and
-// its wedge opens from it to the next frame, as on Project's ladder; at every width.
-test('the vision teaser’s zoom squares sit on what they magnify, and its wedges open from them', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const figure = page.locator('figure[data-graphic="vision"]');
-  await figure.scrollIntoViewIfNeeded();
-  await expect(figure).toHaveAttribute('data-figure-state', 'rest');
-  const frames = await figure.evaluate((element) => {
-    const svg = [...element.querySelectorAll('svg.vs-svg')].find((candidate) =>
-      candidate.checkVisibility(),
-    )!;
-    const box = (node: Element | null) =>
-      node ? node.getBoundingClientRect().toJSON() : null;
-    // Where each wedge line starts, on screen.
-    const starts = (index: number) =>
-      [
-        ...svg.querySelectorAll<SVGLineElement>(
-          `[data-wedge="${index + 1}"] line`,
-        ),
-      ].map((line) => {
-        const point = new DOMPoint(
-          line.x1.baseVal.value,
-          line.y1.baseVal.value,
-        ).matrixTransform(line.getScreenCTM()!);
-        return [point.x, point.y];
-      });
-    return [...svg.querySelectorAll('[data-frame]')].map((frame, index) => ({
-      border: box(frame.querySelector('.ladder__border')),
-      zoom: box(frame.querySelector('.ladder__zoom')),
-      starts: starts(index),
-    }));
-  });
-  expect(frames).toHaveLength(4);
-  for (const [index, { border, zoom, starts }] of frames
-    .slice(0, 3)
-    .entries()) {
-    expect(zoom, `frame ${index + 1}`).not.toBeNull();
-    const centre =
-      (zoom!.left + zoom!.width / 2 - border!.left) / border!.width;
-    // On the content, not on the frame's edge.
-    expect(centre, `frame ${index + 1} zoom`).toBeGreaterThan(0.15);
-    expect(centre, `frame ${index + 1} zoom`).toBeLessThan(0.85);
-    expect(zoom!.right, `frame ${index + 1} zoom`).toBeLessThan(
-      border!.right - 4,
+  for (const width of [320, 360, 375, 390, 430]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto('/');
+    const overflow = await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
     );
-    // Both wedge lines start at the zoom square, inside the frame.
-    expect(starts, `frame ${index + 1} wedge`).toHaveLength(2);
-    for (const [x, y] of starts) {
-      expect(x, `frame ${index + 1} wedge`).toBeGreaterThanOrEqual(
-        zoom!.left - 1.5,
-      );
-      expect(x, `frame ${index + 1} wedge`).toBeLessThanOrEqual(
-        zoom!.right + 1.5,
-      );
-      expect(y, `frame ${index + 1} wedge`).toBeGreaterThanOrEqual(
-        zoom!.top - 1.5,
-      );
-      expect(y, `frame ${index + 1} wedge`).toBeLessThanOrEqual(
-        zoom!.bottom + 1.5,
+    expect(overflow, `${width}`).toBe(0);
+    for (const selector of [
+      'figure[data-graphic="people"]',
+      'figure[data-graphic="how-it-works"]',
+      'figure[data-graphic="crew"]',
+      '#join [data-crew-cta]',
+    ]) {
+      const box = (await page.locator(selector).first().boundingBox())!;
+      expect(box.x, `${width} ${selector}`).toBeGreaterThanOrEqual(15.5);
+      expect(box.x + box.width, `${width} ${selector}`).toBeLessThanOrEqual(
+        width - 15.5,
       );
     }
   }
-});
-
-// The counts figure reads as sample size at rest (design review, round 1): row B's reserved room
-// is a faint ghost grid of untested alleles that the slider fills, and the grids span the figure.
-test('the counts grids span the figure, and row B’s room is alleles not yet tested', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const why = page.locator('#why');
-  const figure = why.locator('figure[data-graphic="counts"]');
-  await figure.scrollIntoViewIfNeeded();
-  await expect(figure).toHaveAttribute('data-figure-state', 'rest');
-  const stage = (await figure.locator('[data-figure-stage]').boundingBox())!;
-  for (const row of ['a', 'b']) {
-    const grid = figure.locator(`[data-grid="${row}"]:visible`);
-    const box = (await grid.boundingBox())!;
-    expect(box.width, `grid ${row}`).toBeGreaterThanOrEqual(stage.width * 0.9);
-  }
-  const ghost = figure.locator('[data-grid="b"]:visible [data-ghost]');
-  await expect(ghost).toHaveCount(1);
-  const tested = figure.locator('[data-grid="b"]:visible [data-squares]');
-  const height = async (locator: typeof ghost) =>
-    (await locator.boundingBox())?.height ?? 0;
-  const room = await height(ghost);
-  // At the default stop, 20 of the 2,000 squares are tested: one short row.
-  expect(await height(tested.first())).toBe(0);
-  expect(await height(tested.nth(1))).toBeLessThan(room / 10);
-  await why.getByRole('slider', { name: 'Alleles tested in B' }).focus();
-  await page.keyboard.press('End');
-  await expect
-    .poll(async () => Math.abs((await height(tested.first())) - room))
-    .toBeLessThan(1);
-});
-
-/**
- * The share of a screenshot's pixels that stand out from `ground` at 3:1 or more (WCAG 1.4.11),
- * decoded in a blank page so the page under test is untouched.
- */
-async function standOutShare(
-  page: Page,
-  png: Buffer,
-  ground: string,
-): Promise<number> {
-  const scratch = await page.context().newPage();
-  try {
-    return await scratch.evaluate(
-      async ({ data, ground }) => {
-        const image = new Image();
-        image.src = `data:image/png;base64,${data}`;
-        await image.decode();
-        const canvas = document.createElement('canvas');
-        canvas.width = image.width;
-        canvas.height = image.height;
-        const context = canvas.getContext('2d')!;
-        context.drawImage(image, 0, 0);
-        const pixels = context.getImageData(0, 0, image.width, image.height);
-        const channel = (value: number) => {
-          const c = value / 255;
-          return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-        };
-        const luminance = (r: number, g: number, b: number) =>
-          0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-        const [r, g, b] = ground.match(/\d+/g)!.map(Number);
-        const base = luminance(r, g, b);
-        let marked = 0;
-        for (let i = 0; i < pixels.data.length; i += 4) {
-          const value = luminance(
-            pixels.data[i],
-            pixels.data[i + 1],
-            pixels.data[i + 2],
-          );
-          const ratio =
-            (Math.max(value, base) + 0.05) / (Math.min(value, base) + 0.05);
-          if (ratio >= 3) marked += 1;
-        }
-        return marked / (pixels.data.length / 4);
-      },
-      { data: png.toString('base64'), ground },
-    );
-  } finally {
-    await scratch.close();
-  }
-}
-
-// Design review, round 2: tested non-carriers drew at about 1.25:1 on the orbit band, the same as
-// the room for untested alleles, so row B read as one empty textured block and the slider visibly
-// moved only the 2 px bar. Tested squares now stand out at 3:1 or more; untested room does not.
-test('row B’s tested alleles stand out from the band, and the slider visibly grows them', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const why = page.locator('#why');
-  const figure = why.locator('figure[data-graphic="counts"]');
-  await figure.scrollIntoViewIfNeeded();
-  await expect(figure).toHaveAttribute('data-figure-state', 'rest');
-  const ground = await why.evaluate(
-    (band) => getComputedStyle(band).backgroundColor,
-  );
-  const grid = figure.locator('[data-grid="b"]:visible');
-  const { columns, pitch, size } = await grid.evaluate((svg) => ({
-    columns: Number((svg as SVGSVGElement).dataset.columns),
-    pitch: Number((svg as SVGSVGElement).dataset.pitch),
-    size: Number((svg as SVGSVGElement).dataset.size),
-  }));
-  const rows = Math.ceil(2000 / columns);
-
-  // 20 of 2,000: each tested square shows (at least a quarter of its cell stands out), and the
-  // untested room adds nothing.
-  const at20 = await standOutShare(page, await grid.screenshot(), ground);
-  const cells = columns * rows;
-  expect(at20, 'twenty tested squares').toBeGreaterThanOrEqual(
-    (20 * 0.25) / cells,
-  );
-  expect(at20, 'the untested room stays quiet').toBeLessThan(
-    (20 * 1.2) / cells,
-  );
-
-  await why.getByRole('slider', { name: 'Alleles tested in B' }).focus();
-  await page.keyboard.press('End');
-  await expect(why.locator('[data-count-n]')).toHaveText('2,000');
-  await page.waitForTimeout(400); // the 240 ms grid tween
-  const at2000 = await standOutShare(page, await grid.screenshot(), ground);
-  // All 2,000 tested: most of every square's area stands out (edges blend into the band).
-  expect(at2000, 'two thousand tested squares').toBeGreaterThan(
-    0.6 * (size / pitch) ** 2,
-  );
-  expect(at2000 / at20).toBeGreaterThan(40);
-});
-
-test('the counts slider moves bar B and its sentence together, both in view on a phone', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const why = page.locator('#why');
-  const slider = why.getByRole('slider', { name: 'Alleles tested in B' });
-  const output = why.locator('output');
-  const bar = why.locator('[data-bar="b"] .cf-bar__range');
-  await slider.scrollIntoViewIfNeeded();
-  // Measure bar B once the figure's entrance has finished growing it.
-  await expect(why.locator('figure[data-graphic="counts"]')).toHaveAttribute(
-    'data-figure-state',
-    'rest',
-  );
-  await expect(output).toHaveText('0 of 20: up to 11.7% is still plausible.');
-  const wide = (await bar.boundingBox())!.width;
-
-  await slider.focus();
-  await page.keyboard.press('End');
-  await expect(output).toHaveText(
-    '0 of 2,000: up to 0.13% is still plausible.',
-  );
-  await expect(slider).toHaveAttribute(
-    'aria-valuetext',
-    '2,000 alleles tested, none carry it, up to 0.13 percent',
-  );
-  await expect(why.locator('[data-count-n]')).toHaveText('2,000');
-  await expect
-    .poll(async () => (await bar.boundingBox())!.width)
-    .toBeLessThan(wide / 4);
-  // Never nothing: a 2 px bar at least.
-  expect((await bar.boundingBox())!.width).toBeGreaterThanOrEqual(1.9);
-
-  // The control and the bar it moves are on screen together.
-  const viewport = page.viewportSize()!;
-  for (const target of [slider, output, bar]) {
-    const box = (await target.boundingBox())!;
-    expect(box.y).toBeGreaterThanOrEqual(0);
-    expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
-  }
-});
-
-// The closing band sits on the calls-to-action grid: 2 × 2 cards (never 3 + 1) until there is room
-// for one row of four at 80rem, and the field ends where the last card ends, inside that card's
-// column (design review, rounds 1 and 2). The field is small: about half its round-1 size.
-test('the open field lines up with the calls to action below it @desktop-chromium', async ({
-  page,
-}) => {
-  for (const width of [960, 1024, 1180, 1200, 1279, 1280, 1440, 1920]) {
-    await page.setViewportSize({ width, height: 900 });
-    await page.goto('/');
-    const field = (await page.locator('.of-stage svg').boundingBox())!;
-    const ctas = await page
-      .locator('.home-open__routes .github-cta')
-      .evaluateAll((links) =>
-        links.map((link) => link.getBoundingClientRect().toJSON()),
-      );
-    expect(ctas, `${width}`).toHaveLength(4);
-    const rows = new Set(ctas.map((cta) => Math.round(cta.top))).size;
-    expect(rows, `${width} rows`).toBe(width >= 1280 ? 1 : 2);
-    const last = ctas[3];
-    expect(
-      Math.abs(field.x + field.width - last.right),
-      `${width} right`,
-    ).toBeLessThan(1.5);
-    expect(field.x, `${width} left`).toBeGreaterThanOrEqual(last.left - 1.5);
-    expect(field.width, `${width} size`).toBeLessThanOrEqual(360);
-  }
-  // One range style on the site: Home's counts slider is Project's.
-  await expect(
-    page.getByRole('slider', { name: 'Alleles tested in B' }),
-  ).toHaveCSS('appearance', 'none');
 });
