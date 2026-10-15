@@ -38,6 +38,8 @@ export default defineConfig({
         Footer: './src/components/starlight/Footer.astro',
         // #454: the site's lockup, nav and Atlas link around Starlight's search, and dark only.
         Header: './src/components/starlight/Header.astro',
+        // The site's "Menu +" on the docs phone bar (design critique of the integrated build).
+        MobileMenuToggle: './src/components/starlight/MobileMenuToggle.astro',
         // Round 2 (spec §4.4): the "Docs" kicker above guide titles; a stub until the Docs task.
         PageTitle: './src/components/starlight/PageTitle.astro',
         SocialIcons: './src/components/starlight/SocialIcons.astro',

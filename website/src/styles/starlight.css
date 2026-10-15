@@ -377,8 +377,8 @@ select:focus-visible {
 }
 
 /* ---------- square controls, as on the site (spec §2.4) ----------
-   The search field, its key hint and the phone's menu button, which is an outlined square on the
-   dark bar in both themes rather than a white disc. */
+   The search field and its key hint. The phone's menu button is the site's "Menu +"
+   (MobileMenuToggle.astro). */
 button[data-open-modal],
 button[data-open-modal] > kbd {
   border-radius: 0;
@@ -390,17 +390,12 @@ button[data-open-modal] > kbd {
   }
 }
 
-.sl-menu-button {
-  border: 1px solid rgb(112 230 255 / 42%);
-  border-radius: 0;
-  background-color: #020712;
-  color: #f2f8ff;
-  box-shadow: none;
-}
-
-.sl-menu-button:has(~ :popover-open) {
-  border-color: #70e6ff;
-  background-color: #071831;
+/* The bar keeps room for "Menu +" at its right edge (Starlight reserves a 2rem disc), and the
+   lockup gives way on the narrowest phones, as the site's does (global.css). */
+@media (max-width: 49.99rem) {
+  [data-has-sidebar] header.header {
+    padding-inline-end: calc(var(--sl-nav-gap) + var(--sl-nav-pad-x) + 4.6rem);
+  }
 }
 
 /* ---------- the bar ---------- */

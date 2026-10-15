@@ -5,7 +5,13 @@
  * Contact · GitHub, Docs current) shows from 72em; below that the sidebar's "Explore the site" group
  * carries the page links. GitHub shows from 50em, where the sidebar stops being the mobile menu
  * (whose footer carries the social icons), so the repository is one click away at every width.
- * The Atlas link is a quiet outline: the aurora pill stays the site's.
+ *
+ * The Atlas link is the site header's pill (design critique of the integrated build: the docs bar
+ * had a plain outline with no globe, no arrow and no glow): the same markup as SiteHeader.astro's
+ * .launch-atlas-cta, a black pill in an aurora rim with the globe and the arrow, and its aurora
+ * held still where the site's comes to rest (no motion on the docs), in the site's compact form
+ * where the nav first shows (72em to 87rem), as the site sets it there. The phone bar's menu is the
+ * site's "Menu +" (MobileMenuToggle.astro).
  *
  * Design review, round 2: it reads in the site header's order and type, so going from a site page
  * to Docs the primary nav neither jumps across the row nor changes weight: the lockup, the nav
@@ -33,7 +39,7 @@
  * toggle's room first (spec §1.1, plan T6), so it sheds its key hint a little sooner than before.
  * Where the whole nav first shows (72em to 78em) even the bare magnifier and the toggle had no room
  * left, so there the row's gaps close to half a rem (the lockup keeping its slot, so the nav stands
- * where the site's does) and the Atlas link takes the site pill's 0.94rem type. Nothing in the nav
+ * where the site's does) and the Atlas link takes the site pill's compact form. Nothing in the nav
  * moves or goes.
  */
 import Search from '@astrojs/starlight/components/Search.astro';
@@ -42,6 +48,7 @@ import GitHubLink from '../GitHubLink.astro';
 import ThemeSelect from './ThemeSelect.astro';
 import EncodingStyle from '../kit/EncodingStyle.astro';
 import { PRIMARY_NAV } from '../../data/nav';
+import { FAVICON_SVG } from '../../lib/favicons';
 import { sitePath } from '../../lib/paths';
 import '../../styles/tokens.css';
 ---
@@ -81,7 +88,24 @@ import '../../styles/tokens.css';
     <ThemeSelect place="header" />
   </div>
   <a class="docs-header__atlas print:hidden" href={sitePath('/app/')}>
-    <span class="brand-name">genomeOS</span> Atlas
+    <img
+      class="docs-header__atlas-mark"
+      src={sitePath(FAVICON_SVG)}
+      alt=""
+      width="22"
+      height="22"
+    />
+    <span class="docs-header__atlas-label">
+      <span class="brand-name">genomeOS</span> Atlas
+    </span>
+    <svg
+      class="docs-header__atlas-arrow"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M5 12h13M13 6l6 6-6 6"></path>
+    </svg>
   </a>
 </div>
 <EncodingStyle />
@@ -181,27 +205,111 @@ import '../../styles/tokens.css';
       fill: currentColor;
     }
 
+    /* The site's pill (global.css .launch-atlas-cta) in the compact form the site's header takes
+       where its nav first shows (72.01rem to 87rem): the globe, the label and no arrow, a black fill
+       in an aurora rim, and the aurora's glow held still round it, where the site's comes to rest.
+       A shadow, not the site's blurred curtains, which would reach past the bar's row. */
     .docs-header__atlas {
+      position: relative;
+      isolation: isolate;
       display: none;
       flex: none;
       align-items: center;
+      gap: 0.4rem;
       min-height: 2.5rem;
-      padding: 0.35rem 0.95rem;
-      border: 1px solid rgb(112 230 255 / 42%);
+      padding: 0.55rem 0.75rem 0.55rem 0.5rem;
       border-radius: 999px;
-      color: var(--sl-color-white);
-      font-size: var(--sl-text-sm);
-      font-weight: 650;
+      box-shadow:
+        -0.55rem 0 1.1rem -0.2rem rgb(114 231 193 / 42%),
+        0 0 1.1rem -0.1rem rgb(18 255 255 / 30%),
+        0.55rem 0 1.1rem -0.2rem rgb(138 92 255 / 42%);
+      color: #f2f8ff;
+      font-size: 0.84rem;
+      font-weight: 720;
+      line-height: 1;
       text-decoration: none;
       white-space: nowrap;
+      transition:
+        transform 220ms cubic-bezier(0.2, 0.75, 0.25, 1),
+        box-shadow 260ms ease;
     }
 
-    .docs-header__atlas:hover {
-      border-color: var(--sl-color-accent);
+    .docs-header__atlas::before {
+      position: absolute;
+      z-index: -1;
+      inset: 0;
+      border: 1px solid transparent;
+      border-radius: inherit;
+      background:
+        linear-gradient(#000, #000) padding-box,
+        linear-gradient(
+            100deg,
+            rgb(114 231 193 / 70%),
+            rgb(18 255 255 / 45%),
+            rgb(138 92 255 / 70%)
+          )
+          border-box;
+      content: '';
     }
 
-    .docs-header__atlas .brand-name {
-      margin-right: 0.3em;
+    .docs-header__atlas:hover,
+    .docs-header__atlas:focus-visible {
+      transform: translateY(-1px);
+      box-shadow:
+        -0.6rem 0 1.3rem -0.1rem rgb(114 231 193 / 55%),
+        0 0 1.3rem 0 rgb(18 255 255 / 40%),
+        0.6rem 0 1.3rem -0.1rem rgb(138 92 255 / 55%);
+    }
+
+    .docs-header__atlas-mark {
+      flex: none;
+      width: 1.2rem;
+      height: 1.2rem;
+    }
+
+    .docs-header__atlas-label .brand-name {
+      font-weight: 400;
+    }
+
+    /* The arrow shows where the bar has room for the site's whole pill (below). */
+    .docs-header__atlas-arrow {
+      display: none;
+      flex: none;
+      width: 1rem;
+      height: 1rem;
+      fill: none;
+      stroke: #70e6ff;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 2.2;
+      transition: transform 220ms cubic-bezier(0.2, 0.75, 0.25, 1);
+    }
+
+    .docs-header__atlas:hover .docs-header__atlas-arrow,
+    .docs-header__atlas:focus-visible .docs-header__atlas-arrow {
+      transform: translateX(3px);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .docs-header__atlas,
+      .docs-header__atlas-arrow {
+        transition: none;
+      }
+    }
+
+    @media (forced-colors: active) {
+      .docs-header__atlas {
+        box-shadow: none;
+      }
+
+      .docs-header__atlas::before {
+        border-color: ButtonText;
+        background: Canvas;
+      }
+
+      .docs-header__atlas-arrow {
+        stroke: ButtonText;
+      }
     }
 
     @media (min-width: 50em) {
@@ -255,9 +363,29 @@ import '../../styles/tokens.css';
       .docs-header__home {
         margin-inline-end: calc((3.6rem - 2.6rem) * 1395 / 300 + 0.75rem);
       }
+    }
 
+    /* The site's whole pill, with its arrow, where Search keeps its label and key hint beside it:
+       with only GitHub in the nav (56em to 72em), and once the bar is wide again (from 92em). */
+    @media (56em <= width < 72em), (min-width: 92em) {
       .docs-header__atlas {
-        font-size: 0.94rem;
+        padding-right: 0.95rem;
+      }
+
+      .docs-header__atlas-arrow {
+        display: block;
+      }
+    }
+
+    /* A phone bar: the lockup gives way so Search and "Menu +" keep their room (the site's phone
+       header does the same, global.css). */
+    @media (max-width: 49.99em) {
+      .docs-header__lockup {
+        width: min(
+          calc(2rem * 1395 / 300),
+          100vw - 2 * var(--sl-nav-pad-x) - 9.6rem
+        );
+        height: auto;
       }
     }
   }

@@ -1,0 +1,71 @@
+---
+/**
+ * The docs phone menu button (design critique of the integrated build: the docs bar showed a
+ * square hamburger where every site page shows "Menu +"). Starlight's own toggle, with the site's
+ * face: the word "Menu" and an ion "+", "−" while the sidebar is open (global.css,
+ * .mobile-nav summary). It still opens Starlight's sidebar popover, which carries the docs pages and
+ * the "Explore the site" group, and it keeps Starlight's place on the bar: fixed at its right edge,
+ * outside header.header (starlight.css reserves its width there). Its name is its visible word.
+ */
+---
+
+<button
+  popovertarget="starlight__sidebar"
+  class="sl-menu-button sl-flex md:sl-hidden print:hidden"
+>
+  <span class="docs-menu__label">Menu</span>
+</button>
+
+<style>
+  @layer starlight.core {
+    button {
+      position: fixed;
+      top: calc((var(--sl-nav-height) - 2.75rem) / 2);
+      inset-inline-end: var(--sl-nav-pad-x);
+      z-index: var(--sl-z-index-navbar);
+      align-items: center;
+      min-height: 2.75rem;
+      padding: 0 0.15rem;
+      border: 0;
+      background: none;
+      color: #f2f8ff;
+      font: inherit;
+      font-size: 1rem;
+      font-weight: 650;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    button::after {
+      margin-left: 0.5rem;
+      color: #70e6ff;
+      /* Decoration: the alternative text keeps it out of the name. */
+      content: '+' / '';
+    }
+
+    button:has(~ :popover-open)::after {
+      content: '−' / '';
+    }
+
+    @media (forced-colors: active) {
+      button,
+      button::after {
+        color: ButtonText;
+      }
+    }
+  }
+</style>
+
+<style is:global>
+  @layer starlight.core {
+    body:has(#starlight__sidebar:popover-open) {
+      overflow: hidden;
+    }
+
+    @media (min-width: 50rem) {
+      body:has(#starlight__sidebar:popover-open) {
+        overflow: auto;
+      }
+    }
+  }
+</style>
