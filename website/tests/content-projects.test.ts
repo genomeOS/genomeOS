@@ -216,6 +216,27 @@ describe('projects page content', () => {
     expect(project).not.toContain('data-status="not-validated"');
   });
 
+  it('replays the Pipeline from a glyph with a hidden name, never visible “Replay” (ruling 35)', () => {
+    const pipeline = figure('pipeline');
+    const [button, inner] = pipeline.match(
+      /<button\b[^>]*data-pipeline-replay[^>]*>([\s\S]*?)<\/button>/,
+    )!;
+    expect(button).toContain('kit-scene-control');
+    expect(inner).toMatch(/<svg\b[^>]*aria-hidden="true"/);
+    expect(inner).toMatch(
+      /<span class="visually-hidden">Replay the pipeline animation<\/span>/,
+    );
+    // No button on the page shows Pause, Play, Replay or Resume as text.
+    const shown = [...project.matchAll(/<button\b[^>]*>([\s\S]*?)<\/button>/g)]
+      .map(([, html]) =>
+        text(
+          html.replace(/<span class="visually-hidden">[\s\S]*?<\/span>/g, ''),
+        ).trim(),
+      )
+      .filter((label) => /\b(Pause|Play|Replay|Resume)\b/.test(label));
+    expect(shown).toEqual([]);
+  });
+
   it('names the model plainly and describes the gate as R2-14 asks', () => {
     // "Machine learning" under Frequency modeling (round 2 spec §4.2.6), so Home's "Build AI
     // models" step has a visible referent here.

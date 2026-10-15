@@ -9,7 +9,8 @@
  * that fits it at any viewport). Each layout is about 1 unit per CSS px at its narrowest width, so
  * labels stay 13 px or more. The island
  * (pipeline.ts) adds packets, focus, the 3 ↔ 6 morph and Replay; `variant="links"` ships no
- * script at all, and its caption is the page's figure legend (the `caption` slot).
+ * script at all, and its caption is the page's figure legend (the `caption` slot). Replay is a
+ * white glyph in SceneControls' style with a visually hidden name, never visible text (ruling 35).
  *
  * Two lanes that never join: measured studs bypass every model and the gate and reach the map at
  * its upper port; on the modeled lane a stud becomes a hex only on leaving a model node. No
@@ -216,11 +217,14 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
           />
         )}
         <button
-          class="kit-text-button kit-pipeline__replay"
+          class="kit-scene-control kit-pipeline__replay"
           type="button"
           data-pipeline-replay
         >
-          Replay
+          <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+            <path d="M10 3.4a6.6 6.6 0 1 1-6.43 8.08l1.95-.45A4.6 4.6 0 1 0 10 5.4H8.6v2.3L4.4 4.4 8.6 1.1v2.3z" />
+          </svg>
+          <span class="visually-hidden">Replay the pipeline animation</span>
         </button>
       </Fragment>
     )

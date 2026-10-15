@@ -720,9 +720,18 @@ const sample = (() => {
               { value: 'b', label: 'Second' },
             ]}
           />
-          <button class="kit-text-button" type="button" style="margin-left:auto"
-            >Replay</button
+          <button
+            class="kit-scene-control"
+            type="button"
+            style="margin-left:auto"
           >
+            <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+              <path
+                d="M10 3.4a6.6 6.6 0 1 1-6.43 8.08l1.95-.45A4.6 4.6 0 1 0 10 5.4H8.6v2.3L4.4 4.4 8.6 1.1v2.3z"
+              ></path>
+            </svg>
+            <span class="visually-hidden">Replay the example</span>
+          </button>
         </Fragment>
         <div class="devkit-plate-stage"></div>
         <Fragment slot="caption"
