@@ -1319,9 +1319,15 @@
 
 /* Four lines reserved, with the box's 1 px borders: an area's readout sets its four facts (share,
    range, frequency, distance) one a line (hbs-map.ts readoutLines), and the panel must not grow
-   under the pointer. */
+   under the pointer. In the side panel (from 75em) the range's line wraps once, so five. */
 .hbs > .hbs__readout {
   min-height: calc(4 * 1.45em + 1.3rem + 2px);
+}
+
+@media (min-width: 75.01em) {
+  .hbs > .hbs__readout {
+    min-height: calc(5 * 1.45em + 1.3rem + 2px);
+  }
 }
 
 .hbs__line {
@@ -1436,19 +1442,15 @@
   line-height: 1.4;
 }
 
-/* The threshold sits in a box as wide as the shown genotype's widest stop ("20%" and "80%", 2.1em
-   in tabular figures; SS's "0.5%", 2.3em), so the words after it never move as the slider moves
-   (ruling 36: no layout shift); left-aligned, so the sentence reads on from "where" without a hole
+/* The threshold sits in a box as wide as its widest stop ("0.5%", 2.3em in tabular figures), so
+   the words after it never move as the slider or the genotype changes (ruling 36: no layout
+   shift); left-aligned, so the sentence reads on from "where" without a hole before the number
    (design critique of the integrated build). */
 .hbs__slider-label output {
   display: inline-block;
-  min-width: 2.1em;
+  min-width: 2.3em;
   text-align: left;
   font-variant-numeric: lining-nums tabular-nums;
-}
-
-.hbs[data-hbs-genotype='SS'] .hbs__slider-label output {
-  min-width: 2.3em;
 }
 
 /* The slider itself is the site's range control (.kit-range, global.css). */
@@ -2515,9 +2517,9 @@
   }
 }
 
-/* Three over two, the second row filling the width (six tracks: three cards of two, two of three),
-   then all five in one row once they fit (design critique of the integrated build: 3 + 2 left a
-   hole at 1024 px and up). */
+/* Three over two, the second row filling the width (six tracks: three cards of two, two of three;
+   design critique of the integrated build: 3 + 2 left a hole at 1024 px and up). Link rows keep to
+   two to four columns (spec §2.4). */
 @media (min-width: 56em) {
   .proj-links {
     grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -2530,18 +2532,6 @@
 
   .proj-links > :nth-child(n + 4) {
     grid-column: span 3;
-  }
-}
-
-@media (min-width: 66em) {
-  .proj-links {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-
-  .proj-links > li,
-  .proj-links > :first-child,
-  .proj-links > :nth-child(n + 4) {
-    grid-column: auto;
   }
 }
 

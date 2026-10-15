@@ -15,9 +15,9 @@
  *            total marked "not deduplicated", and "How we count" behind a disclosure
  *
  * The totals are static text, so a total never reads as zero on screen, in a screenshot or to a
- * screen reader. Nothing here moves or loads data; the still loads lazily as an AVIF or WebP sized
- * to its column. It replaces round 2's chapter opener and its Purpose · Process · Status chips:
- * the section rows below are the chapter's navigation now.
+ * screen reader. Nothing here moves or loads data; the still loads lazily as a WebP sized to its
+ * column (an AVIF of this screenshot came out larger). It replaces round 2's chapter opener and its
+ * Purpose · Process · Status chips: the section rows below are the chapter's navigation now.
  */
 import { Picture } from 'astro:assets';
 
@@ -82,10 +82,11 @@ const FACTS = [
     <Picture
       class="atlas-ov__still"
       src={atlasStill}
-      formats={['avif', 'webp']}
-      widths={[560, 800, 1120, 1600]}
+      formats={['webp']}
+      fallbackFormat="webp"
+      widths={[560, 840, 1120, 1600]}
       sizes="(min-width: 52rem) 56vw, 100vw"
-      quality={60}
+      quality={72}
       loading="lazy"
       decoding="async"
       alt="The genomeOS Atlas showing the sickle-cell variant HbS on a globe of Africa, Europe and western Asia: a teal surface, brightest across West, Central and East Africa, with its color key from 0.08% to 17.3%."

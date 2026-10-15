@@ -233,13 +233,13 @@ describe('projects page content', () => {
       /<a class="atlas-open" href="\/app\/">[\s\S]*?Open the <span class="brand-name">genomeOS<\/span> Atlas/,
     );
     // The one visual is the product itself (design critique of the integrated build): a still of
-    // the live Atlas on its HbS map, an AVIF or WebP sized to its column, loaded lazily, described in
+    // the live Atlas on its HbS map, a WebP sized to its column, loaded lazily, described in
     // its alt text; not the index's mark again.
     const visual = overviewHtml().match(
       /<figure class="atlas-ov__visual"[\s\S]*?<\/figure>/,
     )![0];
-    expect(visual).toMatch(/<source[^>]*type="image\/avif"/);
     expect(visual).toMatch(/<source[^>]*type="image\/webp"/);
+    expect(visual).not.toMatch(/\.png\b/);
     const still = visual.match(/<img\b[^>]*>/)![0];
     expect(still).toContain('loading="lazy"');
     expect(still).toMatch(

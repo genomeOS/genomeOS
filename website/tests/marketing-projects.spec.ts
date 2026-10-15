@@ -189,8 +189,9 @@ test('the cell frame names the pressed allele pair, so AS after AA changes it', 
   await expect(figure.getByRole('slider')).toHaveCSS('appearance', 'none');
 });
 
-// Five links in equal cards, three over two (link rows set in 2–4 columns, spec §2.4), never a
-// wide card plus odd ones (design review, round 1).
+// Five links three over two (link rows set in 2–4 columns, spec §2.4), never a wide card plus odd
+// ones (design review, round 1): equal cards in each row, and every row fills the width, so no hole
+// is left beside the last two (design critique of the integrated build).
 test('the follow-the-work links are equal cards in whole rows @desktop-chromium', async ({
   page,
 }) => {
@@ -203,13 +204,24 @@ test('the follow-the-work links are equal cards in whole rows @desktop-chromium'
         items.map((item) => item.getBoundingClientRect().toJSON()),
       );
     expect(boxes, `${width}`).toHaveLength(5);
-    for (const box of boxes)
-      expect(Math.abs(box.width - boxes[0].width), `${width}`).toBeLessThan(1);
-    const rows = [...new Set(boxes.map((box) => Math.round(box.top)))];
-    const perRow = rows.map(
-      (top) => boxes.filter((box) => Math.round(box.top) === top).length,
+    const rows = [...new Set(boxes.map((box) => Math.round(box.top)))].map(
+      (top) => boxes.filter((box) => Math.round(box.top) === top),
     );
-    expect(perRow, `${width}`).toEqual([3, 2]);
+    expect(
+      rows.map((row) => row.length),
+      `${width}`,
+    ).toEqual([3, 2]);
+    for (const row of rows) {
+      for (const box of row)
+        expect(Math.abs(box.width - row[0].width), `${width}`).toBeLessThan(1);
+      expect(Math.abs(row[0].left - rows[0][0].left), `${width}`).toBeLessThan(
+        1,
+      );
+      expect(
+        Math.abs(row.at(-1)!.right - rows[0].at(-1)!.right),
+        `${width}`,
+      ).toBeLessThan(1);
+    }
   }
 });
 
@@ -337,9 +349,10 @@ test(
   },
 );
 
-// Design review, round 2: the map sat in a hard black well with empty corners, its bottom about
-// 140 px below the genotype column. It sits open on the band, like the hero globe, and the
-// genotypes, the map and the side panel share one top and one bottom.
+// Design review, round 2: the map sat in a hard black well with empty corners. It sits open on the
+// band, like the hero globe, and the genotypes, the map and the side panel share one top. Design
+// critique of the integrated build: stretched to the map's height, the genotype frame was a
+// 216 × 530 px dark panel around a 140 px cell; it is square, its buttons right under it.
 test(
   'the HbS map sits open on its band, level with the genotypes and the side panel',
   { tag: '@desktop-chromium' },
@@ -356,14 +369,22 @@ test(
           .locator(selector)
           .first()
           .evaluate((element) => element.getBoundingClientRect().toJSON());
-      const [stage, triad, choices] = await Promise.all(
-        ['.hbs__map', '.triad', '.triad__choices'].map(box),
+      const [stage, triad, frame, choices] = await Promise.all(
+        ['.hbs__map', '.triad', '.triad__frame', '.triad__choices'].map(box),
       );
       expect(Math.abs(triad.top - stage.top), `${width} top`).toBeLessThan(1.5);
       expect(
-        Math.abs(choices.bottom - stage.bottom),
-        `${width} bottom`,
+        Math.abs(frame.width - frame.height),
+        `${width} square frame`,
       ).toBeLessThan(1.5);
+      expect(
+        choices.top - frame.bottom,
+        `${width} buttons under it`,
+      ).toBeLessThan(24);
+      expect(
+        choices.bottom,
+        `${width} no taller than the map`,
+      ).toBeLessThanOrEqual(stage.bottom + 1.5);
       if (width > 1200) {
         const [tool, legend] = await Promise.all(
           [':scope > .hbs__controls', '.hbs__legend'].map(box),
@@ -622,6 +643,8 @@ test('the HbS count sets each clause whole, on a line of its own', async ({
 // Round 2 (spec §4.2, §11.2): the index and chapter, people in the HbS readouts, the counts
 // figure in people, and the application cards that moved here from Home.
 
+// Design critique of the integrated build: a compact list, no Open button and no "Read more"; the
+// Atlas's name leads to its chapter, whose picture, the live Atlas, shows on a laptop's first screen.
 test('the project index opens above the fold, and its links go where they say', async ({
   page,
 }, info) => {
@@ -632,14 +655,18 @@ test('the project index opens above the fold, and its links go where they say', 
     (element) => element.getBoundingClientRect().top,
   );
   expect(top).toBeLessThan(fold);
-  await expect(page.locator('h1')).toHaveText('What we’re building');
-  await expect(
-    index.getByRole('link', { name: 'Open the Atlas' }),
-  ).toHaveAttribute('href', '/app/');
+  await expect(page.locator('h1')).toHaveText('What we’re building.');
+  await expect(index.getByRole('link')).toHaveCount(2);
   await expect(
     index.getByRole('link', { name: /Share an idea/ }),
   ).toHaveAttribute('target', '_blank');
-  await index.getByRole('link', { name: /Read more/ }).click();
+  if (info.project.name === 'desktop-chromium')
+    expect(
+      await page
+        .locator('.atlas-ov__still')
+        .evaluate((still) => still.getBoundingClientRect().top),
+    ).toBeLessThan(page.viewportSize()!.height);
+  await index.getByRole('link', { name: 'genomeOS Atlas' }).click();
   await expect(page).toHaveURL(/#atlas$/);
   await expect(
     page.getByRole('heading', { level: 2, name: 'genomeOS Atlas' }),
@@ -1034,7 +1061,21 @@ test('the Atlas chapter opens on an overview: the essentials in about 80 words, 
     overview.getByRole('link', { name: 'Open the genomeOS Atlas' }),
   ).toHaveAttribute('href', '/app/');
   await expect(overview.locator('data')).toHaveText(['4,392', '6.69M', '2']);
-  await expect(overview.getByText('Measured survey')).toBeVisible();
+  // The one picture is the product itself, loaded and drawn (design critique of the integrated
+  // build), not the index's mark again.
+  const still = overview.locator('.atlas-ov__still');
+  await still.scrollIntoViewIfNeeded();
+  await expect
+    .poll(() =>
+      still.evaluate(
+        (image: HTMLImageElement) => image.complete && image.naturalWidth > 0,
+      ),
+    )
+    .toBe(true);
+  await expect(still).toHaveAccessibleName(
+    /^The genomeOS Atlas showing the sickle-cell variant HbS/,
+  );
+  await expect(overview.locator('.atlas-mark')).toHaveCount(0);
   // "How we count" stays folded: its definition is there for whoever asks.
   const method = overview.locator('details');
   await expect(method).toHaveJSProperty('open', false);
@@ -1722,6 +1763,19 @@ test(
     expect(point).not.toBeNull();
     await page.mouse.move(point!.x, point!.y);
     await expect(readout).toHaveText(/^Modeled: AS in about/);
+    // One fact a line, no separator on screen (design critique of the integrated build).
+    const lines = readout.locator('.hbs__line');
+    await expect(lines).toHaveCount(4);
+    const tops = await lines.evaluateAll((items) =>
+      items.map((item) => item.getBoundingClientRect().top),
+    );
+    for (let index = 1; index < tops.length; index += 1)
+      expect(tops[index]).toBeGreaterThan(tops[index - 1]);
+    await expect(readout.locator('.visually-hidden')).toHaveText([
+      '·',
+      '·',
+      '·',
+    ]);
     expect((await readout.boundingBox())!.height).toBe(idle);
     expect((await figure.locator('.hbs__legend').boundingBox())!.y).toBe(
       legend,

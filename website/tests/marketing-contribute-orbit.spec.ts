@@ -540,21 +540,21 @@ test.describe('the orbit scene @desktop-chromium', () => {
     page,
   }) => {
     // A short window: at the top only the stage's top shows, under 150 px of it.
-    await page.setViewportSize({ width: 1440, height: 600 });
+    await page.setViewportSize({ width: 1440, height: 520 });
     await openOrbit(page);
     const figure = page.locator(FIGURE);
     const stageTop = () =>
       figure
         .locator('[data-figure-stage]')
         .evaluate((stage) => stage.getBoundingClientRect().top);
-    expect(600 - (await stageTop())).toBeLessThan(150);
+    expect(520 - (await stageTop())).toBeLessThan(150);
     await page.waitForTimeout(1200);
     await expect(figure).toHaveAttribute('data-scene-state', 'armed');
     expect(await page.evaluate(() => window.__motion!.time('orbit'))).toBe(0);
     // 140 px of the stage: still waiting.
     await page.evaluate(
       (by) => window.scrollBy({ top: by, behavior: 'instant' }),
-      (await stageTop()) - 460,
+      (await stageTop()) - 380,
     );
     await page.waitForTimeout(600);
     await expect(figure).toHaveAttribute('data-scene-state', 'armed');
@@ -762,7 +762,7 @@ test.describe('the orbit scene @desktop-chromium', () => {
     page,
   }) => {
     // Only the stage's top on the first screen, so the scene waits there, armed.
-    await page.setViewportSize({ width: 1440, height: 600 });
+    await page.setViewportSize({ width: 1440, height: 520 });
     await page.addInitScript(() => {
       const paints: NonNullable<Window['__orbitPaints']> = [];
       window.__orbitPaints = paints;
@@ -802,7 +802,7 @@ test.describe('the orbit scene @desktop-chromium', () => {
     // still being created when the head script looks at 1,200 ms. Idle callbacks wait until
     // 1.6 s here, so the build ends well after that check. Only the stage's top shows, so the
     // scene then waits, armed.
-    await page.setViewportSize({ width: 1440, height: 600 });
+    await page.setViewportSize({ width: 1440, height: 520 });
     await page.addInitScript(() => {
       const idle = window.requestIdleCallback.bind(window);
       window.requestIdleCallback = (callback, options) =>
@@ -1401,7 +1401,7 @@ test.describe('the orbit scene reached by its columns', () => {
     // A window short enough that at the top under 150 px of the stage shows.
     await page.setViewportSize({
       width: page.viewportSize()!.width,
-      height: 600,
+      height: 520,
     });
     await openOrbit(page);
     const figure = page.locator(FIGURE);
