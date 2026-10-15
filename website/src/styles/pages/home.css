@@ -591,12 +591,19 @@
   display: none;
 }
 
+/* The caption names only the people drawn: one sentence per layout, the other hidden with it. */
+.crew__caption[data-layout='wide'] {
+  display: none;
+}
+
 @container crew (min-width: 34rem) {
-  .crew__layout[data-layout='wide'] {
+  .crew__layout[data-layout='wide'],
+  .crew__caption[data-layout='wide'] {
     display: block;
   }
 
-  .crew__layout[data-layout='narrow'] {
+  .crew__layout[data-layout='narrow'],
+  .crew__caption[data-layout='narrow'] {
     display: none;
   }
 }

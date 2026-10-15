@@ -585,6 +585,23 @@ test('the crew hops in one by one, then rests', async ({ page }, info) => {
   expect(await differingShare(page, end, await served(figure))).toBe(0);
 });
 
+test('the crew is named for the people drawn: four on a wide figure, three on a phone', async ({
+  page,
+  isMobile,
+}) => {
+  await page.goto('/');
+  const stage = crew(page).locator('[data-figure-stage]');
+  await expect(stage).toHaveAccessibleName(
+    isMobile
+      ? 'Three people at work: a coder, an expert thinking and a data person, with an empty spot for you.'
+      : 'Four people at work: a coder, a builder, an expert thinking and a data person, with an empty spot for you.',
+  );
+  const drawn = await shown(crew(page), '.crew__layout')
+    .locator('.crew__member')
+    .count();
+  expect(drawn).toBe(isMobile ? 3 : 4);
+});
+
 test('focusing each card fills "Your spot", and moving on empties it', async ({
   page,
 }) => {

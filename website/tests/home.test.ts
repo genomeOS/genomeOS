@@ -174,9 +174,42 @@ describe('homepage figures', () => {
     )![0];
     expect(crew).toContain('data-kind="mechanism"');
     expect(crew).toMatch(/role="img" aria-labelledby="crew-caption"/);
-    expect(crew).toMatch(
-      /<figcaption class="visually-hidden" id="crew-caption">Four people at work: a coder, a builder, an expert thinking and a data person, with an empty spot for you\.<\/figcaption>/,
-    );
+    // One caption per layout, each naming only the people that layout draws; CSS hides the other.
+    const caption = crew.match(
+      /<figcaption class="visually-hidden" id="crew-caption">([\s\S]*?)<\/figcaption>/,
+    )![1];
+    expect(
+      [
+        ...caption.matchAll(
+          /<span class="crew__caption" data-layout="(\w+)">\s*([^<]+?)\s*<\/span>/g,
+        ),
+      ].map(([, layout, text]) => [layout, text]),
+    ).toEqual([
+      [
+        'wide',
+        'Four people at work: a coder, a builder, an expert thinking and a data person, with an empty spot for you.',
+      ],
+      [
+        'narrow',
+        'Three people at work: a coder, an expert thinking and a data person, with an empty spot for you.',
+      ],
+    ]);
+    for (const [layout, casts] of [
+      ['wide', ['A2', 'A6', 'E3', 'A4']],
+      ['narrow', ['A2', 'E3', 'A4']],
+    ] as const) {
+      const drawn = crew.match(
+        new RegExp(
+          `<div class="crew__layout" data-layout="${layout}">[\\s\\S]*?class="crew__newcomer"`,
+        ),
+      )![0];
+      expect(
+        [...drawn.matchAll(/class="crew__member" data-cast="(\w+)"/g)].map(
+          ([, cast]) => cast,
+        ),
+        layout,
+      ).toEqual(casts);
+    }
     for (const svg of crew.match(/<svg\b[^>]*class="crew__svg"[^>]*>/g)!)
       expect(svg).toContain('aria-hidden="true"');
     expect(crew).toMatch(/<p class="crew__label" aria-hidden="true"/);

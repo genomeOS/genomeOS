@@ -9,6 +9,10 @@
  *   wide    (figure ≥ 34rem, a container query) viewBox 880 units wide, astronauts at 0.9
  *   narrow  viewBox 420 units: the coder, the expert, the data person and the spot
  *
+ * The visually hidden caption that names the stage holds one sentence per layout, each naming only
+ * the people that layout draws; the container query hides the other (display: none), so neither
+ * the stage's name nor a screen reader's reading includes a person who is not drawn.
+ *
  * The label is HTML, so it keeps its size at any width. Hovering or focusing one of the band's
  * three calls to action fills the spot: a newcomer (A8) lands in it, waving (pages/index.astro sets
  * `data-filled`; the landing is a CSS transition, instant under reduced motion). crew.ts plays the
@@ -65,6 +69,8 @@ const layouts = [
   {
     name: 'wide',
     width: 880,
+    caption:
+      'Four people at work: a coder, a builder, an expert thinking and a data person, with an empty spot for you.',
     members: [
       { ...coder, x: 96 },
       { ...builder, x: 246 },
@@ -76,6 +82,8 @@ const layouts = [
   {
     name: 'narrow',
     width: 420,
+    caption:
+      'Three people at work: a coder, an expert thinking and a data person, with an empty spot for you.',
     members: [
       { ...coder, x: 58 },
       { ...expert, x: 168 },
@@ -114,8 +122,6 @@ const layouts = [
     labelY: `${(((LABEL_TOP - TOP) / (BOTTOM - TOP)) * 100).toFixed(2)}%`,
   };
 });
-const caption =
-  'Four people at work: a coder, a builder, an expert thinking and a data person, with an empty spot for you.';
 ---
 
 <figure class="crew" data-graphic="crew" data-kind="mechanism">
@@ -180,5 +186,13 @@ const caption =
       ))
     }
   </div>
-  <figcaption class="visually-hidden" id="crew-caption">{caption}</figcaption>
+  <figcaption class="visually-hidden" id="crew-caption">
+    {
+      layouts.map((layout) => (
+        <span class="crew__caption" data-layout={layout.name}>
+          {layout.caption}
+        </span>
+      ))
+    }
+  </figcaption>
 </figure>
