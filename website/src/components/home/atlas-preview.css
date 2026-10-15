@@ -184,6 +184,21 @@
   }
 }
 
+/* A desktop from 64rem to 80rem draws the compact globe only as large as its screen leaves room
+   for, centred in the figure, so the globe, its key and the Atlas pill share one screen (design
+   critique 4: at 1024 × 768 the 621 px globe made the figure 1,046 px tall and pushed the pill two
+   screens from the globe's top). The key and the note take about 16rem under the globe and the
+   header 4rem over it; the floor keeps the disc above the labels' smallest (LABEL_MIN_RADIUS).
+   The wide form, from a 36rem figure, already fits; phones and tablets scroll the stack. */
+@media (min-width: 64rem) and (max-width: 80rem) {
+  @container hg (width < 36rem) {
+    .hg-globe {
+      width: min(100%, max(20rem, 100svh - 21.5rem));
+      margin-inline: auto;
+    }
+  }
+}
+
 /* The note: what this is, and the way to the real thing (ruling R2-14): the kit's figure note
    (scenes.css), its sentence beside the large pill. Not a warning. */
 .hg .hg-note {

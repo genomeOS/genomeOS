@@ -1861,6 +1861,65 @@ test('the layer toggle keeps its own width at every size, the Pause glyph 12 px 
   }
 });
 
+// Design critique 4: at 1024 × 768 the compact globe was 621 px, so the globe, its key and the
+// Atlas pill never shared a screen. From 64rem to 80rem it is only as large as the screen allows;
+// 1440 and phones keep their globes.
+test('from 64rem to 80rem the globe, its key and the Atlas pill share one screen @desktop-chromium', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  for (const [width, height] of [
+    [1024, 768],
+    [1180, 820],
+    [1280, 800],
+    [1440, 900],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await page.goto('/');
+    const figure = await livePreview(page);
+    const fit = await figure.evaluate((element) => {
+      const box = (selector: string) =>
+        (element.querySelector(selector) ??
+          document.querySelector(selector))!.getBoundingClientRect();
+      const globe = box('.hg-globe');
+      const stage = box('.kit-figure__stage');
+      return {
+        span: box('.atlas-open').bottom - globe.top,
+        room: innerHeight - box('[data-site-header]').height,
+        globe: globe.width,
+        stage: stage.width,
+        centred: Math.abs(
+          globe.left + globe.width / 2 - (stage.left + stage.width / 2),
+        ),
+      };
+    });
+    expect(fit.span, `${width} × ${height}`).toBeLessThanOrEqual(fit.room);
+    expect(fit.centred, `${width} × ${height}`).toBeLessThan(1);
+    // 1440 keeps its wide form: the disc 62.4% of the stage's width.
+    if (width === 1440)
+      expect(Math.abs(fit.globe - fit.stage * 0.624)).toBeLessThan(1);
+  }
+});
+
+test('on a phone the globe still spans the figure @mobile-chromium', async ({
+  page,
+}) => {
+  for (const [width, height] of [
+    [390, 844],
+    [320, 640],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await page.goto('/');
+    const figure = await livePreview(page);
+    const [globe, stage] = await Promise.all(
+      ['.hg-globe', '.kit-figure__stage'].map(
+        async (selector) => (await figure.locator(selector).boundingBox())!,
+      ),
+    );
+    expect(Math.abs(globe.width - stage.width), `${width}`).toBeLessThan(1);
+  }
+});
+
 // Forced colours hide the canvas and show the poster, the Modeled starting view (spec §2.2), so
 // the figure is its poster: nothing turns or switches a hidden canvas. The film's frame is
 // decorative, so the hero's text sits on the system's own background.
