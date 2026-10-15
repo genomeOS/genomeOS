@@ -1,0 +1,39 @@
+---
+/**
+ * The astronaut kit's shared definitions (round 2 spec §3.1): the two-tone gradients and the
+ * per-build visor clips every astronaut references (src/graphics/astro/rig.ts `kitDefs`), plus the
+ * moons' gradients when a scene draws moons. Put one `<KitDefs />` inside each SVG that holds
+ * astronauts, or one `<KitDefs sprite />` per page (a 0 × 0 SVG the whole page can reference: not
+ * `display: none`, where gradients stop painting). The rig's joint rule is in styles/scenes.css.
+ */
+import { moonDefs } from '../../graphics/astro/props';
+import { kitDefs } from '../../graphics/astro/rig';
+
+interface Props {
+  /** Add the moons' gradients. */
+  moons?: boolean;
+  /** Render a page-level sprite instead of a `<defs>` for one SVG. */
+  sprite?: boolean;
+}
+
+const { moons = false, sprite = false } = Astro.props;
+const defs = moons
+  ? kitDefs().replace('</defs>', `${moonDefs()}</defs>`)
+  : kitDefs();
+---
+
+{
+  sprite ? (
+    <svg
+      class="kit-astro-sprite"
+      width="0"
+      height="0"
+      aria-hidden="true"
+      focusable="false"
+      style="position:absolute;width:0;height:0;overflow:hidden"
+      set:html={defs}
+    />
+  ) : (
+    <Fragment set:html={defs} />
+  )
+}
