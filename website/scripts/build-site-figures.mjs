@@ -62,7 +62,13 @@ const REST = { lon: 18, lat: 8 };
 /** "Visible at rest": within this cosine of the view centre (about 69.5°), clear of the limb. */
 const VISIBLE_COSC = 0.35;
 const CALLOUT_SURVEY = { lon: 8, lat: 9, withinKm: 600 };
-const CALLOUT_UNKNOWN = { lon: 70, lat: 45 };
+/**
+ * The No-estimate label's area: the unknown area nearest 45°N 70°E (Central Asia) whose centre is
+ * within `withinDeg` of the view centre at rest. The Atlas preview draws each label on the globe
+ * beside its point and only while the point faces the viewer (round 2 build ruling 23: whole within
+ * 60° of the centre), so every label shows at the starting view and stays a while as the globe turns.
+ */
+const CALLOUT_UNKNOWN = { lon: 70, lat: 45, withinDeg: 55 };
 /**
  * The Modeled callout shows modeling, so it points where no survey is (owner review, round 2: the
  * highest-mean area sat among the Central African studs). Its area faces the viewer at rest (within
@@ -345,8 +351,12 @@ if (surveyCallout.survey.an % 2)
 const visibleGlobe = decodedGlobe
   .map((area, index) => ({ area, index, rest: atRest(...area.center) }))
   .filter(({ rest }) => rest.cosc >= VISIBLE_COSC);
+const unknownFaceOn = Math.cos((CALLOUT_UNKNOWN.withinDeg * Math.PI) / 180);
 const unknownCallout = visibleGlobe
-  .filter(({ area }) => area.support === 'unknown')
+  .filter(
+    ({ area, rest }) =>
+      area.support === 'unknown' && rest.cosc >= unknownFaceOn,
+  )
   .map((candidate) => ({
     ...candidate,
     km: projection.haversineKm(
@@ -441,7 +451,7 @@ const callouts = [
   },
   {
     kind: 'unknown',
-    rule: 'the unknown area nearest 45°N 70°E visible at rest',
+    rule: `the unknown area nearest 45°N 70°E within ${CALLOUT_UNKNOWN.withinDeg}° of the view centre at rest`,
     distance_km: unknownCallout.area.distanceKm,
     area_index: unknownCallout.index,
     ...restPoint(...unknownCallout.area.center),
@@ -579,19 +589,6 @@ const tierShare = Object.fromEntries(
 const BOX = {
   africaToIndia: { west: -20, east: 90, south: -35, north: 47 },
   centralAfrica: { west: 8, east: 32, south: -12, north: 12 },
-  eastAsia: { west: 100, east: 145, south: 20, north: 50 },
-  northernEurasia: { west: 30, east: 180, south: 50, north: 75 },
-  oceania: { west: 110, east: 180, south: -50, north: 0 },
-  americas: { west: -170, east: -30, south: -56, north: 72 },
-};
-const unknownShare = (box) => {
-  const inside = cells.filter((cell) => {
-    const [lat, lon] = cellToLatLng(cell.h3_index);
-    return inBox([lon, lat], box);
-  });
-  return inside.length
-    ? inside.filter((cell) => cell.support === 'unknown').length / inside.length
-    : 0;
 };
 const surveyShare =
   decodedSurveys.filter((survey) =>
@@ -601,33 +598,20 @@ const peak = cells.reduce((best, cell) =>
   cell.post_mean > best.post_mean ? cell : best,
 );
 const [peakLat, peakLon] = cellToLatLng(peak.h3_index);
-const gaps = [
-  ['eastAsia', 'East Asia'],
-  ['northernEurasia', 'northern Eurasia'],
-  ['oceania', 'Oceania'],
-  ['americas', 'the Americas'],
-]
-  .filter(([key]) => unknownShare(BOX[key]) > 0.5)
-  .map(([, name]) => name);
-const list = (names) =>
-  names.length <= 1
-    ? names.join('')
-    : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
-const count = new Intl.NumberFormat('en-GB').format(decodedSurveys.length);
+const count = new Intl.NumberFormat('en-US').format(decodedSurveys.length);
+// The Atlas preview's accessible name (round 2 spec §4.1.5): what it is, then what it shows.
 const alt = [
-  'Globe of the sickle-cell variant HbS.',
-  `White points are ${count} measured surveys${
+  'Preview of the Atlas with sample data: a slowly turning globe of the sickle-cell variant HbS.',
+  `White dots are ${count} measured surveys${
     surveyShare > 0.5
       ? ', most in Africa, the Mediterranean, the Middle East and India'
       : ''
   }.`,
-  `Modeled frequency is highest, about ${Math.round(domain[1] * 100)} percent, in parts of ${
+  `Color shows the modeled frequency, highest, about ${Math.round(domain[1] * 100)} percent, in parts of ${
     inBox([peakLon, peakLat], BOX.centralAfrica) ? 'Central Africa' : 'Africa'
-  }, and fades with distance from surveys.`,
-  gaps.length ? `Much of ${list(gaps)} has no estimate.` : '',
-]
-  .filter(Boolean)
-  .join(' ');
+  }, and fades away from surveys.`,
+  'Stripes mark areas with no estimate.',
+].join(' ');
 
 const topAreas = decodedGlobe
   .map((area, index) => ({ area, index }))

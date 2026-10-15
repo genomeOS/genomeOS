@@ -21,7 +21,7 @@ import {
   STUD_RING,
   vsupColor,
 } from '../src/graphics/encoding';
-import { orthographic } from '../src/graphics/projection';
+import { haversineKm, orthographic } from '../src/graphics/projection';
 
 const website = path.resolve(import.meta.dirname, '..');
 const figures = path.join(website, 'src/data/figures');
@@ -97,6 +97,9 @@ describe('committed figure data', () => {
     expect(surveys).toHaveLength(1071);
     expect(surveys).toHaveLength(artifact.n_observations as number);
     for (const survey of surveys) {
+      // Counted in people on the site (round 2 spec §6.2): HBB is autosomal, so AN is even and
+      // AN / 2 is the number of people tested, exactly.
+      expect(survey.an % 2, `AN ${survey.an}`).toBe(0);
       expect(Object.keys(survey).sort()).toEqual(
         ['ac', 'an', 'lat', 'lon', 'radiusKm'].sort(),
       );
@@ -277,9 +280,54 @@ describe('committed figure data', () => {
     expect(nearest).toBeGreaterThanOrEqual(24);
   });
 
-  it('writes the hero alt text from the data', () => {
+  // R2-16 and round 2 spec §11.1: the Modeled label names modeling, so no survey lies within the
+  // strong tier of its cell (the distance at which a survey would dominate the estimate).
+  it('anchors the Modeled label on an estimated cell with no survey within the strong tier', () => {
+    const modeled = (provenance.callouts as Record<string, unknown>[]).find(
+      (callout) => callout.kind === 'modeled',
+    )!;
+    const area = decodeAreas(file('globe'))[modeled.area_index as number];
+    expect(area.mean).not.toBeNull();
+    const strong = (provenance.tier_limits_km as { strong: number }).strong;
+    const nearest = Math.min(
+      ...decodeSurveys(file('surveys')).map((survey) =>
+        haversineKm(area.center, [survey.lon, survey.lat]),
+      ),
+    );
+    expect(nearest).toBeGreaterThan(strong);
+  });
+
+  // Ruling 23: at the starting view every label shows at its point, so each point faces the viewer
+  // (within 60° of the view centre, where a label is drawn whole).
+  it('puts every label’s point on the visible face at the starting view', () => {
+    const rest = provenance.rest as { lon: number; lat: number };
+    const atRest = orthographic({
+      center: [rest.lon, rest.lat],
+      scale: 1,
+      translate: [0, 0],
+    });
+    for (const callout of provenance.callouts as Record<string, unknown>[]) {
+      const [, , cosc] = atRest.project(
+        callout.lon as number,
+        callout.lat as number,
+      );
+      expect(cosc, callout.kind as string).toBeGreaterThanOrEqual(
+        Math.cos((55 * Math.PI) / 180),
+      );
+    }
+  });
+
+  it('writes the preview’s alt text from the data', () => {
     expect(provenance.alt).toContain('1,071 measured surveys');
-    expect(provenance.alt).toMatch(/^Globe of the sickle-cell variant HbS\./);
+    expect(provenance.alt).toMatch(
+      /^Preview of the Atlas with sample data: a slowly turning globe of the sickle-cell variant HbS\. White dots are 1,071 measured surveys/,
+    );
+    expect(provenance.alt).toMatch(
+      /Color shows the modeled frequency, highest, about \d+ percent, in parts of [A-Z][a-z]+( Africa)?, and fades away from surveys\./,
+    );
+    expect(provenance.alt).toMatch(/Stripes mark areas with no estimate\.$/);
+    // US spelling (round 2 spec §0.1 item 10).
+    expect(provenance.alt).not.toMatch(/colour/i);
     expect(JSON.stringify(provenance)).not.toMatch(
       /googleapis|storage\.|gs:\/\//,
     );

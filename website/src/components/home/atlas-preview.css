@@ -1,8 +1,8 @@
 /*
- * The toy globe's CSS (round 2, rulings R2-2, R2-14, R2-16; round 2 spec §4.1.5): every .hg* and
- * .atlas-open rule, cut verbatim from styles/pages/home.css (round 2 plan T0 step 3), so the globe
- * task owns one file. AtlasPreview.astro imports it. The section around it (.home-atlas*) stays in
- * home.css with the page.
+ * The toy globe's CSS (round 2, rulings R2-2, R2-14, R2-16 and 22–25 of the round-2 build; round 2
+ * spec §4.1.5): every .hg* and .atlas-open rule, so the globe task owns one file (round 2 plan T0
+ * step 3). AtlasPreview.astro imports it. The section around it (.home-atlas*) stays in home.css
+ * with the page.
  */
 
 /* The figure: toolbar, stage, the note with the Atlas button, legend, footnote, table. */
@@ -26,53 +26,11 @@
   min-width: 0;
 }
 
-.hg-spin {
-  min-width: 44px;
-  min-height: 2.25rem;
-  margin: 0 0 0 auto;
-  padding: 0.35rem 0.8rem 0.35rem 0.65rem;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  border: 1px solid var(--color-line-strong);
-  background: rgb(2 7 18 / 70%);
-  color: var(--color-muted);
-  font: inherit;
-  font-size: 0.86rem;
-  font-weight: 620;
-  line-height: 1;
-  cursor: pointer;
-  transition:
-    color var(--dur-micro) var(--ease-ui),
-    border-color var(--dur-micro) var(--ease-ui);
-}
-
-.hg-spin[hidden] {
-  display: none;
-}
-
-.hg-spin:hover {
-  border-color: var(--color-ion);
-  color: var(--color-starlight);
-}
-
-.hg-spin svg {
-  width: 0.85rem;
-  height: 0.85rem;
-  flex: none;
-  fill: currentColor;
-}
-
-.hg-spin:not([data-state='paused']) .hg-spin__play,
-.hg-spin[data-state='paused'] .hg-spin__pause {
-  display: none;
-}
-
 /* The layer control and the rotation's only do something on the live canvas: the poster (Modeled,
    at the starting view) neither switches nor turns. They appear with the canvas, without a fade, so
    no control is ever caught half drawn below its contrast. */
-.hg:not([data-live]) :is(.hg-layers, .hg-spin),
-.hg[data-mode='poster'] :is(.hg-layers, .hg-spin) {
+.hg:not([data-live]) :is(.hg-layers, .kit-scene-controls),
+.hg[data-mode='poster'] :is(.hg-layers, .kit-scene-controls) {
   visibility: hidden;
 }
 
@@ -81,7 +39,7 @@
   position: relative;
 }
 
-/* Compact form (a narrow figure): a square globe with its pins, the callouts listed under it. */
+/* Compact form (a narrow figure): a square globe. */
 .hg-globe {
   position: relative;
   width: 100%;
@@ -132,122 +90,72 @@
   visibility: hidden;
 }
 
-/* A pin: a ring on its object and the number of its callout. While the globe turns it rides with
-   its object and fades toward the limb (--pin-alpha, atlas-preview.ts). */
-.hg-marker {
+/*
+ * The labels (ruling 23): each drawn on the globe beside its own point, a ring on the point and the
+ * words on the side atlas-preview.ts picks (placeLabels), so none leaves the disc or covers another.
+ * An aria-hidden SVG with no viewBox, so one unit is one CSS px and the text is 13 px at every size
+ * (spec §2.3's label floor); a small dark plate keeps it at 4.5:1 or more over the hexes and studs. Its
+ * group rides at (--lx, --ly): a share of the globe box as the server renders it at rest, pixels
+ * once the island moves it; its opacity is how far the point faces the viewer. The body fades out
+ * (is-off) while a label waits for its marks, has no room, or names a layer that is off.
+ */
+.hg-labels {
   position: absolute;
-  top: var(--my);
-  left: var(--mx);
-  width: 0;
-  height: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
   pointer-events: none;
-}
-
-.hg-marker__ring {
-  position: absolute;
-  top: -7.5px;
-  left: -7.5px;
-  width: 15px;
-  height: 15px;
-  border: 1.5px solid var(--color-starlight);
-  border-radius: 50%;
-  box-shadow:
-    0 0 0 1.5px rgb(2 7 18 / 75%),
-    inset 0 0 0 1px rgb(2 7 18 / 55%);
-}
-
-.hg-marker__badge,
-.hg-callout__n {
-  display: grid;
-  place-items: center;
-  width: 1.4rem;
-  height: 1.4rem;
-  border: 1px solid var(--color-starlight);
-  background: var(--color-void);
-  color: var(--color-starlight);
-  font-size: 0.8rem;
-  font-weight: 700;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-variant-numeric: lining-nums tabular-nums;
   line-height: 1;
-  font-variant-numeric: lining-nums tabular-nums;
 }
 
-.hg-marker__badge {
-  position: absolute;
-  bottom: 6px;
-  left: 6px;
+.hg-label {
+  transform: translate(var(--lx), var(--ly));
+  transform-box: view-box;
 }
 
-.hg-marker__badge::before {
-  content: attr(data-n);
+.hg-label__body {
+  transition: opacity var(--dur-ui) var(--ease-ui);
 }
 
-/* The callouts: the key under the globe in the compact form. */
-.hg-callouts {
-  margin: 0.9rem 0 0;
-  padding: 0;
-  display: grid;
-  gap: 0.5rem;
-  list-style: none;
-}
-
-.hg-callout {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  column-gap: 0.6rem;
-  color: var(--color-starlight);
-  font-size: 0.9rem;
-  line-height: 1.4;
-  font-variant-numeric: lining-nums tabular-nums;
-}
-
-.hg-callout__label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  color: var(--color-muted);
-  font-weight: 620;
-}
-
-.hg-nowrap {
-  white-space: nowrap;
-}
-
-.hg .hg-leaders {
-  display: none;
-}
-
-/* Callouts, leaders and pins light in order during the entrance; leaders show only at the
-   starting view (and while the entrance turns to it): once the globe turns, they fade and the
-   pins ride on. */
-.hg :is(.hg-callout, .hg-leader, .hg-marker) {
-  transition:
-    opacity var(--dur-ui) var(--ease-ui),
-    visibility 0s;
-}
-
-.hg-marker {
-  opacity: var(--pin-alpha, 1);
-}
-
-.hg :is(.hg-callout, .hg-leader, .hg-marker).is-off,
-.hg[data-view='moved'] .hg-leader {
+.hg-label__body.is-off {
   opacity: 0;
-  visibility: hidden;
-  transition:
-    opacity var(--dur-ui) var(--ease-ui),
-    visibility 0s var(--dur-ui);
 }
 
-/* While the globe turns, the pins follow it frame by frame: no transition to lag behind. */
-.hg[data-view='moved'] .hg-marker:not(.is-off),
-.hg[data-view='entering'] .hg-marker:not(.is-off) {
-  transition: none;
+.hg-label__halo {
+  fill: none;
+  stroke: rgb(2 7 18 / 78%);
+  stroke-width: 4.5;
 }
 
-/* Wide form: a 3:2 stage, the disc centred, the callouts in its corners with leader lines to their
-   pins. Units are cqw of the stage, as in AtlasPreview.astro: disc centre (50, 33.333), radius 30.
-   From a 36rem figure, where each corner leaves its callout three lines of room. */
+.hg-label__ring {
+  fill: none;
+  stroke: var(--color-starlight);
+  stroke-width: 1.5;
+}
+
+.hg-label__plate {
+  fill: rgb(2 7 18 / 88%);
+  stroke: rgb(165 185 211 / 24%);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.hg-label__text {
+  fill: var(--color-text-soft);
+  font-weight: 500;
+}
+
+.hg-label__kind {
+  fill: var(--color-starlight);
+  font-weight: 650;
+}
+
+/* Wide form: a 3:2 stage, the disc centred (units are cqw of the stage: disc centre (50, 33.333),
+   radius 30), from a 36rem figure. */
 @container hg (min-width: 36rem) {
   .hg .hg-layers {
     flex: none;
@@ -269,89 +177,19 @@
     width: 62.4cqw;
     height: 62.4cqw;
   }
-
-  .hg .hg-leaders {
-    position: absolute;
-    inset: 0;
-    display: block;
-    width: 100%;
-    height: 100%;
-    overflow: visible;
-    pointer-events: none;
-  }
-
-  .hg-leader line {
-    stroke: rgb(205 217 232 / 62%);
-    stroke-width: 1;
-  }
-
-  .hg-callouts {
-    position: absolute;
-    inset: 0;
-    margin: 0;
-    display: block;
-    pointer-events: none;
-  }
-
-  /* Each box hangs from its corner point (--cx, --cy, set in AtlasPreview.astro) and grows away
-     from the disc, out to the stage's edge: its text wraps to the room the corner leaves. */
-  .hg .hg-callout {
-    position: absolute;
-    padding: 0.45rem 0.6rem 0.5rem 0.5rem;
-    border: 1px solid var(--color-line);
-    background: rgb(2 7 18 / 86%);
-    font-size: 0.8rem;
-    line-height: 1.35;
-    pointer-events: auto;
-  }
-
-  .hg-callout .hg-callout__n {
-    width: 1.25rem;
-    height: 1.25rem;
-    font-size: 0.75rem;
-  }
-
-  .hg-callout__label {
-    display: flex;
-  }
-
-  .hg-callout__value {
-    display: block;
-  }
-
-  .hg-callout--left {
-    right: calc((100 - var(--cx)) * 1cqw);
-  }
-
-  .hg-callout--right {
-    left: calc(var(--cx) * 1cqw);
-  }
-
-  .hg-callout--up {
-    bottom: calc((66.667 - var(--cy)) * 1cqw);
-  }
-
-  .hg-callout--down {
-    top: calc(var(--cy) * 1cqw);
-  }
 }
 
-/* The note: what this is, and the way to the real thing (ruling R2-14). Not a warning. */
-.hg-note {
-  display: flex;
-  flex-wrap: wrap;
+/* The note: what this is, and the way to the real thing (ruling R2-14): the kit's figure note
+   (scenes.css), its sentence beside the large pill. Not a warning. */
+.hg .hg-note {
   align-items: center;
   justify-content: space-between;
   gap: 0.9rem 1.5rem;
   margin-top: 1.1rem;
 }
 
-.hg-note__text {
+.hg .hg-note p {
   max-width: 32ch;
-  margin: 0;
-  color: var(--color-text-soft);
-  font-size: var(--type-legend);
-  line-height: 1.45;
 }
 
 /* Open the genomeOS Atlas: the Atlas pill's language at call-to-action size, a black pill in an
@@ -439,6 +277,12 @@
   }
 }
 
+/* The legend leads with what the globe shows, its first line at every width (round 2 spec §4.1.5). */
+.hg .hg-legend__lead {
+  display: block;
+  margin-bottom: 0.55rem;
+}
+
 .hg-legend {
   display: grid;
 }
@@ -500,12 +344,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hg-spin,
   .atlas-open,
   .atlas-open__arrow,
-  .hg :is(.hg-callout, .hg-leader, .hg-marker),
-  .hg :is(.hg-callout, .hg-leader, .hg-marker).is-off,
-  .hg[data-view='moved'] .hg-leader {
+  .hg-label__body {
     transition: none;
   }
 
@@ -516,12 +357,12 @@
 }
 
 /* The live canvas never prints or forces colours: the poster stands in (spec §2.2, §8). The poster
-   is the Modeled layer at the starting view, so a print carries that layer's legend, and the pins,
-   leaders and callouts that describe it, never the last layer's legend or a turned view. The
-   controls never print. */
+   is the Modeled layer at the starting view, so a print carries that layer's legend and the labels
+   that describe it (the island puts them back at rest on beforeprint), never the last layer's
+   legend or a turned view. The controls never print. */
 @media print {
   /* As specific as the screen rules that show them (.hg .hg-layers …). */
-  .hg :is(.hg-canvas, .hg-layers, .hg-spin) {
+  .hg :is(.hg-canvas, .hg-layers, .kit-scene-controls) {
     display: none;
   }
 
@@ -533,10 +374,12 @@
     visibility: hidden;
   }
 
-  .hg-legend__variant[data-legend='modeled'],
-  .hg[data-view] :is(.hg-callout, .hg-leader, .hg-marker) {
-    opacity: 1;
+  .hg-legend__variant[data-legend='modeled'] {
     visibility: visible;
+  }
+
+  .hg .hg-label__body {
+    opacity: 1;
     transition: none;
   }
 }
@@ -551,11 +394,21 @@
     visibility: visible;
   }
 
-  .hg-marker__ring {
-    border-color: CanvasText;
+  .hg-label__kind,
+  .hg-label__text {
+    fill: CanvasText;
   }
 
-  .hg-leader line {
+  .hg-label__ring {
+    stroke: CanvasText;
+  }
+
+  .hg-label__halo {
+    stroke: Canvas;
+  }
+
+  .hg-label__plate {
+    fill: Canvas;
     stroke: CanvasText;
   }
 

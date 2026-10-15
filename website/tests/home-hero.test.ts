@@ -1,8 +1,8 @@
 /**
  * Home's hero film and Atlas preview, read from the built page, plus the pure logic of their
- * islands: the film's choices, the preview's timeline and rotation (site redesign spec §4.1, §9.1;
- * round 2 rulings R2-1, R2-2, R2-14; #454). Owned by the hero and toy-globe task (round 2 plan T1);
- * split verbatim out of home.test.ts (plan T0 step 3).
+ * islands: the preview's timeline, rotation and on-globe labels (round 2 spec §4.1.1, §4.1.5,
+ * §11.1; rulings R2-1, R2-2, R2-14, R2-16 and 21–25 of the round-2 build; #454). Owned by the hero
+ * and toy-globe task (round 2 plan T1). The film's choices are in hero-media.test.ts.
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -12,27 +12,34 @@ import { describe, expect, it } from 'vitest';
 import {
   AutoSpin,
   ENTRANCE_MS,
+  LABEL_FACING_DEG,
+  LABEL_GEOMETRY,
+  LABEL_MIN_RADIUS,
   REST_VIEW,
   SPIN_DEG_PER_S,
   SPIN_DWELL_MS,
+  SPIN_EASE_OUT_MS,
   SPIN_IDLE_MS,
+  SPIN_RAMP_MS,
   STUD_REFERENCE_RADIUS,
   TURN_DEG,
   entranceAt,
+  estimateLabelWidth,
   formatKm,
   formatRange,
   formatShare,
+  labelAlpha,
+  labelBox,
+  labelLines,
   layerFader,
+  placeLabels,
   previewStudScale,
+  spinAngleAt,
+  type LabelBox,
+  type LabelInput,
   type SpinClock,
   type SpinState,
 } from '../src/components/home/atlas-preview';
-import {
-  RECEDE_SPAN,
-  pickRendition,
-  posterReason,
-  recedeAt,
-} from '../src/components/home/hero-media';
 import provenance from '../src/data/figures/hbs.provenance.json';
 
 const homepage = path.resolve(import.meta.dirname, '../dist/index.html');
@@ -40,7 +47,7 @@ const html = existsSync(homepage) ? readFileSync(homepage, 'utf8') : '';
 const main = html.slice(html.indexOf('<main'), html.indexOf('</main>'));
 const body = html.slice(html.indexOf('<body'));
 
-/** The opening tag and contents of the element whose opening tag matches `open`. */
+/** The opening tag and contents of the section whose opening tag matches `pattern`. */
 function section(pattern: RegExp): string {
   const start = main.search(pattern);
   if (start === -1) return '';
@@ -48,71 +55,231 @@ function section(pattern: RegExp): string {
   return main.slice(start, end);
 }
 
-describe('homepage figures', () => {
-  it('draws the Atlas preview from the pinned HbS data, with its note and provenance', () => {
-    const atlas = section(/<section\b[^>]*\bid="atlas"/);
-    expect(atlas).toMatch(/data-graphic="atlas-preview"/);
-    // Ruling R2-14: no scare label. A plain note says what this is, beside the way to the Atlas.
-    expect(atlas).not.toContain('Not yet validated');
-    expect(atlas).not.toContain('data-status="not-validated"');
-    const words = atlas.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
-    expect(words).toContain('A simplified preview with sample data.');
-    expect(atlas).toMatch(
-      /<a class="atlas-open" href="\/app\/">[\s\S]*Open the <span class="brand-name">genomeOS<\/span> Atlas/,
+const text = (markup: string) =>
+  markup
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ');
+
+const callout = (kind: 'survey' | 'modeled' | 'unknown') =>
+  provenance.callouts.find((entry) => entry.kind === kind)!;
+
+describe('the Atlas preview, as built', () => {
+  const atlas = section(/<section\b[^>]*\bid="atlas"/);
+  const figure = atlas.slice(atlas.indexOf('<figure'));
+
+  it('says what it is in a plain note, beside a large pill to the same map in the Atlas', () => {
+    expect(figure).toMatch(/data-graphic="atlas-preview"/);
+    // Ruling R2-14: no scare label.
+    expect(figure).not.toContain('Not yet validated');
+    expect(figure).not.toContain('data-status="not-validated"');
+    expect(figure).not.toContain('kit-status-tag');
+    const note = figure.match(
+      /<div class="figure-note hg-note"[^>]*>([\s\S]*?)<\/div>/,
     );
-    // One two-option toggle; no Evidence layer, steps or readout (ruling R2-2).
-    for (const layer of ['measured', 'modeled'])
-      expect(atlas).toMatch(new RegExp(`data-value="${layer}"`));
-    expect(atlas).not.toContain('data-value="evidence"');
-    expect(atlas).not.toContain('data-legend="evidence"');
-    expect(atlas).not.toMatch(/hg-step|data-readout|hg-reset/);
-    expect(atlas).not.toMatch(/Uncertainty<\/button>/);
-    // A Pause control for the rotation (WCAG 2.2.2), hidden until the globe can turn.
-    expect(atlas).toMatch(
-      /<button[^>]*class="hg-spin"[^>]*data-spin-toggle[^>]*hidden/,
+    expect(note, 'the note').not.toBeNull();
+    expect(text(note![1])).toContain(
+      'A simplified preview, made from a sample of real Atlas data.',
     );
-    // Callout 1 is a real survey, in people tested (AN / 2), never alleles.
-    const [survey, modeled] = provenance.callouts;
-    expect(survey.people).toBe(survey.an! / 2);
-    expect(words).toContain(
-      `Measured: ${survey.people!.toLocaleString('en-US')} people tested`,
+    // The pill opens the map the preview shows (round 2 spec §4.1.5, owner question 2).
+    expect(note![1]).toMatch(
+      /<a class="atlas-open" href="\/app\/\?entity=hbs-rs334&amp;palette=genome">[\s\S]*Open the <span class="brand-name">genomeOS<\/span> Atlas/,
     );
-    expect(words).not.toMatch(/\balleles\b/);
-    expect(words).toContain(
-      `Modeled: about ${formatShare(modeled.mean!)} (95%: ${formatRange(modeled.lo!, modeled.hi!)})`,
-    );
-    expect(words).toContain('No estimate: no survey in range');
-    // Provenance and the same view in the Atlas.
+    // The footnote is provenance only: the pill is the way to the Atlas.
+    const footnote = figure.match(
+      /<p class="kit-figure__footnote"[^>]*>([\s\S]*?)<\/p>/,
+    )![1];
+    expect(footnote).not.toContain('<a');
     const revision = provenance.hf_revision.slice(0, 7);
-    expect(atlas).toMatch(
+    expect(text(footnote).trim()).toBe(
+      `HbS (rs334) · model v3 · data map-2026-08 · revision ${revision} · coarsened for display`,
+    );
+  });
+
+  it('keeps one Measured · Modeled toggle and a rotation Pause, an icon hidden until it can turn', () => {
+    for (const layer of ['measured', 'modeled'])
+      expect(figure).toMatch(new RegExp(`data-value="${layer}"`));
+    expect(figure).not.toContain('data-value="evidence"');
+    expect(figure).not.toMatch(/hg-step|data-readout|hg-reset/);
+    // The kit's scene control (ruling 22): a white glyph, no visible label, named for its action,
+    // aria-pressed when paused, hidden until the island takes it.
+    const toggle = figure.match(
+      /<button[^>]*data-scene-toggle[^>]*>[\s\S]*?<\/button>/,
+    )![0];
+    expect(toggle).toMatch(/class="kit-scene-control"/);
+    expect(toggle).toMatch(/aria-pressed="false"/);
+    expect(toggle).toMatch(/\bhidden\b/);
+    expect(text(toggle).trim()).toBe('Pause the rotation');
+    expect(toggle).toMatch(
+      /<span class="visually-hidden">Pause the rotation<\/span>/,
+    );
+    // In a group of independent toggles, so the figure contract does not ask for one pressed.
+    expect(figure).toMatch(
+      /class="kit-scene-controls"[^>]*data-select="multiple"/,
+    );
+  });
+
+  it('draws its labels on the globe in an aria-hidden SVG, and lists them for screen readers', () => {
+    // Ruling 23: no corner boxes, no leader lines, no numbered key.
+    expect(figure).not.toMatch(
+      /hg-callouts|hg-callout\b|hg-leader|hg-marker|data-n=/,
+    );
+    const layer = figure.match(/<svg class="hg-labels"[^>]*>[\s\S]*?<\/svg>/);
+    expect(layer, 'the label layer').not.toBeNull();
+    expect(layer![0]).toMatch(
+      /^<svg class="hg-labels" aria-hidden="true" focusable="false"/,
+    );
+    // Inside the globe box, so it shares the disc's geometry.
+    const globe = figure.slice(figure.indexOf('class="hg-globe"'));
+    expect(globe.indexOf('class="hg-labels"')).toBeLessThan(
+      globe.indexOf('</div>'),
+    );
+    const survey = callout('survey');
+    const modeled = callout('modeled');
+    const groups = [
+      ...layer![0].matchAll(
+        /<g class="hg-label" data-label="(\w+)"[^>]*>([\s\S]*?)<\/g>\s*<\/g>/g,
+      ),
+    ];
+    expect(groups.map(([, kind]) => kind)).toEqual([
+      'survey',
+      'modeled',
+      'unknown',
+    ]);
+    const lines = (kind: string) =>
+      [
+        ...groups
+          .find(([, k]) => k === kind)![2]
+          .matchAll(/<tspan[^>]*>([^<]*)<\/tspan>/g),
+      ].map(([, line]) => line.replace(/&amp;/g, '&'));
+    // Counts in people (AN / 2), never alleles; the modeled range in lay words.
+    expect(lines('survey')).toEqual([
+      'Measured',
+      `${survey.people!.toLocaleString('en-US')} people tested`,
+    ]);
+    expect(lines('modeled')).toEqual([
+      'Modeled',
+      `about ${formatShare(modeled.mean!)},`,
+      `likely ${formatRange(modeled.lo!, modeled.hi!)}`,
+    ]);
+    expect(lines('unknown')).toEqual(['No estimate', 'no survey in range']);
+    expect(text(figure)).not.toMatch(/\balleles\b/);
+    // Each label rides on its own point: a ring at the point, the text beside it, on a side the
+    // build chose so it fits the smallest disc.
+    for (const [, kind, inner] of groups) {
+      expect(inner, kind).toMatch(/<circle class="hg-label__ring"/);
+      expect(groups.find(([, k]) => k === kind)![0], kind).toMatch(
+        /data-side="(right|left|below|above)(-(down|up|right|left))?"/,
+      );
+    }
+    // The text twin screen readers get, always present (ruling 25).
+    const list = figure.match(
+      /<ul class="visually-hidden" id="atlas-preview-labels"[^>]*>([\s\S]*?)<\/ul>/,
+    );
+    expect(list, 'the visually hidden list').not.toBeNull();
+    const items = [...list![1].matchAll(/<li>([\s\S]*?)<\/li>/g)].map(
+      ([, item]) => text(item).trim(),
+    );
+    expect(items).toHaveLength(3);
+    expect(items[0]).toMatch(
       new RegExp(
-        `HbS \\(rs334\\) · model v3 · data map-2026-08 · revision ${revision} · coarsened for display`,
+        `^Measured: ${survey.people!.toLocaleString('en-US')} people tested, at \\d+\\.\\d°[NS] \\d+\\.\\d°[EW]\\.$`,
       ),
     );
-    expect(atlas).toContain('href="/app/?entity=hbs-rs334&amp;palette=genome"');
-    // Below the hero, the no-JS poster loads lazily: the film's poster is the LCP now.
-    expect(atlas).toMatch(
+    expect(items[1]).toMatch(
+      new RegExp(
+        `^Modeled: about ${formatShare(modeled.mean!).replace('.', '\\.')}, likely ${formatRange(modeled.lo!, modeled.hi!).replace(/\./g, '\\.')}, at `,
+      ),
+    );
+    expect(items[2]).toMatch(/^No estimate: no survey in range, at /);
+  });
+
+  it('places each label at rest on the side the layout rule picks for the smallest disc', () => {
+    const layer = figure.match(
+      /<svg class="hg-labels"[^>]*>[\s\S]*?<\/svg>/,
+    )![0];
+    const inputs: LabelInput[] = (
+      ['survey', 'modeled', 'unknown'] as const
+    ).map((kind) => {
+      const lines = labelLines(kind, provenance);
+      const [x, y] = callout(kind).disc as [number, number];
+      return {
+        kind,
+        x: x * LABEL_MIN_RADIUS,
+        y: y * LABEL_MIN_RADIUS,
+        cosc: Math.sqrt(Math.max(0, 1 - x * x - y * y)),
+        width: estimateLabelWidth(lines),
+        height: lines.length * LABEL_GEOMETRY.line,
+      };
+    });
+    const placed = placeLabels(inputs, LABEL_MIN_RADIUS);
+    for (const placement of placed) {
+      expect(placement.fits, placement.kind).toBe(true);
+      expect(placement.alpha, placement.kind).toBe(1);
+      expect(layer).toMatch(
+        new RegExp(
+          `data-label="${placement.kind}"[^>]*data-side="${placement.side}"`,
+        ),
+      );
+    }
+  });
+
+  it('names the globe from the data and tells keyboard users how to turn it', () => {
+    expect(provenance.alt).toMatch(
+      /^Preview of the Atlas with sample data: a slowly turning globe of the sickle-cell variant HbS\. /,
+    );
+    expect(figure).toContain(`aria-label="${provenance.alt}"`);
+    const hint = figure.match(
+      /<p class="visually-hidden" id="atlas-preview-keys">([^<]*)<\/p>/,
+    );
+    expect(hint?.[1].replace(/\s+/g, ' ').trim()).toBe(
+      'Arrow keys turn the globe; Home returns it to its starting view. Focus pauses it.',
+    );
+  });
+
+  it('leads its legend with what is shown, then the marks of each layer', () => {
+    const legend = figure.match(
+      /<figcaption[^>]*>([\s\S]*?)<\/figcaption>/,
+    )![1];
+    const words = text(legend).trim();
+    expect(words.startsWith('Shown: the sickle-cell variant, HbS.')).toBe(true);
+    expect(legend).toMatch(/^\s*<strong[^>]*>Shown:/);
+    const modeled = text(
+      legend.match(/data-legend="modeled"[^>]*>([\s\S]*?)<\/div>\s*<div/)![1],
+    );
+    expect(modeled).toContain('Survey, sized by people tested');
+    expect(modeled).toContain('Modeled share, 0–17% of gene copies');
+    expect(modeled).toContain('Fades away from surveys');
+    expect(modeled).toContain('No estimate');
+    const measured = text(
+      legend.slice(legend.indexOf('data-legend="measured"')),
+    );
+    expect(measured).toContain('Survey, sized by people tested');
+    expect(measured).toContain('Model grid, no values drawn');
+    for (const size of ['sm', 'md', 'lg'])
+      expect(legend).toContain(`#glyph-stud-${size}`);
+  });
+
+  it('lists the preview’s data as a table', () => {
+    expect(figure).toMatch(/<summary>View as table<\/summary>/);
+    for (const area of provenance.table.top_areas)
+      expect(figure).toContain(formatRange(area.lo, area.hi));
+    expect(figure).toContain(provenance.counts.surveys.toLocaleString('en-US'));
+  });
+
+  it('loads its poster lazily, below the hero', () => {
+    expect(figure).toMatch(
       /<img\b[^>]*class="hg-poster"[^>]*\bwidth="640"[^>]*\bheight="640"/,
     );
-    expect(atlas).toMatch(/<img\b[^>]*class="hg-poster"[^>]*loading="lazy"/);
-    expect(atlas).not.toMatch(/class="hg-poster"[^>]*fetchpriority/);
-    // The data-derived alt text.
-    expect(atlas).toContain(provenance.alt);
-    // Studs in three sizes in the legend.
-    for (const size of ['sm', 'md', 'lg'])
-      expect(atlas).toContain(`#glyph-stud-${size}`);
+    expect(figure).toMatch(/<img\b[^>]*class="hg-poster"[^>]*loading="lazy"/);
+    expect(figure).not.toMatch(/class="hg-poster"[^>]*fetchpriority/);
   });
+});
 
-  it('lists the Atlas preview data as a table', () => {
-    const atlas = section(/<section\b[^>]*\bid="atlas"/);
-    expect(atlas).toMatch(/<summary>View as table<\/summary>/);
-    for (const area of provenance.table.top_areas)
-      expect(atlas).toContain(formatRange(area.lo, area.hi));
-    expect(atlas).toContain(provenance.counts.surveys.toLocaleString('en-US'));
-  });
+describe('the hero film, as built', () => {
+  const hero = section(/<section\b[^>]*\bid="hero"/);
 
-  it('draws the hero film: a poster first, then a deferred, muted loop', () => {
-    const hero = section(/<section\b[^>]*\bid="hero"/);
+  it('draws a poster first, then a deferred, muted loop', () => {
     // The poster is the LCP: AVIF and WebP srcsets, explicit dimensions, high priority, never lazy.
     const picture = hero.match(/<picture>[\s\S]*?<\/picture>/)![0];
     expect(picture).toMatch(
@@ -162,22 +329,49 @@ describe('homepage figures', () => {
       [1920, 'video/mp4; codecs="av01.0.08M.10"'],
       [1920, 'video/mp4; codecs="hvc1.1.6.L120.90"'],
     ]);
-    // Only the AV1 and HEVC 720p and 1080p encodes are shipped, and the 1080p AV1 is ≤ 4 MB.
+    // Only the AV1 and HEVC 720p and 1080p encodes are shipped, the 1080p AV1 within 4 MB and the
+    // 720p AV1 within 2 MB (round 2 spec §7's deferred-media caps).
     for (const { src } of sources) {
       const file = path.resolve(import.meta.dirname, '../dist', src.slice(1));
       expect(existsSync(file), src).toBe(true);
     }
-    const av1 = statSync(
-      path.resolve(import.meta.dirname, '../dist/media/hero/hero-1080.av1.mp4'),
-    ).size;
-    expect(av1).toBeLessThanOrEqual(4 * 1024 * 1024);
-    // The Pause control follows the text, so the calls to action are reached first.
-    expect(hero.indexOf('data-video-toggle')).toBeGreaterThan(
-      hero.indexOf('home-hero__actions'),
+    const size = (name: string) =>
+      statSync(path.resolve(import.meta.dirname, '../dist/media/hero', name))
+        .size;
+    expect(size('hero-1080.av1.mp4')).toBeLessThanOrEqual(4000 * 1024);
+    expect(size('hero-720.av1.mp4')).toBeLessThanOrEqual(2000 * 1024);
+  });
+
+  it('offers a white Pause glyph after the calls to action, its name in words, hidden until the film plays', () => {
+    // WCAG 2.4.3: the DOM order is the focus order, so the calls to action precede the film's
+    // control, and the Atlas preview's controls come after the hero.
+    const at = (needle: string) => hero.indexOf(needle);
+    expect(at('<h1')).toBeGreaterThan(-1);
+    expect(at('home-hero__lede')).toBeGreaterThan(at('<h1'));
+    expect(at('home-hero__actions')).toBeGreaterThan(at('home-hero__lede'));
+    expect(at('data-video-toggle')).toBeGreaterThan(at('home-hero__actions'));
+    // One of each (round 2 spec §0.3 #16).
+    expect(hero.match(/<h1\b/g)).toHaveLength(1);
+    expect(hero.match(/class="home-hero__lede"/g)).toHaveLength(1);
+    expect(hero.match(/class="home-hero__actions"/g)).toHaveLength(1);
+    const toggle = hero.match(
+      /<button[^>]*data-video-toggle[^>]*>[\s\S]*?<\/button>/,
+    )![0];
+    expect(toggle).toMatch(/class="hero-media__toggle kit-scene-control"/);
+    expect(toggle).toMatch(/\bhidden\b/);
+    expect(toggle).toMatch(/data-state="playing"/);
+    // Ruling 22: no visible text, only the glyph; the name is visually hidden.
+    expect(text(toggle).trim()).toBe('Pause the background video');
+    expect(toggle).toMatch(
+      /<span class="visually-hidden" data-video-toggle-text>Pause the background video<\/span>/,
+    );
+    expect(toggle).toMatch(/<svg viewBox="0 0 20 20" aria-hidden="true"/);
+    expect(main.indexOf('data-graphic="atlas-preview"')).toBeGreaterThan(
+      main.indexOf('id="hero"'),
     );
   });
 
-  it('loads no decorative raster but the hero film’s poster; the banner stays in the social meta', () => {
+  it('loads no decorative raster but the film’s poster; the banner stays in the social meta', () => {
     expect(body).not.toContain('genomeos-banner.png');
     expect(html).toMatch(/og:image" content="[^"]*genomeos-banner\.png"/);
     const rasters = [
@@ -185,32 +379,7 @@ describe('homepage figures', () => {
     ].map(([url]) => url);
     expect(rasters.length).toBeGreaterThan(0);
     for (const url of rasters) expect(url).toMatch(/\/_astro\/hero-poster\./);
-  });
-
-  it('keeps the modeled range on one line in its callout', () => {
-    const modeled = provenance.callouts.find(
-      (callout) => callout.kind === 'modeled',
-    )!;
-    const range = `(95%: ${formatRange(modeled.lo!, modeled.hi!)})`;
-    const atlas = section(/<section\b[^>]*\bid="atlas"/);
-    expect(
-      atlas.split(`<span class="hg-nowrap">${range}</span>`).length - 1,
-    ).toBe(1);
-  });
-
-  it('orders the hero as it reads: heading, lede, calls to action, then the film’s control', () => {
-    // WCAG 2.4.3: the DOM order is the focus order, so the calls to action precede the film's
-    // Pause control, and the Atlas preview's controls come after the hero.
-    const hero = section(/<section\b[^>]*\bid="hero"/);
-    const at = (needle: string) => hero.indexOf(needle);
-    expect(at('<h1')).toBeGreaterThan(-1);
-    expect(at('home-hero__lede')).toBeGreaterThan(at('<h1'));
-    expect(at('home-hero__actions')).toBeGreaterThan(at('home-hero__lede'));
-    expect(at('data-video-toggle')).toBeGreaterThan(at('home-hero__actions'));
-    expect(main.indexOf('data-graphic="atlas-preview"')).toBeGreaterThan(
-      main.indexOf('id="hero"'),
-    );
-    // The globe is below the hero now: no pre-paint arming script is left in the head.
+    // The globe sits below the hero: no pre-paint arming script is left in the head.
     expect(html.slice(0, html.indexOf('</head>'))).not.toContain(
       'data-arm-hero',
     );
@@ -240,7 +409,7 @@ describe('Atlas preview logic', () => {
     expect(entranceAt(2400).reveal.surface).toBe(1);
     expect(entranceAt(2400).reveal.hatch).toBe(0);
     expect(entranceAt(ENTRANCE_MS).reveal.hatch).toBe(1);
-    // Each callout lights as its marks arrive.
+    // Each label lights as its marks arrive.
     expect(
       [999, 1000, 2399, 2400, 2799, 2800].map((t) => entranceAt(t).callouts),
     ).toEqual([0, 1, 1, 2, 2, 3]);
@@ -255,11 +424,31 @@ describe('Atlas preview logic', () => {
     }
   });
 
-  it('formats shares and distances for readouts', () => {
+  it('turns 4° a second once up to speed, one revolution in 90 s, easing in over 1.6 s', () => {
+    expect(SPIN_DEG_PER_S).toBe(4);
+    expect(SPIN_RAMP_MS).toBe(1600);
+    expect(spinAngleAt(0)).toBe(0);
+    // Smoothstep ease-in: a quarter of the way through the ramp it has barely moved.
+    expect(spinAngleAt(400)).toBeGreaterThan(0);
+    expect(spinAngleAt(400)).toBeLessThan(0.4 * 0.25 * 4);
+    // Past the ramp: half the ramp's length lost, then full speed.
+    expect(spinAngleAt(SPIN_RAMP_MS)).toBeCloseTo(4 * 0.8, 6);
+    expect(spinAngleAt(12_000) - spinAngleAt(2000)).toBeCloseTo(40, 6);
+    expect(spinAngleAt(90_000 + 800)).toBeCloseTo(360, 6);
+    // Continuous and never falling.
+    let previous = -1;
+    for (let t = 0; t <= 4000; t += 50) {
+      expect(spinAngleAt(t)).toBeGreaterThanOrEqual(previous);
+      previous = spinAngleAt(t);
+    }
+  });
+
+  it('formats shares and distances for labels and the table', () => {
     expect(formatShare(0.1603)).toBe('16%');
     expect(formatShare(0.0716)).toBe('7.2%');
     expect(formatShare(0.0042)).toBe('0.42%');
     expect(formatShare(0)).toBe('0%');
+    expect(formatRange(0.0134, 0.0612)).toBe('1.3–6.1%');
     expect(formatKm(95)).toBe('95 km');
     expect(formatKm(1360.6)).toBe('1,361 km');
   });
@@ -326,6 +515,173 @@ describe('Atlas preview logic', () => {
   });
 });
 
+describe('the on-globe labels (ruling 23)', () => {
+  const deg = (degrees: number) => Math.cos((degrees * Math.PI) / 180);
+  const inside = (box: LabelBox, radius: number) =>
+    [
+      [box.left, box.top],
+      [box.right, box.top],
+      [box.left, box.bottom],
+      [box.right, box.bottom],
+    ].every(([x, y]) => Math.hypot(x, y) <= radius);
+  const overlap = (a: LabelBox, b: LabelBox) =>
+    a.left < b.right &&
+    b.left < a.right &&
+    a.top < b.bottom &&
+    b.top < a.bottom;
+  const label = (
+    kind: LabelInput['kind'],
+    x: number,
+    y: number,
+    extra: Partial<LabelInput> = {},
+  ): LabelInput => ({
+    kind,
+    x,
+    y,
+    cosc: Math.sqrt(Math.max(0, 1 - (x * x + y * y) / 200 ** 2)),
+    width: 110,
+    height: 32,
+    ...extra,
+  });
+
+  it('show whole while their point is within 60° of the view centre, and are gone past 72°', () => {
+    expect(LABEL_FACING_DEG).toEqual([60, 72]);
+    expect(labelAlpha(1)).toBe(1);
+    expect(labelAlpha(deg(45))).toBe(1);
+    expect(labelAlpha(deg(60))).toBe(1);
+    expect(labelAlpha(deg(66))).toBeGreaterThan(0.2);
+    expect(labelAlpha(deg(66))).toBeLessThan(0.8);
+    expect(labelAlpha(deg(72))).toBe(0);
+    expect(labelAlpha(deg(90))).toBe(0);
+    expect(labelAlpha(-0.5)).toBe(0);
+    let previous = 1;
+    for (let angle = 50; angle <= 80; angle += 1) {
+      expect(labelAlpha(deg(angle))).toBeLessThanOrEqual(previous);
+      previous = labelAlpha(deg(angle));
+    }
+  });
+
+  it('set their text beside the point’s ring, on any of four sides', () => {
+    const { gap } = LABEL_GEOMETRY;
+    expect(labelBox(10, 20, 'right', 100, 32)).toEqual({
+      left: 10 + gap,
+      right: 10 + gap + 100,
+      top: 4,
+      bottom: 36,
+    });
+    expect(labelBox(10, 20, 'left', 100, 32)).toEqual({
+      left: 10 - gap - 100,
+      right: 10 - gap,
+      top: 4,
+      bottom: 36,
+    });
+    expect(labelBox(10, 20, 'below', 100, 32)).toEqual({
+      left: -40,
+      right: 60,
+      top: 20 + gap,
+      bottom: 20 + gap + 32,
+    });
+    expect(labelBox(10, 20, 'above', 100, 32)).toEqual({
+      left: -40,
+      right: 60,
+      top: 20 - gap - 32,
+      bottom: 20 - gap,
+    });
+  });
+
+  it('stay inside the disc: a point near the right limb takes its label to the left', () => {
+    const [placed] = placeLabels([label('survey', 150, 0)], 200);
+    expect(placed.side).toBe('left');
+    expect(placed.fits).toBe(true);
+    expect(inside(placed.box!, 200)).toBe(true);
+    // Near the top edge, below.
+    const [top] = placeLabels([label('unknown', 10, -170)], 200);
+    expect(top.side).toBe('below');
+    expect(inside(top.box!, 200)).toBe(true);
+  });
+
+  it('never overlap each other or cover another label’s point', () => {
+    const placed = placeLabels(
+      [label('survey', -40, 0), label('modeled', -20, -8)],
+      220,
+    );
+    expect(placed.every((entry) => entry.fits)).toBe(true);
+    expect(overlap(placed[0].box!, placed[1].box!)).toBe(false);
+    const ring = (x: number, y: number) => ({
+      left: x - 8,
+      right: x + 8,
+      top: y - 8,
+      bottom: y + 8,
+    });
+    expect(overlap(placed[0].box!, ring(-20, -8))).toBe(false);
+    expect(overlap(placed[1].box!, ring(-40, 0))).toBe(false);
+  });
+
+  it('find a layout for all of them when one exists, even if the first label must move', () => {
+    // The three points of the preview at rest on the smallest disc (radius 136 px): a greedy pass
+    // that put the first label on its first free side would leave the third no room.
+    const placed = placeLabels(
+      [
+        label('survey', -32.9, 0.9, { width: 128, height: 32, cosc: 0.97 }),
+        label('modeled', 6.3, -35.5, { width: 96, height: 48, cosc: 0.96 }),
+        label('unknown', 61.6, -88.9, { width: 115, height: 32, cosc: 0.6 }),
+      ],
+      LABEL_MIN_RADIUS,
+    );
+    expect(placed.map((entry) => entry.fits)).toEqual([true, true, true]);
+    for (const [index, entry] of placed.entries()) {
+      expect(inside(entry.box!, LABEL_MIN_RADIUS)).toBe(true);
+      for (const other of placed.slice(index + 1))
+        expect(overlap(entry.box!, other.box!)).toBe(false);
+    }
+  });
+
+  it('keep the side they are on while it still fits, so they do not jump as the globe turns', () => {
+    const [kept] = placeLabels([label('survey', 0, 0, { side: 'left' })], 200);
+    expect(kept.side).toBe('left');
+    const [moved] = placeLabels(
+      [label('survey', -150, 0, { side: 'left' })],
+      200,
+    );
+    expect(moved.side).toBe('right');
+  });
+
+  it('hide when no side fits, when facing away, or when their layer is off', () => {
+    // A disc too small for the text.
+    const [cramped] = placeLabels([label('survey', 0, 0, { width: 400 })], 120);
+    expect(cramped.fits).toBe(false);
+    // Turned past 72°: no place is looked for.
+    const [away] = placeLabels([label('survey', 0, 0, { cosc: deg(80) })], 200);
+    expect(away.alpha).toBe(0);
+    expect(away.fits).toBe(false);
+    // Measured layer: the Modeled and No-estimate labels name marks that are not drawn.
+    const [off] = placeLabels([label('modeled', 0, 0, { shown: false })], 200);
+    expect(off.fits).toBe(false);
+    // A hidden label is no obstacle to the others.
+    const placed = placeLabels(
+      [label('survey', 0, 0, { shown: false }), label('modeled', 0, 0)],
+      200,
+    );
+    expect(placed[1].fits).toBe(true);
+  });
+
+  it('estimate text widths on the generous side, for the build’s rest layout', () => {
+    // Measured in the browser, Figtree 13 px with tabular numerals: 58.3 (650), 120.0, 88.3 and
+    // 106.7 px (500).
+    const measured = ['Measured', '9,506 people tested'];
+    expect(estimateLabelWidth(measured)).toBeGreaterThanOrEqual(120);
+    expect(estimateLabelWidth(measured)).toBeLessThanOrEqual(132);
+    expect(
+      estimateLabelWidth(['Modeled', 'about 2.8%,', 'likely 1.3–6.1%']),
+    ).toBeGreaterThanOrEqual(89);
+    expect(
+      estimateLabelWidth(['No estimate', 'no survey in range']),
+    ).toBeGreaterThanOrEqual(107);
+    // A glyph the table does not hold counts as wide as an m.
+    expect(estimateLabelWidth(['é'])).toBeGreaterThanOrEqual(11);
+  });
+});
+
 /** A clock the rotation runs on, advanced by hand: frames every 16 ms, timers on time. */
 function fakeClock() {
   let now = 0;
@@ -377,7 +733,7 @@ describe('the Atlas preview’s rotation', () => {
     return { spin, run, pendingFrames, states, turned: () => turned };
   };
 
-  it('holds the starting view, then turns a revolution a minute, the Earth’s way', () => {
+  it('holds the starting view, then turns 4° a second, the Earth’s way', () => {
     const { spin, run, turned, states, pendingFrames } = setup();
     spin.setOnScreen(true);
     expect(spin.state).toBe('off');
@@ -388,7 +744,7 @@ describe('the Atlas preview’s rotation', () => {
     expect(pendingFrames()).toBe(0);
     run(40);
     expect(spin.state).toBe('running');
-    // After the ramp, 10 s turn 60° (the centre's longitude falls: features drift eastward).
+    // After the ramp, 10 s turn 40° (the centre's longitude falls: features drift eastward).
     run(3000);
     const before = turned();
     run(10_000);
@@ -396,7 +752,37 @@ describe('the Atlas preview’s rotation', () => {
     expect(states).toEqual(['waiting', 'running']);
   });
 
-  it('pauses while held, and turns again 4 s after the last hold ends', () => {
+  it('eases out over 400 ms when pointed at or focused, stops at once for a drag', () => {
+    expect(SPIN_EASE_OUT_MS).toBe(400);
+    const { spin, run, turned, pendingFrames } = setup();
+    spin.setOnScreen(true);
+    spin.enable();
+    run(SPIN_DWELL_MS + 3000);
+    spin.hold('hover');
+    expect(spin.state).toBe('held');
+    const at = turned();
+    run(100);
+    const early = turned() - at;
+    // Still turning a little, slower than full speed.
+    expect(early).toBeLessThan(0);
+    expect(Math.abs(early)).toBeLessThan((SPIN_DEG_PER_S * 100) / 1000);
+    run(SPIN_EASE_OUT_MS);
+    const stopped = turned();
+    expect(pendingFrames()).toBe(0);
+    run(5000);
+    expect(turned()).toBe(stopped);
+    // A drag holds at once: no tail under the visitor's finger.
+    spin.release('hover');
+    run(SPIN_IDLE_MS + 3000);
+    expect(spin.state).toBe('running');
+    spin.hold('drag');
+    const dragged = turned();
+    expect(pendingFrames()).toBe(0);
+    run(500);
+    expect(turned()).toBe(dragged);
+  });
+
+  it('turns again 4 s after the last hold ends', () => {
     const { spin, run, turned } = setup();
     spin.setOnScreen(true);
     spin.enable();
@@ -404,6 +790,7 @@ describe('the Atlas preview’s rotation', () => {
     spin.hold('hover');
     spin.hold('focus');
     expect(spin.state).toBe('held');
+    run(SPIN_EASE_OUT_MS + 32);
     const held = turned();
     run(20_000);
     expect(turned()).toBe(held);
@@ -440,12 +827,13 @@ describe('the Atlas preview’s rotation', () => {
   });
 
   it('stays paused after Pause, whatever the visitor does, until Play', () => {
-    const { spin, run, turned } = setup();
+    const { spin, run, turned, pendingFrames } = setup();
     spin.setOnScreen(true);
     spin.enable();
     run(SPIN_DWELL_MS + 1000);
     spin.setPaused(true);
     expect(spin.state).toBe('paused');
+    expect(pendingFrames()).toBe(0);
     spin.hold('hover');
     spin.release('hover');
     run(SPIN_IDLE_MS * 3);
@@ -471,53 +859,5 @@ describe('the Atlas preview’s rotation', () => {
     spin.disable();
     expect(spin.state).toBe('off');
     expect(pendingFrames()).toBe(0);
-  });
-});
-
-describe('the hero film’s choices', () => {
-  const sources = [
-    { src: '720.av1', type: 'av1', width: 1280 },
-    { src: '720.hevc', type: 'hevc', width: 1280 },
-    { src: '1080.av1', type: 'av1', width: 1920 },
-    { src: '1080.hevc', type: 'hevc', width: 1920 },
-  ];
-  const pick = (width: number, dpr: number) =>
-    pickRendition(sources, width, dpr).map((source) => source.src);
-
-  it('takes the 720p film on phones and small laptops, 1080p on desktops, AV1 first', () => {
-    expect(pick(390, 3)).toEqual(['720.av1', '720.hevc']);
-    expect(pick(430, 3)).toEqual(['720.av1', '720.hevc']);
-    expect(pick(412, 2.625)).toEqual(['720.av1', '720.hevc']);
-    expect(pick(1280, 1)).toEqual(['720.av1', '720.hevc']);
-    expect(pick(1366, 1)).toEqual(['1080.av1', '1080.hevc']);
-    expect(pick(1440, 1)).toEqual(['1080.av1', '1080.hevc']);
-    expect(pick(1440, 2)).toEqual(['1080.av1', '1080.hevc']);
-    expect(pick(2560, 1)).toEqual(['1080.av1', '1080.hevc']);
-    expect(pickRendition([], 1440, 1)).toEqual([]);
-  });
-
-  it('keeps the poster under reduced motion, Save-Data and slow connections', () => {
-    expect(posterReason({ reducedMotion: true })).toBe('reduced-motion');
-    expect(posterReason({ reducedMotion: false, saveData: true })).toBe(
-      'save-data',
-    );
-    for (const effectiveType of ['slow-2g', '2g', '3g'])
-      expect(posterReason({ reducedMotion: false, effectiveType })).toBe(
-        'slow-connection',
-      );
-    expect(posterReason({ reducedMotion: false, effectiveType: '4g' })).toBe(
-      null,
-    );
-    expect(posterReason({ reducedMotion: false })).toBe(null);
-  });
-
-  it('recedes from the hero’s top to three quarters of its height (the scroll fade’s fallback)', () => {
-    expect(RECEDE_SPAN).toBe(0.75);
-    expect(recedeAt(0, 100, 800)).toBe(0);
-    expect(recedeAt(100, 100, 800)).toBe(0);
-    expect(recedeAt(400, 100, 800)).toBeCloseTo(0.5, 6);
-    expect(recedeAt(700, 100, 800)).toBe(1);
-    expect(recedeAt(5000, 100, 800)).toBe(1);
-    expect(recedeAt(500, 100, 0)).toBe(0);
   });
 });
