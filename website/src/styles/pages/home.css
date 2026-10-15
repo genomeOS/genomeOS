@@ -126,6 +126,19 @@
 
 /* ----------------------------------------------------------------------- why it matters */
 
+/* The people sit beside their text only where the split's 8 columns hold the 20 × 5 grid (a 33rem
+   figure, from a 62rem viewport). Narrower, the figure goes under the text at full width, where
+   the 20 × 5 grid still fits, instead of a 10 × 10 grid stretched twice as tall as its text. */
+@media (max-width: 61.99rem) {
+  .home-why .layout-figure-split > * {
+    grid-column: 1 / -1;
+  }
+
+  .home-why .layout-figure-split__figure {
+    margin-top: var(--head-gap);
+  }
+}
+
 /* PeopleFigure.astro: a data figure, open. The wide grid from a 33rem figure (a container query). */
 .people {
   --micro-band: var(--color-orbit);
@@ -149,6 +162,19 @@
 
 .people .kit-figure__stage > svg.people__svg[data-layout='wide'] {
   display: none;
+}
+
+/* The 10 × 10 grid stops growing at 24rem, the people's size in the 20 × 5 grid at 1440 px,
+   left-aligned with the title and key; the note keeps to the grid's width, so it still ends under
+   the ring's leader. */
+.people .kit-figure__stage > svg.people__svg[data-layout='narrow'] {
+  max-width: 24rem;
+}
+
+@container people (max-width: 32.99rem) {
+  .people__note {
+    max-width: 24rem;
+  }
 }
 
 @container people (min-width: 33rem) {

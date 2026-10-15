@@ -272,6 +272,37 @@ test('each person grows in place: mid-wave, every glyph is centred where it rest
   }
 });
 
+test('the people keep their desktop size at every width, and “Why it matters” stacks until the wide grid fits beside its text @desktop-chromium', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  for (const width of [600, 700, 834, 900, 991, 992, 1024, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto('/');
+    const figure = people(page);
+    const svg = shown(figure, 'svg[data-layout]');
+    // The drawn glyph's box (a <use>'s client rect; Playwright's boundingBox() reports the
+    // larger box of the <use>'s viewport).
+    const glyph = await svg
+      .locator('.people__p')
+      .first()
+      .evaluate((use) => use.getBoundingClientRect().width);
+    // Never larger than at desktop widths (about 25 px), never too small to read as a person.
+    expect(glyph, `${width}`).toBeLessThanOrEqual(26.5);
+    expect(glyph, `${width}`).toBeGreaterThanOrEqual(16);
+    const stage = (await figure.locator('[data-figure-stage]').boundingBox())!;
+    expect(stage.height, `${width}`).toBeLessThanOrEqual(600);
+    // Beside its text only where the 20 × 5 grid fits; otherwise under it, at full width.
+    const text = (await page
+      .locator('#why .layout-figure-split__text')
+      .boundingBox())!;
+    const beside = (await figure.boundingBox())!.x > text.x + text.width;
+    expect(beside, `${width}`).toBe(width >= 992);
+    if (beside)
+      await expect(svg, `${width}`).toHaveAttribute('data-layout', 'wide');
+  }
+});
+
 /* ------------------------------------------------------------------------- how it works */
 
 const STORYBOARD = [
