@@ -60,7 +60,8 @@ const starts = [
      * Spec §2.7 rule 5 (round 2 §4.3.2), above the fold never flashes: before any of the page
      * paints, mark the orbit armed, so it paints its story's first moment (contribute.css: an
      * empty stage, every column waiting), never its last frame emptying for the story. Only with
-     * motion allowed and the page arriving within 1,200 ms; if the scene has neither begun loading
+     * motion allowed, colours not forced (spec §8.9: there the scene shows its end state) and the
+     * page arriving within 1,200 ms; if the scene has neither begun loading
      * (data-orbit-loading, set by the page's script and kept until the scene has a state) nor been
      * built (data-scene-state) by then, stand down to the last frame.
      */
@@ -70,6 +71,7 @@ const starts = [
       try {
         if (
           matchMedia('(prefers-reduced-motion: reduce)').matches ||
+          matchMedia('(forced-colors: active)').matches ||
           performance.now() > 1200
         )
           return;
@@ -176,14 +178,18 @@ const starts = [
    * The page's island (spec §7: Contribute ≤ 10 KB of first-party JS at first load): the transit
    * line's entrance and lane lighting, and a few lines that import the orbit scene (orbit.ts,
    * its own lazily loaded chunk, round 2 spec §7) once the figure is within a viewport of the
-   * screen. Under reduced motion the orbit is never imported: its server-rendered last frame is
-   * the picture, and nothing would move. The work board's script lives with its section
-   * (HowWorkMoves.astro).
+   * screen. Under reduced motion or forced colours (spec §8.9) the orbit is never imported: its
+   * server-rendered last frame is the picture, and nothing would move. The work board's script
+   * lives with its section (HowWorkMoves.astro).
    */
   import '../components/contribute/transit';
 
   const orbit = document.querySelector<HTMLElement>('[data-graphic="orbit"]');
-  if (orbit && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  if (
+    orbit &&
+    !matchMedia('(prefers-reduced-motion: reduce)').matches &&
+    !matchMedia('(forced-colors: active)').matches
+  ) {
     const load = () => {
       orbit.setAttribute('data-orbit-loading', '');
       import('../components/contribute/orbit')

@@ -349,13 +349,16 @@
   text-decoration: underline;
 }
 
-/* Phones, under reduced motion or without JavaScript: a close-up of each moon above its text,
-   the story's last frame through a viewBox on the one phone scene (round 2 spec §4.3.2). */
+/* Phones, under reduced motion, in forced colours or without JavaScript: a close-up of each moon
+   above its text, the story's last frame through a viewBox on the one phone scene (round 2 spec
+   §4.3.2). */
 .orbit-col__shot {
   display: none;
 }
 
-@media (prefers-reduced-motion: reduce), (scripting: none) {
+@media (prefers-reduced-motion: reduce),
+  (scripting: none),
+  (forced-colors: active) {
   @container orbit (max-width: 679.98px) {
     .orbit-col__shot {
       display: block;
@@ -738,7 +741,9 @@
     forced-color-adjust: none;
   }
 
-  /* The orbit is an illustration: it keeps its own night sky and colours, framed by the plate. */
+  /* The orbit is an illustration: in forced colours it rests on the story's last frame (the page
+     never loads its motion; spec §8.9) and keeps its own night sky and colours, framed by the
+     plate, as a picture does; its words are all in the columns, in system colours. */
   .orbit__stage,
   .orbit-col__shot {
     forced-color-adjust: none;

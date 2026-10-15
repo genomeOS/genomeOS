@@ -793,6 +793,49 @@ test.describe('the orbit scene under reduced motion', () => {
   });
 });
 
+test.describe('the orbit scene in forced colours', () => {
+  test('stops at the story’s last frame and builds nothing', async ({
+    page,
+  }) => {
+    // Spec §8.9: in forced colours, scenes show their end state (review of T4, finding 7).
+    await page.emulateMedia({ forcedColors: 'active' });
+    await page.goto('/contribute/');
+    await page.evaluate(() => document.fonts.ready);
+    const figure = page.locator(FIGURE);
+    await figure.evaluate((element) =>
+      element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+    );
+    await page.waitForTimeout(1500);
+    expect(
+      await page.evaluate(() =>
+        document.documentElement.hasAttribute('data-arm-orbit'),
+      ),
+    ).toBe(false);
+    expect(
+      await figure.evaluate(
+        (element) =>
+          document.getAnimations().filter((animation) => {
+            const target = (animation.effect as KeyframeEffect | null)?.target;
+            return target instanceof Element && element.contains(target);
+          }).length,
+      ),
+    ).toBe(0);
+    await expect(figure.locator('[data-scene-toggle]')).toBeHidden();
+    await expect(figure.locator('[data-scene-replay]')).toBeHidden();
+    const shot = await page.evaluate(snapshot);
+    expect(KINDS.filter((kind) => shot.moons[kind].shown)).toEqual([
+      'data',
+      'model',
+      'ui',
+    ]);
+    for (const [id, crew] of Object.entries(shot.crews))
+      expect(crew.opacity, id).toBe(1);
+    for (const column of shot.columns)
+      for (const line of column.typed)
+        expect(line.n, column.id).toBeGreaterThan(line.length);
+  });
+});
+
 test.describe('the orbit scene on a phone @mobile-chromium', () => {
   test('closes in on each landing, labels hidden, then pulls back', async ({
     page,

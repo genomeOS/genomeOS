@@ -1085,6 +1085,11 @@ export function initOrbit(figure: HTMLElement): SceneController {
   const stage = figure.querySelector('[data-figure-stage]');
   if (stage) new ResizeObserver(() => void relayout()).observe(stage);
 
+  // Colours forced mid-visit (spec §8.9): rest on the story's last frame.
+  matchMedia('(forced-colors: active)').addEventListener('change', (event) => {
+    if (event.matches) void controller.seek(T.story);
+  });
+
   // The head script stood down (a slow page) and the last frame is already on screen: emptying it
   // for the story would flash (spec §2.7 rule 5). Rest on the last frame and run the idle loops;
   // Replay plays the story.
