@@ -22,9 +22,10 @@ describe('Atlas e2e build wiring', () => {
     const npm = scripts();
     // The stall window is stretched only here (fast-load design §B.2 keeps 15 s in production):
     // Task 76 (B5.7) holds the detail tier until it releases it. The e2e hooks (#453: a test may
-    // hold the reveal wave) are on only here too.
+    // hold the reveal wave) are on only here too, and so are the site's motion hooks (#454 round 2
+    // spec §3.4: window.__motion and the /kit/ gallery; tests/motion-hooks.test.ts).
     expect(npm['build:e2e']).toBe(
-      `ATLAS_CATALOG_PATH=${E2E_CATALOG} PUBLIC_ATLAS_REQUEST_STALL_MS=120000 PUBLIC_ATLAS_E2E_HOOKS=1 npm run build`,
+      `ATLAS_CATALOG_PATH=${E2E_CATALOG} PUBLIC_ATLAS_REQUEST_STALL_MS=120000 PUBLIC_ATLAS_E2E_HOOKS=1 PUBLIC_MOTION_HOOKS=1 npm run build`,
     );
     for (const [name, script] of Object.entries(npm))
       if (name !== 'build:e2e') {
