@@ -108,10 +108,7 @@ const icon = (kind: keyof typeof ICON) =>
               {group.title}
             </h3>
           </div>
-          <p class="orbit-col__status">
-            <span class="orbit-col__dot" aria-hidden="true" />
-            Group forming
-          </p>
+          <p class="orbit-col__status">Group forming</p>
           <p class="orbit-col__what">
             <Fragment set:html={group.what.sr + group.what.twin} />
           </p>

@@ -298,12 +298,13 @@
   font-weight: 600;
 }
 
-.orbit-col__dot {
+.orbit-col__status::before {
   flex: none;
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: var(--color-aurora);
+  content: '';
   opacity: calc(1 - 0.65 * var(--orbit-wait));
 }
 
@@ -748,7 +749,7 @@
     background: Highlight;
   }
 
-  .orbit-col__dot {
+  .orbit-col__status::before {
     background: CanvasText;
   }
 
