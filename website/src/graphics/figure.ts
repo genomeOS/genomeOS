@@ -47,6 +47,12 @@ export interface FigureMotion {
 export interface FigureControllerOptions {
   threshold?: number;
   readyBy?: number;
+  /**
+   * Register with the motion hooks under the figure's `data-graphic` (default true). False for a
+   * figure that registers a scene of its own under that name (the Atlas preview: entrance, hold
+   * and turn, round 2 spec §3.4), which would otherwise replace this one with a warning.
+   */
+  register?: boolean;
 }
 
 export const prefersReducedMotion = (): boolean =>
@@ -115,6 +121,7 @@ export class FigureController {
     {
       threshold = PLAY_THRESHOLD,
       readyBy = READY_BY_MS,
+      register = true,
     }: FigureControllerOptions = {},
   ) {
     this.element = element;
@@ -123,7 +130,7 @@ export class FigureController {
     this.reduced = prefersReducedMotion();
     const name = element.dataset.graphic ?? 'figure';
     this.frozenAt = frozenTime(name);
-    this.register(name);
+    if (register) this.register(name);
 
     window.addEventListener('beforeprint', this.onPrint);
     if (this.frozenAt !== null) {

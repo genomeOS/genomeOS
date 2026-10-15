@@ -1473,12 +1473,13 @@ test('the layer control has one pressed layer, swaps the legend and the labels',
     'Model grid, no values drawn',
   );
   await expect(figure.locator('[data-legend="modeled"]')).toBeHidden();
-  // The Measured layer draws no estimates: only the Measured label names a mark on it.
+  // The Measured layer draws no estimates, so the Modeled label names nothing on it; the hatch
+  // for areas with no estimate is drawn on both layers, so its label stays (review of T1).
   const body = (kind: string) =>
     figure.locator(`.hg-label[data-label="${kind}"] .hg-label__body`);
   await expect(body('survey')).not.toHaveClass(/is-off/);
   await expect(body('modeled')).toHaveClass(/is-off/);
-  await expect(body('unknown')).toHaveClass(/is-off/);
+  await expect(body('unknown')).not.toHaveClass(/is-off/);
   // Screen readers keep all three.
   await expect(figure.locator('#atlas-preview-labels li')).toHaveCount(3);
   await layers.getByRole('button', { name: 'Modeled' }).click();

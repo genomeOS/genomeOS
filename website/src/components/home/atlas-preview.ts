@@ -969,7 +969,14 @@ export function initAtlasPreview(figure: HTMLElement): void {
         // it, so the rest picture is the same with motion or without; as the globe turns it keeps
         // the side it is on, so it does not jump back and forth.
         side: atRest() || entering ? label.restSide : label.side,
-        shown: allShown || layer === 'modeled' || label.kind === 'survey',
+        // The Measured layer draws no estimates, so the Modeled label names nothing there; the
+        // hatch for areas with no estimate is drawn on both layers, so its label stays (review of
+        // T1). A label the entrance has not lit yet takes no room, or a lit one would take a side
+        // and then jump to its rest side when the next lights (review of T1, 320 × 640).
+        shown:
+          allShown ||
+          ((layer === 'modeled' || label.kind !== 'modeled') &&
+            !(entering && label.order > lit)),
       };
     });
     placeLabels(inputs, radius).forEach((placement, index) => {
@@ -1213,30 +1220,37 @@ export function initAtlasPreview(figure: HTMLElement): void {
     // The controller holds the figure's state (armed, playing or rest). It plays when 35% of the
     // figure is in view (MotionController), or rests at once under reduced motion or when the data
     // arrive with the figure already on screen.
-    controller = steadyEntrance(figure, {
-      duration: ENTRANCE_MS,
-      arm() {
-        goLive();
-        entering = true;
-        const frame = entranceAt(0);
-        field!.reveal = frame.reveal;
-        lit = frame.callouts;
-        setView(frame.view[0], frame.view[1]);
+    controller = steadyEntrance(
+      figure,
+      {
+        duration: ENTRANCE_MS,
+        arm() {
+          goLive();
+          entering = true;
+          const frame = entranceAt(0);
+          field!.reveal = frame.reveal;
+          lit = frame.callouts;
+          setView(frame.view[0], frame.view[1]);
+        },
+        render(t) {
+          const frame = entranceAt(t);
+          field!.reveal = frame.reveal;
+          lit = frame.callouts;
+          setView(frame.view[0], frame.view[1]);
+          probe();
+        },
+        rest() {
+          entering = false;
+          goLive();
+          restState();
+          allowSpin();
+        },
       },
-      render(t) {
-        const frame = entranceAt(t);
-        field!.reveal = frame.reveal;
-        lit = frame.callouts;
-        setView(frame.view[0], frame.view[1]);
-        probe();
+      {
+        // The preview registers its own "atlas-preview" scene (entrance, hold and turn) below.
+        register: false,
       },
-      rest() {
-        entering = false;
-        goLive();
-        restState();
-        allowSpin();
-      },
-    });
+    );
     registerPreview();
     builtResolve();
     if (printing) controller.finish();

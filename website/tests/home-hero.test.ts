@@ -247,14 +247,14 @@ describe('the Atlas preview, as built', () => {
     const modeled = text(
       legend.match(/data-legend="modeled"[^>]*>([\s\S]*?)<\/div>\s*<div/)![1],
     );
-    expect(modeled).toContain('Survey, sized by people tested');
+    expect(modeled).toContain('Surveys, sized by people tested');
     expect(modeled).toContain('Modeled share, 0–17% of gene copies');
     expect(modeled).toContain('Fades away from surveys');
     expect(modeled).toContain('No estimate');
     const measured = text(
       legend.slice(legend.indexOf('data-legend="measured"')),
     );
-    expect(measured).toContain('Survey, sized by people tested');
+    expect(measured).toContain('Surveys, sized by people tested');
     expect(measured).toContain('Model grid, no values drawn');
     for (const size of ['sm', 'md', 'lg'])
       expect(legend).toContain(`#glyph-stud-${size}`);
@@ -654,7 +654,7 @@ describe('the on-globe labels (ruling 23)', () => {
     const [away] = placeLabels([label('survey', 0, 0, { cosc: deg(80) })], 200);
     expect(away.alpha).toBe(0);
     expect(away.fits).toBe(false);
-    // Measured layer: the Modeled and No-estimate labels name marks that are not drawn.
+    // Measured layer: the Modeled label names a mark that is not drawn.
     const [off] = placeLabels([label('modeled', 0, 0, { shown: false })], 200);
     expect(off.fits).toBe(false);
     // A hidden label is no obstacle to the others.

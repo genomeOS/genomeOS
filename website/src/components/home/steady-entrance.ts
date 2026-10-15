@@ -6,7 +6,11 @@
  * grow, in CSS.)
  */
 
-import { FigureController, type FigureMotion } from '../../graphics/figure';
+import {
+  FigureController,
+  type FigureControllerOptions,
+  type FigureMotion,
+} from '../../graphics/figure';
 import { MOTION_HOOKS, frozenAt } from '../../graphics/motion-hooks';
 
 /**
@@ -25,35 +29,40 @@ export function steadyEntrance(
   motion: Pick<FigureMotion, 'duration' | 'arm' | 'rest'> & {
     render(t: number): void;
   },
+  options?: FigureControllerOptions,
 ): FigureController {
   const frozen =
     MOTION_HOOKS &&
     typeof location !== 'undefined' &&
     frozenAt(location.search, figure.dataset.graphic ?? 'figure') !== null;
   let frame = 0;
-  const controller: FigureController = new FigureController(figure, {
-    get duration() {
-      return motion.duration;
-    },
-    arm: motion.arm,
-    start() {
-      if (frozen) return;
-      const started = performance.now();
-      const tick = (now: number) => {
-        frame = 0;
-        if (controller.state !== 'playing') return;
-        motion.render(Math.max(0, now - started));
+  const controller: FigureController = new FigureController(
+    figure,
+    {
+      get duration() {
+        return motion.duration;
+      },
+      arm: motion.arm,
+      start() {
+        if (frozen) return;
+        const started = performance.now();
+        const tick = (now: number) => {
+          frame = 0;
+          if (controller.state !== 'playing') return;
+          motion.render(Math.max(0, now - started));
+          frame = requestAnimationFrame(tick);
+        };
+        motion.render(0);
         frame = requestAnimationFrame(tick);
-      };
-      motion.render(0);
-      frame = requestAnimationFrame(tick);
+      },
+      render: frozen ? (t) => motion.render(t) : undefined,
+      rest() {
+        if (frame) cancelAnimationFrame(frame);
+        frame = 0;
+        motion.rest();
+      },
     },
-    render: frozen ? (t) => motion.render(t) : undefined,
-    rest() {
-      if (frame) cancelAnimationFrame(frame);
-      frame = 0;
-      motion.rest();
-    },
-  });
+    options,
+  );
   return controller;
 }

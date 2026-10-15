@@ -138,7 +138,8 @@
 }
 
 .hg-label__plate {
-  fill: rgb(2 7 18 / 88%);
+  /* Opaque enough that the white studs under a plate do not show through as grey dots. */
+  fill: rgb(2 7 18 / 94%);
   stroke: rgb(165 185 211 / 24%);
   stroke-width: 1;
   shape-rendering: crispEdges;
