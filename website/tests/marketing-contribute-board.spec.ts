@@ -112,7 +112,8 @@ const boardState = (page: Page) =>
 /**
  * How crowded the floor is at this instant: whether each astronaut's face is on top at its helmet's
  * centre (nobody stands in front of it), how far each helmet sits inside its column's borders, how
- * many of the wall's cells nobody covers, and whether the pull request's row fits its card.
+ * many of the wall's cells no astronaut covers (of how many), and whether the pull request's row
+ * fits its card.
  */
 const crowding = (page: Page, which = '.floor-svg--live') =>
   page.evaluate(
@@ -150,16 +151,22 @@ const crowding = (page: Page, which = '.floor-svg--live') =>
             : -999,
         };
       });
-      const wall = [...svg.querySelectorAll('.wall-cell')].filter((cell) => {
+      const cells = [...svg.querySelectorAll('.wall-cell')];
+      const wall = cells.filter((cell) => {
         const box = cell.getBoundingClientRect();
         const hit = top(box.left + box.width / 2, box.top + box.height / 2);
-        return !!hit && !hit.closest('.who');
+        return !!hit && !hit.closest('.astro');
       }).length;
       floor.style.pointerEvents = '';
       const row = figure.querySelector<HTMLElement>(
         '[data-example="home"] .ex-pr',
       )!;
-      return { faces, wall, rowFits: row.scrollWidth <= row.clientWidth };
+      return {
+        faces,
+        wall,
+        cells: cells.length,
+        rowFits: row.scrollWidth <= row.clientWidth,
+      };
     },
     [BOARD, which] as const,
   );
@@ -345,8 +352,8 @@ test.describe('the story at the seek table @desktop-chromium', () => {
     await seek(page, 36000);
     s = await boardState(page);
     expect(s.where).toMatchObject({ A2: 0, A5: 0, A3: 4, E1: 4, E2: 4 });
-    expect(s.cells).toBe(23);
-    expect(s.lit).toBe(23);
+    expect(s.cells).toBe(11);
+    expect(s.lit).toBe(11);
     expect(s.socket).toBe(1);
     expect(s.card).toBe(4);
     expect(s.status).toEqual(['Merged']);
@@ -471,7 +478,8 @@ test.describe('the story at the seek table @desktop-chromium', () => {
 
 // From the narrowest desktop (64rem, iPad landscape: 177 px columns) to 1440, the story keeps the
 // same composition: every face shows, nobody crosses a column's border, the finished wall shines
-// through the celebration, and the pull request's status word is never clipped.
+// whole through the celebration, the end and the idle loop (design critique 4: the experts stood in
+// front of it and hid half of it), and the pull request's status word is never clipped.
 for (const width of [1024, 1100, 1152, 1280, 1440]) {
   test.describe(`the floor at ${width} px @desktop-chromium`, () => {
     test.use({ viewport: { width, height: 900 } });
@@ -481,9 +489,10 @@ for (const width of [1024, 1100, 1152, 1280, 1440]) {
     }) => {
       await openBoard(page);
       // Discussion, the pick, a strike, the question, Approved, the hand-off, the fit, the
-      // celebration, the end.
+      // celebration, the end, and the idle loop (the contributor's hop, the expert's nod).
       for (const t of [
-        2750, 10640, 13620, 21880, 25730, 28390, 31110, 33400, 36000,
+        2750, 10640, 13620, 21880, 25730, 28390, 31110, 33400, 34500, 36000,
+        39300, 41000,
       ]) {
         await seek(page, t);
         const c = await crowding(page);
@@ -496,11 +505,8 @@ for (const width of [1024, 1100, 1152, 1280, 1440]) {
           ).toBeGreaterThanOrEqual(0);
         }
         expect(c.rowFits, `the pull request row fits at ${t} ms`).toBe(true);
-        if (t === 36000)
-          expect(
-            c.wall,
-            'wall cells in view at the end',
-          ).toBeGreaterThanOrEqual(11);
+        if (t >= 33400)
+          expect(c.wall, `wall cells in view at ${t} ms`).toBe(c.cells);
       }
     });
 
@@ -790,12 +796,15 @@ test.describe('the phone track at 320 px @mobile-chromium', () => {
     ] as const) {
       await seek(page, t);
       await expect.poll(() => margin(page, key)).toBeGreaterThanOrEqual(0);
-      const { faces } = await crowding(page);
+      const { faces, wall, cells } = await crowding(page);
       for (const id of cast)
         expect(
           faces.find((face) => face.id === id)!.inside,
           `${id} at ${t} ms`,
         ).toBeGreaterThanOrEqual(0);
+      // At the end the finished wall shines whole beside the crew (design critique 4).
+      if (key === 'merge')
+        expect(wall, `wall cells in view at ${t} ms`).toBe(cells);
     }
   });
 
@@ -920,7 +929,9 @@ test.describe('reduced motion', () => {
           `${id}'s helmet inside its column`,
         ).toBeGreaterThanOrEqual(0);
       }
-      expect(c.wall, 'wall cells in view').toBeGreaterThanOrEqual(11);
+      // The crew celebrates beside the wall, never in front of it.
+      expect(c.cells, 'wall cells').toBe(11);
+      expect(c.wall, 'wall cells in view').toBe(c.cells);
       expect(c.rowFits).toBe(true);
       // Both bubbles, whole and inside their speaker's column.
       const shown = await bubblesShown(page, '.floor-svg--sb');

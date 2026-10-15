@@ -307,11 +307,25 @@ export function gridGeo(W: number, H = FLOOR_H): Geo {
 /* ------------------------------------------------------------------------- the spots */
 
 const CELL = 23; // a wall block (20) and its gap (3)
-const WALL_COLS = 6;
+/**
+ * The wall is three blocks wide (design critique 4). Three astronauts take about 160 px of a 248 px
+ * column helmet to helmet, so a wider wall could only be seen past the crew: six blocks wide, the
+ * experts celebrated in front of it and hid half of it. At three, the crew celebrates beside it and
+ * the finished wall shines whole.
+ */
+const WALL_COLS = 3;
 const WALL_ROWS = 4;
 export const WALL_W = WALL_COLS * CELL - 3;
-/** The socket the finished block fits: column 3, row 1 of the wall. */
-const SOCKET: Point = [3 * CELL + 10, -(WALL_ROWS - 1) * CELL + 10];
+/** The socket the finished block fits: the middle column, row 1 of the wall. */
+const HOLE: [number, number] = [1, 1];
+const SOCKET: Point = [HOLE[0] * CELL + 10, -(WALL_ROWS - HOLE[1]) * CELL + 10];
+/**
+ * Merge's composition, from the wall's left edge (px at scale 1): left to right the second expert,
+ * the contributor and the expert who fits the block, helmets side by side, then the wall, the
+ * whole group centred in the column (`WALL_DX` puts the wall's left edge right of the centre).
+ */
+const MERGE = { E2: -141, A3: -92, E1: -40 } as const;
+const WALL_DX = 47;
 
 const g1 = geom('E1');
 
@@ -325,15 +339,19 @@ export const SPOTS = {
   R3: { c: 3, fr: 0.2 },
   RE2: { c: 3, fr: 0.58 },
   RE1: { c: 3, fr: 0.86 },
-  ME2: { c: 4, fr: 0.88 },
-  // the contributor joins the experts just inside Merge's left edge, clear of its border
-  MA3: { c: 4, fr: 0.13 },
-  wall: { c: 4, fr: 0.5, dx: 8 - WALL_W / 2 },
-  // E1 stands so its raised block lands exactly in the socket.
-  ME1: {
+  // Merge: the crew stands beside the wall, never in front of it, once the block is in (design
+  // critique 4: at rest and in the idle loop the experts hid half the finished wall).
+  ME2: { c: 4, fr: 0.5, dx: WALL_DX + MERGE.E2 },
+  // the contributor lands between the experts
+  MA3: { c: 4, fr: 0.5, dx: WALL_DX + MERGE.A3 },
+  // where the expert who fits the block rests, beside the wall
+  ME1: { c: 4, fr: 0.5, dx: WALL_DX + MERGE.E1 },
+  wall: { c: 4, fr: 0.5, dx: WALL_DX },
+  // E1 stands here so its raised block lands exactly in the socket, then steps back to ME1.
+  MFit: {
     c: 4,
     fr: 0.5,
-    dx: 8 - WALL_W / 2 + SOCKET[0] - (g1.tw / 2 + 20) * FIG_SCALE,
+    dx: WALL_DX + SOCKET[0] - (g1.tw / 2 + 20) * FIG_SCALE,
   },
 } as const satisfies Record<string, Spot>;
 
@@ -477,7 +495,7 @@ export function plan(geo: Geo): Plan {
   const pos = Object.fromEntries(
     Object.entries(SPOTS).map(([name, spot]) => [name, spotX(geo, spot)]),
   ) as Record<SpotName, number>;
-  const { off, D2, D3, D5, B3, P3, R3, RE2, RE1, ME2, ME1, MA3 } = pos;
+  const { off, D2, D3, D5, B3, P3, R3, RE2, RE1, ME2, ME1, MA3, MFit } = pos;
 
   // ---- 1. Discussion: three hop in from the left and chat
   hop('A2', 400, off, D2, { dur: 700 });
@@ -981,10 +999,11 @@ export function plan(geo: Geo): Plan {
   // ---- 5. Merge: the experts carry the block over and fit it; the wall shines; the contributor
   // bounces over and they all celebrate
   const tM = tSwap + 450;
-  const e1m = walk('E1', tM, HE1, ME1, { ...carry, blockLit: true }, 300, 8);
-  // E2 leads the way (and clears E1's path); E1 follows with the block.
-  const e2m = walk('E2', tM - 200, HE2, ME2, {}, 320, 10);
-  key('E2', e2m + 100, { pose: 'think', x: u(ME2), face: -1 }, EASE.inOut);
+  const e1m = walk('E1', tM, HE1, MFit, { ...carry, blockLit: true }, 300, 8);
+  // E2 leads the way and stops just inside Merge, by the contributor's spot; E1 carries the block
+  // past her to the wall.
+  const e2m = walk('E2', tM - 200, HE2, ME2, {}, 320, 6);
+  key('E2', e2m + 100, { pose: 'think', x: u(ME2), face: 1 }, EASE.inOut);
   cardMoves.push([tM + 200, 4]);
   const tMerged = tM + 600;
   props.push([
@@ -1041,30 +1060,32 @@ export function plan(geo: Geo): Plan {
   key(
     'E1',
     tFit,
-    { pose: 'carry', ...carry, blockLit: true, x: u(ME1), face: 1 },
+    { pose: 'carry', ...carry, blockLit: true, x: u(MFit), face: 1 },
     EASE.inOut,
   );
-  key('E1', tFit + 400, { ...fitHi, x: u(ME1 - 8 * k), face: 1 }, EASE.inOut);
+  key('E1', tFit + 400, { ...fitHi, x: u(MFit - 8 * k), face: 1 }, EASE.inOut);
   key(
     'E1',
     tFit + 800,
-    { ...fitHi, x: u(ME1), face: 1, expr: 'focus' },
+    { ...fitHi, x: u(MFit), face: 1, expr: 'focus' },
     EASE.back,
   );
   const tIn = tFit + 820;
-  key('E1', tIn, { ...fitHi, x: u(ME1), face: 1 }, EASE.inOut);
+  key('E1', tIn, { ...fitHi, x: u(MFit), face: 1 }, EASE.inOut);
   key(
     'E1',
     tIn + 1,
-    { pose: 'fit', block: undefined, x: u(ME1), face: 1 },
+    { pose: 'fit', block: undefined, x: u(MFit), face: 1 },
     EASE.inOut,
   );
   key(
     'E1',
-    tIn + 500,
-    { pose: 'stand', x: u(ME1 + 6 * k), face: 1, expr: 'happy' },
+    tIn + 300,
+    { pose: 'stand', x: u(MFit), face: 1, expr: 'happy' },
     EASE.inOut,
   );
+  // and steps back beside the wall, turning to the others, so the wall shines whole
+  walk('E1', tIn + 320, MFit, ME1, { expr: 'happy' }, 300, 4);
   props.push([
     'story',
     '.wall-fill',
@@ -1095,8 +1116,8 @@ export function plan(geo: Geo): Plan {
   ]);
   for (let r = 0; r < WALL_ROWS; r++)
     for (let c = 0; c < WALL_COLS; c++) {
-      if (r === 1 && c === 3) continue;
-      const d = Math.hypot(c - 3, r - 1) * 90;
+      if (r === HOLE[1] && c === HOLE[0]) continue;
+      const d = Math.hypot(c - HOLE[0], r - HOLE[1]) * 90;
       props.push([
         'story',
         `.wall-cell-${r}-${c}`,
@@ -1133,14 +1154,14 @@ export function plan(geo: Geo): Plan {
   const tJ = tIn + 200;
   t = hop('A3', tJ, R3, X(3, 0.7), { dur: 520, h: -40, chain: true });
   t = hop('A3', t - 150, X(3, 0.7), MA3, { dur: 600, h: -40, from: 'crouch' });
-  // celebrate: three bounces each, staggered, happy; confetti. E2 bounces a step nearer the
-  // others, since her arms-up pose leans her helmet back toward Merge's border; she steps back to
-  // her spot with the clipboard as the story ends.
+  // celebrate: three bounces each, staggered, happy; confetti. Beside the wall, never in front of
+  // it. E2 bounces a step nearer the others, since her arms-up pose leans her helmet back toward
+  // Merge's border; she steps back to her spot with the clipboard as the story ends.
   const tC = Math.max(t, tIn + 900) + 100;
   const crew = [
     ['A3', MA3, 1, 0],
-    ['E1', ME1 + 6 * k, 1, 140],
-    ['E2', ME2 - 7 * k, -1, 280],
+    ['E1', ME1, -1, 140],
+    ['E2', ME2 + 7 * k, 1, 280],
   ] as const;
   for (const [id, x, face, d] of crew) {
     for (let i = 0; i < 3; i++) {
@@ -1192,8 +1213,8 @@ export function plan(geo: Geo): Plan {
     A2: { pose: 'listen', x: u(D2), face: 1 },
     A5: { pose: 'chat', x: u(D5), face: -1 },
     A3: { pose: 'stand', x: u(MA3), face: 1, expr: 'happy' },
-    E2: { pose: 'clipboard', x: u(ME2), face: -1 },
-    E1: { pose: 'stand', x: u(ME1 + 6 * k), face: 1, expr: 'happy' },
+    E2: { pose: 'clipboard', x: u(ME2), face: 1 },
+    E1: { pose: 'stand', x: u(ME1), face: -1, expr: 'happy' },
   };
   // A2 and A5 keep the Discussion going after A3 leaves
   key('A2', 7200, { pose: 'listen', x: u(D2), face: 1 }, EASE.inOut);
@@ -1206,7 +1227,7 @@ export function plan(geo: Geo): Plan {
   for (const id of CAST_BOARD) {
     const start: PoseKeySpec =
       id === 'E2'
-        ? { pose: 'clipboard', x: u(ME2), face: -1 }
+        ? { pose: 'clipboard', x: u(ME2), face: 1 }
         : id === 'E1'
           ? { pose: 'stand', x: u(ME1), face: 1 }
           : { pose: 'stand', x: u(off), face: 1 };
@@ -1341,7 +1362,7 @@ const PROPS_OF: Partial<Record<BoardCast, AstronautOptions>> = {
 const defs = () => kitDefs().replace('</defs>', `${moonDefs()}</defs>`);
 
 function wallMarkup(lit: boolean): string {
-  const w = wall(WALL_COLS, WALL_ROWS, 20, [3, 1], { lit });
+  const w = wall(WALL_COLS, WALL_ROWS, 20, HOLE, { lit });
   return lit
     ? w.replace(
         'class="wall-shine" opacity="0"',
@@ -1515,7 +1536,7 @@ export function renderFloor(geo: Geo, P: Plan): string {
   const idea = anchors('A3', resolveKey('A3', { pose: 'idea' })).headTop;
   const bulbG = `<g transform="translate(${f(pos.B3 + idea[0] * s + 2 * k)} ${f(F + idea[1] * s - 26 * k)})${sk}"><g class="bulb" opacity="0" style="transform-box:fill-box;transform-origin:50% 100%">${PROP.lightbulb()}</g></g>`;
   // confetti over the Merge crew (seeded)
-  const conf = `<g transform="translate(${f((pos.MA3 + pos.ME2) / 2)} ${f(F - 118 * k)})${sk}"><g class="confetti" opacity="0">${confetti(26, mulberry32(SEED), (geo.cols[4].w * 0.9) / k, 60)}</g></g>`;
+  const conf = `<g transform="translate(${f(geo.cols[4].x0 + geo.cols[4].w / 2)} ${f(F - 118 * k)})${sk}"><g class="confetti" opacity="0">${confetti(26, mulberry32(SEED), (geo.cols[4].w * 0.9) / k, 60)}</g></g>`;
   // the figures in their story-end poses
   const figs = (['A2', 'A5', 'E2', 'E1', 'A3'] as const)
     .map((id) => {
@@ -1613,12 +1634,16 @@ export function renderStoryboard(H = FLOOR_H, s = FIG_SCALE): string {
   };
   const g3 = geom('A3');
   // the path the contributor took: faint dotted arcs between the five beats
-  const stops = [SPOTS.D3, SPOTS.B3, SPOTS.P3, SPOTS.R3, SPOTS.MA3];
+  const stops: Spot[] = [SPOTS.D3, SPOTS.B3, SPOTS.P3, SPOTS.R3, SPOTS.MA3];
+  // A spot's share of the track, its px offset read at the composed column width (Merge's spots
+  // sit off its centre; exact up to COL_REF, a few px short on the phone track's wider columns).
+  const share = (p: Spot) =>
+    spotPct({ c: p.c, fr: p.fr + (p.dx ?? 0) / COL_REF }).pct;
   const arcs = stops
     .slice(1)
     .map((to, i) => {
-      const a = spotPct(stops[i]).pct + 2.4;
-      const b = spotPct(to).pct - 2.4;
+      const a = share(stops[i]) + 2.4;
+      const b = share(to) - 2.4;
       return `<svg x="${f(a)}%" y="${F - 126}" width="${f(b - a)}%" height="118" viewBox="0 0 100 100" preserveAspectRatio="none" overflow="visible"><path d="M0 100 Q50 -4 100 100" fill="none" stroke="#7d8590" stroke-width="1.5" stroke-dasharray="2 6" stroke-linecap="round" opacity=".6" vector-effect="non-scaling-stroke"/></svg>`;
     })
     .join('');
@@ -1633,7 +1658,7 @@ export function renderStoryboard(H = FLOOR_H, s = FIG_SCALE): string {
     `${wallMarkup(true)}<g transform="translate(${SOCKET[0]} ${SOCKET[1]})">${socketBlock()}</g>`,
   );
   const confettiG = placed(
-    { c: 4, fr: (SPOTS.MA3.fr + SPOTS.ME2.fr) / 2 },
+    { c: 4, fr: 0.5 },
     F,
     `<g transform="translate(0 -118)">${confetti(26, mulberry32(SEED), 186, 60)}</g>`,
   );
@@ -1675,9 +1700,9 @@ export function renderStoryboard(H = FLOOR_H, s = FIG_SCALE): string {
         F,
         unscaled(ok, bubble(0, 0, SAY.ok[1], { tail: 'r', lift: 4, size: 14 })),
       ) +
-      // 5 Merge: fitted, shining, celebrating
-      fig('E1', 'stand', { ...SPOTS.ME1, dx: SPOTS.ME1.dx + 6 }, 1, 'happy') +
-      fig('E2', 'clipboard', SPOTS.ME2, -1) +
+      // 5 Merge: fitted, shining, celebrating beside the wall
+      fig('E2', 'clipboard', SPOTS.ME2, 1) +
+      fig('E1', 'stand', SPOTS.ME1, -1, 'happy') +
       fig('A3', 'celebrate', SPOTS.MA3, 1) +
       confettiG +
       `</svg>`,
