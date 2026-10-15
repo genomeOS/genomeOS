@@ -7,7 +7,9 @@
  * - no "Schematic" and no "not yet validated" in any served text file, the Atlas app and Docs
  *   included (ruling 39);
  * - no marketing page announces a limitation: no "not yet validated", "plausible map" or
- *   "validated" in its visible text (ruling 37);
+ *   "validated" in its visible text (ruling 37), and nowhere does the site say a use needs clinical
+ *   validation or that a range "leans on the model's assumptions" (ruling 59: the Projects
+ *   application chip and the HbS map's readout, a script's string);
  * - React (react-dom) is in the Atlas app's chunks only, and no marketing page reaches a chunk
  *   holding it, statically or through a lazy import (ruling 44);
  * - one punctuation rule per heading level on the marketing pages: a visible H1 or H2 is a
@@ -104,6 +106,20 @@ describe('marketing pages announce no limitations (ruling 37)', () => {
     expect(text).not.toMatch(/not yet validated/i);
     expect(text).not.toMatch(/plausible map/i);
     expect(text).not.toMatch(/\bvalidated\b/i);
+    expect(text).not.toMatch(/clinical validation/i);
+  });
+
+  // Ruling 59: the two lines the owner ruled out in the final critique, in any served file (the
+  // readout's words live in the HbS map's script, not in a page's text).
+  it('nowhere says a use needs clinical validation or a range leans on the model', () => {
+    const hits = all
+      .filter((file) => TEXT.test(file))
+      .filter((file) =>
+        /clinical validation needed|leans on the model|far from surveys:/i.test(
+          read(file).replace(/<!--[\s\S]*?-->/g, ''),
+        ),
+      );
+    expect(hits).toEqual([]);
   });
 });
 

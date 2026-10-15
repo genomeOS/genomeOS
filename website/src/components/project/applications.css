@@ -82,10 +82,6 @@
   --tone: var(--color-aurora);
 }
 
-.application-card__horizon[data-tone='signal'] {
-  --tone: var(--color-signal);
-}
-
 .application-card__horizon[data-tone='ion'] {
   --tone: var(--color-ion);
 }

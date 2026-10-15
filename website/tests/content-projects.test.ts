@@ -628,15 +628,25 @@ describe('projects page content', () => {
     );
     expect(cards).toEqual([
       'Screening programs First release Where carrier screening would help most.',
-      'Diagnostic context Clinical validation needed Regional context before a genetic test.',
+      'Diagnostic context Future exploration Regional context before a genetic test.',
       'Trial planning Where a study could find enough carriers.',
       'The map of what we don’t know Where the next sample matters most.',
       'Medicines and drug response Future exploration Variants that change a dose.',
       'Research and discovery Patterns worth testing.',
     ]);
     // No caveat line over the cards (rulings, item 37; design critique of the integrated build):
-    // the figure's caption only says what it shows.
+    // the figure's caption only says what it shows. A horizon is a status, never a limitation
+    // (ruling 59): the diagnostic card is a future exploration like the medicines card, with the
+    // same violet dashed dot, and no card is marked gold.
     expect(text(apps)).not.toContain('context, not a diagnosis');
+    expect(text(apps)).not.toMatch(/validation/i);
+    expect(
+      [
+        ...apps.matchAll(
+          /class="application-card__horizon" data-tone="(\w+)"/g,
+        ),
+      ].map(([, tone]) => tone),
+    ).toEqual(['aurora', 'genome', 'genome']);
     expect(apps).toMatch(
       /<figcaption class="visually-hidden">\s*Six uses for the Atlas, from screening programs to research\.\s*<\/figcaption>/,
     );
@@ -768,9 +778,14 @@ describe('HbS readouts', () => {
     expect(read(area, 'AA')).toBe(
       'Modeled: AA in about 88% of births · 95% credible range across this area 64–96% · HbS frequency about 6.4% · Nearest survey about 1,234 km',
     );
+    // Far from surveys the readout is the plain distance, with no warning line (ruling 59).
     expect(read(modeled(0.12, 0, 0.31, 2500, 'weak'), 'AS')).toBe(
-      'Modeled: AS in about 21% of births · 95% credible range across this area 0–43% · HbS frequency about 12% · Nearest survey about 2,500 km. Far from surveys: this range leans on the model’s assumptions.',
+      'Modeled: AS in about 21% of births · 95% credible range across this area 0–43% · HbS frequency about 12% · Nearest survey about 2,500 km',
     );
+    for (const tier of ['strong', 'partial', 'weak', 'none'] as const)
+      expect(read(modeled(0.12, 0, 0.31, 2500, tier), 'AS')).not.toMatch(
+        /far from surveys|leans on|assumptions/i,
+      );
     for (const genotype of GENOTYPE_ORDER)
       for (const entry of areas.filter(
         (candidate) => candidate.mean !== null,

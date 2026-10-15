@@ -1,9 +1,10 @@
 ---
 /**
  * One potential application (site redesign spec §4.1 H5; round 2 spec §4.2.3; #454): its glyph,
- * title, horizon and one line. The horizon is words with a status dot (aurora: first release;
- * signal: needs clinical validation; ion: active study, output or hypothesis; genome: future), never
- * colour alone, and only where a status applies (round 2: optional, so cards 3, 4 and 6 have none).
+ * title, horizon and one line. The horizon is words with a status dot (aurora: first release; ion:
+ * active study, output or hypothesis; genome: future), never colour alone, and only where a status
+ * applies (round 2: optional, so cards 3, 4 and 6 have none). A horizon is a status, never a
+ * limitation: ruling 59 retired the gold chip that said a use still needed clinical checks.
  * On Projects the title is an h4 under the section's h3 (`level`). The `.application-card` class,
  * its reveal and the hover lift stay (tests pin them).
  */
@@ -14,7 +15,7 @@ interface Props {
   index: number;
   title: string;
   horizon?: string;
-  tone?: 'aurora' | 'signal' | 'ion' | 'genome';
+  tone?: 'aurora' | 'ion' | 'genome';
   /** The title's heading level: 3 under a page's h2, 4 under a section's h3 (Projects). */
   level?: 3 | 4;
   line: string;

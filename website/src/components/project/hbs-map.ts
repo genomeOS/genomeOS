@@ -129,7 +129,8 @@ const people = (survey: Survey) => whole(survey.an / 2);
  * its copies kept as counts, the same for every genotype (surveys hold allele counts, never
  * genotypes); or "No estimate". `hit.area` is the area as modeled (q). A coarsened area carries its
  * children's median distance, so every distance is "about": a minority child can sit nearer a
- * survey.
+ * survey. Far from surveys the readout says no more than that distance: the range and the
+ * distance speak for themselves, with no warning line (ruling 59: no limitation labels).
  */
 export function describeHit(
   hit: HexHit | null,
@@ -154,10 +155,7 @@ export function describeHit(
   if (area.support === 'unknown' || area.mean === null)
     return `No estimate · — · Nearest survey about ${km(area.distanceKm)}`;
   const shown = genotypeArea(area, genotype);
-  const line = `Modeled: ${genotype} in about ${formatPercent(shown.mean!)}% of births · 95% credible range across this area ${formatPercent(shown.lo!)}–${formatPercent(shown.hi!)}% · HbS frequency about ${formatPercent(area.mean)}% · Nearest survey about ${km(area.distanceKm)}`;
-  return area.tier === 'weak' || area.tier === 'none'
-    ? `${line}. Far from surveys: this range leans on the model’s assumptions.`
-    : line;
+  return `Modeled: ${genotype} in about ${formatPercent(shown.mean!)}% of births · 95% credible range across this area ${formatPercent(shown.lo!)}–${formatPercent(shown.hi!)}% · HbS frequency about ${formatPercent(area.mean)}% · Nearest survey about ${km(area.distanceKm)}`;
 }
 
 /**
