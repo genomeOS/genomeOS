@@ -118,8 +118,19 @@ async function openSections(page: Page) {
   const closed = page
     .locator('main details:not([open]) > summary')
     .filter({ visible: true });
-  for (let opened = 0; opened < 40 && (await closed.count()) > 0; opened += 1)
-    await closed.first().click();
+  for (let opened = 0; opened < 40 && (await closed.count()) > 0; opened += 1) {
+    const summary = await closed.first().elementHandle();
+    await summary!.click();
+    // A Projects section holds its figures invisible until its module has set them up
+    // (accordion.ts, acc--pending), so a table inside one shows only then.
+    await page.waitForFunction((element) => {
+      const details = element.parentElement!;
+      return (
+        !details.matches('details.acc') ||
+        details.hasAttribute('data-acc-ready')
+      );
+    }, summary);
+  }
   expect(await closed.count(), 'every section opens').toBe(0);
 }
 
