@@ -25,13 +25,18 @@
   margin-left: 0;
 }
 
+/* The toggle keeps one shape at every width (design critique 4): its own width, two equal segments
+   of at least 6.5em (each label's width plus its padding), never stretched across a narrow
+   figure, with the glyph after it as on a desktop. */
 .hg .hg-layers {
-  flex: 1 1 auto;
+  display: inline-grid;
+  grid-auto-columns: auto;
+  grid-auto-flow: column;
+  flex: none;
 }
 
 .hg .hg-layers button {
-  flex: 1 1 0;
-  min-width: 0;
+  min-width: 6.5em;
 }
 
 /* The layer control and the rotation's only do something on the live canvas: the poster (Modeled,
@@ -166,15 +171,6 @@
 /* Wide form: a 3:2 stage, the disc centred (units are cqw of the stage: disc centre (50, 33.333),
    radius 30), from a 36rem figure. */
 @container hg (min-width: 36rem) {
-  .hg .hg-layers {
-    flex: none;
-  }
-
-  .hg .hg-layers button {
-    flex: 1 1 auto;
-    min-width: auto;
-  }
-
   .hg .kit-figure__stage {
     aspect-ratio: 3 / 2;
   }

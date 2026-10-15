@@ -1812,6 +1812,55 @@ test('at 320 px the layer segments and the Pause glyph stay inside their row @mo
   await still.close();
 });
 
+// Design critique 4: the toggle stretched across a narrow figure (287 px a segment at 1024, 149 px
+// at 390), pushing the rotation's glyph to the far edge. It keeps its own shape at every width.
+test('the layer toggle keeps its own width at every size, the Pause glyph 12 px after it', async ({
+  page,
+  isMobile,
+}) => {
+  const sizes = isMobile
+    ? [
+        [390, 844],
+        [320, 640],
+      ]
+    : [
+        [1440, 900],
+        [1280, 800],
+        [1024, 768],
+        [800, 1000],
+      ];
+  for (const [width, height] of sizes) {
+    await page.setViewportSize({ width, height });
+    await page.goto('/');
+    const figure = await livePreview(page);
+    await expect(figure.locator('[data-scene-toggle]')).toBeVisible();
+    const shape = await figure.evaluate((element) => {
+      const segments = [...element.querySelectorAll('.hg-layers button')].map(
+        (button) =>
+          button.getBoundingClientRect().width /
+          parseFloat(getComputedStyle(button).fontSize),
+      );
+      const group = element
+        .querySelector('.hg-layers')!
+        .getBoundingClientRect();
+      const glyph = element
+        .querySelector('[data-scene-toggle] svg')!
+        .getBoundingClientRect();
+      return { segments, gap: glyph.left - group.right };
+    });
+    expect(shape.segments, `${width}`).toHaveLength(2);
+    for (const segment of shape.segments) {
+      expect(segment, `${width} segment (em)`).toBeGreaterThanOrEqual(6.45);
+      expect(segment, `${width} segment (em)`).toBeLessThanOrEqual(8);
+    }
+    expect(
+      Math.abs(shape.segments[0] - shape.segments[1]),
+      `${width} equal segments`,
+    ).toBeLessThan(0.75);
+    expect(Math.abs(shape.gap - 12), `${width} glyph gap`).toBeLessThan(1);
+  }
+});
+
 // Forced colours hide the canvas and show the poster, the Modeled starting view (spec §2.2), so
 // the figure is its poster: nothing turns or switches a hidden canvas. The film's frame is
 // decorative, so the hero's text sits on the system's own background.
