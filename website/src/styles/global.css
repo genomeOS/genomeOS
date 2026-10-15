@@ -6,6 +6,8 @@
 @import './github-cta.css';
 @import './motion.css';
 @import './layout.css';
+/* The astronaut rig, typing, scene controls and figure notes (round 2 spec §3). */
+@import './scenes.css';
 
 * {
   box-sizing: border-box;

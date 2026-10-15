@@ -31,6 +31,20 @@
   /* The plate dot grid; never carries data. */
   --color-grid-dot: rgb(165 185 211 / 10%);
 
+  /*
+   * Round 2 (spec §2.1). The Pipeline's measured lane, a token so the Docs paper theme can re-point
+   * it. People in data figures (micro astronauts, §3.3): a tested person who does not carry the
+   * variant (and the European-ancestry group of the people figure, 3.5:1 on orbit), all other
+   * ancestries, a carrier (and the one African-ancestry person), and an empty place in a grid
+   * (well under 3:1: a placeholder, never a person). The astronaut kit's illustration palette lives
+   * in src/graphics/astro/palette.ts, never here: illustration colours never encode data.
+   */
+  --lane-measured: rgb(244 251 255 / 78%);
+  --person-tested: #5e718a;
+  --person-other: var(--color-muted);
+  --person-carrier: var(--color-starlight);
+  --person-untested: rgb(165 185 211 / 22%);
+
   /* Type scale (spec §2.3). Root is 112.5%, so 1rem is 18 px. */
   --type-hero: clamp(2.6rem, 5.6vw, 5.4rem);
   --type-h1: clamp(2.4rem, 5.2vw, 4.8rem);

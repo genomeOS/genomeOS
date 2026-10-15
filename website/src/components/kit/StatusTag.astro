@@ -6,7 +6,7 @@
  *   not-validated   every figure that draws a modeled surface, until the HbS, G6PD and
  *                   carrier-screening gate passes
  *   schematic       marks that resemble data but hold none (e.g. the Project join-up)
- *   worked-example  a figure computed from stated illustrative counts
+ *   worked-example  a figure computed from stated illustrative counts, labelled "Example"
  */
 
 type StatusKind = 'not-validated' | 'schematic' | 'worked-example';
@@ -19,7 +19,8 @@ interface Props {
 const LABEL: Record<StatusKind, string> = {
   'not-validated': 'Not yet validated',
   schematic: 'Schematic',
-  'worked-example': 'Worked example',
+  // Round 2 (R2-15, spec §2.2): "Example", so nobody reads an illustrative figure as real places.
+  'worked-example': 'Example',
 };
 
 const { kind, class: className } = Astro.props;

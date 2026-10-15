@@ -225,7 +225,7 @@ describe('homepage figures', () => {
 
   it('ships the counts figure its precomputed Jeffreys table, never a fitter', () => {
     const why = section(/<section\b[^>]*\bid="why"/);
-    expect(why).toContain('Worked example');
+    expect(why).toContain('>Example<');
     expect(why).toContain('A · 61 of 412 alleles carry it');
     expect(why).toContain('11.6–18.5%');
     expect(why).toContain('0 of 20: up to 11.7% is still plausible.');
