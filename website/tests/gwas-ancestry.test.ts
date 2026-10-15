@@ -94,7 +94,11 @@ describe('the people figure draws the sidecar', () => {
       'Of every 100 participants in genome-wide studies, up to 2021',
     );
     expect(text).toContain(
-      'People with the greatest genetic diversity to learn from are the least represented in research.',
+      'Populations with the greatest genetic diversity are the least represented in research.',
+    );
+    // The owner breaks the note after "diversity" (2026-10-15).
+    expect(figure).toMatch(
+      /genetic diversity<\/span>\s*<span[^>]*>are the least/,
     );
     expect(text).toMatch(/86 European ancestry/);
     expect(text).toMatch(/13 All other ancestries, or not recorded/);

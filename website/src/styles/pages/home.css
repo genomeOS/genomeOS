@@ -225,6 +225,13 @@
   text-wrap: balance;
 }
 
+/* The note breaks after "diversity" (the owner, 2026-10-15). Each clause is a line of its own,
+   balanced on its own, so a phone wraps each into two even lines instead of leaving "research."
+   alone on the last. */
+.people__note > span {
+  display: block;
+}
+
 .people__key {
   display: flex;
   flex-wrap: wrap;
