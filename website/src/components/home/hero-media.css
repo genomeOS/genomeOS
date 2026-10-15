@@ -128,52 +128,38 @@
   margin-top: 1.75rem;
 }
 
-/* The film's Pause/Play control: the site's square control style, quiet over the frame. Wide
-   screens put it at the bottom of the text's column, tall ones at the top right, over the globe
-   (WCAG 2.2.2). It never sits over the text or in the cookie control's corner. */
-.hero-media__toggle {
+/*
+ * The film's Pause/Play control (ruling 22 of the round-2 build): a white glyph with no background,
+ * the kit's scene-control look (styles/scenes.css: a 44 px target round a 20 px glyph, the ion
+ * focus ring, ButtonText in forced colours). Over the film its drop shadow is deeper than the
+ * kit's: three stacked shadows (each also shades the one before) lay a soft dark halo round the
+ * bars, so the glyph holds 3:1 against the brightest pixel next to it in every frame of the loop,
+ * the limb and the aurora included (WCAG 1.4.11; measured with the hero contrast script at eight
+ * sizes). Hover adds a faint white glow. Wide screens put it at the bottom of the text's column,
+ * its glyph on the column's edge; tall ones at the top right, over the globe (WCAG 2.2.2). It
+ * never sits over the text or in the cookie control's corner.
+ */
+.hero-media .hero-media__toggle {
+  --glyph-inset: 12px;
+  --glyph-shadow: drop-shadow(0 0 1px rgb(2 7 18))
+    drop-shadow(0 0 2.5px rgb(2 7 18 / 90%))
+    drop-shadow(0 0 6px rgb(2 7 18 / 70%));
+
   position: absolute;
-  bottom: clamp(1rem, 3vh, 1.75rem);
-  left: max(var(--space-page), (100% - var(--content-width)) / 2);
-  min-width: 44px;
-  min-height: 44px;
-  margin: 0;
-  padding: 0.45rem 0.85rem 0.45rem 0.7rem;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  border: 1px solid rgb(242 248 255 / 30%);
-  background: rgb(2 7 18 / 62%);
-  color: var(--color-starlight);
-  font: inherit;
-  font-size: 0.86rem;
-  font-weight: 620;
-  line-height: 1;
-  cursor: pointer;
-  backdrop-filter: blur(8px);
-  transition:
-    border-color var(--dur-micro) var(--ease-ui),
-    background-color var(--dur-micro) var(--ease-ui);
+  bottom: clamp(0.5rem, 3vh - 0.75rem, 1rem);
+  left: calc(
+    max(var(--space-page), (100% - var(--content-width)) / 2) -
+      var(--glyph-inset)
+  );
+  opacity: 1;
+  filter: var(--glyph-shadow);
+}
+
+.hero-media .hero-media__toggle:hover {
+  filter: var(--glyph-shadow) drop-shadow(0 0 8px rgb(242 248 255 / 30%));
 }
 
 .hero-media__toggle[hidden] {
-  display: none;
-}
-
-.hero-media__toggle:hover {
-  border-color: var(--color-starlight);
-  background: rgb(2 7 18 / 82%);
-}
-
-.hero-media__toggle svg {
-  width: 0.85rem;
-  height: 0.85rem;
-  flex: none;
-  fill: currentColor;
-}
-
-.hero-media__toggle:not([data-state='paused']) .hero-media__icon-play,
-.hero-media__toggle[data-state='paused'] .hero-media__icon-pause {
   display: none;
 }
 
@@ -190,6 +176,19 @@
     padding-block: min(5rem, 12svh) 4.5rem;
   }
 
+  /* A short phone (320 × 568): the text runs taller than the frame, so it starts near the top and
+     still ends clear of the cookie control's corner; the film's control then sits at the end of
+     the kicker's row, level with it. */
+  @media (max-height: 38rem) {
+    .hero-media__content {
+      padding-top: 1rem;
+    }
+
+    .hero-media .hero-media__toggle {
+      top: 0.45rem;
+    }
+  }
+
   .home-hero__text::before {
     inset: -7rem -100vw -4.5rem;
     background: linear-gradient(
@@ -202,9 +201,9 @@
     );
   }
 
-  .hero-media__toggle {
-    top: 0.9rem;
-    right: var(--space-page);
+  .hero-media .hero-media__toggle {
+    top: calc(0.9rem - var(--glyph-inset) + 0.5rem);
+    right: calc(var(--space-page) - var(--glyph-inset));
     bottom: auto;
     left: auto;
   }
@@ -321,5 +320,10 @@
 @media (forced-colors: active) {
   .hero-media__backdrop {
     visibility: hidden;
+  }
+
+  .hero-media .hero-media__toggle {
+    color: ButtonText;
+    filter: none;
   }
 }

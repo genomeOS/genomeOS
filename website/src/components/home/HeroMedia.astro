@@ -1,8 +1,8 @@
 ---
 /**
- * The Home hero's full-bleed film (site redesign round 2, ruling R2-1; #454): the owner's render
- * of Earth at night, played whole at a quarter speed as a seamless loop of about a minute, with no
- * audio, behind the hero's text.
+ * The Home hero's full-bleed film (site redesign round 2, ruling R2-1; round 2 spec §4.1.1; #454):
+ * the owner's render of Earth at night, played whole at a quarter speed as a seamless loop of about
+ * a minute, with no audio, behind the hero's text.
  *
  * A drop-in slot: the poster and the film are props, so swapping the clip is a change of files and
  * of the `sources` list (src/pages/index.astro), nothing else.
@@ -13,8 +13,10 @@
  *            hero-media.ts adds its sources after the load event, or keeps the poster
  *   scrim    a gradient that keeps the text over the frame at 4.5:1 or more (hero-media.css; from the
  *            left on wide screens, from the bottom on tall ones)
- *   control  a Pause/Play button after the slotted text, so the calls to action are reached first
- *            (WCAG 2.4.3); shown only once the film is going to play (WCAG 2.2.2)
+ *   control  a white Pause/Play glyph with no background (ruling 22 of the round-2 build), after
+ *            the slotted text, so the calls to action are reached first (WCAG 2.4.3); shown only
+ *            once the film is going to play, or as Play over the poster for a visitor who paused
+ *            it before (WCAG 2.2.2; round 2 spec §0.3 #17)
  *
  * The slot holds the hero's text: its heading, lede and calls to action.
  */
@@ -135,12 +137,25 @@ const height = Math.round((WIDTHS.at(-1)! * poster.height) / poster.width);
   <div class="hero-media__content">
     <slot />
   </div>
-  <button class="hero-media__toggle" type="button" data-video-toggle hidden>
-    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-      <path class="hero-media__icon-pause" d="M4.5 3h2.5v10H4.5zM9 3h2.5v10H9z"
-      ></path>
-      <path class="hero-media__icon-play" d="M5 2.8v10.4L13.2 8z"></path>
+  {
+    /* White Pause/Play glyph, no background (ruling 22): the kit's scene-control look, placed by
+       hero-media.css. Its name says what a press does; the glyph shows it. */
+  }
+  <button
+    class="hero-media__toggle kit-scene-control"
+    type="button"
+    data-video-toggle
+    data-state="playing"
+    hidden
+  >
+    <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+      <path
+        class="kit-scene-control__pause"
+        d="M5 3.5h3.2v13H5zM11.8 3.5H15v13h-3.2z"></path>
+      <path class="kit-scene-control__play" d="M6 3.3v13.4L16.4 10z"></path>
     </svg>
-    <span data-video-toggle-text>Pause</span>
+    <span class="visually-hidden" data-video-toggle-text
+      >Pause the background video</span
+    >
   </button>
 </div>

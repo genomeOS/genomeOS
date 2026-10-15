@@ -131,22 +131,22 @@
     },
     {
       "kind": "unknown",
-      "rule": "the unknown area nearest 45°N 70°E visible at rest",
-      "distance_km": 1555,
-      "area_index": 500,
-      "lon": 68.63,
-      "lat": 48.47,
+      "rule": "the unknown area nearest 45°N 70°E within 55° of the view centre at rest",
+      "distance_km": 1559,
+      "area_index": 566,
+      "lon": 59.67,
+      "lat": 47.02,
       "poster": [
-        473.8,
-        115.2
+        456,
+        123.9
       ],
       "disc": [
-        0.5126,
-        -0.6828
+        0.4532,
+        -0.6536
       ]
     }
   ],
-  "alt": "Globe of the sickle-cell variant HbS. White points are 1,071 measured surveys, most in Africa, the Mediterranean, the Middle East and India. Modeled frequency is highest, about 17 percent, in parts of Central Africa, and fades with distance from surveys. Much of northern Eurasia has no estimate.",
+  "alt": "Preview of the Atlas with sample data: a slowly turning globe of the sickle-cell variant HbS. White dots are 1,071 measured surveys, most in Africa, the Mediterranean, the Middle East and India. Color shows the modeled frequency, highest, about 17 percent, in parts of Central Africa, and fades away from surveys. Stripes mark areas with no estimate.",
   "table": {
     "top_areas": [
       {
