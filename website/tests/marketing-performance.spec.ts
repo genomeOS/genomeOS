@@ -9,7 +9,9 @@
  *
  *   initial   everything from navigation until network idle without scrolling, the film left
  *             out: first-load JS (`jsKbGz`), images (`imagesKbGz`), the total (`transferKbGz`)
- *   lazy      each module imported as its figure approaches, by chunk name (`lazyJsKbGz`)
+ *   lazy      each module imported as its figure approaches, by chunk name (`lazyJsKbGz`); every
+ *             one the manifest names must load once every figure has been in view (a page not
+ *             enforced yet only logs the ones that did not)
  *   deferred  figure data fetched near view (`dataKbGz`), and a hero film (`deferredMediaKb`,
  *             per profile), which must not start before the load event
  *
@@ -31,7 +33,11 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 
-import { fullyEnforced, type PageManifest } from './helpers/pages';
+import {
+  fullyEnforced,
+  pageManifests,
+  type PageManifest,
+} from './helpers/pages';
 import { marketingRoutes } from './site-routes';
 
 interface Measured {
@@ -248,6 +254,17 @@ async function measure(
   return { ...measured, filmReason };
 }
 
+/**
+ * The lazy modules a manifest names that never loaded. measure() brings every figure into view
+ * first, so a module missing here was never imported, or its chunk has another name.
+ */
+const lazyMisses = (manifest: PageManifest, measured: Measured) =>
+  Object.keys(manifest.lazyJsKbGz ?? {}).filter(
+    (chunk) => !(chunk in measured.chunksKb),
+  );
+const loadedChunks = (measured: Measured) =>
+  Object.keys(measured.chunksKb).sort().join(', ') || 'none';
+
 function expectBudgets(
   manifest: PageManifest,
   measured: Measured,
@@ -268,12 +285,16 @@ function expectBudgets(
     expect(measured.imageKb, `${label} initial images`).toBeLessThanOrEqual(
       manifest.imagesKbGz,
     );
-  for (const [chunk, budget] of Object.entries(manifest.lazyJsKbGz ?? {})) {
-    // A lazy module loads as its figure approaches: measured whenever the page has it.
-    const loaded = measured.chunksKb[chunk];
-    if (loaded === undefined) continue;
-    expect(loaded, `${label} lazy module ${chunk}`).toBeLessThanOrEqual(budget);
-  }
+  // A lazy module loads as its figure approaches, and every figure has been in view by now.
+  expect(
+    lazyMisses(manifest, measured),
+    `${label} lazy modules that never loaded once every figure was in view (the chunks that did: ${loadedChunks(measured)})`,
+  ).toEqual([]);
+  for (const [chunk, budget] of Object.entries(manifest.lazyJsKbGz ?? {}))
+    expect(
+      measured.chunksKb[chunk],
+      `${label} lazy module ${chunk}`,
+    ).toBeLessThanOrEqual(budget);
   if (manifest.deferredMediaKb !== undefined) {
     // The desktop profile always plays the film (no reduced motion, Save-Data or slow
     // connection), so the budget is always exercised; a profile on which the page keeps its poster
@@ -329,7 +350,17 @@ for (const route of marketingRoutes)
     test.setTimeout(90_000);
     const requests: string[] = [];
     page.on('request', (request) => requests.push(request.url()));
-    await measure(page, route, 'desktop');
+    const measured = await measure(page, route, 'desktop');
+    // A page whose task is still under way is not held to its lazy modules yet (the budgets test
+    // holds enforced pages to them): say which never loaded.
+    const manifest = pageManifests.find((entry) => entry.route === route);
+    if (manifest && !fullyEnforced.includes(manifest)) {
+      const missing = lazyMisses(manifest, measured);
+      if (missing.length)
+        console.log(
+          `lazy modules ${route} (not enforced yet): ${missing.join(', ')} never loaded once every figure was in view; the chunks that did: ${loadedChunks(measured)}`,
+        );
+    }
     const origin = new URL(page.url()).origin;
     for (const url of requests) {
       expect(new URL(url).origin, url).toBe(origin);
