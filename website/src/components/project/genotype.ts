@@ -1,5 +1,7 @@
 /** The genotype triad (site redesign spec §4.2, HbS, #454): AA, AS and SS, two allele dots each,
- * and one shared frame that draws the red cell of the selected genotype.
+ * and one shared frame that draws the red cell of the selected genotype. Pressing one also tells
+ * the HbS map, with a bubbling `genotype:change` event, to show that genotype's expected share of
+ * births (ruling 36): one control, one state.
  *
  * Sickling is drawn on the cell (the phenotype), never on the alleles. AA and AS cells are the same
  * round, biconcave disc, because a carrier's red cells look like anyone else's; only SS morphs into
@@ -96,6 +98,13 @@ export function initGenotype(root: HTMLElement): void {
       );
     frame.dataset.genotype = next;
     current = next;
+    // The map listens (hbs-map.ts): the pressed button is the one state both show (ruling 36).
+    root.dispatchEvent(
+      new CustomEvent('genotype:change', {
+        bubbles: true,
+        detail: { genotype: next },
+      }),
+    );
     // One brief outline pulse (CSS, motion allowed only): AA and AS draw the same disc, so the
     // press needs an answer in the frame beyond the allele pair under the cell.
     frame.classList.remove('is-pulse');

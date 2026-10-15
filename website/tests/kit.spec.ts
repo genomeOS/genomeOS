@@ -312,6 +312,32 @@ test('the controls pause, play and replay, and say what they act on', async ({
   ).toBeLessThan(1500);
 });
 
+// Ruling 35 (owner, 2026-10-15): no visible "Pause", "Play" or "Replay" anywhere. Every such control
+// is a glyph whose name is visually hidden, the demo plate's and every Pipeline's Replay included.
+test('no button shows Pause, Play, Replay or Resume as text', async ({
+  page,
+}) => {
+  await page.goto('/kit/');
+  const shown = await page.evaluate(() =>
+    [...document.querySelectorAll('button')].flatMap((button) => {
+      const copy = button.cloneNode(true) as HTMLElement;
+      for (const hidden of copy.querySelectorAll('.visually-hidden'))
+        hidden.remove();
+      const label = copy.textContent?.trim() ?? '';
+      return /\b(Pause|Play|Replay|Resume)\b/.test(label) ? [label] : [];
+    }),
+  );
+  expect(shown).toEqual([]);
+  const replays = page.locator('[data-pipeline-replay]');
+  expect(await replays.count()).toBeGreaterThan(0);
+  for (const replay of await replays.all()) {
+    await expect(replay).toHaveAccessibleName('Replay the pipeline animation');
+    const box = (await replay.boundingBox())!;
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+  }
+});
+
 test.describe('under reduced motion', () => {
   test.use({ reducedMotion: 'reduce' });
 

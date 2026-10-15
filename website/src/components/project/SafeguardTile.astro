@@ -1,18 +1,20 @@
 ---
 /**
- * One of the six safeguards (site redesign spec §4.2, safeguards, #454): a 280 × 150 micro-diagram in the
+ * One of the six safeguards (site redesign spec §4.2, safeguards; round 2 spec §4.2.7; #454): a 280 × 150 micro-diagram in the
  * Atlas's own marks, then the rule's title and one line. The drawing is decorative (aria-hidden);
  * the title and line carry the rule.
  *
  *   1 measured studs lift off the modeled hexes and stop with a visible gap
  *   2 cells far from the survey arrive hatched: "No estimate"
  *   3 a lens passes over a coarse cell, which grows but stays one cell
- *   4 the raw bar stays beside the corrected one, behind a switch; no values
+ *   4 a record card's sockets: a stated place and stated recruitment fill; the third, a value no
+ *     one stated, stays empty in a gold dashed outline, "No default" (round 2 spec §4.2.8)
  *   5 four kinds of claim meet the scope gate: two pass, two stop
  *   6 a pointer over a hatched cell reads "Estimate —"
  *
  * Motion is CSS only, keyed by `--d` (ms after the tile starts) and the tile's `--i` stagger; the
- * figure's island (projects.astro) plays the six once and replays one on hover. At rest, and under
+ * section's module (section-how.ts) plays the six once and replays one on hover. The title is an
+ * h5 under the figure's h4, inside "How it works" (the owner's restructure). At rest, and under
  * reduced motion, each tile shows its end state. The hatch pattern `#sg-hatch` is defined once by
  * the figure.
  */
@@ -127,20 +129,42 @@ const DRAWINGS: Record<number, string> = {
       `</g>`
     );
   })(),
-  4:
-    `<text class="sg-label" x="18" y="34">Raw</text>` +
-    `<rect class="sg-raw" x="18" y="44" width="186" height="16"/>` +
-    `<text class="sg-label" x="18" y="94">Corrected</text>` +
-    `<rect class="sg-anim sg-corrected" x="18" y="104" width="124" height="16" style="transform-origin: 18px 112px"/>` +
-    `<g class="sg-switch">` +
-    `<rect class="sg-switch-track" x="222" y="103" width="40" height="18"/>` +
-    `<rect class="sg-anim sg-switch-knob" x="245" y="106" width="14" height="12"/>` +
-    `</g>`,
+  4: (() => {
+    // Three sockets on a record card. The place (a stud in its dashed radius ring) and the
+    // recruitment (three people, the kit's micro astronaut) are stated, so they fill; the third
+    // stays empty, a gold dashed outline: no default stands in for what no one stated.
+    const socket = (x: number, extra = '', delay?: number) =>
+      `<rect class="sg-socket${extra}" x="${x}" y="40" width="58" height="58"${delay === undefined ? '' : ` style="--d: ${delay}"`}/>`;
+    const person = (x: number) =>
+      `<g transform="translate(${x} 59)">` +
+      `<path class="sg-person" d="M2.2 20v-4.4a3.6 3.6 0 0 1 3.6-3.6h4.4a3.6 3.6 0 0 1 3.6 3.6V20z"/>` +
+      `<circle class="sg-person sg-person__helmet" cx="8" cy="7" r="6.4"/>` +
+      `<ellipse class="sg-person__visor" cx="8.4" cy="7.3" rx="4.1" ry="3.4"/>` +
+      `</g>`;
+    return (
+      `<rect class="sg-card" x="12" y="24" width="256" height="90"/>` +
+      socket(30) +
+      socket(111) +
+      `<g class="sg-anim sg-fill" style="--d: 150">` +
+      `<circle class="sg-ring" cx="59" cy="69" r="19"/>` +
+      studSvg(59, 69, 4.25) +
+      `</g>` +
+      `<g class="sg-anim sg-fill" style="--d: 450">` +
+      person(114) +
+      person(132) +
+      person(150) +
+      `</g>` +
+      socket(192, ' sg-socket--empty sg-anim sg-fill', 800) +
+      `<g class="sg-anim sg-fade" style="--d: 1000">` +
+      `<text class="sg-label sg-label--refused" x="221" y="138" text-anchor="middle">No default</text>` +
+      `</g>`
+    );
+  })(),
   5: (() => {
     const claims = [
       ['Single-variant conditions', true],
       ['Drug response', true],
-      ['Behaviour', false],
+      ['Behavior', false],
       ['Height', false],
     ] as const;
     const rows = claims
@@ -188,6 +212,6 @@ const DRAWINGS: Record<number, string> = {
     focusable="false"
     set:html={cssVarStyles(DRAWINGS[rule])}
   />
-  <h3>{title}</h3>
+  <h5>{title}</h5>
   <p>{line}</p>
 </li>

@@ -12,7 +12,11 @@
  * keyed by `--d` (ms); the island only toggles classes, so nothing runs after rest.
  */
 
-import { FigureController, prefersReducedMotion } from '../../graphics/figure';
+import {
+  FigureController,
+  prefersReducedMotion,
+  type FigureControllerOptions,
+} from '../../graphics/figure';
 
 export type FieldKey =
   'place' | 'ac' | 'an' | 'orientation' | 'recruitment' | 'reuse';
@@ -165,22 +169,29 @@ export function recordTiming(index: number) {
 
 const REPLAY_MS = 1100;
 
-export function initJoinUp(figure: HTMLElement): void {
+export function initJoinUp(
+  figure: HTMLElement,
+  options?: FigureControllerOptions,
+): void {
   const grid = figure.querySelector<HTMLElement>('[data-joinup-grid]');
   const caption = figure.querySelector<HTMLElement>('[data-joinup-caption]');
   const corner = figure.querySelector<HTMLElement>('[data-joinup-reason]');
   if (!grid || !caption) return;
   const resting = caption.textContent ?? '';
 
-  new FigureController(figure, {
-    duration: ENTRANCE_MS,
-    arm: () => figure.classList.add('is-armed'),
-    start: () => {
-      figure.classList.remove('is-armed');
-      figure.classList.add('is-playing');
+  new FigureController(
+    figure,
+    {
+      duration: ENTRANCE_MS,
+      arm: () => figure.classList.add('is-armed'),
+      start: () => {
+        figure.classList.remove('is-armed');
+        figure.classList.add('is-playing');
+      },
+      rest: () => figure.classList.remove('is-armed', 'is-playing'),
     },
-    rest: () => figure.classList.remove('is-armed', 'is-playing'),
-  });
+    options,
+  );
 
   /* Field reasons in the bottom bar (read from each field's description), its column lit. On a
      phone the bar is far below the names, so the reason also shows in the corner beside them. */

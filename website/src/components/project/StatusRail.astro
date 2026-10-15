@@ -1,18 +1,21 @@
 ---
 /**
- * What exists, and what comes later (site redesign spec §4.2, status, §6.1 rule 7; #454): a roadmap
- * rail in three zones. Available now is solid aurora, In active development ion with gaps, Future
- * exploration violet dashed. One node per item sits on the rail; a gold gate diamond (the
- * validation gate) stands between what is available now and the rest, and the Atlas item carries
- * its "Not yet validated" tag.
+ * Where it stands (site redesign spec §4.2, status, §6.1 rule 7; round 2 spec §4.2.9; #454): a
+ * roadmap rail in three zones. Available now is solid aurora, In active development ion with gaps,
+ * Future exploration violet dashed. One node per item sits on the rail; a gold gate diamond (the
+ * validation gate) stands between what is available now and the rest. No status tag on the Atlas
+ * item (R2-14). Since the owner's restructure (2026-10-15) the evidence totals and "How we count"
+ * lead the chapter's overview (AtlasOverview.astro), and this rail is the "Where it stands"
+ * section's one figure, behind its summary row.
  *
  * The lists are the content; the rail and its nodes are aria-hidden. Hovering an item lights its
- * node, and the reverse; a tap keeps the pair lit until the next tap. The marker count comes from the catalog `/app/` inlines, so it is never
- * typed by hand. Horizontal on wide screens; on a phone the rail runs down the lists. The page's
- * island (projects.astro) plays the entrance and links items to nodes.
+ * node, and the reverse; a tap keeps the pair lit until the next tap. The marker count comes from
+ * the catalog `/app/` inlines, so it is never typed by hand. Horizontal on wide screens; on a phone
+ * the rail runs down the lists. The section's module (section-status.ts) plays the entrance and
+ * links items to nodes, once the section opens. The section's h3 names the figure (`titleId`); the
+ * zone titles are h4s, and the visually hidden caption says what the rail shows.
  */
 import { loadPageCatalog } from '../../lib/catalog-build';
-import StatusTag from '../kit/StatusTag.astro';
 
 interface Props {
   titleId?: string;
@@ -25,40 +28,35 @@ const markers = catalog.artifacts.length;
 const ZONES: {
   key: 'now' | 'active' | 'future';
   title: string;
-  items: { text: string; tag?: boolean }[];
+  items: string[];
 }[] = [
   {
     key: 'now',
     title: 'Available now',
     items: [
-      {
-        text: `The Atlas: observations and surfaces for ${markers} markers`,
-        tag: true,
-      },
-      { text: 'Population registry and data tools' },
+      `The Atlas: observations and surfaces for ${markers} markers`,
+      'Population registry and data tools',
     ],
   },
   {
     key: 'active',
     title: 'In active development',
     items: [
-      { text: 'Literature evidence' },
-      { text: 'Validation against published estimates' },
-      { text: 'More datasets' },
-      { text: 'Disease-burden layers' },
-      { text: 'Region tools' },
+      'Agentic literature search',
+      'Validation against published estimates',
+      'More datasets',
+      'Disease-burden layers',
+      'Region tools',
     ],
   },
   {
     key: 'future',
     title: 'Future exploration',
     items: [
-      { text: 'An agentic guide citing versioned evidence' },
-      {
-        text: 'Opt-in personal genomes, behind privacy, consent and governance',
-      },
-      { text: 'An ancient-DNA time slider' },
-      { text: 'A cellular atlas' },
+      'An agentic guide citing versioned evidence',
+      'Opt-in personal genomes, behind privacy, consent and governance',
+      'An ancient-DNA time slider',
+      'A cellular atlas',
     ],
   },
 ];
@@ -66,9 +64,15 @@ const ZONES: {
 const SEGMENT_MS = 300;
 ---
 
-<figure class="rail" data-graphic="status-rail" data-rail>
-  <figcaption class="rail__caption">
-    <h2 id={titleId}>What exists—and what comes later</h2>
+<figure
+  class="rail"
+  data-graphic="status-rail"
+  data-rail
+  aria-labelledby={titleId}
+>
+  <figcaption class="visually-hidden">
+    The genomeOS Atlas roadmap: what is available now, what is in active
+    development, and what is for future exploration.
   </figcaption>
   <div
     class="rail__stage"
@@ -109,15 +113,14 @@ const SEGMENT_MS = 300;
             class:list={['rail__zone', `rail__zone--${zone.key}`]}
             style={`--d: ${zoneIndex * SEGMENT_MS}`}
           >
-            <h3>{zone.title}</h3>
+            <h4>{zone.title}</h4>
             <ul>
               {zone.items.map((item, index) => (
                 <li
                   data-item={`${zone.key}-${index}`}
                   style={`--d: ${zoneIndex * SEGMENT_MS + 120 + index * 80}`}
                 >
-                  <span>{item.text}</span>
-                  {item.tag && <StatusTag kind="not-validated" />}
+                  <span>{item}</span>
                 </li>
               ))}
             </ul>

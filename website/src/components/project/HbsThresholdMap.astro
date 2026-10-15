@@ -1,15 +1,28 @@
 ---
 /**
- * The HbS figure (site redesign spec §4.2, HbS, §5, §6; #454): the genotype triad beside the real
- * HbS (rs334) v3 surface, coarsened to res 3 over West Africa to India in an equal-area projection,
- * with every survey in the window as a white stud. A threshold slider outlines the areas whose
- * estimate is above t (dashed) and, inside them, the areas whose whole 95% range is above t
- * (solid); `unknown` areas stay hatched and are never counted. This is the only map on Project.
+ * The HbS figure (site redesign spec §4.2, HbS, §5, §6; round 2 spec §4.2.2; rulings 36 and 37;
+ * #454): the genotype triad beside the real HbS (rs334) v3 surface, coarsened to res 3 over West
+ * Africa to India in an equal-area projection, with every survey in the window as a white stud.
+ * This is the only map on Projects.
  *
- * The figure is tagged "Not yet validated" and cites its provenance. Everything a reader needs
- * without the canvas is in the server HTML: the build-time description of the data, the count at
- * the default threshold, and a table of the counts at 5, 10 and 15%. The page's island
- * (projects.astro) starts the map (hbs-map.ts) and loads its data once the figure is near view.
+ * The triad drives the map (ruling 36): pressing AA, AS or SS redraws the surface as that
+ * genotype's expected share of births, derived from each area's modeled HbS frequency under random
+ * mating (hbs-genotypes.ts), with its own ramp range and legend. One state: the triad's pressed
+ * button. Surveys are never transformed: they count gene copies, not genotypes. A threshold slider,
+ * on the share shown and with stops per genotype, outlines the areas whose estimate is at or above
+ * it (dashed) and, inside them, those whose whole 95% range is (solid); the areas below it draw in
+ * a muted grey of their ramp colour; `unknown` areas stay hatched and are never counted.
+ *
+ * Round 2 (R2-14, R2-16, ruling 37): no status tag and no caveat. A plain note says the map is
+ * simplified from the Atlas's HbS data and links the live map; the footnote is provenance only.
+ * Survey readouts count people tested (AN/2: HBB is autosomal) and keep the copies as counts.
+ *
+ * Everything a reader needs without the canvas is in the server HTML, for the default AS: the
+ * build-time description of each genotype's map (the stage's label, swapped with the genotype),
+ * the count at the default threshold, and a table per genotype at three thresholds, whose caption
+ * states the random-mating assumption. Per-genotype words sit stacked in one grid cell, only the
+ * shown one visible, so a change moves nothing. The section's module (section-hbs.ts) starts the
+ * map (hbs-map.ts) and loads its data when the section opens.
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -17,14 +30,25 @@ import path from 'node:path';
 import Figure from '../kit/Figure.astro';
 import Glyph from '../kit/Glyph.astro';
 import Readout from '../kit/Readout.astro';
-import StatusTag from '../kit/StatusTag.astro';
 import provenance from '../../data/figures/hbs.provenance.json';
+import { ENC } from '../../graphics/encoding';
 import { decodeAreas, decodeSurveys } from '../../graphics/figure-data';
 import { sitePath } from '../../lib/paths';
 import GenotypeTriad from './GenotypeTriad.astro';
 import {
-  DEFAULT_THRESHOLD,
-  countParts,
+  DEFAULT_STOP,
+  GENOTYPE_NAME,
+  GENOTYPE_ORDER,
+  THRESHOLD_STOPS,
+  genotypeArea,
+  genotypeDomain,
+  muteColor,
+  rangeLabel,
+  stopText,
+  type Genotype,
+} from './hbs-genotypes';
+import {
+  formatPercent,
   surveyWindow,
   thresholdCounts,
   valueText,
@@ -36,8 +60,9 @@ interface Props {
 
 const { idPrefix = 'hbs' } = Astro.props;
 const id = (suffix: string) => `${idPrefix}-${suffix}`;
+const SHOWN: Genotype = 'AS';
 
-// The pinned figure data, read at build time for the description and the no-JS count.
+// The pinned figure data, read at build time for the descriptions, tables and the no-JS count.
 const figures = path.resolve(process.cwd(), 'src/data/figures');
 const areas = decodeAreas(
   readFileSync(path.join(figures, provenance.files.region.name)),
@@ -45,13 +70,10 @@ const areas = decodeAreas(
 const surveys = decodeSurveys(
   readFileSync(path.join(figures, provenance.files.surveys.name)),
 ).filter(surveyWindow(areas));
-
-const known = areas.filter((area) => area.mean !== null);
-const top = known.reduce((best, area) =>
-  area.mean! > best.mean! ? area : best,
-);
 const unknown = areas.filter((area) => area.support === 'unknown').length;
-// A coarse name for where the highest estimate sits, from its centre (no new numbers).
+const domain = provenance.metric_domain.post_mean as [number, number];
+
+// A coarse name for where an area sits, from its centre (no new numbers).
 const REGIONS: [string, number, number, number, number][] = [
   ['Central Africa', -15, 10, 8, 32],
   ['West Africa', 0, 20, -20, 15],
@@ -61,45 +83,91 @@ const REGIONS: [string, number, number, number, number][] = [
   ['South Asia', 5, 37, 63, 98],
   ['the Mediterranean', 30, 46, -10, 36],
 ];
-const [lon, lat] = top.center;
-const where =
+const placeOf = ([lon, lat]: [number, number]) =>
   REGIONS.find(
     ([, south, north, west, east]) =>
       lat >= south && lat <= north && lon >= west && lon <= east,
   )?.[0] ?? 'Africa';
 const whole = (value: number) => value.toLocaleString('en-US');
-const alt = `Map of the sickle-cell variant HbS from West Africa to India, in an equal-area projection. White points are ${whole(surveys.length)} measured surveys. Modeled frequency is highest, about ${Math.round(top.mean! * 100)} percent, in ${where}, and fades with distance from surveys. ${whole(unknown)} areas have no estimate and are hatched.`;
 
-const atDefault = thresholdCounts(areas, DEFAULT_THRESHOLD / 100);
-const [confidentAtDefault, possibleAtDefault] = countParts(atDefault);
-const domain = provenance.metric_domain.post_mean;
-const domainLabel = `${Math.floor(domain[0] * 100)}–${Math.round(domain[1] * 100)}%`;
+const view = Object.fromEntries(
+  GENOTYPE_ORDER.map((genotype) => {
+    const shown = areas
+      .map((area) => genotypeArea(area, genotype))
+      .filter((area) => area.mean !== null);
+    const top = shown.reduce((a, b) => (b.mean! > a.mean! ? b : a));
+    const low = shown.reduce((a, b) => (b.mean! < a.mean! ? b : a));
+    const name = GENOTYPE_NAME[genotype].toLowerCase();
+    const alt = `Map of the expected share of births with ${name} (${genotype}) from West Africa to India, derived from each area's modeled HbS frequency assuming random mating, in an equal-area projection. The share is highest, about ${formatPercent(top.mean!)} percent, in ${placeOf(top.center)}, and lowest, about ${formatPercent(low.mean!)} percent, in ${placeOf(low.center)}; it fades with distance from surveys, and areas below the threshold are muted. White points are ${whole(surveys.length)} measured surveys, sized by people tested. ${whole(unknown)} areas have no estimate and are hatched.`;
+    const stops = THRESHOLD_STOPS[genotype];
+    const rows = [
+      stops[Math.max(0, stops.indexOf(DEFAULT_STOP[genotype]) - 5)],
+      DEFAULT_STOP[genotype],
+      stops[
+        Math.min(stops.length - 1, stops.indexOf(DEFAULT_STOP[genotype]) + 5)
+      ],
+    ].map((stop) => ({
+      stop,
+      ...thresholdCounts(shown, stop / 100),
+      below: shown.filter((area) => area.mean! < stop / 100).length,
+    }));
+    return [
+      genotype,
+      {
+        alt,
+        rows,
+        range: rangeLabel(genotypeDomain(genotype, domain)),
+      },
+    ];
+  }),
+) as Record<
+  Genotype,
+  {
+    alt: string;
+    rows: {
+      stop: number;
+      confident: number;
+      possible: number;
+      below: number;
+    }[];
+    range: string;
+  }
+>;
+
+const stop = DEFAULT_STOP[SHOWN];
+const atDefault = thresholdCounts(
+  areas.map((area) => genotypeArea(area, SHOWN)),
+  stop / 100,
+);
+const stopIndex = THRESHOLD_STOPS[SHOWN].indexOf(stop);
 const revision = provenance.hf_revision.slice(0, 7);
-const rows = provenance.table.region_thresholds;
+// The muted key's swatch: a middle ramp step, muted as the map mutes it.
+const mutedSwatch = muteColor(ENC.mean[2]);
 ---
 
 <Figure
   graphic="hbs-threshold"
   interactive
-  label="Genotypes of haemoglobin S, and where its modeled frequency is above a threshold"
+  label="Genotypes of hemoglobin S, and where each is expected among births"
   class="hbs"
   id={id('figure')}
+  data-hbs-genotype={SHOWN}
 >
-  <Fragment slot="toolbar">
-    <StatusTag kind="not-validated" />
-  </Fragment>
-
-  <GenotypeTriad idPrefix={id('genotype')} />
+  <GenotypeTriad idPrefix={id('genotype')} selected={SHOWN} />
   <div
     class="hbs__map"
     data-hbs-map
     data-hbs-domain={JSON.stringify(domain)}
+    data-alt-aa={view.AA.alt}
+    data-alt-as={view.AS.alt}
+    data-alt-ss={view.SS.alt}
     tabindex="0"
     role="img"
-    aria-label={alt}
+    aria-label={view[SHOWN].alt}
     aria-describedby={id('keys')}
   >
     <canvas data-hbs-canvas="surface" aria-hidden="true"></canvas>
+    <canvas data-hbs-canvas="previous" aria-hidden="true"></canvas>
     <canvas data-hbs-canvas="studs" aria-hidden="true"></canvas>
     <span class="hbs__reticle" data-hbs-reticle hidden></span>
     <noscript>
@@ -116,31 +184,45 @@ const rows = provenance.table.region_thresholds;
   <Fragment slot="readout">
     <div class="hbs__controls" data-figure-chrome>
       <label class="hbs__slider-label" for={id('threshold')}>
-        Show areas above <output
-          data-hbs-threshold
-          for={id('threshold')}
-          aria-hidden="true">{DEFAULT_THRESHOLD}%</output
-        >
+        Show areas where <output data-hbs-threshold for={id('threshold')}
+          >{stopText(stop)}%</output
+        > or more of births are <span data-hbs-genotype-name>{SHOWN}</span>
       </label>
       <input
         id={id('threshold')}
         class="hbs__slider kit-range"
         type="range"
-        min="1"
-        max="15"
+        min="0"
+        max={String(THRESHOLD_STOPS[SHOWN].length - 1)}
         step="1"
-        value={String(DEFAULT_THRESHOLD)}
+        value={String(stopIndex)}
         data-hbs-slider
-        aria-valuetext={valueText(DEFAULT_THRESHOLD, atDefault)}
+        aria-valuetext={valueText(stop, atDefault)}
       />
       <p class="hbs__count" data-hbs-count>
-        <span>{confidentAtDefault}</span> · <span>{possibleAtDefault}</span>
+        <span class="hbs__clause"
+          ><b>{whole(atDefault.confident)}</b> confidently above<span
+            class="visually-hidden">{', '}</span
+          ></span
+        >
+        <span class="hbs__clause"
+          ><b>{whole(atDefault.possible)}</b> possibly above</span
+        >
       </p>
     </div>
     <Readout class="hbs__readout" idle="Tap to inspect." />
+    <div class="figure-note hbs__note" data-figure-chrome>
+      <p>Simplified from the Atlas’s HbS data.</p>
+      <a href={sitePath('/app/?entity=hbs-rs334&palette=genome')}
+        >See it live in the Atlas<span aria-hidden="true">&nbsp;→</span></a
+      >
+    </div>
   </Fragment>
 
   <Fragment slot="legend">
+    <p class="hbs__caption">
+      Expected share of births, from the modeled frequency
+    </p>
     <ul class="hbs__legend">
       <li>
         <svg class="hbs__swatch" viewBox="0 0 30 22" aria-hidden="true">
@@ -161,9 +243,23 @@ const rows = provenance.table.region_thresholds;
       <li>
         <Glyph name="vsup-wedge" size={22} />
         <span class="hbs__wedge-key">
-          <span>Modeled frequency, {domainLabel}</span>
+          <span class="hbs__ramp-key hbs__variants">
+            {
+              GENOTYPE_ORDER.map((genotype) => (
+                <span data-variant={genotype}>
+                  {genotype}: {view[genotype].range} of births
+                </span>
+              ))
+            }
+          </span>
           <span>Fades away from surveys</span>
         </span>
+      </li>
+      <li>
+        <svg class="hbs__swatch" viewBox="0 0 30 22" aria-hidden="true">
+          <path d="M3 11l5-8h14l5 8-5 8H8z" fill={mutedSwatch}></path>
+        </svg>
+        <span data-hbs-muted-key>Below {stopText(stop)}%</span>
       </li>
       <li>
         <Glyph name="hatch" />
@@ -171,7 +267,7 @@ const rows = provenance.table.region_thresholds;
       </li>
       <li>
         <Glyph name="stud-md" />
-        <span>Survey (AC of AN)</span>
+        <span>Survey, sized by people tested</span>
       </li>
     </ul>
   </Fragment>
@@ -179,33 +275,38 @@ const rows = provenance.table.region_thresholds;
   <Fragment slot="footnote">
     {provenance.label} · model {provenance.model_version} · data {
       provenance.data_version
-    } · revision {revision} · coarsened for display ·{' '}
-    <a href={sitePath('/app/?entity=hbs-rs334&palette=genome')}
-      >Open in the Atlas</a
-    >
+    } · revision {revision} · coarsened for display
   </Fragment>
 
-  <table slot="table">
-    <caption class="visually-hidden">
-      Areas whose estimate is above each threshold
-    </caption>
-    <thead>
-      <tr>
-        <th scope="col">Threshold</th>
-        <th scope="col">Confidently above</th>
-        <th scope="col">Possibly above</th>
-      </tr>
-    </thead>
-    <tbody>
-      {
-        rows.map((row) => (
-          <tr>
-            <td>{Math.round(row.threshold * 100)}%</td>
-            <td>{whole(row.confidently_above)}</td>
-            <td>{whole(row.possibly_above)}</td>
-          </tr>
-        ))
-      }
-    </tbody>
-  </table>
+  <Fragment slot="table">
+    {
+      GENOTYPE_ORDER.map((genotype) => (
+        <table data-variant={genotype} class="hbs__table">
+          <caption>
+            Areas where {GENOTYPE_NAME[genotype].toLowerCase()} ({genotype}) is
+            expected in at least each share of births, from each area's modeled
+            HbS frequency, assuming random mating (Hardy–Weinberg)
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Share of births</th>
+              <th scope="col">Confidently above</th>
+              <th scope="col">Possibly above</th>
+              <th scope="col">Below, muted</th>
+            </tr>
+          </thead>
+          <tbody>
+            {view[genotype].rows.map((row) => (
+              <tr>
+                <td>{stopText(row.stop)}% or more</td>
+                <td>{whole(row.confident)}</td>
+                <td>{whole(row.possible)}</td>
+                <td>{whole(row.below)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ))
+    }
+  </Fragment>
 </Figure>

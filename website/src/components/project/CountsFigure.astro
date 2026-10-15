@@ -1,280 +1,249 @@
 ---
 /**
- * "Counts, not guesses" (site redesign spec §4.1 H2, §6.1 rule 2; #454): a worked example of why
- * the Atlas stores AC of AN. Population A: 61 of 412 alleles carry the variant. Population B: none
- * of n, for n from 20 to 2,000. Each row is an allele grid (one square per allele, always, drawn as
- * two pattern rects per layer, never one node per allele) and a Jeffreys 95% interval on a shared
- * 0–25% axis with a tick at the posterior mean.
+ * "Counts, not guesses" (round 2 spec §4.2.5; rulings R2-15, R2-16; site redesign spec §6.1 rule 2;
+ * #454): a worked example, tagged "Example", of why the Atlas stores counts. Two illustrative
+ * surveys, one micro astronaut per person tested (the kit's face variant: a seeded skin tone in the
+ * visor, the suit carrying the data), each with a Jeffreys 95% interval for the share of carriers on
+ * a shared 0–40% axis.
+ *
+ *   Survey 1   58 of 206 people carry it (55 with one copy, 3 with two: 61 of 412 gene copies)
+ *   Survey 2   0 of n people carry it, n on a slider from 10 to 500
  *
  * The intervals are computed here, at build time (jeffreys.ts), and shipped as a table: nothing is
- * fitted in the browser. Server-rendered at the default stop (20), the final state, so the figure
- * is complete without JavaScript; counts.ts adds the slider and the entrance. Tested alleles are
- * solid squares at 3:1 or more on the band (carriers starlight, the rest TESTED_FILL); row B's room
- * for 2,000 alleles is a faint dot per allele not yet tested, which the tested squares cover as the
- * slider moves, so at rest the figure shows sample size and the tested block visibly grows (design
- * review, round 2). Each row stacks its label, grid and bar across the figure's full width, both
- * bars on one 0–25% axis.
+ * fitted in the browser. Server-rendered at the default stop (10), the final state, so the figure is
+ * complete without JavaScript; counts.ts adds the slider and the entrance. Each grid is one `<use>`
+ * per person of the kit's 13 face symbols (≤ 706 nodes), placed by counts.css for the wide and the
+ * narrow layout from the same nodes; survey 2 keeps room for 500, its untested places a faint dot,
+ * so sample size reads at rest and the tested block visibly grows.
  */
 import Figure from '../kit/Figure.astro';
 import StatusTag from '../kit/StatusTag.astro';
+import {
+  microSkins,
+  microSymbols,
+  MICRO_VIEWBOX,
+} from '../../graphics/astro/micro';
 import { jeffreys } from '../../graphics/jeffreys';
 import {
-  GRID,
-  ROW_A,
-  ROW_B_MAX,
-  TESTED_FILL,
+  AXIS_TICKS,
+  GLYPH,
+  ROW_2_ROOM,
+  SURVEY_1,
+  VIEW_WIDTH,
   buildCountsTable,
-  ghostDot,
-  gridHeight,
-  gridRects,
+  carrierPositions,
+  cellOf,
+  clientStop,
+  gridBox,
+  labelSide,
+  layoutUnits,
   onAxis,
+  placeHref,
 } from './counts';
 import './counts.css';
 
 const table = buildCountsTable(jeffreys);
+const one = table.survey1;
 const [first] = table.stops;
 const last = table.stops[table.stops.length - 1];
-const clientTable = JSON.stringify({
-  stops: table.stops.map(
-    ({ an, mean, hi, range, output, valuetext, sentence }) => ({
-      an,
-      mean: +mean.toFixed(6),
-      hi: +hi.toFixed(6),
-      range,
-      output,
-      valuetext,
-      sentence,
-    }),
+const clientTable = JSON.stringify({ stops: table.stops.map(clientStop) });
+
+const skins = microSkins(ROW_2_ROOM);
+const carriers = new Set(carrierPositions());
+const whole = (value: number) => value.toLocaleString('en-US');
+
+/** One `<use>` per person, with its place in both layouts (counts.css reads --c --r --n --m). */
+const person = (index: number, href: string, extra = '') => {
+  const { c, r, n, m } = cellOf(index);
+  return `<use href="${href}" width="${GLYPH.width}" height="${GLYPH.height}" style="--c:${c};--r:${r};--n:${n};--m:${m}"${extra}/>`;
+};
+
+const grid1 = Array.from({ length: SURVEY_1.tested }, (_, index) =>
+  carriers.has(index)
+    ? person(
+        index,
+        `#micro-face-carrier-${skins[index]}`,
+        ' class="cf-carrier"',
+      )
+    : person(index, `#micro-face-tested-${skins[index]}`),
+).join('');
+const grid2 = Array.from({ length: ROW_2_ROOM }, (_, index) =>
+  person(
+    index,
+    placeHref(index < first.tested, skins[index]),
+    ` data-s="${skins[index]}"`,
   ),
-});
+).join('');
 
-type Layout = keyof typeof GRID;
-const layouts = Object.keys(GRID) as Layout[];
+const box1 = gridBox(SURVEY_1.tested);
+const box2 = gridBox(ROW_2_ROOM);
+// The layouts' pitches, set once on each grid for counts.css.
+const units =
+  `--px:${layoutUnits.wide.pitchX}px;--py:${layoutUnits.wide.pitchY}px;--ps:${layoutUnits.wide.scale};` +
+  `--nx:${layoutUnits.narrow.pitchX}px;--ny:${layoutUnits.narrow.pitchY}px;--ns:${layoutUnits.narrow.scale}`;
+const gridStyle = (box: ReturnType<typeof gridBox>) =>
+  `${units};--wide-h:${box.height.wide};--narrow-h:${box.height.narrow};--wide-rows:${box.rows.wide};--narrow-rows:${box.rows.narrow}`;
 
-/**
- * One grid: `n` tested squares, the first `ac` lit. Row B reserves room for the largest stop and
- * draws it as a dot per allele not yet tested, under the tested squares.
- */
-const grid = (row: 'a' | 'b', layout: Layout, n: number, ac: number) => {
-  const { columns, pitch, size } = GRID[layout];
-  const capacity = row === 'b' ? ROW_B_MAX : n;
-  const width = columns * pitch;
-  const height = gridHeight(capacity, columns, pitch);
-  const off = gridRects(n, columns, pitch);
-  // Carriers are drawn over the first squares, so non-carriers fill the rest.
-  const on = gridRects(ac, columns, pitch);
-  const id = `cf-${layout}-${row}`;
-  const dot = ghostDot(pitch);
-  return { row, layout, columns, pitch, size, dot, width, height, off, on, id };
-};
-const grids = {
-  a: layouts.map((layout) => grid('a', layout, ROW_A.an, ROW_A.ac)),
-  b: layouts.map((layout) => grid('b', layout, first.an, 0)),
-};
-// Bar A grows out from its mean.
-const aOrigin = ((table.a.mean - table.a.lo) / (table.a.hi - table.a.lo)) * 100;
-// Home's one island, in src/pages/index.astro, starts this figure with initCounts (counts.ts).
+// Bar 1 grows out from its mean.
+const origin = ((one.mean - one.lo) / (one.hi - one.lo)) * 100;
+const bar1 = `--lo:${onAxis(one.lo)};--hi:${onAxis(one.hi)};--mean:${onAxis(one.mean)};--origin:${origin.toFixed(2)}%`;
+const bar2 = `--lo:0%;--hi:${onAxis(first.hi)};--origin:0%`;
+const tick = (value: number) => `${Math.round(value * 100)}%`;
+// The page's island (projects.astro) starts this figure with initCounts (counts.ts).
 ---
 
 <Figure
   graphic="counts"
   interactive
-  label="Allele counts for two populations, A and B, each with the share of alleles it could plausibly carry"
+  label="Two example surveys, one figure per person tested, each with the share of carriers it could plausibly have"
   class="cf"
 >
   <StatusTag slot="toolbar" kind="worked-example" />
 
   <div class="cf-stage" data-counts={clientTable}>
-    <p class="cf-axis" aria-hidden="true">
-      <span class="cf-axis__name">Plausible share (95%)</span>
-      <span class="cf-axis__ends"><span>0%</span><span>25%</span></span>
-    </p>
-    {
-      (['a', 'b'] as const).map((row) => (
-        <div class="cf-row" data-row={row}>
-          <p class="cf-row__label" aria-hidden="true">
-            {row === 'a' ? (
-              `A · ${ROW_A.ac} of ${ROW_A.an} alleles carry it`
-            ) : (
-              <Fragment>
-                B · 0 of{' '}
-                <span data-count-n>{first.an.toLocaleString('en-US')}</span>{' '}
-                alleles carry it
-              </Fragment>
-            )}
-          </p>
-          <p class="visually-hidden" data-row-sentence={row}>
-            {row === 'a' ? table.a.sentence : first.sentence}
-          </p>
-          <div class="cf-row__grid">
-            {grids[row].map((g) => (
-              <svg
-                class:list={['cf-grid', `cf-grid--${g.layout}`]}
-                data-grid={row}
-                data-columns={g.columns}
-                data-pitch={g.pitch}
-                data-size={g.size}
-                width={g.width}
-                height={g.height}
-                viewBox={`0 0 ${g.width} ${g.height}`}
-                aria-hidden="true"
-                focusable="false"
-              >
-                <defs>
-                  <pattern
-                    id={`${g.id}-off`}
-                    width={g.pitch}
-                    height={g.pitch}
-                    patternUnits="userSpaceOnUse"
-                  >
-                    <rect
-                      width={g.size}
-                      height={g.size}
-                      style={`fill: ${TESTED_FILL}`}
-                    />
-                  </pattern>
-                  <pattern
-                    id={`${g.id}-on`}
-                    width={g.pitch}
-                    height={g.pitch}
-                    patternUnits="userSpaceOnUse"
-                  >
-                    <rect
-                      width={g.size}
-                      height={g.size}
-                      style="fill: var(--color-starlight)"
-                    />
-                  </pattern>
-                  {row === 'b' && (
-                    <pattern
-                      id={`${g.id}-ghost`}
-                      width={g.pitch}
-                      height={g.pitch}
-                      patternUnits="userSpaceOnUse"
-                    >
-                      <circle
-                        cx={g.size / 2}
-                        cy={g.size / 2}
-                        r={g.dot}
-                        style="fill: rgb(165 185 211 / 34%)"
-                      />
-                    </pattern>
-                  )}
-                </defs>
-                {row === 'b' && (
-                  <rect
-                    data-ghost
-                    x="0"
-                    y="0"
-                    width={g.width}
-                    height={g.height}
-                    fill={`url(#${g.id}-ghost)`}
-                  />
-                )}
-                <g class="cf-grid__off">
-                  {g.off.map((rect) => (
-                    <rect
-                      data-squares
-                      x={rect.x}
-                      y={rect.y}
-                      width={rect.width}
-                      height={rect.height}
-                      fill={`url(#${g.id}-off)`}
-                    />
-                  ))}
-                </g>
-                {row === 'a' && (
-                  <g class="cf-grid__on">
-                    {g.on.map((rect) => (
-                      <rect
-                        x={rect.x}
-                        y={rect.y}
-                        width={rect.width}
-                        height={rect.height}
-                        fill={`url(#${g.id}-on)`}
-                      />
-                    ))}
-                  </g>
-                )}
-              </svg>
-            ))}
-          </div>
-          <div class="cf-row__bar">
-            <div class="cf-bar" data-bar={row} aria-hidden="true">
-              <div class="cf-bar__track">
-                <span
-                  class="cf-bar__range"
-                  style={
-                    row === 'a'
-                      ? `left: ${onAxis(table.a.lo)}; width: ${onAxis(table.a.hi - table.a.lo)}; --origin: ${aOrigin.toFixed(2)}%`
-                      : `left: 0%; width: ${onAxis(first.hi)}; --origin: 0%`
-                  }
-                />
-                <span
-                  class="cf-bar__mean"
-                  style={`left: ${onAxis(row === 'a' ? table.a.mean : first.mean)}`}
-                />
-              </div>
-              <span class="cf-bar__value">
-                {row === 'a' ? table.a.range : first.range}
-              </span>
-            </div>
-            {row === 'b' && (
-              <output class="cf-output" for="cf-slider">
-                {first.output}
-              </output>
-            )}
-          </div>
-          {row === 'b' && (
-            <div class="cf-slider">
-              <label for="cf-slider">Alleles tested in B</label>
-              <input
-                id="cf-slider"
-                class="kit-range"
-                type="range"
-                min="0"
-                max={table.stops.length - 1}
-                step="1"
-                value="0"
-                aria-valuetext={first.valuetext}
-              />
-              <span class="cf-slider__ends" aria-hidden="true">
-                <span>{first.an.toLocaleString('en-US')}</span>
-                <span>{last.an.toLocaleString('en-US')}</span>
-              </span>
-            </div>
-          )}
-        </div>
-      ))
-    }
+    <svg class="cf-defs" aria-hidden="true" focusable="false">
+      <defs set:html={microSymbols('face')} />
+    </svg>
+
+    <div class="cf-row" data-row="1">
+      <p class="cf-row__label" aria-hidden="true">
+        <strong>Survey 1</strong>
+        <span
+          ><b>{one.carriers}</b> of <b>{whole(one.tested)}</b> people carry it</span
+        >
+      </p>
+      <p class="visually-hidden">{one.sentence}</p>
+      <svg
+        class="cf-grid"
+        data-grid="1"
+        viewBox={`0 0 ${VIEW_WIDTH} ${box1.height.narrow}`}
+        preserveAspectRatio="xMinYMin slice"
+        style={gridStyle(box1)}
+        aria-hidden="true"
+        focusable="false"
+        set:html={grid1}
+      />
+      <div
+        class="cf-bar"
+        data-bar="1"
+        data-side={labelSide(one.hi)}
+        style={bar1}
+        aria-hidden="true"
+      >
+        <span class="cf-bar__track"></span>
+        <span class="cf-bar__range"></span>
+        <span class="cf-bar__mean"></span>
+        <span class="cf-bar__value">{one.range}</span>
+      </div>
+    </div>
+
+    <div class="cf-row" data-row="2">
+      <p class="cf-row__label" aria-hidden="true">
+        <strong>Survey 2</strong>
+        <span
+          ><b>0</b> of <b data-count-n>{whole(first.tested)}</b> people carry it</span
+        >
+      </p>
+      <p class="visually-hidden" data-row-sentence="2">{first.sentence}</p>
+      <svg
+        class="cf-grid"
+        data-grid="2"
+        viewBox={`0 0 ${VIEW_WIDTH} ${box2.height.narrow}`}
+        preserveAspectRatio="xMinYMin slice"
+        style={gridStyle(box2)}
+        aria-hidden="true"
+        focusable="false"
+        set:html={grid2}
+      />
+      <div
+        class="cf-bar"
+        data-bar="2"
+        data-side={labelSide(first.hi)}
+        style={bar2}
+        aria-hidden="true"
+      >
+        <span class="cf-bar__track"></span>
+        <span class="cf-bar__range"></span>
+        <span class="cf-bar__value">{first.range}</span>
+      </div>
+      <p class="cf-axis" aria-hidden="true">
+        {AXIS_TICKS.map((value) => <span>{tick(value)}</span>)}
+      </p>
+      <div class="cf-slider">
+        <label for="cf-slider"
+          >People tested <span class="visually-hidden">in survey 2</span></label
+        >
+        <input
+          id="cf-slider"
+          class="kit-range"
+          type="range"
+          min="0"
+          max={table.stops.length - 1}
+          step="1"
+          value="0"
+          aria-valuetext={first.valuetext}
+        />
+        <span class="cf-slider__ends" aria-hidden="true">
+          <span>{whole(first.tested)}</span>
+          <span>{whole(last.tested)}</span>
+        </span>
+      </div>
+      <output class="cf-output" for="cf-slider">{first.output}</output>
+    </div>
   </div>
 
-  <strong slot="legend">Zero is weak evidence, not absence.</strong>
+  <Fragment slot="legend">
+    <ul class="cf-key">
+      <li>
+        <svg viewBox={MICRO_VIEWBOX} aria-hidden="true" focusable="false"
+          ><use href="#micro-face-carrier-s3"></use></svg
+        >Carrier
+      </li>
+      <li>
+        <svg viewBox={MICRO_VIEWBOX} aria-hidden="true" focusable="false"
+          ><use href="#micro-face-tested-s3"></use></svg
+        >Not a carrier
+      </li>
+      <li>
+        <svg viewBox={MICRO_VIEWBOX} aria-hidden="true" focusable="false"
+          ><use href="#micro-untested"></use></svg
+        >Not tested
+      </li>
+    </ul>
+  </Fragment>
   <Fragment slot="footnote"
-    >Illustrative counts; 95% Jeffreys intervals.</Fragment
+    >Illustrative surveys; 95% Jeffreys intervals.</Fragment
   >
   <table slot="table">
+    <caption class="visually-hidden">
+      Carriers among the people each example survey tested
+    </caption>
     <thead>
       <tr>
-        <th scope="col">Population</th>
-        <th scope="col">Alleles tested</th>
-        <th scope="col">Carry it</th>
-        <th scope="col">Plausible share (95%)</th>
+        <th scope="col">Survey</th>
+        <th scope="col">People tested</th>
+        <th scope="col">Carriers</th>
+        <th scope="col">Gene copies with the variant</th>
+        <th scope="col">Plausible share of carriers (95%)</th>
       </tr>
     </thead>
     <tbody>
       <tr>
-        <td>A</td>
-        <td>{ROW_A.an}</td>
-        <td>{ROW_A.ac}</td>
-        <td>{table.a.range}</td>
+        <td>Survey 1</td>
+        <td>{whole(one.tested)}</td>
+        <td>
+          {one.carriers} ({one.oneCopy} with one copy, {one.twoCopies} with two)
+        </td>
+        <td>{one.copies} of {whole(one.geneCopies)}</td>
+        <td>{one.range}</td>
       </tr>
       {
         table.stops.map((stop) => (
           <tr>
-            <td>B</td>
-            <td>{stop.an.toLocaleString('en-US')}</td>
+            <td>Survey 2</td>
+            <td>{whole(stop.tested)}</td>
             <td>0</td>
+            <td>0 of {whole(2 * stop.tested)}</td>
             <td>{stop.range}</td>
           </tr>
         ))

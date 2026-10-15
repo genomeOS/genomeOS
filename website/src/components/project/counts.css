@@ -1,208 +1,255 @@
 /*
- * "Counts, not guesses" (site redesign spec §4.1 H2; round 2 spec §4.2.5): every .cf rule, cut
- * verbatim from styles/pages/home.css (round 2 plan T0 step 3) as the figure moves to Projects.
- * CountsFigure.astro imports it. The entrance keyframes it plays are copied from home.css's shared
- * motion (same names, same frames), so the figure carries them to any page.
+ * "Counts, not guesses", counted in people (round 2 spec §4.2.5; R2-15): every .cf rule.
+ * CountsFigure.astro imports it, so the figure carries its own styles and entrance to any page.
+ *
+ * Each survey stacks its label, its grid of micro astronauts and its interval bar across the
+ * figure's width; survey 2 adds the shared 0–40% axis, the slider and its sentence. The grids are
+ * one `<use>` per person: CSS places each from its column and row in the wide layout (40 a row) or,
+ * in a figure under 34rem, the narrow one (25 a row, drawn larger in the same 800-unit viewBox), and
+ * the grid's aspect ratio follows, so the slider and the layout switch never create a node.
  */
 
 .cf {
   container: cf / inline-size;
+  --micro-band: var(--color-void);
 }
 
-/* Narrow: the rows stack (label, grid, bar), and the shared axis heads bar A, directly under
-   grid A; bar B, its sentence and the slider follow grid B (spec §4.1 H2 phone). */
+.cf-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
 .cf-stage {
   display: grid;
-  gap: 0.6rem;
+  gap: clamp(1.75rem, 3vw, 2.25rem);
 }
 
 .cf-row {
-  display: contents;
-}
-
-[data-row='a'] .cf-row__label {
-  order: 1;
-}
-
-[data-row='a'] .cf-row__grid {
-  order: 2;
-}
-
-.cf-axis {
-  order: 3;
-}
-
-[data-row='a'] .cf-row__bar {
-  order: 4;
-}
-
-[data-row='b'] .cf-row__label {
-  order: 5;
-  margin-top: 1.4rem;
-}
-
-[data-row='b'] .cf-row__grid {
-  order: 6;
-}
-
-[data-row='b'] .cf-row__bar {
-  order: 7;
-}
-
-.cf-slider {
-  order: 8;
-}
-
-.cf-axis {
-  margin: 0.4rem 6.25rem 0 0;
   display: grid;
-  gap: 0.15rem;
-  color: var(--color-faint);
-  font-size: 0.8rem;
-  font-weight: 600;
-  font-variant-numeric: lining-nums tabular-nums;
-}
-
-.cf-axis__name {
-  color: var(--color-muted);
-}
-
-.cf-axis__ends {
-  display: flex;
-  justify-content: space-between;
+  gap: 0.7rem;
+  min-width: 0;
 }
 
 .cf-row__label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.65rem;
   margin: 0;
-  color: var(--color-text-soft);
-  font-size: 0.95rem;
-  font-weight: 560;
+  color: var(--color-muted);
+  font-size: 0.98rem;
   font-variant-numeric: lining-nums tabular-nums;
 }
 
-.cf-row__label::first-letter {
+.cf-row__label strong {
   color: var(--color-starlight);
-  font-weight: 760;
+  font-weight: 650;
 }
 
-.cf-row__grid {
-  min-width: 0;
+.cf-row__label b {
+  color: var(--color-starlight);
+  font-weight: 620;
 }
+
+/* ---------- the grids: one micro astronaut per person ---------- */
 
 .cf-grid {
   display: block;
   width: 100%;
   height: auto;
+  aspect-ratio: 800 / var(--wide-h);
+  overflow: hidden;
 }
 
-.cf-grid--wide {
-  display: none;
+.cf-grid use {
+  transform: translate(calc(var(--c) * var(--px)), calc(var(--r) * var(--py)))
+    scale(var(--ps));
 }
 
-.cf-grid [data-squares] {
-  transition:
-    width var(--dur-ui) var(--ease-ui),
-    height var(--dur-ui) var(--ease-ui),
-    y var(--dur-ui) var(--ease-ui);
+@container cf (max-width: 33.99rem) {
+  .cf-grid {
+    aspect-ratio: 800 / var(--narrow-h);
+  }
+
+  .cf-grid use {
+    transform: translate(calc(var(--n) * var(--nx)), calc(var(--m) * var(--ny)))
+      scale(var(--ns));
+  }
 }
 
+/* ---------- interval bars on the shared 0–40% axis ---------- */
+
+/* Tall enough that the value label, centred on the bar, clears the ruler's ticks below it. */
 .cf-bar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 5.5rem;
-  align-items: center;
-  gap: 0.75rem;
+  position: relative;
+  height: 1.75rem;
 }
 
-/* The shared 0–25% axis: a baseline and faint 5% rules behind each bar. */
+/* The axis under each bar: a baseline ticked at 0, 20 and 40%, like a ruler, so both bars carry the
+   shared scale and no rule runs through a value label. */
 .cf-bar__track {
-  position: relative;
-  height: 1.4rem;
+  position: absolute;
+  inset: auto 0 0;
+  height: 7px;
   border-bottom: 1px solid var(--color-deep-line);
-  background: linear-gradient(
-      to right,
-      rgb(165 185 211 / 12%) 1px,
-      transparent 1px
-    )
-    0 0 / 20% 100%;
+  background:
+    linear-gradient(to right, rgb(165 185 211 / 34%) 1px, transparent 1px) 0 0 /
+      50% 100% repeat-x,
+    linear-gradient(to left, rgb(165 185 211 / 34%) 1px, transparent 1px);
 }
 
 .cf-bar__range {
   position: absolute;
   top: 50%;
-  height: 8px;
+  left: var(--lo);
+  width: calc(var(--hi) - var(--lo));
   min-width: 2px;
-  margin-top: -4px;
-  background: rgb(242 248 255 / 72%);
+  height: 10px;
+  margin-top: -5px;
+  background: var(--color-starlight);
   transform-origin: var(--origin, 0%) 50%;
   transition: width var(--dur-ui) var(--ease-ui);
 }
 
+/* A void tick at survey 1's posterior mean. */
 .cf-bar__mean {
   position: absolute;
   top: 50%;
+  left: var(--mean);
   width: 2px;
   height: 18px;
   margin: -9px 0 0 -1px;
-  background: var(--color-starlight);
-  box-shadow: 0 0 0 1px var(--color-orbit);
-  transition: left var(--dur-ui) var(--ease-ui);
+  background: var(--color-void);
 }
 
 .cf-bar__value {
+  position: absolute;
+  top: 50%;
+  translate: 0 -50%;
+  line-height: 1.1;
   color: var(--color-starlight);
   font-size: 0.95rem;
-  font-weight: 620;
+  font-weight: 640;
   font-variant-numeric: lining-nums tabular-nums;
-  text-align: right;
   white-space: nowrap;
+  transition:
+    left var(--dur-ui) var(--ease-ui),
+    right var(--dur-ui) var(--ease-ui);
 }
 
-.cf-output {
-  display: block;
-  min-height: 1.5em;
-  margin-top: 0.6rem;
-  color: var(--color-starlight);
-  font-size: 0.95rem;
+.cf-bar[data-side='right'] .cf-bar__value {
+  left: calc(var(--hi) + 0.4rem);
+}
+
+.cf-bar[data-side='left'] .cf-bar__value {
+  right: calc(100% - var(--lo) + 0.4rem);
+}
+
+.cf-axis {
+  position: relative;
+  height: 1.2rem;
+  margin: -0.2rem 0 0;
+  color: var(--color-faint);
+  font-size: 0.82rem;
   font-weight: 600;
   font-variant-numeric: lining-nums tabular-nums;
 }
 
+.cf-axis span {
+  position: absolute;
+  top: 0;
+}
+
+.cf-axis span:nth-child(1) {
+  left: 0;
+}
+
+.cf-axis span:nth-child(2) {
+  left: 50%;
+  translate: -50% 0;
+}
+
+.cf-axis span:nth-child(3) {
+  right: 0;
+}
+
+/* ---------- the slider and its sentence ---------- */
+
 .cf-slider {
   display: grid;
-  gap: 0.15rem;
-  max-width: 320px;
+  gap: 0.1rem;
+  max-width: 22rem;
+  margin-top: 0.4rem;
 }
 
 .cf-slider label {
   color: var(--color-text-soft);
-  font-size: 0.9rem;
+  font-size: 0.92rem;
   font-weight: 620;
 }
 
-/* The site's range control (.kit-range, global.css), with a phone-sized target. */
+/* The site's range control (.kit-range, global.css), with a phone-sized target. Its focus ring
+   sits inside that 44 px box, around the track and thumb, so it never cuts through the end labels
+   under it or the label over it (design review, round 3). */
 .cf-slider input {
   min-height: 44px;
+}
+
+.cf-slider input:focus-visible {
+  outline-offset: -6px;
+  box-shadow: inset 0 0 0 3px rgb(112 230 255 / 35%);
 }
 
 .cf-slider__ends {
   display: flex;
   justify-content: space-between;
+  margin-top: 0;
   color: var(--color-faint);
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   font-variant-numeric: lining-nums tabular-nums;
 }
 
-/* Wide: the same stacked rows, in larger grids of eighty alleles per row (about 9 px squares at
-   1440 px, so one allele reads as one square), each grid and bar spanning the figure (spec §4.1 H2;
-   design review, rounds 1 and 2). */
-@container cf (min-width: 36rem) {
-  .cf-grid--wide {
-    display: block;
-  }
+.cf-output {
+  display: block;
+  min-height: 1.5em;
+  color: var(--color-starlight);
+  font-size: 1rem;
+  font-weight: 640;
+  font-variant-numeric: lining-nums tabular-nums;
+}
 
-  .cf-grid--narrow {
-    display: none;
-  }
+/* ---------- legend ---------- */
+
+.cf-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cf-key li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cf-key svg {
+  flex: none;
+  width: 16px;
+  height: 20px;
+}
+
+/* ---------- the entrance: once at 35%, under 1.6 s (FigureController) ---------- */
+
+/* Captures hold a moment of the entrance (motion hooks, `?t=`). */
+.cf[data-figure-frozen] *,
+.cf[data-figure-frozen] *::before,
+.cf[data-figure-frozen] *::after {
+  animation-play-state: paused !important;
 }
 
 @media screen {
@@ -210,53 +257,53 @@
     clip-path: inset(0 0 100% 0);
   }
 
-  .cf[data-figure-state='armed'] :is(.cf-grid__on, .cf-bar__mean),
-  .cf[data-figure-state='armed'] .cf-bar__range {
+  .cf[data-figure-state='armed'] :is(.cf-bar__range, .cf-bar__mean),
+  .cf[data-figure-state='armed'] .cf-carrier {
     opacity: 0;
   }
 
-  .cf[data-figure-state='playing'] [data-row='a'] .cf-grid {
-    animation: home-unroll 600ms steps(6, end) both;
+  /* Survey 1's people arrive row by row (0–0.6 s); its carriers light (0.6–0.8 s); its bar grows
+     out from the mean (0.8–1.3 s). Survey 2 and its bar follow from 0.9 s. */
+  .cf[data-figure-state='playing'] [data-grid='1'] {
+    --rows: var(--wide-rows);
+
+    animation: cf-unroll 600ms steps(var(--rows), end) both;
+    animation-delay: var(--figure-freeze, 0ms);
   }
 
-  .cf[data-figure-state='playing'] [data-row='a'] .cf-grid__on {
-    animation: home-fade 200ms linear 600ms both;
+  .cf[data-figure-state='playing'] .cf-carrier {
+    animation: cf-light 200ms linear both;
+    animation-delay: calc(600ms + var(--figure-freeze, 0ms));
   }
 
-  .cf[data-figure-state='playing'] [data-bar='a'] .cf-bar__range {
-    animation: home-grow 500ms var(--ease-figure) 800ms both;
+  .cf[data-figure-state='playing'] [data-bar='1'] .cf-bar__range {
+    animation: cf-grow 500ms var(--ease-figure) both;
+    animation-delay: calc(800ms + var(--figure-freeze, 0ms));
   }
 
-  .cf[data-figure-state='playing'] [data-bar='a'] .cf-bar__mean {
-    animation: home-fade 200ms linear 800ms both;
+  .cf[data-figure-state='playing'] [data-bar='1'] .cf-bar__mean {
+    animation: cf-fade 200ms linear both;
+    animation-delay: calc(1100ms + var(--figure-freeze, 0ms));
   }
 
-  .cf[data-figure-state='playing'] [data-row='b'] .cf-grid {
-    animation: home-unroll 400ms var(--ease-figure) 900ms both;
+  .cf[data-figure-state='playing'] [data-grid='2'] {
+    animation: cf-unroll 400ms var(--ease-figure) both;
+    animation-delay: calc(900ms + var(--figure-freeze, 0ms));
   }
 
-  .cf[data-figure-state='playing'] [data-bar='b'] .cf-bar__range {
-    animation: home-grow 500ms var(--ease-figure) 1100ms both;
-  }
-
-  .cf[data-figure-state='playing'] [data-bar='b'] .cf-bar__mean {
-    animation: home-fade 200ms linear 1100ms both;
-  }
-}
-
-@keyframes home-fade {
-  from {
-    opacity: 0;
-  }
-}
-
-@keyframes home-grow {
-  from {
-    transform: scaleX(0);
+  .cf[data-figure-state='playing'] [data-bar='2'] .cf-bar__range {
+    animation: cf-grow 500ms var(--ease-figure) both;
+    animation-delay: calc(1100ms + var(--figure-freeze, 0ms));
   }
 }
 
-@keyframes home-unroll {
+@container cf (max-width: 33.99rem) {
+  .cf[data-figure-state='playing'] [data-grid='1'] {
+    --rows: var(--narrow-rows);
+  }
+}
+
+@keyframes cf-unroll {
   from {
     clip-path: inset(0 0 100% 0);
   }
@@ -266,10 +313,37 @@
   }
 }
 
+@keyframes cf-light {
+  from {
+    opacity: 0.25;
+  }
+}
+
+@keyframes cf-grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes cf-fade {
+  from {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .cf-grid [data-squares],
   .cf-bar__range,
-  .cf-bar__mean {
+  .cf-bar__value {
     transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .cf-bar__range {
+    background: CanvasText;
+  }
+
+  .cf-bar__mean {
+    background: Canvas;
   }
 }

@@ -1,4 +1,4 @@
-/** The Project HbS threshold map (site redesign spec §4.2, HbS, §6; #454).
+/** The Projects HbS threshold map (site redesign spec §4.2, HbS, §6; round 2 spec §4.2.2; #454).
  *
  * The real HbS (rs334) v3 surface, coarsened to res 3 for a window from West Africa to India, in a
  * Lambert azimuthal equal-area projection (so an area's share of the map is its share of the
@@ -10,7 +10,7 @@
  *
  * The outlines are drawn as contours around each set (edges with the set on one side only), so a
  * solid line rings the confident areas inside a dashed line ringing every area whose estimate is
- * above t: the uncertainty-aware threshold a screening programme would use. Nothing is fitted
+ * above t: the uncertainty-aware threshold a screening program would use. Nothing is fitted
  * here; every number comes from the pinned, coarsened figure data.
  *
  * Measured and modeled stay apart: the surface and the studs are two HexFields on two canvases,
@@ -19,7 +19,12 @@
  * The pure helpers at the top have no DOM and are unit-tested; `initHbsMap` is the island.
  */
 
-import { FigureController, createAnnouncer } from '../../graphics/figure';
+import {
+  FigureController,
+  createAnnouncer,
+  prefersReducedMotion,
+  type FigureControllerOptions,
+} from '../../graphics/figure';
 import {
   decodeAreas,
   decodeSurveys,
@@ -27,7 +32,22 @@ import {
   type Survey,
 } from '../../graphics/figure-data';
 import { HexField, type HexHit } from '../../graphics/hexfield';
-import { linear, tween, type Tween } from '../../graphics/tween';
+import {
+  DEFAULT_STOP,
+  GENOTYPE_ORDER,
+  RECOLOUR_MS,
+  THRESHOLD_STOPS,
+  areaFill,
+  genotypeArea,
+  genotypeDomain,
+  stopText,
+  type Genotype,
+} from './hbs-genotypes';
+import {
+  MOTION_HOOKS,
+  frozenAt as frozenFromUrl,
+} from '../../graphics/motion-hooks';
+import { easeUi, linear, tween, type Tween } from '../../graphics/tween';
 import {
   lambertAzimuthal,
   spherePoint,
@@ -37,18 +57,6 @@ import {
   type SpherePoint,
 } from '../../graphics/projection';
 
-/** Slider stops in percent (spec §4.2: 1–15%, step 1). */
-export const THRESHOLD_STOPS: readonly number[] = Array.from(
-  { length: 15 },
-  (_, index) => index + 1,
-);
-/**
- * The resting threshold. Spec §4.2 first set 10%, but with the conservative coarsening (an area's
- * range runs from its lowest child q025) no area clears 10% with its whole range, so the solid
- * "confidently above" outline and its legend key showed nothing at rest. At 5% both outlines show
- * real areas: 274 confidently above, 648 possibly (site redesign integration, 2026-10-14).
- */
-export const DEFAULT_THRESHOLD = 5;
 /** The projection centre (spec §4.2: 35°E, 10°N). */
 export const MAP_CENTER: LonLat = [35, 10];
 
@@ -82,62 +90,71 @@ export function thresholdCounts(
 
 const whole = (value: number) => Math.round(value).toLocaleString('en-US');
 
-/**
- * The live count's two clauses (copy deck: "{n} confidently above · {m} possibly above"). Each is
- * set unbroken, so the count wraps only at the " · ".
- */
-export const countParts = ({
-  confident,
-  possible,
-}: ThresholdCounts): [string, string] => [
-  `${whole(confident)} confidently above`,
-  `${whole(possible)} possibly above`,
-];
-
-/** The slider's spoken value (spec §4.2). */
+/** The slider's spoken value (spec §4.2), at a stop in percent of births. */
 export const valueText = (
   stop: number,
   { confident, possible }: ThresholdCounts,
 ) =>
-  `${stop} percent: ${whole(confident)} areas confidently above, ${whole(possible)} possibly above`;
+  `${stopText(stop)} percent: ${whole(confident)} areas confidently above, ${whole(possible)} possibly above`;
 
-/** A share as a number of percent, as the Home hero writes it: whole from 10%, one decimal from 1%,
- * two below. */
+/**
+ * A share as a number of percent, as the Home hero writes it: whole from 10%, one decimal from 1%,
+ * two below. A genotype's share can be tiny (SS) or nearly all (AA): below 0.01% reads "<0.01",
+ * one decimal from 99%, and anything short of 100% that would round to it reads ">99.9", so no
+ * share reads as a false zero or a false 100.
+ */
 export function formatPercent(share: number): string {
   const value = share * 100;
   if (value === 0) return '0';
+  if (value === 100) return '100';
+  if (value < 0.01) return '<0.01';
+  if (value >= 99.95) return '>99.9';
+  if (value >= 99) return value.toFixed(1);
   if (value >= 10) return String(Math.round(value));
   return value.toFixed(value >= 1 ? 1 : 2);
 }
 
 const km = (value: number) => `${whole(value)} km`;
-const counts = (survey: Survey) => `${whole(survey.ac)} of ${whole(survey.an)}`;
+/**
+ * People tested in a survey: AN gene copies are AN/2 people, exactly, because HBB is autosomal
+ * (round 2 R2-16). The pinned surveys all have an even AN (tests/content-projects.test.ts). No
+ * carrier count is derived from AC, which counts copies, not people.
+ */
+const people = (survey: Survey) => whole(survey.an / 2);
 
 /**
- * The readout for what is under the pointer or reticle, word for word as the Home hero's (copy
- * deck): an area's estimate with its 95% range and its distance from surveys, a survey's counts,
- * or "No estimate". A coarsened area carries its children's median distance, so every distance
- * is "about": a minority child can sit nearer a survey.
+ * The readout for what is under the pointer or reticle (copy deck; ruling 36): an area's expected
+ * share of births for the genotype shown, with its 95% range through the same transform, the
+ * modeled HbS frequency it comes from and the distance from surveys; a survey's people tested with
+ * its copies kept as counts, the same for every genotype (surveys hold allele counts, never
+ * genotypes); or "No estimate". `hit.area` is the area as modeled (q). A coarsened area carries its
+ * children's median distance, so every distance is "about": a minority child can sit nearer a
+ * survey.
  */
-export function describeHit(hit: HexHit | null): string | null {
+export function describeHit(
+  hit: HexHit | null,
+  genotype: Genotype,
+): string | null {
   if (!hit) return null;
   if (hit.type === 'surveys') {
     const [first] = hit.surveys;
     if (hit.surveys.length === 1)
-      return `Measured survey · ${counts(first)} alleles carry HbS · Location within ±${km(first.radiusKm)}`;
-    const listed = hit.surveys
-      .slice(0, 3)
-      .map((survey, index) => counts(survey) + (index ? '' : ' alleles'));
+      return `Measured survey · ${people(first)} people tested; ${whole(first.ac)} of their ${whole(first.an)} gene copies carry HbS · Location within ±${km(first.radiusKm)}`;
+    // The nearest three, as one list that says what its numbers count: "553, 2,013 and 1,342
+    // people tested" (design review, round 3); "…" when more share the spot.
+    const listed = hit.surveys.slice(0, 3).map(people);
+    const tested = `${listed.slice(0, -1).join(', ')} and ${listed.at(-1)} people tested`;
     return [
       `${hit.surveys.length} surveys here`,
-      ...listed,
+      tested,
       ...(hit.surveys.length > 3 ? ['…'] : []),
     ].join(' · ');
   }
   const { area } = hit;
   if (area.support === 'unknown' || area.mean === null)
     return `No estimate · — · Nearest survey about ${km(area.distanceKm)}`;
-  const line = `Modeled estimate about ${formatPercent(area.mean)}% · 95% credible range across this area ${formatPercent(area.lo!)}–${formatPercent(area.hi!)}% · Nearest survey about ${km(area.distanceKm)}`;
+  const shown = genotypeArea(area, genotype);
+  const line = `Modeled: ${genotype} in about ${formatPercent(shown.mean!)}% of births · 95% credible range across this area ${formatPercent(shown.lo!)}–${formatPercent(shown.hi!)}% · HbS frequency about ${formatPercent(area.mean)}% · Nearest survey about ${km(area.distanceKm)}`;
   return area.tier === 'weak' || area.tier === 'none'
     ? `${line}. Far from surveys: this range leans on the model’s assumptions.`
     : line;
@@ -299,12 +316,13 @@ export function surveyWindow(
   };
 }
 
-/** Dev captures hold the entrance at `?t=<ms>` (FigureController's freeze hook). */
+/**
+ * Captures hold the entrance at `?t=<ms>[&scene=hbs-threshold]` (FigureController's freeze hook),
+ * in dev and the e2e build only (motion hooks, round 2 spec §3.4); never in the deployed build.
+ */
 function frozenAt(): number | null {
-  if (!import.meta.env.DEV) return null;
-  const value = new URLSearchParams(location.search).get('t');
-  const t = value === null ? NaN : Number(value);
-  return Number.isFinite(t) && t >= 0 ? t : null;
+  if (!MOTION_HOOKS) return null;
+  return frozenFromUrl(location.search, 'hbs-threshold');
 }
 
 async function bytes(url: string): Promise<ArrayBuffer> {
@@ -332,14 +350,22 @@ export function unitBounds(areas: readonly Area[]) {
   return { minX, minY, maxX, maxY };
 }
 
+/** The hairline between areas and the hover outline, as HexField draws them (hexfield.ts). */
+const EDGE = 'rgb(2 7 18 / 85%)';
+const FOCUS = '#70e6ff';
+
 export async function initHbsMap(
   figure: HTMLElement,
   urls: { region: string; surveys: string },
+  options?: FigureControllerOptions,
 ): Promise<void> {
   const stage = figure.querySelector<HTMLElement>('[data-hbs-map]');
   const domain = stage ? readDomain(stage) : null;
   const surfaceCanvas = figure.querySelector<HTMLCanvasElement>(
     '[data-hbs-canvas="surface"]',
+  );
+  const previous = figure.querySelector<HTMLCanvasElement>(
+    '[data-hbs-canvas="previous"]',
   );
   const studCanvas = figure.querySelector<HTMLCanvasElement>(
     '[data-hbs-canvas="studs"]',
@@ -347,12 +373,18 @@ export async function initHbsMap(
   const reticle = figure.querySelector<HTMLElement>('[data-hbs-reticle]');
   const slider = figure.querySelector<HTMLInputElement>('[data-hbs-slider]');
   const threshold = figure.querySelector<HTMLElement>('[data-hbs-threshold]');
+  const genotypeName = figure.querySelector<HTMLElement>(
+    '[data-hbs-genotype-name]',
+  );
+  const mutedKey = figure.querySelector<HTMLElement>('[data-hbs-muted-key]');
   const count = figure.querySelector<HTMLElement>('[data-hbs-count]');
   const readout = figure.querySelector<HTMLElement>('[data-readout]');
+  const cell = figure.querySelector<HTMLElement>('[data-genotype]');
   if (
     !domain ||
     !stage ||
     !surfaceCanvas ||
+    !previous ||
     !studCanvas ||
     !reticle ||
     !slider ||
@@ -372,6 +404,43 @@ export async function initHbsMap(
   // Surveys outside the window would be culled by the canvas anyway; leave them out of the hit
   // test too.
   const surveys = decodeSurveys(surveyBytes).filter(surveyWindow(areas));
+
+  /* ----- the genotype shown: the triad's pressed button is the one state (ruling 36) ----- */
+  let genotype: Genotype = isGenotype(cell?.dataset.genotype)
+    ? cell.dataset.genotype
+    : 'AS';
+  /** Each genotype's slider stop, kept while another is shown. */
+  const stopIndex = Object.fromEntries(
+    GENOTYPE_ORDER.map((key) => [
+      key,
+      THRESHOLD_STOPS[key].indexOf(DEFAULT_STOP[key]),
+    ]),
+  ) as Record<Genotype, number>;
+  stopIndex[genotype] = Number(slider.value);
+  const stopOf = () =>
+    THRESHOLD_STOPS[genotype][stopIndex[genotype]] ?? DEFAULT_STOP[genotype];
+
+  // What the surface shows: one display area per modeled area, whose `mean` is the selected
+  // genotype's share as a position in that genotype's ramp (HexField colours a [0, 1] domain with
+  // the kit's VSUP bins, the same colours areaFill gives for the genotype's own domain). The modeled
+  // areas stay as they are, for the readout.
+  const display: Area[] = areas.map((area) => ({ ...area }));
+  const indexOf = new Map(display.map((area, index) => [area, index]));
+  let shares: Area[] = [];
+  let shareDomain: [number, number] = [0, 1];
+  let t = stopOf() / 100;
+  let paints: { fill: string | null; muted: boolean }[] = [];
+  const showGenotype = () => {
+    shareDomain = genotypeDomain(genotype, domain);
+    shares = areas.map((area) => genotypeArea(area, genotype));
+    const [low, high] = shareDomain;
+    const span = high - low || 1;
+    shares.forEach((share, index) => {
+      display[index].mean =
+        share.mean === null ? null : clamp01((share.mean - low) / span);
+    });
+  };
+  showGenotype();
 
   const projection: LambertAzimuthal = lambertAzimuthal({
     center: MAP_CENTER,
@@ -405,7 +474,6 @@ export async function initHbsMap(
     ];
   };
 
-  let t = Number(slider.value) / 100;
   let contourAlpha = 1;
   const edges = gridEdges(areas);
   let lines = {
@@ -413,22 +481,23 @@ export async function initHbsMap(
     possible: [] as SpherePoint[][],
   };
   const outline = () => {
-    const kinds = areas.map((area) => classifyArea(area, t));
+    const kinds = shares.map((area) => classifyArea(area, t));
     lines = {
-      // Every area whose estimate is above t (dashed), and inside it the confident core (solid).
+      // Every area whose estimate is at or above t (dashed), and inside it the confident core.
       possible: chains(contour(edges, (index) => kinds[index] !== null)),
       confident: chains(
         contour(edges, (index) => kinds[index] === 'confident'),
       ),
     };
+    paints = shares.map((area) => areaFill(area, t, shareDomain));
   };
   outline();
 
   const surface = new HexField(surfaceCanvas, {
-    areas,
+    areas: display,
     surveys: [],
     projection,
-    domain,
+    domain: [0, 1],
     layer: 'modeled',
     fit,
   });
@@ -439,6 +508,47 @@ export async function initHbsMap(
     domain,
     fit,
   });
+
+  /* ----- areas below the threshold: a muted grey of their ramp colour (owner, 2026-10-15) ----- */
+  const rings = areas.map((area) =>
+    area.boundary.map(([lon, lat]) => spherePoint(lon, lat)),
+  );
+  const ringPath = (g: CanvasRenderingContext2D, index: number): boolean => {
+    g.beginPath();
+    for (const [k, point] of rings[index].entries()) {
+      const [x, y, cosc] = projection.projectPoint(point);
+      if (cosc < -0.9) return false;
+      if (k) g.lineTo(x, y);
+      else g.moveTo(x, y);
+    }
+    g.closePath();
+    return true;
+  };
+  const drawMuted = () => {
+    if (contourAlpha <= 0) return;
+    const g = surface.ctx;
+    g.save();
+    g.globalAlpha = contourAlpha;
+    g.lineJoin = 'round';
+    g.strokeStyle = EDGE;
+    g.lineWidth = 0.7;
+    paints.forEach((paint, index) => {
+      if (!paint.muted || !paint.fill || !ringPath(g, index)) return;
+      g.fillStyle = paint.fill;
+      g.fill();
+      g.stroke();
+    });
+    // The hover outline, again over a muted area.
+    const hovered =
+      surface.hover?.type === 'area' ? indexOf.get(surface.hover.area) : null;
+    if (hovered != null && paints[hovered]?.muted && ringPath(g, hovered)) {
+      g.globalAlpha = 1;
+      g.strokeStyle = FOCUS;
+      g.lineWidth = 1.6;
+      g.stroke();
+    }
+    g.restore();
+  };
 
   const drawContours = () => {
     if (contourAlpha <= 0) return;
@@ -466,7 +576,7 @@ export async function initHbsMap(
     };
     // A dark casing keeps the ion line legible on the lightest cells and parts it from the cells'
     // own borders; the lines are as heavy as the legend's keys draw them (design review, round 1).
-    // No fill lift: lightening the selected cells would shift their colour up the frequency ramp.
+    // No fill lift: lightening the selected cells would shift their colour up the ramp.
     g.lineJoin = 'round';
     stroke(lines.possible, OUTLINE.possible.casing, CASING, []);
     stroke(lines.confident, OUTLINE.confident.casing, CASING, []);
@@ -479,14 +589,87 @@ export async function initHbsMap(
     stroke(lines.confident, OUTLINE.confident.width, CONTOUR, []);
     g.restore();
   };
-  const redraw = () => {
+  const paintSurface = () => {
     surface.draw();
+    drawMuted();
     drawContours();
+  };
+  const redraw = () => {
+    paintSurface();
     studs.draw();
   };
+
+  /* ----- the recolour: the old picture fades out over the new one (≤ 300 ms, ruling 36) ----- */
+  let fade: Tween | null = null;
+  let fadeToken = 0;
+  const shownAs = () => `${genotype} ${stopText(stopOf())}`;
+  const settle = () => {
+    previous.style.opacity = '0';
+    previous.width = 0;
+    previous.height = 0;
+    figure.dataset.hbsShown = shownAs();
+  };
+  const stopFade = () => {
+    fadeToken += 1;
+    fade?.cancel();
+    fade = null;
+    settle();
+  };
+  const recolour = (apply: () => void) => {
+    const animate =
+      !prefersReducedMotion() &&
+      controller.state === 'rest' &&
+      surfaceCanvas.width > 0;
+    if (animate) {
+      const g = previous.getContext('2d')!;
+      const showing = Number(previous.style.opacity || '0');
+      if (
+        showing > 0 &&
+        previous.width === surfaceCanvas.width &&
+        previous.height === surfaceCanvas.height
+      ) {
+        // Mid-fade: bake what shows now (the previous picture, part faded, over the surface).
+        g.save();
+        g.globalCompositeOperation = 'destination-in';
+        g.fillStyle = `rgb(0 0 0 / ${showing})`;
+        g.fillRect(0, 0, previous.width, previous.height);
+        g.globalCompositeOperation = 'destination-over';
+        g.drawImage(surfaceCanvas, 0, 0);
+        g.restore();
+      } else {
+        previous.width = surfaceCanvas.width;
+        previous.height = surfaceCanvas.height;
+        g.drawImage(surfaceCanvas, 0, 0);
+      }
+      previous.style.opacity = '1';
+    }
+    apply();
+    paintSurface();
+    if (!animate) {
+      stopFade();
+      return;
+    }
+    fade?.cancel();
+    const token = ++fadeToken;
+    fade = tween(
+      RECOLOUR_MS,
+      (eased) => {
+        if (token === fadeToken) previous.style.opacity = String(1 - eased);
+      },
+      easeUi,
+    );
+    void fade.done.then(() => {
+      if (token !== fadeToken) return;
+      fade = null;
+      settle();
+    });
+  };
+
   new ResizeObserver(() => {
+    stopFade();
     setStudScale();
     surface.resize();
+    drawMuted();
     drawContours();
     studs.resize();
     placeReticle();
@@ -499,13 +682,18 @@ export async function initHbsMap(
   // A pointer moving inside one area or stud cluster changes nothing: skip the redraw and the
   // announcement (a full redraw costs several ms, and a phone runs it four times slower).
   let shown: HexHit | null = null;
-  const show = (hit: HexHit | null) => {
-    if (sameHit(hit, shown)) return;
+  /** The hit as modeled: a display area back to its modeled area. */
+  const modeled = (hit: HexHit | null): HexHit | null =>
+    hit?.type === 'area'
+      ? { ...hit, area: areas[indexOf.get(hit.area) ?? 0] }
+      : hit;
+  const show = (hit: HexHit | null, force = false) => {
+    if (!force && sameHit(hit, shown)) return;
     shown = hit;
     surface.hover = hit?.type === 'area' ? hit : null;
     studs.hover = hit?.type === 'surveys' ? hit : null;
     redraw();
-    announce(describeHit(hit) ?? idle);
+    announce(describeHit(modeled(hit), genotype) ?? idle);
   };
   const hitAt = (x: number, y: number): HexHit | null =>
     studs.hit(x / scale, y / scale) ?? surface.hit(x, y);
@@ -571,22 +759,55 @@ export async function initHbsMap(
     show(null);
   });
 
-  /* ----- threshold slider ----- */
-  const setThreshold = () => {
-    const stop = Number(slider.value);
+  /* ----- the threshold and the genotype's words ----- */
+  const setControls = () => {
+    const stop = stopOf();
     t = stop / 100;
-    const counts = thresholdCounts(areas, t);
-    threshold.textContent = `${stop}%`;
-    countParts(counts).forEach((part, index) => {
-      const clause = count.children[index];
-      if (clause) clause.textContent = part;
-    });
+    const counts = thresholdCounts(shares, t);
+    figure.dataset.hbsGenotype = genotype;
+    slider.value = String(stopIndex[genotype]);
+    threshold.textContent = `${stopText(stop)}%`;
+    if (genotypeName) genotypeName.textContent = genotype;
+    if (mutedKey) mutedKey.textContent = `Below ${stopText(stop)}%`;
+    // Only the numbers change: each sits in a fixed, right-aligned box, so no word moves.
+    const [confident, possible] = count.querySelectorAll('b');
+    if (confident) confident.textContent = whole(counts.confident);
+    if (possible) possible.textContent = whole(counts.possible);
     slider.setAttribute('aria-valuetext', valueText(stop, counts));
+    const alt = stage.dataset[`alt${genotype[0]}${genotype[1].toLowerCase()}`];
+    if (alt) stage.setAttribute('aria-label', alt);
     outline();
-    redraw();
   };
-  slider.addEventListener('input', setThreshold);
-  setThreshold();
+  slider.addEventListener('input', () =>
+    recolour(() => {
+      stopIndex[genotype] = Number(slider.value);
+      setControls();
+    }),
+  );
+  figure.addEventListener('genotype:change', (event) => {
+    const next = (event as CustomEvent<{ genotype: Genotype }>).detail.genotype;
+    if (next === genotype) return;
+    recolour(() => {
+      genotype = next;
+      showGenotype();
+      setControls();
+    });
+    // A readout on screen says the new genotype's numbers (a survey's stay as measured).
+    if (shown) show(shown, true);
+  });
+  setControls();
+  figure.dataset.hbsShown = shownAs();
+
+  // The e2e build's hook for tests: where a place lands on the surface canvas, in CSS px.
+  if (MOTION_HOOKS)
+    (
+      figure as HTMLElement & {
+        __hbsPoint?: (lon: number, lat: number) => [number, number];
+      }
+    ).__hbsPoint = (lon, lat) => {
+      const [x, y] = projection.project(lon, lat);
+      return [x, y];
+    };
 
   /* ----- entrance: structure, studs, then the surface outward from the evidence ----- */
   const reveal = (time: number) => {
@@ -602,6 +823,7 @@ export async function initHbsMap(
       surface: 1,
       hatch: 1,
     };
+    // The threshold arrives last: its outlines and the muted areas together.
     contourAlpha = clamp01((time - 1000) / 200);
     redraw();
   };
@@ -611,24 +833,34 @@ export async function initHbsMap(
   // can start play before the controller has seen the figure come on screen, which would hold the
   // entrance at its first frame.
   let entrance: Tween | null = null;
-  new FigureController(figure, {
-    duration: ENTRANCE,
-    arm: () => reveal(0),
-    start: () => {
-      const frozen = frozenAt();
-      if (frozen !== null) reveal(Math.min(frozen, ENTRANCE));
-      else
-        entrance = tween(
-          ENTRANCE,
-          (_eased, progress) => reveal(progress * ENTRANCE),
-          linear,
-        );
+  const controller = new FigureController(
+    figure,
+    {
+      duration: ENTRANCE,
+      arm: () => reveal(0),
+      start: () => {
+        const frozen = frozenAt();
+        if (frozen !== null) reveal(Math.min(frozen, ENTRANCE));
+        else
+          entrance = tween(
+            ENTRANCE,
+            (_eased, progress) => reveal(progress * ENTRANCE),
+            linear,
+          );
+      },
+      rest: () => {
+        entrance?.cancel();
+        entrance = null;
+        reveal(ENTRANCE);
+      },
     },
-    rest: () => {
-      entrance?.cancel();
-      entrance = null;
-      reveal(ENTRANCE);
-    },
-  });
+    options,
+  );
+  // The data load late (near view): a print that began before they arrived has already sent its
+  // `beforeprint`, so the map shows its final state at once (spec §8, "final states print").
+  if (matchMedia('print').matches) controller.finish();
   figure.toggleAttribute('data-hbs-ready', true);
 }
+
+const isGenotype = (value: string | undefined): value is Genotype =>
+  value === 'AA' || value === 'AS' || value === 'SS';
