@@ -610,6 +610,69 @@ test.describe('the orbit scene @desktop-chromium', () => {
     expect(paints.filter((paint) => paint.moon)).toEqual([]);
   });
 
+  test('carries on across a layout switch, its state and clock intact', async ({
+    page,
+  }) => {
+    await openOrbit(page);
+    const figure = page.locator(FIGURE);
+    await figure.evaluate((element) =>
+      element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+    );
+    await expect(figure).toHaveAttribute('data-scene-state', 'playing');
+    const look = () =>
+      page.evaluate(() => {
+        const element = document.querySelector('[data-graphic="orbit"]')!;
+        const svg = [
+          ...element.querySelectorAll<SVGSVGElement>('.orbit-svg'),
+        ].find((item) => item.getClientRects().length > 0)!;
+        const animations = document.getAnimations().filter((animation) => {
+          const target = (animation.effect as KeyframeEffect | null)?.target;
+          return target instanceof Element && svg.contains(target);
+        });
+        return {
+          layout: svg.dataset.layout,
+          state: element.getAttribute('data-scene-state'),
+          built: animations.length,
+          running: animations.filter(
+            (animation) => animation.playState === 'running',
+          ).length,
+          time: window.__motion!.time('orbit'),
+        };
+      });
+    // A rotated tablet, then a phone (review of T4, finding 6): the scene rebuilds on the layout
+    // now drawn, at the same moment, and its state says what it is doing.
+    let before = await look();
+    for (const [width, height, layout] of [
+      [900, 1000, 'tablet'],
+      [390, 844, 'phone'],
+    ] as const) {
+      await page.waitForTimeout(1500);
+      await page.setViewportSize({ width, height });
+      await expect.poll(async () => (await look()).layout).toBe(layout);
+      await expect
+        .poll(async () => (await look()).built, { timeout: 5000 })
+        .toBeGreaterThan(20);
+      await page.waitForTimeout(500);
+      const after = await look();
+      expect(after.running, layout).toBeGreaterThan(20);
+      expect(after.state, layout).toBe('playing');
+      expect(after.time, layout).toBeGreaterThan(before.time);
+      before = after;
+    }
+    // Paused by the visitor, a switch keeps it paused.
+    await page
+      .getByRole('button', { name: 'Pause the orbit animation' })
+      .click();
+    await expect(figure).toHaveAttribute('data-scene-state', 'paused');
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect.poll(async () => (await look()).layout).toBe('desktop');
+    await expect
+      .poll(async () => (await look()).built, { timeout: 5000 })
+      .toBeGreaterThan(20);
+    await page.waitForTimeout(500);
+    expect(await look()).toMatchObject({ state: 'paused', running: 0 });
+  });
+
   test('takes its own layout on a tablet, labels at 13 px or more', async ({
     page,
   }) => {

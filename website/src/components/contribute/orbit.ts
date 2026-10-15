@@ -1053,7 +1053,7 @@ export function initOrbit(figure: HTMLElement): SceneController {
     });
 
   // The stage changed layout (a rotated tablet, a resized window): rebuild the tracks on the
-  // layout now drawn, at the same moment of the clock, playing or paused as before.
+  // layout now drawn, at the same moment of the clock, then let the controller play or pause.
   let rebuilding = false;
   const relayout = async () => {
     const svg = drawnSvg(figure);
@@ -1066,13 +1066,20 @@ export function initOrbit(figure: HTMLElement): SceneController {
     }
     rebuilding = true;
     const time = tl.time;
-    const playing = tl.playing;
     tl.cancel();
     build(tl);
     await tl.commit();
     tl.seek(time);
-    if (playing) tl.play();
     rebuilding = false;
+    // Hand back to the controller, which plays or pauses by its own rules (on screen, the tab
+    // visible, the visitor's Pause) and sets the state to match: a visibility check that landed
+    // mid-rebuild saw nothing running (review of T4, finding 6). A story not yet started stays
+    // armed for the visitor.
+    if (controller.state !== 'armed' && controller.state !== 'idle') {
+      const toggle = figure.querySelector('[data-scene-toggle]');
+      if (toggle?.getAttribute('aria-pressed') === 'true') controller.pause();
+      else controller.play();
+    }
     void relayout();
   };
   const stage = figure.querySelector('[data-figure-stage]');
