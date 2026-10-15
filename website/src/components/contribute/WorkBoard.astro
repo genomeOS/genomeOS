@@ -1,234 +1,336 @@
 ---
 /**
- * "How work moves" (site redesign spec §4.3 C3, #454): a mechanism plate. A Discussion #76 station
- * beside a project board with the five real statuses, each holding faint ghost cards, and one
- * example issue that sits in exactly one place per step:
+ * "How work moves": GitHub's project board, drawn in its own dark UI (round 2 spec §4.3.4, §0.4,
+ * §8; R2-8; #454). A mechanism plate around a Primer-dark mock: the board's real title and Board
+ * tab, five columns (Discussion · Backlog · In progress · In review · Merge) with their status icons,
+ * counts and short lines, the real cards pinned from the board (src/data/board-snapshot.json, by
+ * scripts/pin-board.mjs), and one plainly labelled example card. Ready folds into Backlog (the picked
+ * card lights up); Merge, the owner's name for the last column, shows the board's Done.
  *
- *   1 Say hello              beside the Discussion bubble, a dashed idea card; the bubble replies
- *   2 Read the record        Backlog; a magnifier sweeps the column; an @author mention
- *   3 Take Ready work        Ready; the Ready header lights
- *   4 Build to the contract  In progress; four checks tick; the two decision labels appear
- *   5 Open a pull request    In review; a pull request docks with "Closes #…"
+ * Under the columns runs one floor where the astronaut story happens. Without a script or under
+ * reduced motion the floor is the storyboard frame, one beat per column (board-layout.ts
+ * `renderStoryboard`, placed by percentages so it fits every width); with motion allowed, board.ts
+ * (imported when the board is a viewport away) measures the columns, draws the live floor in its
+ * place and plays the 36 s story, then 8 s idle loops, with Pause and Replay (WCAG 2.2.2).
  *
- * The steps are a tablist in the top bar and their five panels are the bottom bar. The example card
- * is drawn once per step (all but one hidden, each holding its space), so the board's box never
- * changes as the card moves: a move is a transform, not a layout shift. On a wide stage each card
- * sits in its column; on a narrow one the statuses are compact rows, a small card marker moves
- * between them, and the card itself shows in one dock under the rows. Hidden panels, cards and
- * definition lines keep their space, so nothing below the board shifts either.
- *
- * Without JavaScript the tabs stay hidden, the five panels read as an ordered list, and the board
- * shows step 3. `board.ts` (loaded once by the page, with the transit island) runs the tour
- * (once, ≤ 6 s, rest on step 5) and the tabs.
+ * The example card rests in Merge, merged; a hidden copy of it in Backlog, In progress and In review
+ * reserves its space there, so it moves by transforms and nothing shifts. Counts and pull-request
+ * statuses carry their other values `hidden` until the story needs them. The story is told in words
+ * in a visually hidden list; every picture is aria-hidden. Type is Figtree at GitHub's sizes, never
+ * under 13 px; colours are Primer dark's (canvas #0d1117, panels #161b22, borders #30363d).
  */
-import Plate from '../kit/Plate.astro';
-import Mark from './Mark.astro';
+import snapshot from '../../data/board-snapshot.json';
+import { avatar } from '../../graphics/astro/props';
+import SceneControls from '../kit/SceneControls.astro';
 import {
-  BOARD_COLUMNS,
-  BOARD_STEPS,
-  NO_SCRIPT_STEP,
-  type BoardPlace,
-} from './board-steps';
+  COLUMNS,
+  EXAMPLE,
+  STORY_TEXT,
+  cardMeta,
+  columnOf,
+  formatFetched,
+  labelStyle,
+  renderStoryboard,
+  scopeIds,
+  shownLabels,
+  type ColumnKey,
+  type Snapshot,
+  type SnapshotItem,
+} from './board-layout';
 
-const DISCUSSION = 'https://github.com/genomeOS/genomeOS/discussions/76';
-const ISSUES = 'https://github.com/genomeOS/genomeOS/issues?q=is%3Aissue';
-const BOARD_URL = 'https://github.com/orgs/genomeOS/projects/1';
+const board = snapshot as Snapshot;
 
-const current = BOARD_STEPS[NO_SCRIPT_STEP - 1];
-const placeName = (at: BoardPlace) =>
-  at === 'discussion'
-    ? 'beside Discussion #76, as an idea'
-    : `in ${BOARD_COLUMNS.find((column) => column.key === at)!.label}`;
-/** The stage's name for a step: where the example issue is, and what that column means. */
-const boardLabel = (n: number) => {
-  const step = BOARD_STEPS[n - 1];
-  return `A project board with five statuses: Backlog, Ready, In progress, In review and Blocked. Step ${step.n}, ${step.tab}: the example issue is ${placeName(step.at)}.${step.definition ? ` ${step.definition}` : ''}`;
+// A pinned card the page cannot place is a stale snapshot: fail the build, never drop it.
+const stray = board.items.filter((item) => columnOf(item.status) === null);
+if (stray.length)
+  throw new Error(
+    `board-snapshot.json: no column shows ${stray.map((item) => `#${item.number} (${item.status})`).join(', ')}; refresh it with scripts/pin-board.mjs`,
+  );
+
+const cardsIn = (key: ColumnKey) =>
+  board.items.filter((item) => columnOf(item.status) === key);
+const colourOf = (name: string) =>
+  board.items
+    .flatMap((item) => item.labels)
+    .find((label) => label.name === name)?.color ?? '#8B949E';
+const exampleLabels = EXAMPLE.labels.map((name) => ({
+  name,
+  color: colourOf(name),
+}));
+
+/* Octicon-style marks, drawn for this mock (decorative: the words beside them carry the meaning). */
+const svg = (inner: string, attrs = '') =>
+  `<svg class="gh-i" viewBox="0 0 16 16" aria-hidden="true" focusable="false"${attrs}>${inner}</svg>`;
+const ICON = {
+  issue: svg(
+    '<circle cx="8" cy="8" r="6.2" fill="none" stroke="#3fb950" stroke-width="1.5"/><circle cx="8" cy="8" r="1.4" fill="#3fb950"/>',
+  ),
+  closed: svg(
+    '<circle cx="8" cy="8" r="6.2" fill="none" stroke="#a371f7" stroke-width="1.5"/><path d="M5.3 8.2L7.2 10L10.8 6.2" fill="none" stroke="#a371f7" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
+  ),
+  pr: svg(
+    '<circle cx="4" cy="3.6" r="1.7"/><circle cx="4" cy="12.4" r="1.7"/><circle cx="12" cy="12.4" r="1.7"/><path d="M4 5.3V10.7M12 10.7V6.6Q12 4.3 9.7 4.3H7.4M8.9 2.8L7.4 4.3L8.9 5.8"/>',
+    ' fill="none" stroke="#3fb950" stroke-width="1.4" stroke-linecap="round"',
+  ),
+  merged: svg(
+    '<circle cx="4" cy="3.6" r="1.7"/><circle cx="4" cy="12.4" r="1.7"/><circle cx="12" cy="8" r="1.7"/><path d="M4 5.3V10.7M4 5.3Q4.6 8 10.3 8"/>',
+    ' fill="none" stroke="#a371f7" stroke-width="1.4" stroke-linecap="round"',
+  ),
+  discussion: svg(
+    '<path d="M1.8 2.5H10.2V8.5H5.5L3 10.6V8.5H1.8Z"/><path d="M12.2 5.5H14.2V11.5H13V13.4L10.6 11.5H6.8V10.5"/>',
+    ' fill="none" stroke="#58a6ff" stroke-width="1.4" stroke-linejoin="round"',
+  ),
+  kebab: svg(
+    '<circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/>',
+    ' fill="#7d8590"',
+  ),
+  project: svg(
+    '<rect x="1.5" y="2" width="13" height="12" rx="1.5" fill="none" stroke="#7d8590" stroke-width="1.3"/><path d="M5.5 2V14M10.5 2V14" stroke="#7d8590" stroke-width="1.3"/>',
+  ),
 };
-const cardStep = (at: BoardPlace) => BOARD_STEPS.find((step) => step.at === at);
+const status = (colour: string, kind: 'dash' | 'half' | 'dot' | 'full') =>
+  svg(
+    `<circle cx="8" cy="8" r="6" fill="none" stroke="${colour}" stroke-width="1.6"${kind === 'dash' ? ' stroke-dasharray="2.4 2"' : ''}/>` +
+      (kind === 'half'
+        ? `<path d="M8 2A6 6 0 0 1 8 14Z" fill="${colour}"/>`
+        : kind === 'dot'
+          ? `<circle cx="8" cy="8" r="2.6" fill="${colour}"/>`
+          : kind === 'full'
+            ? `<circle cx="8" cy="8" r="3.6" fill="${colour}"/>`
+            : ''),
+  );
+const COLUMN_ICON: Record<ColumnKey, string> = {
+  discussion: ICON.discussion,
+  backlog: status('#7d8590', 'dash'),
+  progress: status('#d29922', 'half'),
+  review: status('#3fb950', 'dot'),
+  merge: status('#a371f7', 'full'),
+};
+const cardIcon = (item: SnapshotItem) =>
+  item.kind === 'discussion'
+    ? ICON.discussion
+    : item.state === 'closed'
+      ? ICON.closed
+      : ICON.issue;
+/** A helmet avatar in a GitHub circle; ids are unique per copy (the page holds four cards). */
+const face = (cast: 'A3' | 'E1' | 'E2', copy: string) =>
+  `<svg class="gh-av" viewBox="-11 -11 22 22" aria-hidden="true" focusable="false">${scopeIds(avatar(cast, 10, '#30363d', { id: `av-${copy}-${cast}` }))}</svg>`;
+
+const fetched = formatFetched(board.fetched);
+const storyboard = renderStoryboard();
+/** Where the example card sits at rest: Merge. Columns with a slot hold a copy of it. */
+const SLOTS: ColumnKey[] = ['backlog', 'progress', 'review', 'merge'];
+const REST: ColumnKey = 'merge';
 ---
 
-<Plate
-  graphic="work-board"
-  class="wb-plate"
-  label={boardLabel(NO_SCRIPT_STEP)}
-  data-wb-labels={JSON.stringify(BOARD_STEPS.map((step) => boardLabel(step.n)))}
+<figure
+  class="kit-plate wb"
+  data-graphic="work-board"
+  data-kind="mechanism"
+  data-motion-exception="board"
 >
+  <div class="kit-plate__bar kit-plate__bar--top wb-head" data-figure-chrome>
+    <p class="wb-head__title">
+      <Fragment set:html={ICON.project} />
+      <span>{board.project.title}</span>
+    </p>
+    <SceneControls object="the board animation" replay />
+  </div>
+
   <div
-    slot="top"
-    class="wb-tabs"
-    role="tablist"
-    aria-label="How work moves, step by step"
+    class="gh"
+    data-figure-stage
+    role="group"
+    aria-labelledby="how-work-moves-title"
+    aria-describedby="wb-caption"
+  >
+    <ol class="visually-hidden wb-story">
+      {STORY_TEXT.map(([, text]) => <li>{text}</li>)}
+    </ol>
+    <div class="gh-tabs">
+      <span class="gh-tab">Board</span>
+    </div>
+    {
+      /* Below 64rem the columns scroll sideways by hand until the scene drives them, so the
+        track is a region a keyboard can focus and scroll (WCAG 2.1.1). HowWorkMoves.astro's
+        script drops these attributes wherever the track does not scroll. */
+    }
+    <div
+      class="gh-scroll"
+      tabindex="0"
+      role="region"
+      aria-label="Board, scrolls sideways"
+    >
+      <div class="gh-pan">
+        <div class="gh-track">
+          <div class="gh-cols">
+            {
+              COLUMNS.map((column) => {
+                const cards = cardsIn(column.key);
+                const here = column.key === REST ? 1 : 0;
+                return (
+                  <div class="gh-col" data-col={column.key}>
+                    <div class="gh-col__head">
+                      <Fragment set:html={COLUMN_ICON[column.key]} />
+                      <span class="gh-col__name">{column.name}</span>
+                      {/* Decoration for assistive tech, which reads the cards and the
+                          story's text twin: while the story plays both numbers sit in
+                          the pill, one of them transparent. */}
+                      <span class="gh-count" aria-hidden="true">
+                        <span class="c-out" hidden={here === 1}>
+                          {cards.length}
+                        </span>
+                        <span class="c-in" hidden={here === 0}>
+                          {cards.length + 1}
+                        </span>
+                      </span>
+                      <span class="gh-col__kebab" set:html={ICON.kebab} />
+                    </div>
+                    <p class="gh-col__line">{column.line}</p>
+                    <div class="gh-cards">
+                      {cards.map((item) => {
+                        const meta = cardMeta(item);
+                        return (
+                          <article class="gh-card">
+                            <p class="gh-card__meta">
+                              <Fragment set:html={cardIcon(item)} />
+                              <span>
+                                {meta.repo && (
+                                  <>
+                                    <span class="brand-name">
+                                      {meta.repo}
+                                    </span>{' '}
+                                  </>
+                                )}
+                                {meta.text}
+                              </span>
+                            </p>
+                            <p class="gh-card__title">{item.title}</p>
+                            {shownLabels(item).length > 0 && (
+                              <p class="gh-card__labels">
+                                {shownLabels(item).map((label) => (
+                                  <span
+                                    class="gh-label"
+                                    style={labelStyle(label.color)}
+                                  >
+                                    {label.name}
+                                  </span>
+                                ))}
+                              </p>
+                            )}
+                            {column.key === 'backlog' && (
+                              <span
+                                class="gh-hover"
+                                data-hover="real"
+                                aria-hidden="true"
+                              />
+                            )}
+                          </article>
+                        );
+                      })}
+                      {SLOTS.includes(column.key) && (
+                        <article
+                          class:list={[
+                            'gh-card',
+                            'gh-card--example',
+                            column.key === REST && 'ex-lit',
+                          ]}
+                          data-example={column.key === REST ? 'home' : 'slot'}
+                          aria-hidden="true"
+                        >
+                          <p class="gh-card__meta">
+                            <span class="ex-icon">
+                              <Fragment set:html={ICON.issue} />
+                              <span class="ex-merged" set:html={ICON.closed} />
+                            </span>
+                            <span>{EXAMPLE.meta}</span>
+                            <span
+                              class="ex-av"
+                              set:html={face('A3', column.key)}
+                            />
+                          </p>
+                          <p class="gh-card__title">{EXAMPLE.title}</p>
+                          <p class="gh-card__labels">
+                            {exampleLabels.map((label) => (
+                              <span
+                                class="gh-label"
+                                style={labelStyle(label.color)}
+                              >
+                                {label.name}
+                              </span>
+                            ))}
+                          </p>
+                          <div class="ex-pr">
+                            <span class="ex-pr-icon">
+                              <Fragment set:html={ICON.pr} />
+                              <span
+                                class="ex-pr-merged"
+                                set:html={ICON.merged}
+                              />
+                            </span>
+                            <span class="ex-st">
+                              <span class="st st-req" hidden>
+                                <i />
+                                Review requested
+                              </span>
+                              <span class="st st-ok" hidden>
+                                <i />
+                                Approved
+                              </span>
+                              <span class="st st-merged">
+                                <i />
+                                Merged
+                              </span>
+                            </span>
+                            <span
+                              class="ex-rev"
+                              set:html={
+                                face('E1', column.key) + face('E2', column.key)
+                              }
+                            />
+                          </div>
+                          {column.key === REST && (
+                            <span class="gh-hover" data-hover="example" />
+                          )}
+                        </article>
+                      )}
+                    </div>
+                    <div class="gh-stage" />
+                  </div>
+                );
+              })
+            }
+          </div>
+          <div class="gh-floor" set:html={storyboard} />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div
+    class="wb-colnav"
+    role="group"
+    aria-label="Board columns"
+    data-figure-chrome
     hidden
   >
     {
-      BOARD_STEPS.map((step) => (
+      COLUMNS.map((column) => (
         <button
           type="button"
-          role="tab"
-          id={`wb-tab-${step.n}`}
-          aria-controls={`wb-panel-${step.n}`}
-          aria-selected={step.n === NO_SCRIPT_STEP ? 'true' : 'false'}
-          tabindex={step.n === NO_SCRIPT_STEP ? 0 : -1}
+          data-col-button={column.key}
+          aria-pressed={column.key === REST ? 'true' : 'false'}
         >
-          <span class="wb-tab__n">{step.n}</span>{' '}
-          <span class="wb-tab__label">{step.tab}</span>
+          {column.name}
         </button>
       ))
     }
   </div>
 
-  <div class="wb" data-step={NO_SCRIPT_STEP}>
-    <div
-      class:list={[
-        'wb-place',
-        'wb-station',
-        current.at === 'discussion' && 'is-here',
-      ]}
-      data-place="discussion"
-    >
-      <p class="wb-place__head wb-station__head">
-        <span class="wb-station__bubble">
-          <Mark icon="speech" size={20} />
-          <span class="wb-station__reply" aria-hidden="true"
-            ><i></i><i></i><i></i></span
-          >
-        </span>
-        <span>Discussion #76</span>
-      </p>
-      <span class="wb-marker wb-marker--idea" aria-hidden="true"
-        ><Mark glyph="issue-card" size={16} /></span
-      >
-    </div>
-    {
-      BOARD_COLUMNS.map((column) => (
-        <div
-          class:list={[
-            'wb-place',
-            'wb-col',
-            current.at === column.key && 'is-here',
-          ]}
-          data-place={column.key}
-        >
-          <p class="wb-place__head wb-col__head">{column.label}</p>
-          <div class="wb-ghosts" aria-hidden="true">
-            {Array.from({ length: column.ghosts }, () => (
-              <span class="wb-ghost">
-                <i />
-                <i />
-              </span>
-            ))}
-            {column.key === 'backlog' && (
-              <span class="wb-lens">
-                <Mark icon="magnifier" size={22} />
-              </span>
-            )}
-          </div>
-          {cardStep(column.key) && (
-            <span class="wb-marker" aria-hidden="true">
-              <Mark glyph="issue-card" size={16} />
-            </span>
-          )}
-        </div>
-      ))
-    }
-    {
-      BOARD_STEPS.map((step) => (
-        <div
-          class:list={['wb-card', step.n === 1 && 'wb-card--idea']}
-          data-at={step.at}
-          hidden={step.n !== NO_SCRIPT_STEP}
-        >
-          <p class="wb-card__title">
-            <Mark glyph="issue-card" size={16} /> Example issue
-          </p>
-          <p class="wb-card__labels">
-            <span>skill</span> <span>type</span> <span>priority</span>
-          </p>
-          {step.n === 2 && (
-            <p class="wb-card__mention">
-              <span>@author</span>
-            </p>
-          )}
-          {step.n === 4 && (
-            <>
-              <ul class="wb-card__checks">
-                <li>Objective</li>
-                <li>Evidence</li>
-                <li>Assumptions</li>
-                <li>Refusal conditions</li>
-              </ul>
-              <p class="wb-card__flags">
-                <span>wants-expert-review</span>{' '}
-                <span class="wb-card__flag--decision">
-                  needs-human-decision
-                </span>
-              </p>
-            </>
-          )}
-          {step.n === 5 && (
-            <p class="wb-card__pr">
-              <Mark glyph="pr" size={16} /> Closes #…
-            </p>
-          )}
-        </div>
-      ))
-    }
-    <p class="wb-def">
-      {
-        BOARD_STEPS.filter((step) => step.definition).map((step) => {
-          const [name, ...rest] = step.definition!.split(': ');
-          return (
-            <span data-definition={step.at} hidden={step.n !== NO_SCRIPT_STEP}>
-              <strong>{name}:</strong> {rest.join(': ')}
-            </span>
-          );
-        })
-      }
-    </p>
-  </div>
-
-  <ol slot="caption" class="wb-panels">
-    <li>
-      <div class="wb-panel" id="wb-panel-1">
-        Introduce yourself in <a
-          href={DISCUSSION}
-          target="_blank"
-          rel="noopener noreferrer">Discussion #76</a
-        >. Share what you know; no finished proposal needed.
-      </div>
-    </li>
-    <li>
-      <div class="wb-panel" id="wb-panel-2">
-        Search <a href={ISSUES} target="_blank" rel="noopener noreferrer"
-          >open and closed issues</a
-        > first. When you post an update, mention the original issue author.
-      </div>
-    </li>
-    <li>
-      <div class="wb-panel" id="wb-panel-3">
-        Filter <a href={BOARD_URL} target="_blank" rel="noopener noreferrer"
-          >Ready</a
-        > work by skill, type and priority labels.
-      </div>
-    </li>
-    <li>
-      <div class="wb-panel" id="wb-panel-4">
-        State the objective, evidence, assumptions and refusal conditions. <span
-          class="wb-term"
-          ><span class="wb-label">wants-expert-review</span><span
-            class="visually-hidden">:</span
-          ></span
-        > build it, then say what an expert should check. <span class="wb-term"
-          ><span class="wb-label wb-label--decision">needs-human-decision</span
-          ><span class="visually-hidden">:</span></span
-        > stop at the choice and lay out the options.
-      </div>
-    </li>
-    <li>
-      <div class="wb-panel" id="wb-panel-5">
-        Open a pull request that closes the issue and reports every check you
-        ran.
-      </div>
-    </li>
-  </ol>
-</Plate>
+  <figcaption
+    class="kit-plate__bar kit-plate__bar--bottom wb-caption"
+    id="wb-caption"
+  >
+    Real cards, {fetched}. The moving card is an example.
+  </figcaption>
+</figure>

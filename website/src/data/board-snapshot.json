@@ -1,0 +1,121 @@
+{
+  "project": {
+    "title": "Genome OS Atlas",
+    "number": 1
+  },
+  "fetched": "2026-10-14",
+  "items": [
+    {
+      "kind": "discussion",
+      "number": 76,
+      "title": "Introductions 🤝",
+      "state": "open",
+      "labels": [],
+      "status": "Discussion"
+    },
+    {
+      "kind": "issue",
+      "number": 63,
+      "title": "URL-encodable view state",
+      "state": "open",
+      "labels": [
+        {
+          "name": "type:ui",
+          "color": "#D93F0B"
+        },
+        {
+          "name": "P5:map-ui",
+          "color": "#D4C5F9"
+        },
+        {
+          "name": "skill:frontend",
+          "color": "#FEF2C0"
+        },
+        {
+          "name": "priority:high",
+          "color": "#D93F0B"
+        }
+      ],
+      "status": "Backlog"
+    },
+    {
+      "kind": "issue",
+      "number": 45,
+      "title": "GOLDEN TEST 1 — HbS parity",
+      "state": "open",
+      "labels": [
+        {
+          "name": "type:science",
+          "color": "#0E8A16"
+        },
+        {
+          "name": "P3:burden",
+          "color": "#BFD4F2"
+        },
+        {
+          "name": "skill:spatial-stats",
+          "color": "#FEF2C0"
+        },
+        {
+          "name": "priority:critical",
+          "color": "#B60205"
+        }
+      ],
+      "status": "In progress"
+    },
+    {
+      "kind": "issue",
+      "number": 32,
+      "title": "Define and freeze the curated variant set",
+      "state": "open",
+      "labels": [
+        {
+          "name": "type:data",
+          "color": "#1D76DB"
+        },
+        {
+          "name": "P1:observations",
+          "color": "#C5DEF5"
+        },
+        {
+          "name": "skill:clinical-genetics",
+          "color": "#FEF2C0"
+        },
+        {
+          "name": "priority:critical",
+          "color": "#B60205"
+        },
+        {
+          "name": "wants-expert-review",
+          "color": "#BFDADC"
+        }
+      ],
+      "status": "In review"
+    },
+    {
+      "kind": "issue",
+      "number": 18,
+      "title": "AFND adapter (1,324 populations)",
+      "state": "closed",
+      "labels": [
+        {
+          "name": "type:data",
+          "color": "#1D76DB"
+        },
+        {
+          "name": "P0:registry",
+          "color": "#C5DEF5"
+        },
+        {
+          "name": "skill:popgen",
+          "color": "#FEF2C0"
+        },
+        {
+          "name": "priority:high",
+          "color": "#D93F0B"
+        }
+      ],
+      "status": "Done"
+    }
+  ]
+}
