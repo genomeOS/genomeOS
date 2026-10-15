@@ -412,8 +412,9 @@
     width: max-content;
   }
 
+  /* 300 px columns; on the narrowest phones a column and its pad fit the window. */
   .gh-cols {
-    grid-template-columns: repeat(5, 300px);
+    grid-template-columns: repeat(5, min(300px, 100cqw - 24px));
   }
 
   .gh-floor {

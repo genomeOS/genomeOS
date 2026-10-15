@@ -578,6 +578,57 @@ test.describe('the phone camera @mobile-chromium', () => {
   });
 });
 
+test.describe('the phone track at 320 px @mobile-chromium', () => {
+  test.use({ viewport: { width: 320, height: 740 } });
+
+  /** How far the column sits inside the board's window, at its tighter side (px). */
+  const margin = (page: Page, key: string) =>
+    page.locator(BOARD).evaluate((figure, column) => {
+      const view = figure.querySelector('.gh-scroll')!.getBoundingClientRect();
+      const box = figure
+        .querySelector(`[data-col="${column}"]`)!
+        .getBoundingClientRect();
+      return Math.round(Math.min(box.left - view.left, view.right - box.right));
+    }, key);
+
+  test('the camera shows its whole column, borders and all, with its cast inside', async ({
+    page,
+  }) => {
+    await openBoard(page);
+    for (const [t, key, cast] of [
+      [2750, 'discussion', ['A2', 'A3', 'A5']],
+      [21880, 'review', ['A3', 'E2', 'E1']],
+      [36000, 'merge', ['A3', 'E2', 'E1']],
+    ] as const) {
+      await seek(page, t);
+      await expect.poll(() => margin(page, key)).toBeGreaterThanOrEqual(0);
+      const { faces } = await crowding(page);
+      for (const id of cast)
+        expect(
+          faces.find((face) => face.id === id)!.inside,
+          `${id} at ${t} ms`,
+        ).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  test('under reduced motion each column scrolls fully into the window', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/contribute/');
+    const board = page.locator(BOARD);
+    await board.evaluate((figure) =>
+      figure.scrollIntoView({ block: 'center', behavior: 'instant' }),
+    );
+    await expect.poll(() => margin(page, 'merge')).toBeGreaterThanOrEqual(0);
+    await board
+      .locator('.wb-colnav')
+      .getByRole('button', { name: 'In review' })
+      .click();
+    await expect.poll(() => margin(page, 'review')).toBeGreaterThanOrEqual(0);
+  });
+});
+
 test.describe('reduced motion', () => {
   test.beforeEach(async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
