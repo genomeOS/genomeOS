@@ -13,9 +13,16 @@
  * - Reduced motion: no animation at all, every word in full, the story's last frame; phones add
  *   a close-up of each moon above its text.
  * - Phones: the camera closes in on each landing. Tablets: their own layout.
+ * - All the way round the endless idle orbit (review of T4, finding 1), on the drawn art: a moon
+ *   label that shows is never covered by the globe, another moon, its crew or props, or another
+ *   label; and every crew and prop stays inside the footprint the label model reckons with.
  */
 import { expect, test, type Page } from '@playwright/test';
 
+import {
+  FOOTPRINT,
+  type Box,
+} from '../src/components/contribute/orbit-footprint';
 import { typeFrames } from '../src/graphics/typing';
 import { useSiteFixtures } from './helpers/marketing';
 
@@ -23,6 +30,8 @@ useSiteFixtures();
 
 const FIGURE = '[data-graphic="orbit"]';
 const KINDS = ['data', 'model', 'ui'] as const;
+/** orbit-layouts.ts T: the story, and one revolution of the idle orbit, ms. */
+const T = { story: 32000, orbit: 240000 } as const;
 const COLUMNS = ['group-data', 'group-modeling', 'group-ui'] as const;
 /** --color-faint, --color-starlight and --color-ion, as painted (snapshot's `rgb`). */
 const FAINT = 'rgb(127, 147, 174)';
@@ -120,6 +129,133 @@ function snapshot() {
     labels: opacity(svg.querySelector('.orb-labels')),
     columns,
   };
+}
+
+/**
+ * Seek through the scene and say what is wrong at each moment, in the drawn layout: a showing label
+ * covered by anything, or (once the story is over) a figure or prop outside its moon's footprint
+ * (orbit-layouts.ts FOOTPRINT). One evaluate for the whole sweep, so it stays quick.
+ */
+async function sweep({
+  footprint,
+  story,
+  until,
+  step,
+}: {
+  footprint: Record<string, Record<string, Box[]>>;
+  story: number;
+  until: number;
+  step: number;
+}) {
+  const found: string[] = [];
+  for (let t = 0; t <= until; t += step) {
+    await window.__motion!.seek('orbit', t);
+    found.push(
+      ...collisions(t >= story).map((failure) => `${t} ms: ${failure}`),
+    );
+  }
+  return found;
+
+  function collisions(checkFootprint: boolean) {
+    const figure = document.querySelector<HTMLElement>(
+      '[data-graphic="orbit"]',
+    )!;
+    const svg = [...figure.querySelectorAll<SVGSVGElement>('.orbit-svg')].find(
+      (item) => item.getClientRects().length > 0,
+    )!;
+    const opacity = (element: Element) => {
+      let value = 1;
+      for (
+        let node: Element | null = element;
+        node && node !== svg;
+        node = node.parentElement
+      )
+        value *= Number(getComputedStyle(node).opacity);
+      return value;
+    };
+    const seen = (element: Element) =>
+      opacity(element) > 0.05 && element.getBoundingClientRect().width > 0.5;
+    type Rect = { left: number; top: number; right: number; bottom: number };
+    const overlap = (a: Rect, b: Rect) =>
+      Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5 &&
+      Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5;
+    const disc = (element: Element, share = 1) => {
+      const box = element.getBoundingClientRect();
+      return {
+        x: box.left + box.width / 2,
+        y: box.top + box.height / 2,
+        r: (box.width / 2) * share,
+      };
+    };
+    const onDisc = (
+      box: Rect,
+      { x, y, r }: { x: number; y: number; r: number },
+    ) =>
+      Math.hypot(
+        Math.max(box.left, Math.min(x, box.right)) - x,
+        Math.max(box.top, Math.min(y, box.bottom)) - y,
+      ) <
+      r - 0.5;
+    const kinds = ['data', 'model', 'ui'];
+    const moon = (kind: string) =>
+      svg.querySelector(`.orbiter--moon[data-moon="${kind}"]`)!;
+    /** A moon's figures and props, in FOOTPRINT's order. */
+    const parts = (kind: string) => [
+      ...[...moon(kind).querySelectorAll('.crew')].map((crew) =>
+        crew.querySelector('.astro')!,
+      ),
+      ...moon(kind).querySelectorAll('.setup, .say, .fly-block'),
+    ];
+    const label = (kind: string) =>
+      svg.querySelector(`.orbiter--label[data-moon="${kind}"] .moon-label`)!;
+    const failures: string[] = [];
+    const globe = disc(svg.querySelector('.globe-in image')!, 0.91);
+    const shown = kinds.filter((kind) => seen(label(kind)));
+    for (const kind of shown) {
+      const box = label(kind).getBoundingClientRect();
+      if (onDisc(box, globe)) failures.push(`${kind} label under the globe`);
+      for (const other of kinds) {
+        if (other === kind) continue;
+        const body = moon(other).querySelector(
+          '.moon > circle:nth-of-type(2)',
+        )!;
+        if (body.getBoundingClientRect().width > 2 && onDisc(box, disc(body)))
+          failures.push(`${kind} label under the ${other} moon`);
+        for (const part of parts(other))
+          if (seen(part) && overlap(box, part.getBoundingClientRect()))
+            failures.push(`${kind} label under the ${other} crew`);
+        if (
+          shown.includes(other) &&
+          overlap(box, label(other).getBoundingClientRect())
+        )
+          failures.push(`${kind} label over the ${other} label`);
+      }
+    }
+    if (checkFootprint)
+      for (const kind of kinds) {
+        const inverse = moon(kind)
+          .querySelector<SVGGElement>('.moon-pop')!
+          .getScreenCTM()!
+          .inverse();
+        parts(kind).forEach((part, index) => {
+          if (!seen(part)) return;
+          const box = part.getBoundingClientRect();
+          const corners = [
+            [box.left, box.top],
+            [box.right, box.bottom],
+          ].map(([x, y]) => new DOMPoint(x, y).matrixTransform(inverse));
+          const [x0, y0, x1, y1] = footprint[svg.dataset.layout!][kind][index];
+          if (
+            corners[0].x < x0 - 1.5 ||
+            corners[0].y < y0 - 1.5 ||
+            corners[1].x > x1 + 1.5 ||
+            corners[1].y > y1 + 1.5
+          )
+            failures.push(`${kind} part ${index} outside its footprint`);
+        });
+      }
+    return failures;
+  }
 }
 
 type Shot = ReturnType<typeof snapshot>;
@@ -451,6 +587,30 @@ test.describe('the orbit scene @desktop-chromium', () => {
     for (const size of sizes) expect(size).toBeGreaterThanOrEqual(13);
   });
 });
+
+for (const { width, height, layout } of [
+  { width: 1440, height: 900, layout: 'desktop' },
+  { width: 900, height: 1000, layout: 'tablet' },
+])
+  test.describe(`the orbit all the way round at ${width} px @desktop-chromium`, () => {
+    test.use({ viewport: { width, height } });
+
+    test('keeps every label that shows clear, and every crew inside its footprint', async ({
+      page,
+    }) => {
+      await openOrbit(page);
+      expect(await page.evaluate(snapshot)).toMatchObject({ layout });
+      // From the story's start to the end of a full revolution of the idle loops, every second.
+      expect(
+        await page.evaluate(sweep, {
+          footprint: FOOTPRINT,
+          story: T.story,
+          until: T.story + T.orbit,
+          step: 1000,
+        }),
+      ).toEqual([]);
+    });
+  });
 
 test.describe('the orbit scene under reduced motion', () => {
   test.beforeEach(async ({ page }) => {

@@ -51,6 +51,7 @@ import {
   surf,
   theta,
   toMoon,
+  type LabelTrack,
   type LayoutId,
   type OrbitLayout,
 } from './orbit-layouts';
@@ -101,6 +102,18 @@ function animate(svg: SVGSVGElement, tl: Timeline, L: OrbitLayout): void {
     // A label keeps one size at every depth (orbit-layouts.ts renderOrbit).
     tl.ambient(g.querySelector('.orb-label-k'), counter, T.orbit);
   });
+
+  // Each label hides while the globe, another moon or its crew would cover it, and fades back
+  // once clear (orbit-layouts.ts labelTrack; the server wrote the keys, the client plays them).
+  svg
+    .querySelectorAll<SVGGElement>('.orb-label-vis[data-track]')
+    .forEach((el) => {
+      const track = JSON.parse(el.dataset.track!) as Partial<LabelTrack>;
+      const keys = (frames: [number, number][]) =>
+        frames.map(([t, opacity]): Frame => [t, { opacity }]);
+      if (track.story) tl.story(el, keys(track.story));
+      if (track.loop) tl.loop(el, keys(track.loop), T.orbit);
+    });
 
   // The globe, its halo and the dotted orbit.
   tl.story(S('.globe-in'), [

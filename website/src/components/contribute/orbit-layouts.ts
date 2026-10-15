@@ -36,6 +36,7 @@ import {
 } from '../../graphics/astro/props';
 import { resolveKey } from '../../graphics/astro/tracks';
 import { mulberry32, SEED } from '../../graphics/rng';
+import { FOOTPRINT, type Box } from './orbit-footprint';
 
 export { SEED };
 
@@ -167,15 +168,24 @@ export const layoutFor = (stageWidth: number): OrbitLayout =>
 
 /**
  * The orbit angle at t = 0, degrees (90 = in front of the globe, 270 = behind it). The orbit turns
- * counterclockwise on screen (front moons drift right). The moons share one angular speed, so
- * their spacing is free: at the story's end (also the reduced-motion frame) they sit at 170, 250
- * and 25 degrees, left to right in column order, every crew and label clear of the globe.
+ * counterclockwise on screen (front moons drift right). The moons share one angular speed and sit
+ * about 120° apart (112°, 118° and 130°), as far apart as three moons can be, so on the endless idle
+ * orbit no crew ever stands on another moon (review of T4, finding 1). At the story's end (also the
+ * reduced-motion frame) they sit at 156, 268 and 26 degrees: Data lower left, Modeling at the top
+ * above the globe, UI lower right, each moon over its own column of text, every label clear.
  */
 export const THETA0: Record<MoonKind, number> = {
-  data: 218,
-  model: 298,
-  ui: 73,
+  data: 204,
+  model: 316,
+  ui: 74,
 };
+
+/**
+ * The order the moons are drawn in. Where a crew passes in front of a farther moon (only ever at
+ * the moons' closest, one in front of the globe and one behind it), the nearer moon must be drawn
+ * last; at this spacing that holds for every meeting in this order (transit-model.test.ts).
+ */
+export const MOON_ORDER: readonly MoonKind[] = ['data', 'ui', 'model'];
 
 export const theta = (kind: MoonKind, t: number): number =>
   THETA0[kind] - (360 * t) / T.orbit;
@@ -269,6 +279,225 @@ export function surf(r: number, deg: number, h = 0): [number, number] {
   const a = (deg * Math.PI) / 180;
   return [(r + h) * Math.sin(a), -(r + h) * Math.cos(a)];
 }
+
+/* ------------------------------------------------------------------- what covers a label */
+
+export { FOOTPRINT, type Box } from './orbit-footprint';
+
+/**
+ * Each moon label's width in em (Figtree 600, measured with getBBox), and its box about the
+ * baseline in em: the halo stroke adds 2.5 units all round.
+ */
+export const LABEL_EM: Record<'long' | 'short', Record<MoonKind, number>> = {
+  long: { data: 9.6, model: 11.2, ui: 7.85 },
+  short: { data: 2.15, model: 4.25, ui: 1 },
+};
+const LABEL_TOP = -0.96;
+const LABEL_BOTTOM = 0.29;
+const LABEL_HALO = 2.5;
+
+/**
+ * The globe's art fills this share of its radius (the favicon's globe, clipped at 99.03 of its
+ * 109.23 dark backing): labels ride over the backing's rim, never over the globe itself.
+ */
+const GLOBE_ART = 0.91;
+
+/** A moon's disc at time t: centre and radius, layout units. */
+export function discAt(
+  L: OrbitLayout,
+  kind: MoonKind,
+  t: number,
+): [number, number, number] {
+  const [x, y, d] = moonCenter(L, kind, t);
+  return [x, y, L.r[kind] * d];
+}
+
+/** A moon label's box at time t (it rides under its moon at one size; renderOrbit). */
+export function labelBox(L: OrbitLayout, kind: MoonKind, t: number): Box {
+  const [x, y, d] = moonCenter(L, kind, t);
+  const base = y + (L.r[kind] + L.label + 14) * d;
+  const half = (LABEL_EM[L.short ? 'short' : 'long'][kind] * L.label) / 2;
+  return [
+    x - half - LABEL_HALO,
+    base + LABEL_TOP * L.label - LABEL_HALO,
+    x + half + LABEL_HALO,
+    base + LABEL_BOTTOM * L.label + LABEL_HALO,
+  ];
+}
+
+/** A moon's crew and props at time t, layout units: none until its pod touches down. */
+export function partsAt(L: OrbitLayout, kind: MoonKind, t: number): Box[] {
+  if (t < T.ship[kind] + TOUCHDOWN_MS) return [];
+  const [x, y, d] = moonCenter(L, kind, t);
+  return FOOTPRINT[L.id][kind].map(([x0, y0, x1, y1]): Box => [
+    x + x0 * d,
+    y + y0 * d,
+    x + x1 * d,
+    y + y1 * d,
+  ]);
+}
+
+const grow = ([x0, y0, x1, y1]: Box, m: number): Box => [
+  x0 - m,
+  y0 - m,
+  x1 + m,
+  y1 + m,
+];
+const overlaps = (a: Box, b: Box) =>
+  a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+const overlapsDisc = (box: Box, [x, y, r]: [number, number, number]) =>
+  Math.hypot(
+    Math.max(box[0], Math.min(x, box[2])) - x,
+    Math.max(box[1], Math.min(y, box[3])) - y,
+  ) < r;
+
+/**
+ * What covers a moon label at time t, if anything: the globe's art, or another moon, its crew or
+ * its props (labels are drawn over the globe and under the moons). `margin` units of clearance.
+ */
+export function labelCover(
+  L: OrbitLayout,
+  kind: MoonKind,
+  t: number,
+  margin = 0,
+): MoonKind | 'globe' | null {
+  const box = grow(labelBox(L, kind, t), margin);
+  if (overlapsDisc(box, [L.cx, L.cy, L.globe * GLOBE_ART])) return 'globe';
+  for (const other of KINDS) {
+    if (other === kind || t < T.moon[other]) continue;
+    if (overlapsDisc(box, discAt(L, other, t))) return other;
+    if (partsAt(L, other, t).some((part) => overlaps(box, part))) return other;
+  }
+  return null;
+}
+
+/** How long a label takes to fade out before something reaches it, and back in after. */
+export const LABEL_FADE_MS = 750;
+/** A label stays shown, or hidden, at least this long: no blinking. */
+const LABEL_SPELL_MS = 3000;
+const LABEL_STEP_MS = 250;
+/** The clearance a label keeps while it shows, units. */
+const LABEL_CLEARANCE = 2;
+
+/** A label's opacity keyframes, [ms, opacity]: the story's, then one revolution of the loop's. */
+export interface LabelTrack {
+  /** Over [0, T.story], while the moons arrive and the crews land. */
+  story: [number, number][];
+  /** Over one revolution from the story's end, [0, T.orbit]; it repeats exactly, as the orbit does. */
+  loop: [number, number][];
+}
+
+/** Opacity per step: 0 while covered, fading to 1 within LABEL_FADE_MS of any covered step. */
+function fadeAround(covered: boolean[], circular: boolean): number[] {
+  const n = covered.length;
+  const fade = LABEL_FADE_MS / LABEL_STEP_MS;
+  const at = (i: number) =>
+    circular ? covered[((i % n) + n) % n] : i >= 0 && i < n && covered[i];
+  return covered.map((_, i) => {
+    for (let k = 0; k <= fade; k += 1)
+      if (at(i + k) || at(i - k)) return k / fade;
+    return 1;
+  });
+}
+
+/**
+ * No blinking: a covered spell lasts at least LABEL_SPELL_MS (a short one grows evenly either side)
+ * and a clear spell shorter than that is covered too (round the clock if `circular`).
+ */
+function noBlinks(covered: boolean[], circular: boolean): void {
+  const n = covered.length;
+  const min = LABEL_SPELL_MS / LABEL_STEP_MS;
+  for (let pass = 0; pass < 12; pass += 1) {
+    const spells: { on: boolean; start: number; length: number }[] = [];
+    for (let i = 0; i < n; i += 1)
+      if (spells.length && spells[spells.length - 1].on === covered[i])
+        spells[spells.length - 1].length += 1;
+      else spells.push({ on: covered[i], start: i, length: 1 });
+    if (circular && spells.length > 1 && spells[0].on === spells.at(-1)!.on) {
+      const last = spells.pop()!;
+      spells[0] = {
+        on: last.on,
+        start: last.start,
+        length: last.length + spells[0].length,
+      };
+    }
+    // Spells at the story's ends are cut by the clock, not short in themselves.
+    const short = spells.find(
+      (spell) =>
+        spells.length > 1 &&
+        spell.length < min &&
+        (circular || (spell.start > 0 && spell.start + spell.length < n)),
+    );
+    if (!short) return;
+    const pad = short.on ? Math.ceil((min - short.length) / 2) : 0;
+    for (let k = -pad; k < short.length + pad; k += 1) {
+      const i = short.start + k;
+      if (circular) covered[((i % n) + n) % n] = true;
+      else if (i >= 0 && i < n) covered[i] = true;
+    }
+  }
+}
+
+/** The corners of a piecewise-linear curve sampled every LABEL_STEP_MS, ending at `length`. */
+function corners(opacity: number[], length: number): [number, number][] {
+  const frames: [number, number][] = [[0, opacity[0]]];
+  for (let i = 1; i < opacity.length - 1; i += 1)
+    if (
+      Math.abs(opacity[i] - opacity[i - 1] - (opacity[i + 1] - opacity[i])) >
+      1e-9
+    )
+      frames.push([i * LABEL_STEP_MS, opacity[i]]);
+  frames.push([length, opacity[opacity.length - 1]]);
+  return frames;
+}
+
+/**
+ * A moon label's opacity on the scene clock (orbit.ts plays it as a story track and a loop track).
+ * The label hides while anything covers it (labelCover, with LABEL_CLEARANCE units to spare),
+ * fading out over LABEL_FADE_MS just before and back in just after, and no spell, shown or hidden,
+ * is shorter than three seconds. In the story, a crew counts from its touchdown.
+ */
+export function labelTrack(L: OrbitLayout, kind: MoonKind): LabelTrack {
+  const covers = (t: number) =>
+    labelCover(L, kind, t, LABEL_CLEARANCE) !== null;
+  const loop = Array.from({ length: T.orbit / LABEL_STEP_MS }, (_, i) =>
+    covers(T.story + i * LABEL_STEP_MS),
+  );
+  noBlinks(loop, true);
+  const looped = fadeAround(loop, true);
+  // The story runs on into the loop's first steps, so its fades meet the loop's at the seam.
+  const reach = LABEL_SPELL_MS / LABEL_STEP_MS;
+  const story = Array.from(
+    { length: T.story / LABEL_STEP_MS + 1 + reach },
+    (_, i) =>
+      i * LABEL_STEP_MS < T.story
+        ? covers(i * LABEL_STEP_MS)
+        : loop[i - T.story / LABEL_STEP_MS],
+  );
+  noBlinks(story, false);
+  const told = fadeAround(story, false).slice(0, T.story / LABEL_STEP_MS + 1);
+  return {
+    story: corners(told, T.story),
+    loop: corners([...looped, looped[0]], T.orbit),
+  };
+}
+
+/** A label's opacity at time t on the scene clock. */
+export function labelOpacity(track: LabelTrack, t: number): number {
+  const [frames, at] =
+    t <= T.story ? [track.story, t] : [track.loop, (t - T.story) % T.orbit];
+  for (let i = 1; i < frames.length; i += 1) {
+    const [t1, b] = frames[i];
+    if (at > t1) continue;
+    const [t0, a] = frames[i - 1];
+    return t1 === t0 ? b : a + ((b - a) * (at - t0)) / (t1 - t0);
+  }
+  return frames[frames.length - 1][1];
+}
+
+/** A track that never changes is no track: orbit.ts skips it. */
+export const isConstant = (frames: [number, number][]): boolean =>
+  frames.every(([, value]) => value === frames[0][1]);
 
 /* -------------------------------------------------------------------------------- the copy */
 
@@ -379,7 +608,8 @@ export function renderOrbit(L: OrbitLayout, opt: RenderOptions): string {
     );
   };
   const groups = Object.fromEntries(GROUPS.map((g) => [g.kind, g]));
-  // Labels sit in a layer under the globe, so a moon passing behind it hides its own label. Each
+  // Labels sit in a layer over the globe and under the moons; each fades out before anything would
+  // cover it, and back in once clear (labelTrack; orbit.ts plays it on `.orb-label-vis`). Each
   // label rides under its moon's edge (depth-scaled) but counters the depth scale itself, so it
   // keeps one size, 13 px or more, all the way round (orbit.ts runs the matching ambient track).
   const labels =
@@ -389,14 +619,23 @@ export function renderOrbit(L: OrbitLayout, opt: RenderOptions): string {
       // moonLabel() sets its baseline r + size + 14 below the centre; here the group does, so
       // the text sits at its own origin and scales about its baseline.
       const label = moonLabel(text, -(L.label + 14), L.label);
+      // When it hides on the clock (labelTrack), computed here so the client only plays it.
+      const track = labelTrack(L, kind);
+      const keys = {
+        ...(isConstant(track.story) ? {} : { story: track.story }),
+        ...(isConstant(track.loop) ? {} : { loop: track.loop }),
+      };
+      const data = Object.keys(keys).length
+        ? ` data-track='${JSON.stringify(keys)}'`
+        : '';
       return carrier(
         kind,
-        `<g class="orb-label"><g transform="translate(0 ${f(L.r[kind] + L.label + 14)})"><g class="j orb-label-k" style="transform:scale(${f(1 / depth(theta(kind, T.story)))})">${label}</g></g></g>`,
+        `<g class="orb-label"><g class="orb-label-vis"${data} transform="translate(0 ${f(L.r[kind] + L.label + 14)})"><g class="j orb-label-k" style="transform:scale(${f(1 / depth(theta(kind, T.story)))})">${label}</g></g></g>`,
         'orbiter orbiter--label',
       );
     }).join('') +
     `</g>`;
-  const moons = KINDS.map((kind) => {
+  const moons = MOON_ORDER.map((kind) => {
     const r = L.r[kind];
     const props = PROPS[kind]
       .map(([name, deg]) =>
@@ -461,8 +700,8 @@ export function renderOrbit(L: OrbitLayout, opt: RenderOptions): string {
     `<g class="j cam">` +
     `<g class="sky">${stars}</g>` +
     `<g class="arcs">${ell('back')}</g>` +
-    labels +
     globe +
+    labels +
     `<g class="arcs">${ell('front')}</g>` +
     `<g id="${moonsId(L)}">${moons}</g>` +
     `</g></svg>`

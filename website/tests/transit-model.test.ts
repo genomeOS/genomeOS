@@ -12,6 +12,11 @@
  *   crews and props stand within ±37° of a moon's top; a moon behind the globe never covers it;
  *   the moons arrive in column order and each group's text is typed before the next moon comes;
  *   the orbit is a whole number of idle loops; the markup is deterministic (SEED = 42).
+ * - The idle orbit never runs forever into a collision (review of T4, finding 1): the moons sit
+ *   about 120° apart, so no crew stands on another moon, and where a crew passes in front of a
+ *   farther moon it is drawn over it; a moon label shows only while nothing covers it (the globe,
+ *   another moon, its crew and props, another label), fading out before and in after, over a full
+ *   revolution; every label shows in the story's last frame.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -34,15 +39,24 @@ import {
   CREW,
   GROUPS,
   KINDS,
+  LABEL_FADE_MS,
   LAYOUTS,
+  MOON_ORDER,
   PROPS,
   T,
   TOUCHDOWN_MS,
   depth,
+  discAt,
+  labelBox,
+  labelCover,
+  labelOpacity,
+  labelTrack,
   layoutFor,
   moonCenter,
+  partsAt,
   renderOrbit,
   theta,
+  type Box,
 } from '../src/components/contribute/orbit-layouts';
 import { typeFrames } from '../src/graphics/typing';
 
@@ -282,17 +296,155 @@ describe('orbit scene', () => {
         }
   });
 
-  it('ends the story with the moons left to right in column order, clear of the globe', () => {
+  it('ends the story with the moons left to right in column order, Modeling above the globe', () => {
     for (const L of layouts) {
       const xs = KINDS.map((kind) => moonCenter(L, kind, T.story)[0]);
       expect(xs[0], L.id).toBeLessThan(xs[1]);
       expect(xs[1], L.id).toBeLessThan(xs[2]);
     }
+    // Data lower left, Modeling at the top over the globe, UI lower right: each moon above its own
+    // column of text.
     expect(KINDS.map((kind) => Math.round(theta(kind, T.story)))).toEqual([
-      170, 250, 25,
+      156, 268, 26,
     ]);
     expect(depth(90)).toBe(1);
     expect(depth(270)).toBeCloseTo(0.8);
+  });
+
+  const hits = (a: Box, b: Box) =>
+    a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
+  /** How far a box reaches into a disc, units (≤ 0: clear of it). */
+  const graze = (box: Box, [x, y, r]: [number, number, number]) =>
+    r -
+    Math.hypot(
+      Math.max(box[0], Math.min(x, box[2])) - x,
+      Math.max(box[1], Math.min(y, box[3])) - y,
+    );
+  const GRAZE = 4;
+  /** Every 250 ms from the story's start to the end of a full idle revolution. */
+  const moments = Array.from(
+    { length: (T.story + T.orbit) / 250 },
+    (_, index) => index * 250,
+  );
+
+  it('spaces the moons about 120° apart, and draws a nearer crew over a farther moon', () => {
+    for (const [a, b] of [
+      ['data', 'model'],
+      ['model', 'ui'],
+      ['ui', 'data'],
+    ] as const) {
+      const apart = (((theta(b, 0) - theta(a, 0)) % 360) + 360) % 360;
+      expect(apart, `${a} to ${b}`).toBeGreaterThanOrEqual(110);
+      expect(apart, `${a} to ${b}`).toBeLessThanOrEqual(130);
+    }
+    for (const L of layouts)
+      for (const t of moments.filter((ms) => ms >= T.story))
+        for (const kind of KINDS)
+          for (const other of KINDS) {
+            if (other === kind) continue;
+            const where = `${L.id} ${kind} over ${other} at ${t} ms`;
+            const parts = partsAt(L, kind, t);
+            // No crew ever mingles with another moon's crew or props.
+            for (const part of parts)
+              for (const theirs of partsAt(L, other, t))
+                expect(hits(part, theirs), where).toBe(false);
+            // A crew may pass over another moon's disc only in front of it: nearer on the orbit,
+            // and drawn after it. Three moons in one drawing order can't always be right, so where
+            // it is wrong the crew's box may only graze the farther moon's rim, by GRAZE units at
+            // most (a box is the union of a figure's poses over its loop: the art grazes less).
+            const front =
+              depth(theta(kind, t)) > depth(theta(other, t)) &&
+              MOON_ORDER.indexOf(kind) > MOON_ORDER.indexOf(other);
+            const behind =
+              depth(theta(kind, t)) < depth(theta(other, t)) &&
+              MOON_ORDER.indexOf(kind) < MOON_ORDER.indexOf(other);
+            if (!front && !behind)
+              for (const part of parts)
+                expect(
+                  graze(part, discAt(L, other, t)),
+                  where,
+                ).toBeLessThanOrEqual(GRAZE);
+          }
+  });
+
+  it('shows a moon label only while nothing covers it, all the way round', () => {
+    for (const L of layouts) {
+      const tracks = Object.fromEntries(
+        KINDS.map((kind) => [kind, labelTrack(L, kind)]),
+      );
+      for (const t of moments) {
+        const shown = KINDS.filter(
+          (kind) =>
+            t >= T.moon[kind] + 900 && labelOpacity(tracks[kind], t) > 0,
+        );
+        for (const kind of shown) {
+          const where = `${L.id} ${kind} label at ${t} ms`;
+          // Not cut by the globe, nor under another moon, its crew or its props.
+          expect(labelCover(L, kind, t), where).toBeNull();
+          // Two labels never overlap.
+          for (const other of shown)
+            if (other !== kind)
+              expect(
+                hits(labelBox(L, kind, t), labelBox(L, other, t)),
+                where,
+              ).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('shows every label in the story’s last frame, and each for most of a revolution', () => {
+    for (const L of layouts)
+      for (const kind of KINDS) {
+        const track = labelTrack(L, kind);
+        // The last frame (also reduced motion's), and the seam where the loop takes over.
+        expect(labelOpacity(track, T.story), `${L.id} ${kind}`).toBe(1);
+        expect(track.story.at(-1)![1], `${L.id} ${kind}`).toBe(1);
+        expect(track.loop[0][1], `${L.id} ${kind}`).toBe(1);
+        const visible = moments.filter(
+          (t) => t >= T.story && labelOpacity(track, t) === 1,
+        ).length;
+        expect(
+          visible / (T.orbit / 250),
+          `${L.id} ${kind} shows`,
+        ).toBeGreaterThan(0.6);
+      }
+  });
+
+  it('fades a label out before anything reaches it and back in after, never blinking', () => {
+    for (const L of layouts)
+      for (const kind of KINDS) {
+        const { story, loop } = labelTrack(L, kind);
+        // The story's track spans the story; the loop's one revolution, ending where it starts.
+        expect([story[0][0], story.at(-1)![0]]).toEqual([0, T.story]);
+        expect([loop[0][0], loop.at(-1)![0]]).toEqual([0, T.orbit]);
+        expect(loop.at(-1)![1]).toBe(loop[0][1]);
+        // Round the loop, each spell shown or hidden lasts 3 s or more.
+        const spells: [boolean, number][] = [];
+        for (let t = 0; t < T.orbit; t += 250) {
+          const on = labelOpacity({ story, loop }, T.story + t) > 0;
+          if (spells.length && spells.at(-1)![0] === on)
+            spells.at(-1)![1] += 250;
+          else spells.push([on, 250]);
+        }
+        if (spells.length > 1 && spells[0][0] === spells.at(-1)![0])
+          spells[0][1] += spells.pop()![1];
+        for (const [on, ms] of spells.length > 1 ? spells : [])
+          expect(
+            ms,
+            `${L.id} ${kind} ${on ? 'shown' : 'hidden'}`,
+          ).toBeGreaterThanOrEqual(3000);
+        // Every fade, once the label has arrived, takes LABEL_FADE_MS.
+        for (const frames of [story, loop])
+          for (let index = 1; index < frames.length; index += 1) {
+            const [t0, a] = frames[index - 1];
+            const [t1, b] = frames[index];
+            if (a !== b && (frames === loop || t0 >= T.moon[kind] + 900))
+              expect(t1 - t0, `${L.id} ${kind} fade at ${t0}`).toBe(
+                LABEL_FADE_MS,
+              );
+          }
+      }
   });
 
   it('keeps every moon and its label inside the stage all the way round', () => {

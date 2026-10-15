@@ -148,7 +148,7 @@ describe('contribute page content', () => {
           expect(markup, `${layout} ${kind} ${id}`).toContain(`crew-${id}`);
         expect(markup).toMatch(/<g class="ship-g" opacity="0">/);
       }
-      // One label per moon, under the globe.
+      // One label per moon (drawn over the globe, under the moons).
       expect(svg.match(/class="moon-label"/g)).toHaveLength(3);
     }
   });
