@@ -2,8 +2,11 @@
  * The micro astronaut: one person in a data figure (round 2 spec §3.3; R2-15, "people should be
  * represented by little astronaut icons"; #454). Ported from `r2/lead/proto/people.html`.
  *
- * One 16 × 20 glyph: a body, a helmet ringed in the band's colour (a 1.2-unit gap that separates
- * helmet from body, so the silhouette reads at 12 px), and a visor. Drawn once per page as
+ * One 16 × 20 glyph, a whole astronaut: two arms held a little out and two legs apart, a suit with
+ * a dark chest panel, and a round helmet with its visor. The torso and helmet are edged in the
+ * band's colour, so the helmet stands off the shoulders and the arms off the torso, and the figure
+ * reads as an astronaut down to 12 px (the owner, 2026-10-15: the head-and-shoulders glyph was not
+ * obviously an astronaut; "they need bodies, or at least arms"). Drawn once per page as
  * `<symbol>`s and placed with `<use>`, never one full astronaut per person.
  *
  *   face    the counts figure: the visor shows a face in one of the kit's six skin tones, seeded
@@ -26,22 +29,28 @@ export type MicroState = 'carrier' | 'tested' | 'other' | 'untested';
 const GLASS = '#0c1b36';
 const SKINS = Object.keys(SKIN) as SkinTone[];
 
-const BODY = 'M2.2 20v-4.4a3.6 3.6 0 0 1 3.6-3.6h4.4a3.6 3.6 0 0 1 3.6 3.6V20z';
+/** Arms (out and down from the shoulders) and legs, as round-capped strokes in the suit. */
+const ARMS = 'M4.4 11.8 2.3 14.9M11.6 11.8l2.1 3.1';
+const LEGS = 'M6.2 16v2.8M9.8 16v2.8';
 
 function symbol(id: string, suit: string, window: string): string {
-  const fill = `style="fill:var(--person-${suit})"`;
+  const tone = `var(--person-${suit})`;
+  const band = 'var(--micro-band,#020712)';
   return (
     `<symbol id="${id}" viewBox="${MICRO_VIEWBOX}">` +
-    `<path d="${BODY}" ${fill}/>` +
-    `<circle cx="8" cy="7" r="6.4" stroke-width="1.2" style="fill:var(--person-${suit});stroke:var(--micro-band,#020712)"/>` +
+    `<g fill="none" stroke-linecap="round" style="stroke:${tone}">` +
+    `<path d="${ARMS}" stroke-width="2.5"/><path d="${LEGS}" stroke-width="2.7"/></g>` +
+    `<rect x="4.1" y="10.4" width="7.8" height="6.6" rx="2.4" stroke-width=".8" style="fill:${tone};stroke:${band}"/>` +
+    `<rect x="6.5" y="12.3" width="3" height="1.6" rx=".5" fill="${GLASS}"/>` +
+    `<circle cx="8" cy="5.7" r="5.4" stroke-width="1.1" style="fill:${tone};stroke:${band}"/>` +
     window +
     `</symbol>`
   );
 }
 
 const faceWindow = (skin: SkinTone) =>
-  `<ellipse cx="8.4" cy="7.3" rx="4.2" ry="3.5" fill="${GLASS}"/><ellipse cx="8.7" cy="7.6" rx="2.9" ry="2.5" fill="${SKIN[skin][0]}"/>`;
-const closedWindow = `<ellipse cx="8.4" cy="7.3" rx="4.1" ry="3.4" fill="${GLASS}"/><ellipse cx="6.6" cy="5.9" rx="1.25" ry=".7" transform="rotate(-28 6.6 5.9)" fill="#f2f8ff" fill-opacity=".8"/>`;
+  `<ellipse cx="8.4" cy="6" rx="3.6" ry="3" fill="${GLASS}"/><ellipse cx="8.7" cy="6.3" rx="2.5" ry="2.1" fill="${SKIN[skin][0]}"/>`;
+const closedWindow = `<ellipse cx="8.4" cy="6" rx="3.6" ry="3" fill="${GLASS}"/><ellipse cx="6.8" cy="4.8" rx="1.1" ry=".62" transform="rotate(-28 6.8 4.8)" fill="#f2f8ff" fill-opacity=".8"/>`;
 const UNTESTED = `<symbol id="micro-untested" viewBox="${MICRO_VIEWBOX}"><circle cx="8" cy="10" r="2.1" style="fill:var(--person-untested)"/></symbol>`;
 
 /**
