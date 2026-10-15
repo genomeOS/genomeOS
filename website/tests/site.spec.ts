@@ -2287,9 +2287,13 @@ function auditBrandText(selector: string): {
           const wordmark = parent.closest<HTMLElement>(
             '.brand-name, .site-title',
           );
+          // The GitHub mock on Contribute shows the repository's name as GitHub sets it: in
+          // .brand-name, in the mock's own type (round 2 spec §4.3.4).
+          const githubMock = wordmark?.closest('[data-graphic="work-board"]');
           if (!wordmark) {
             failures.push(`${parent.tagName.toLowerCase()}: missing wordmark`);
           } else if (
+            !githubMock &&
             !getComputedStyle(wordmark).fontFamily.includes('Raleway')
           ) {
             failures.push(`${parent.tagName.toLowerCase()}: wrong font`);
