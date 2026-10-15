@@ -1241,7 +1241,9 @@
 
   /* The orbit is an illustration: in forced colours it rests on the story's last frame (the page
      never loads its motion; spec §8.9) and keeps its own night sky and colours, framed by the
-     plate, as a picture does; its words are all in the columns, in system colours. */
+     plate, as a picture does; its words are all in the columns, in system colours. A hovered moon
+     lights in its own ion too: a light theme's Highlight is about 1.2:1 on the stage's navy
+     (review of the orbit's hover, finding 3). */
   .orbit__stage,
   .orbit-col__shot {
     forced-color-adjust: none;
@@ -1250,20 +1252,6 @@
 
   .orbit-col__rule {
     background: Highlight;
-  }
-
-  /* A hovered moon's ring and label in the system's highlight colour. */
-  .orbit-svg .moon-ring {
-    stroke: Highlight;
-  }
-
-  :is(
-      .orbit-svg:has([data-moon='data']:hover) [data-moon='data'],
-      .orbit-svg:has([data-moon='model']:hover) [data-moon='model'],
-      .orbit-svg:has([data-moon='ui']:hover) [data-moon='ui']
-    )
-    .moon-label {
-    fill: Highlight;
   }
 
   .orbit-col__status::before {
