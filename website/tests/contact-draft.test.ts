@@ -23,8 +23,6 @@ import {
   subject,
   toQuery,
   TOPICS,
-  webmailUrl,
-  WEBMAILS,
   type Offer,
 } from '../src/lib/contact-draft';
 
@@ -277,62 +275,6 @@ describe('the mailto: link', () => {
         expect(
           mailtoUrl(contactAddress(), buildDraft({ topic, offers })).length,
         ).toBeLessThanOrEqual(longest.length);
-  });
-});
-
-// Owner, 2026-10-15: on a computer whose mailto: handler is no desktop app (webmail in a browser),
-// "Open draft" opened nothing. Gmail and Outlook on the web compose the same draft in a new tab.
-describe('the webmail compose links', () => {
-  const draft = buildDraft({ topic: 'contribute', offers: ['code', 'data'] });
-
-  it('composes in Gmail: to, su and body, each percent-encoded, line breaks as %0A', () => {
-    const url = webmailUrl('gmail', 'team@example.org', draft);
-    expect(url).toBe(
-      `https://mail.google.com/mail/?view=cm&fs=1&to=team%40example.org&su=${encodeURIComponent(draft.subject)}&body=${encodeURIComponent(draft.body)}`,
-    );
-    expect(url).toContain(
-      '&su=Contributing%20to%20genomeOS%3A%20code%2C%20data',
-    );
-    expect(url).toContain('Dear%20genomeOS%20Foundation%20team%2C%0A%0A');
-    expect(url).not.toMatch(/[\s"<>]|%0D/);
-    const query = new URL(url).searchParams;
-    expect([...query.keys()]).toEqual(['view', 'fs', 'to', 'su', 'body']);
-    expect(query.get('to')).toBe('team@example.org');
-    expect(query.get('su')).toBe(draft.subject);
-    expect(query.get('body')).toBe(draft.body);
-  });
-
-  it('composes in Outlook on the web: to, subject and body', () => {
-    const url = webmailUrl('outlook', 'team@example.org', draft);
-    expect(url).toBe(
-      `https://outlook.live.com/mail/0/deeplink/compose?to=team%40example.org&subject=${encodeURIComponent(draft.subject)}&body=${encodeURIComponent(draft.body)}`,
-    );
-    const query = new URL(url).searchParams;
-    expect([...query.keys()]).toEqual(['to', 'subject', 'body']);
-    expect(query.get('to')).toBe('team@example.org');
-    expect(query.get('subject')).toBe(draft.subject);
-    expect(query.get('body')).toBe(draft.body);
-  });
-
-  it('opens a blank email to the address without a draft, as Email us does', () => {
-    expect(webmailUrl('gmail', 'team@example.org')).toBe(
-      'https://mail.google.com/mail/?view=cm&fs=1&to=team%40example.org',
-    );
-    expect(webmailUrl('outlook', 'team@example.org')).toBe(
-      'https://outlook.live.com/mail/0/deeplink/compose?to=team%40example.org',
-    );
-    expect(WEBMAILS).toEqual(['gmail', 'outlook']);
-  });
-
-  it('keeps every draft within 2,000 characters in both, as the mailto: link', () => {
-    for (const service of WEBMAILS)
-      for (const topic of TOPICS)
-        for (const offers of subsets)
-          expect(
-            webmailUrl(service, contactAddress(), buildDraft({ topic, offers }))
-              .length,
-            `${service} ${topic} ${offers.join(',')}`,
-          ).toBeLessThanOrEqual(MAILTO_MAX_LENGTH);
   });
 });
 

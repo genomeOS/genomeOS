@@ -40,12 +40,9 @@ import {
   OFFER_LABELS,
   TOPICS,
   TOPIC_LABELS,
-  webmailUrl,
-  WEBMAILS,
   type DraftState,
   type Offer,
   type Topic,
-  type Webmail,
 } from '../src/lib/contact-draft';
 import { useSiteFixtures } from './helpers/marketing';
 
@@ -89,25 +86,12 @@ const liveRegion = (page: Page) => page.locator('main [role="status"]');
  * letter's copy button. */
 const hint = (page: Page, which: 'address' | 'draft' | 'letter') =>
   page.locator(`[data-hint="${which}"]`);
-/** What still works when a mailto: click opened nothing (owner, 2026-10-15). */
-const NOTHING_DRAFT =
-  'Nothing opened? Use Gmail or Outlook, or copy the letter.';
-const NOTHING_EMAIL =
-  'Nothing opened? Use Gmail or Outlook, or copy the address.';
+/** What still works when a mailto: click opened nothing (owner and controller, 2026-10-15). */
+const NOTHING_DRAFT = 'Nothing opened? Copy the letter.';
+const NOTHING_EMAIL = 'Nothing opened? Copy the address.';
 const PRESS_TO_COPY = 'Press Ctrl+C or Cmd+C to copy.';
-const WEBMAIL_NAMES: Record<Webmail, string> = {
-  gmail: 'Gmail',
-  outlook: 'Outlook',
-};
-/** Gmail or Outlook on the web, under Email us or under Open draft. */
-const webmail = (page: Page, where: 'email' | 'draft', service: Webmail) =>
-  page
-    .locator(where === 'email' ? '[data-contact-direct]' : '[data-step="send"]')
-    .getByRole('link', { name: WEBMAIL_NAMES[service], exact: true });
 const copyLetter = (page: Page) =>
   page.getByRole('button', { name: 'Copy the letter', exact: true });
-/** A compose link of either service, or any mailto:. */
-const COMPOSE = /mailto:|view=cm|deeplink|compose|[?&]to=/i;
 /** A person here: one move of the pointer over the page. */
 const arrive = (page: Page) => page.mouse.move(240, 160);
 
@@ -197,16 +181,6 @@ async function mailtoFrom(page: Page, press: () => Promise<void>) {
     press(),
   ]);
   return request.url();
-}
-
-/**
- * A compose link exactly as built, for the draft as it stands. The browser writes the apostrophe
- * the draft leaves bare as %27 in an https: query; both decode to the same draft.
- */
-function expectCompose(received: string | null, expected: string) {
-  expect(received?.replace(/%27/g, "'")).toBe(expected);
-  const [got, want] = [new URL(received!), new URL(expected)];
-  expect([...got.searchParams]).toEqual([...want.searchParams]);
 }
 
 /** Copy with the keys, the clipboard emptied first, so a copy that writes nothing fails. */
@@ -300,8 +274,6 @@ test.describe('the address is protected', () => {
     await arrive(page);
     await expect(shownAddress(page)).toHaveText(ADDRESS);
     await expect(page.locator('a[href^="mailto:" i]')).toHaveCount(0);
-    for (const link of await page.locator('[data-webmail]').all())
-      expect(await link.getAttribute('href')).not.toMatch(COMPOSE);
   });
 
   // Owner request (2026-10-14): the address is the page's first piece of contact information, in
@@ -380,6 +352,150 @@ test.describe('the address is protected', () => {
   });
 });
 
+// Owner, 2026-10-15 (~09:55): "remove the border around the copy icon and remove the text 'Copy'".
+// The controller: icon-only at every width, the letter's glyph, size and target, so the two read as
+// one control; hover changes the glyph's colour only; the ring on keyboard focus only; "Copied"
+// beside or under it for about 2 s, moving nothing.
+test.describe('the address’s copy glyph', () => {
+  const look = (locator: Locator) =>
+    locator.evaluate((element) => {
+      const style = getComputedStyle(element);
+      const box = element.getBoundingClientRect();
+      return {
+        border: style.borderTopStyle,
+        fill: style.backgroundColor,
+        outline: style.outlineStyle,
+        color: style.color,
+        text: (element as HTMLElement).innerText.trim(),
+        width: box.width,
+        height: box.height,
+      };
+    });
+
+  test('is the letter’s glyph: no border, no fill, no word, a 44 px target named "Copy email address"', async ({
+    page,
+  }) => {
+    await page.goto('/contact/');
+    const copy = copyButton(page);
+    await expect(copy).toHaveAccessibleName('Copy email address');
+    const at = await look(copy);
+    expect(at).toMatchObject({
+      border: 'none',
+      fill: 'rgba(0, 0, 0, 0)',
+      outline: 'none',
+      text: '',
+      width: 44,
+      height: 44,
+    });
+    expect(at).toEqual({ ...(await look(copyLetter(page))) });
+    // The same glyph at the same size.
+    const glyph = (button: Locator) =>
+      button.locator('.contact-glyph__idle').evaluate((icon) => ({
+        href: icon.querySelector('use')!.getAttribute('href'),
+        width: icon.getBoundingClientRect().width,
+        height: icon.getBoundingClientRect().height,
+      }));
+    expect(await glyph(copy)).toEqual(await glyph(copyLetter(page)));
+  });
+
+  test('hover changes the glyph’s colour and nothing else; the ring shows on keyboard focus only', async ({
+    page,
+  }) => {
+    await page.goto('/contact/');
+    const copy = copyButton(page);
+    const rest = await look(copy);
+    const box = await pageBox(copy);
+    await copy.hover();
+    await expect
+      .poll(async () => (await look(copy)).color)
+      .not.toBe(rest.color);
+    expect({ ...(await look(copy)), color: rest.color }).toEqual(rest);
+    expect(await pageBox(copy)).toEqual(box);
+    // A click focuses it without a ring; the keyboard brings the ring.
+    await page
+      .context()
+      .grantPermissions(['clipboard-read', 'clipboard-write']);
+    await copy.click();
+    expect((await look(copy)).outline).toBe('none');
+    await emailUs(page).focus();
+    await page.keyboard.press('Tab');
+    await expect(copy).toBeFocused();
+    expect((await look(copy)).outline).toBe('solid');
+  });
+
+  test('pressed, it shows a check and "Copied" for about 2 s, read out, and moves nothing, at 1440, 1024, 390 and 320 px', async ({
+    page,
+  }) => {
+    await page.clock.install();
+    await grantClipboard(page);
+    for (const [width, height] of [
+      [1440, 900],
+      [1024, 768],
+      [390, 844],
+      [320, 640],
+    ] as const) {
+      const label = `${width} px`;
+      await page.setViewportSize({ width, height });
+      await page.goto('/contact/');
+      await page.evaluate(() => document.fonts.ready);
+      await arrive(page);
+      await expect(shownAddress(page)).toHaveText(ADDRESS);
+      const copy = copyButton(page);
+      const word = page.locator('[data-copied]');
+      const boxes = () =>
+        Promise.all(
+          [
+            emailUs(page),
+            shownAddress(page),
+            copy,
+            page.locator('.contact-templates'),
+          ].map(pageBox),
+        );
+      const before = await boxes();
+      await expect(word, label).toBeHidden();
+      await copy.click();
+      expect(await clipboard(page), label).toBe(ADDRESS);
+      await expect(copy.locator('.contact-glyph__check'), label).toBeVisible();
+      await expect(copy.locator('.contact-glyph__idle'), label).toBeHidden();
+      await expect(word, label).toBeVisible();
+      await expect(liveRegion(page), label).toHaveText('Copied');
+      expect(await boxes(), label).toEqual(before);
+      // In view, clear of the address, and no wider than the page.
+      const shown = await word.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const text = document.createRange();
+        text.selectNodeContents(document.querySelector('[data-address]')!);
+        const address = text.getBoundingClientRect();
+        return {
+          left: box.left,
+          right: box.right,
+          top: box.top,
+          bottom: box.bottom,
+          address: {
+            left: address.left,
+            right: address.right,
+            top: address.top,
+            bottom: address.bottom,
+          },
+          page: document.documentElement.clientWidth,
+          overflow:
+            document.documentElement.scrollWidth -
+            document.documentElement.clientWidth,
+        };
+      });
+      expect(shown.left, label).toBeGreaterThanOrEqual(0);
+      expect(shown.right, label).toBeLessThanOrEqual(shown.page);
+      expect(shown.overflow, label).toBeLessThanOrEqual(0);
+      expect(overlaps(shown, shown.address), label).toBe(false);
+      await page.clock.runFor(1800);
+      await expect(word, label).toBeVisible();
+      await page.clock.runFor(400);
+      await expect(word, label).toBeHidden();
+      await expect(copy.locator('.contact-glyph__idle'), label).toBeVisible();
+    }
+  });
+});
+
 // Owner, 2026-10-15: "you sure its ok to display [the address] outright like that? doesnt that make
 // us susceptible to bot spam?" The controller's ruling: no CAPTCHA (there is no form to protect);
 // the page spells the address out until the first sign of a person, then joins it, once.
@@ -444,7 +560,7 @@ test.describe('the address waits for a person', () => {
             copyButton(page),
             page.locator('.letter__row dd').first(),
             page.locator('.letter__row').nth(1),
-            webmail(page, 'email', 'outlook'),
+            emailUs(page),
             page.locator('.contact-templates'),
           ].map(pageBox),
         );
@@ -490,97 +606,6 @@ test.describe('the address waits for a person', () => {
   });
 });
 
-// Owner, 2026-10-15: "If no email app opens …": no app opens (webmail in a browser has no mailto:
-// handler of its own). Gmail and Outlook on the web open the same email in a new tab.
-test.describe('Gmail and Outlook on the web', () => {
-  test('under Email us, each opens a blank email to the address in a new tab, its link set only once a visitor reaches for it', async ({
-    page,
-  }) => {
-    await page.goto('/contact/', { waitUntil: 'load' });
-    for (const service of WEBMAILS) {
-      const link = webmail(page, 'email', service);
-      await expect(link, service).toBeVisible();
-      await expect(link, service).toHaveAttribute('target', '_blank');
-      await expect(link, service).toHaveAttribute('rel', 'noopener noreferrer');
-      await expect(link.locator('svg'), service).toHaveAttribute(
-        'aria-hidden',
-        'true',
-      );
-      expect(await link.getAttribute('href'), service).not.toMatch(COMPOSE);
-    }
-    await expect(page.locator('[data-contact-direct]')).toContainText(
-      'or open in Gmail · Outlook',
-    );
-    // Reached for by the pointer, then from the keyboard.
-    await webmail(page, 'email', 'gmail').hover();
-    expectCompose(
-      await webmail(page, 'email', 'gmail').getAttribute('href'),
-      webmailUrl('gmail', ADDRESS),
-    );
-    await webmail(page, 'email', 'outlook').focus();
-    expectCompose(
-      await webmail(page, 'email', 'outlook').getAttribute('href'),
-      webmailUrl('outlook', ADDRESS),
-    );
-  });
-
-  test('under Open draft, each composes the draft in a new tab, with to, subject and body, rebuilt for each choice', async ({
-    page,
-    context,
-  }) => {
-    await context.route(
-      /^https:\/\/(mail\.google\.com|outlook\.live\.com)\//,
-      (route) =>
-        route.fulfill({
-          contentType: 'text/html',
-          body: '<title>Compose</title>',
-        }),
-    );
-    await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.goto('/contact/');
-    const gmail = webmail(page, 'draft', 'gmail');
-    const outlook = webmail(page, 'draft', 'outlook');
-    for (const link of [gmail, outlook]) {
-      await expect(link).toHaveAttribute('target', '_blank');
-      await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
-      expect(await link.getAttribute('href')).not.toMatch(COMPOSE);
-    }
-    await offer(page, 'funding').click();
-    await offer(page, 'data').click();
-    const draft = buildDraft({
-      topic: 'contribute',
-      offers: ['data', 'funding'],
-    });
-    await gmail.hover();
-    expectCompose(
-      await gmail.getAttribute('href'),
-      webmailUrl('gmail', ADDRESS, draft),
-    );
-    const query = new URL((await gmail.getAttribute('href'))!).searchParams;
-    expect(query.get('to')).toBe(ADDRESS);
-    expect(query.get('su')).toBe('Contributing to genomeOS: data, funding');
-    expect(query.get('body')).toBe(draft.body);
-    // A new choice, reached for again: the new draft.
-    await purpose(page, 'press').check();
-    const press = buildDraft({ topic: 'press', offers: [] });
-    await outlook.focus();
-    expectCompose(
-      await outlook.getAttribute('href'),
-      webmailUrl('outlook', ADDRESS, press),
-    );
-    // Clicked, it opens in a new tab with no hold on this one.
-    const [tab] = await Promise.all([
-      context.waitForEvent('page'),
-      outlook.click(),
-    ]);
-    await tab.waitForLoadState();
-    expectCompose(tab.url(), webmailUrl('outlook', ADDRESS, press));
-    expect(await tab.evaluate(() => window.opener)).toBeNull();
-    await tab.close();
-    expect(page.url()).toMatch(/\/contact\/\?topic=press$/);
-  });
-});
-
 // About 1.5 s after a mailto: click, a page still in front (not blurred, never hidden) means no
 // email app took it: the page says what still works, next to the control used.
 test.describe('when nothing opens, the page says what still works', () => {
@@ -621,13 +646,20 @@ test.describe('when nothing opens, the page says what still works', () => {
       await expectShown(line);
       await expect(liveRegion(page)).toHaveText(text);
       expect(await pageBox(below)).toEqual(at);
-      // Next to the control it follows: under its row of Gmail and Outlook.
-      const row = await pageBox(
-        webmail(page, which === 'draft' ? 'draft' : 'email', 'gmail'),
+      // Next to the control it follows: under Open draft; under the address, from its left edge
+      // (ruling of 2026-10-15), not under the pill.
+      const control = await pageBox(
+        which === 'draft'
+          ? action(page, 'Open draft in your email app')
+          : page.locator('.contact-address'),
       );
       const box = await pageBox(line);
-      expect(box.y).toBeGreaterThanOrEqual(row.y + row.height - 1);
-      expect(box.y - (row.y + row.height)).toBeLessThan(24);
+      expect(box.y).toBeGreaterThanOrEqual(control.y + control.height - 1);
+      expect(box.y - (control.y + control.height)).toBeLessThan(24);
+      if (which === 'address')
+        expect(
+          Math.abs(box.x - (await pageBox(shownAddress(page))).x),
+        ).toBeLessThan(1);
       // The old sentence, shown whatever happened, is gone.
       await expect(page.locator('main')).not.toContainText(
         'If no email app opens',
@@ -776,18 +808,14 @@ test.describe('the composer', () => {
     await expect(liveRegion(page)).toHaveText('Copied');
     await expect(hint(page, 'address')).toBeHidden();
     expect((await pageBox(problem)).y).toBe(rest);
-    // Open draft's guidance, when nothing opened, takes a line right under the button's row of
-    // Gmail and Outlook.
+    // Open draft's guidance, when nothing opened, takes a line right under the button.
     const open = action(page, 'Open draft in your email app');
     await mailtoFrom(page, () => open.click());
     await expectShown(hint(page, 'draft'));
-    const row = await pageBox(page.locator('[data-step="send"] .contact-alt'));
+    const button = await pageBox(open);
     const line = await pageBox(hint(page, 'draft'));
-    expect(row.y).toBeGreaterThanOrEqual(
-      (await pageBox(open)).y + (await pageBox(open)).height,
-    );
-    expect(line.y).toBeGreaterThanOrEqual(row.y + row.height);
-    expect(line.y - (row.y + row.height)).toBeLessThan(24);
+    expect(line.y).toBeGreaterThanOrEqual(button.y + button.height);
+    expect(line.y - (button.y + button.height)).toBeLessThan(24);
   });
 
   test('where the clipboard is blocked, the address is selected instead; the whole letter selected copies as the draft', async ({
@@ -1027,9 +1055,6 @@ test.describe('the composer', () => {
     await purpose(page, 'question').check();
     await purpose(page, 'contribute').check();
     await emailUs(page).hover();
-    for (const where of ['email', 'draft'] as const)
-      for (const service of WEBMAILS)
-        await webmail(page, where, service).hover();
     await copyButton(page).click();
     // The last action has finished once it says so.
     await expect(liveRegion(page)).toHaveText('Copied');
@@ -1104,8 +1129,8 @@ test.describe('the letter’s copy button', () => {
     expect(box.y + box.height).toBeLessThanOrEqual(
       (await pageBox(page.locator('.letter__row').nth(1).locator('dd'))).y,
     );
-    // From the keyboard: after Open draft's Gmail and Outlook, with the site's ring.
-    await webmail(page, 'draft', 'outlook').focus();
+    // From the keyboard: after Open draft, with the site's ring.
+    await action(page, 'Open draft in your email app').focus();
     await page.keyboard.press('Tab');
     await expect(button).toBeFocused();
     expect((await look()).outline).toBe('solid');
@@ -1118,8 +1143,8 @@ test.describe('the letter’s copy button', () => {
     await page.goto('/contact/?topic=contribute&offer=code,funding');
     await grantClipboard(page);
     const button = copyLetter(page);
-    const idle = button.locator('.letter-copy__idle');
-    const check = button.locator('.letter-copy__check');
+    const idle = button.locator('.contact-glyph__idle');
+    const check = button.locator('.contact-glyph__check');
     await expect(idle).toBeVisible();
     await expect(check).toBeHidden();
     const before = await pageBox(button);
@@ -1167,7 +1192,7 @@ test.describe('the letter’s copy button', () => {
       const [box, check, stage] = await Promise.all(
         [
           word,
-          copyLetter(page).locator('.letter-copy__check'),
+          copyLetter(page).locator('.contact-glyph__check'),
           page.locator('.contact-letter .kit-plate__stage'),
         ].map(pageBox),
       );
@@ -1191,7 +1216,9 @@ test.describe('the letter’s copy button', () => {
     await expectShown(hint(page, 'letter'));
     await expect(liveRegion(page)).toHaveText(PRESS_TO_COPY);
     // Nothing was copied, so nothing is confirmed.
-    await expect(copyLetter(page).locator('.letter-copy__check')).toBeHidden();
+    await expect(
+      copyLetter(page).locator('.contact-glyph__check'),
+    ).toBeHidden();
     // The whole letter is selected, and the keys copy it as the draft.
     expect(
       await letter(page).evaluate((root) => {
@@ -2057,14 +2084,6 @@ test('a keyboard alone emails, copies, chooses, presses, opens the draft and cop
   await page.keyboard.press('Enter');
   await expect(liveRegion(page)).toHaveText('Copied');
   await expect(page.locator('[data-copied]')).toBeVisible();
-  for (const service of WEBMAILS) {
-    await page.keyboard.press('Tab');
-    await expect(webmail(page, 'email', service)).toBeFocused();
-    expectCompose(
-      await webmail(page, 'email', service).getAttribute('href'),
-      webmailUrl(service, ADDRESS),
-    );
-  }
 
   // Then the template, step by step.
   await page.keyboard.press('Tab');
@@ -2107,14 +2126,6 @@ test('a keyboard alone emails, copies, chooses, presses, opens the draft and cop
     ),
   );
   const draft = buildDraft({ topic: 'contribute', offers: ['code', 'data'] });
-  for (const service of WEBMAILS) {
-    await page.keyboard.press('Tab');
-    await expect(webmail(page, 'draft', service)).toBeFocused();
-    expectCompose(
-      await webmail(page, 'draft', service).getAttribute('href'),
-      webmailUrl(service, ADDRESS, draft),
-    );
-  }
   // The letter's one control, its copy button, then the problem link, last on the page.
   await page.keyboard.press('Tab');
   await expect(copyLetter(page)).toBeFocused();
@@ -2464,9 +2475,10 @@ test.describe('on a phone @mobile-chromium', () => {
     expect(direct).toBeLessThan(steps);
     expect(steps).toBeLessThan(draft);
     const targets = page.locator(
-      'main :is([data-email-us], [data-webmail], label.contact-choice, button:visible), .contact-problem a',
+      'main :is([data-email-us], label.contact-choice, button:visible), .contact-problem a',
     );
-    expect(await targets.count()).toBeGreaterThan(14);
+    // Email us, Copy, four purposes, four offers, Open draft, Copy the letter, the problem link.
+    expect(await targets.count()).toBe(13);
     for (const target of await targets.all()) {
       const box = (await target.boundingBox())!;
       const name =
@@ -2546,11 +2558,6 @@ test('the icons are decoration: each control is named by its own words', async (
   await expect(emailUs(page)).toHaveAccessibleName('Email us');
   await expect(copyButton(page)).toHaveAccessibleName('Copy email address');
   await expect(copyLetter(page)).toHaveAccessibleName('Copy the letter');
-  for (const where of ['email', 'draft'] as const)
-    for (const service of WEBMAILS)
-      await expect(webmail(page, where, service)).toHaveAccessibleName(
-        WEBMAIL_NAMES[service],
-      );
   for (const topic of TOPICS)
     await expect(purpose(page, topic)).toHaveAccessibleName(
       TOPIC_LABELS[topic],
@@ -2639,10 +2646,14 @@ test('set in the fallback fonts, the intro takes the lines the web fonts give it
 });
 
 // The address spelled out is wider than the address: in the fallback font, before the web font
-// arrives, it once pushed Copy onto a line of its own at 390 px, and the web font's arrival lifted
-// the page by a line (CLS 0.14). In every font the address and Copy share a line, and the address,
-// joined, fits the box its spelled-out form keeps.
-test('in the web font and the fallbacks, the address shares a line with Copy, before and after it is joined @desktop-chromium', async ({
+// arrived, it once pushed Copy onto a line of its own at 390 px, and the web font's arrival lifted
+// the page by a line (CLS 0.14). Owner (2026-10-15, ~09:55): "make sure the 'Email us' button, the
+// email, and the copy icon are all aligned horizontally". In every font, before and after the
+// address is joined: wherever the three fit on one line (1440, 1024, 768 px) they share one row
+// with their centres level; on a phone the pill keeps its own line and the address and its glyph
+// share the row below. Centres are of border boxes, and of the address's own line box (the
+// element that holds its text, no wrapper's padding); the glyph sits just after the address.
+test('in the web font and the fallbacks, Email us, the address and its copy glyph line up, before and after it is joined @desktop-chromium', async ({
   browser,
 }) => {
   for (const font of ['Figtree', 'Avenir Next', 'Figtree Fallback']) {
@@ -2659,8 +2670,9 @@ test('in the web font and the fallbacks, the address shares a line with Copy, be
         );
         await route.fulfill({ response, body });
       });
-    for (const width of [320, 390, 412, 1440]) {
+    for (const width of [1440, 1024, 768, 412, 390, 320]) {
       const label = `${font}, ${width} px`;
+      const phone = width < 480;
       await page.setViewportSize({ width, height: 840 });
       await page.goto('/contact/');
       await page.evaluate(() => document.fonts.ready);
@@ -2668,25 +2680,60 @@ test('in the web font and the fallbacks, the address shares a line with Copy, be
       const row = () =>
         page.evaluate(() => {
           const box = (selector: string) =>
-            document.querySelector(selector)!.getBoundingClientRect();
+            document.querySelector(selector)!.getBoundingClientRect().toJSON();
           const text = document.createRange();
           text.selectNodeContents(document.querySelector('[data-address]')!);
           return {
-            slot: box('.contact-address__value').toJSON(),
-            copy: box('.contact-copy').toJSON(),
-            text: text.getBoundingClientRect().width,
+            pill: box('[data-email-us]'),
+            slot: box('.contact-address__value'),
+            line: box('[data-address]'),
+            copy: box('.contact-copy'),
+            glyph: box('.contact-copy .contact-glyph__idle'),
+            text: text.getBoundingClientRect().toJSON(),
           };
         });
+      const centre = ({ top, height }: { top: number; height: number }) =>
+        top + height / 2;
+      const expectLinedUp = (
+        at: Awaited<ReturnType<typeof row>>,
+        when: string,
+      ) => {
+        const where = `${label}, ${when}`;
+        // The address and its glyph: one row, centres level, the glyph just after the address.
+        expect(
+          Math.abs(centre(at.line) - centre(at.copy)),
+          `${where}: address and glyph centres`,
+        ).toBeLessThanOrEqual(1);
+        expect(at.copy.top, where).toBeLessThan(at.line.bottom);
+        expect(at.glyph.left, where).toBeGreaterThanOrEqual(at.text.right);
+        expect(at.glyph.left - at.text.right, where).toBeLessThanOrEqual(10);
+        if (phone) {
+          // The pill on its own line above them.
+          expect(at.pill.bottom, where).toBeLessThanOrEqual(at.copy.top);
+          expect(at.pill.left, where).toBeLessThanOrEqual(at.line.left);
+        } else {
+          // All three on one row, centres level.
+          expect(at.pill.right, where).toBeLessThan(at.line.left);
+          expect(
+            Math.abs(centre(at.pill) - centre(at.line)),
+            `${where}: pill and address centres`,
+          ).toBeLessThanOrEqual(1);
+          expect(
+            Math.abs(centre(at.pill) - centre(at.copy)),
+            `${where}: pill and glyph centres`,
+          ).toBeLessThanOrEqual(1);
+        }
+      };
       const before = await row();
-      // One line: Copy beside the address, not under it.
-      expect(before.copy.top, label).toBeLessThan(before.slot.bottom);
-      expect(before.copy.left, label).toBeGreaterThanOrEqual(before.slot.right);
+      expectLinedUp(before, 'spelled out');
       await arrive(page);
       await expect(shownAddress(page), label).toHaveText(ADDRESS);
       const after = await row();
-      expect(after.slot, label).toEqual(before.slot);
-      expect(after.copy, label).toEqual(before.copy);
-      expect(after.text, label).toBeLessThanOrEqual(after.slot.width);
+      expectLinedUp(after, 'joined');
+      // The swap moves nothing: the address fits the box its spelled-out form keeps.
+      for (const part of ['pill', 'slot', 'line', 'copy'] as const)
+        expect(after[part], `${label}: ${part}`).toEqual(before[part]);
+      expect(after.text.width, label).toBeLessThanOrEqual(after.slot.width);
     }
     await context.close();
   }
@@ -2710,7 +2757,7 @@ test('no sideways scroll at 320, 390, 640, 1024 or 1440 px', async ({
     const clipped = await page.locator('main').evaluate((root) =>
       [
         ...root.querySelectorAll<HTMLElement>(
-          'label.contact-choice, button, [data-email-us], .contact-alt',
+          'label.contact-choice, button, [data-email-us]',
         ),
       ]
         .filter((element) => element.checkVisibility())
@@ -2842,9 +2889,9 @@ test('in forced colours selection is a system fill, and focus still shows on a s
   expect(chosen.ring).toMatch(/^none /);
   expect(pressed.ring).toMatch(/^none /);
 
-  // Tab in from Email us's last link: the chosen purpose, then the pressed offer, each with a ring
-  // it lacks at rest.
-  await webmail(page, 'email', 'outlook').focus();
+  // Tab in from the address's copy button: the chosen purpose, then the pressed offer, each with
+  // a ring it lacks at rest.
+  await copyButton(page).focus();
   await page.keyboard.press('Tab');
   await expect(purpose(page, 'contribute')).toBeFocused();
   const chosenFocused = await look(choice('Contribute'));

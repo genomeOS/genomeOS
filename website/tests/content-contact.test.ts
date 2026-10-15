@@ -118,19 +118,17 @@ describe('the built Contact page', () => {
     ]);
   });
 
-  it('serves Gmail and Outlook links that hold no compose URL until a visitor reaches for one', () => {
-    const links = [...main.matchAll(/<a [^>]*data-webmail="([a-z]+)"[^>]*>/g)];
-    expect(links.map(([, service]) => service)).toEqual([
-      'gmail',
-      'outlook',
-      'gmail',
-      'outlook',
-    ]);
-    for (const [link] of links) {
-      expect(link).toContain('target="_blank"');
-      expect(link).toContain('rel="noopener noreferrer"');
-      expect(link).not.toMatch(/mailto:|view=cm|deeplink|compose|[?&]to=/i);
-    }
+  // Owner, 2026-10-15 (~09:55): "remove the 'or open in Gmail · Outlook' bits. remove the border
+  // around the copy icon and remove the text 'Copy'".
+  it('serves no Gmail or Outlook links, and Copy as a glyph named by its label alone', () => {
+    expect(main).not.toMatch(/data-webmail|or open in|mail\.google|outlook\./i);
+    const copy = main.match(
+      /<button [^>]*data-action="copy-address"[^>]*>([\s\S]*?)<\/button>(<span[^>]*>[^<]*<\/span>)/,
+    )!;
+    expect(copy[0]).toContain('aria-label="Copy email address"');
+    // No word in it, so no "Copy"; "Copied" follows it, shown for a moment after a press.
+    expect(copy[1].replace(/<[^>]+>/g, '').trim()).toBe('');
+    expect(copy[2]).toMatch(/data-copied[^>]*>Copied<\/span>$/);
   });
 
   it('writes every purpose, offer and section of the letter from the draft builder', () => {
