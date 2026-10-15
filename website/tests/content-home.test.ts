@@ -23,7 +23,11 @@ describe('home page content', () => {
     expect(home).toMatch(
       /<h1[^>]*>Open science <br\s*\/?>\s*for the benefit of all\.<\/h1>/,
     );
-    expect(text).toContain('Genomics, AI and public health');
+    // Ruling 48: the owner (2026-10-15) cut the kicker above the headline as noise. The heading
+    // opens the hero.
+    expect(text).not.toContain('Genomics, AI and public health');
+    expect(home).not.toContain('home-hero__kicker');
+    expect(home).toMatch(/<div class="home-hero__text"[^>]*>\s*<h1/);
     expect(text).toContain(
       'Data, models and tools built in the open, with anyone, for everyone.',
     );

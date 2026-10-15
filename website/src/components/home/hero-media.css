@@ -80,7 +80,7 @@
 /*
  * The scrim follows the text, not the frame, so it covers the text however the text wraps: on a
  * wide screen a band from the left edge that stays dark under the text and 3rem past its end, then
- * clears by 14rem; on a tall one (below) a fade from 7rem above the kicker down to the frame's
+ * clears by 14rem; on a tall one (below) a fade from 7rem above the heading down to the frame's
  * bottom. Its stops hold every line at 4.5:1 or more against the brightest pixel behind it, in
  * every frame of the loop (measured every 0.5 s at thirteen sizes from 320 to 2560 px; see the
  * redesign's hero build report). It sits behind the text and over the film (z-index -1 in the
@@ -182,8 +182,8 @@
   }
 
   /* A short phone (320 × 568): the text runs taller than the frame, so it starts near the top and
-     still ends clear of the cookie control's corner; the film's control then sits at the end of
-     the kicker's row, level with it. */
+     still ends clear of the cookie control's corner; the film's control then sits at the top
+     right, beside the heading's first line and clear of it. */
   @media (max-height: 38rem) {
     .hero-media__content {
       padding-top: 1rem;

@@ -872,7 +872,6 @@ test('the hero’s text holds 4.5:1 and its Pause glyph 3:1 over the poster and 
   await playingFilm(page);
   await page.evaluate(() => window.__motion!.ready('hero-film'));
   const targets = [
-    '.home-hero__kicker',
     '.home-hero h1',
     '.home-hero__lede',
     '.home-hero__actions .button-link--quiet',
