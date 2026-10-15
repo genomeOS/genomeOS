@@ -1079,6 +1079,10 @@ export function initOrbit(figure: HTMLElement): SceneController {
     rebuilding = true;
     const time = tl.time;
     tl.cancel();
+    // Cancelled, the timeline's own time is stale (the last seek or pause, often 0), and commit()
+    // creates each chunk at it: hold the clock at now first, or the new layout's tracks would
+    // paint the story's start until the seek after the commit (review of T4 round 2, finding 2).
+    tl.seek(time);
     build(tl);
     await tl.commit();
     tl.seek(time);

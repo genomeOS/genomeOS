@@ -30,8 +30,8 @@ useSiteFixtures();
 
 const FIGURE = '[data-graphic="orbit"]';
 const KINDS = ['data', 'model', 'ui'] as const;
-/** orbit-layouts.ts T: the story, and one revolution of the idle orbit, ms. */
-const T = { story: 32000, orbit: 240000 } as const;
+/** orbit-layouts.ts T: the story, one revolution of the idle orbit and Data's moon pop, ms. */
+const T = { story: 32000, orbit: 240000, dataMoon: 800 } as const;
 const COLUMNS = ['group-data', 'group-modeling', 'group-ui'] as const;
 /** --color-faint, --color-starlight and --color-ion, as painted (snapshot's `rgb`). */
 const FAINT = 'rgb(127, 147, 174)';
@@ -777,6 +777,34 @@ test.describe('the orbit scene @desktop-chromium', () => {
       .toBeGreaterThan(20);
     await page.waitForTimeout(500);
     expect(await look()).toMatchObject({ state: 'paused', running: 0 });
+  });
+
+  test('never blanks the moment on screen while it switches layout', async ({
+    page,
+  }) => {
+    // Review of T4 round 2, finding 2: the newly drawn layout's tracks were created at the
+    // story's start, so a switch painted an empty stage for a few frames. Played (not sought) a
+    // few seconds in, the globe is up and Data's moon has arrived.
+    await openOrbit(page);
+    const figure = page.locator(FIGURE);
+    await figure.evaluate((element) =>
+      element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+    );
+    await expect(figure).toHaveAttribute('data-scene-state', 'playing');
+    await expect
+      .poll(() => page.evaluate(() => window.__motion!.time('orbit')))
+      .toBeGreaterThan(T.dataMoon + 1500);
+    await page.evaluate(recordFrames, 2500);
+    await page.setViewportSize({ width: 900, height: 1000 });
+    await page.waitForTimeout(2600);
+    const frames = (
+      await page.evaluate(() => window.__orbitFrames ?? [])
+    ).filter((frame) => frame.layout === 'tablet');
+    expect(frames.length).toBeGreaterThan(5);
+    expect(
+      frames.filter((frame) => frame.globe !== 1 || !frame.moons.data),
+    ).toEqual([]);
+    await expect(figure).toHaveAttribute('data-scene-state', 'playing');
   });
 
   test('takes its own layout on a tablet, labels at 13 px or more', async ({
