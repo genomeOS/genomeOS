@@ -118,6 +118,20 @@ import './how-work-moves.css';
       attributes: true,
       attributeFilter: ['class'],
     });
+    // On a landscape phone the track is taller than the view under the header. Reached by keyboard
+    // from below, it already spans the screen, so the browser leaves it there with its top hidden
+    // under the fixed header; bring its top into view (the page's scroll-padding keeps it clear of
+    // the header). Only for keyboard focus: a tap or a swipe never moves the page.
+    scroller.addEventListener('focus', () => {
+      const header =
+        document.querySelector('[data-site-header]')?.getBoundingClientRect()
+          .bottom ?? 0;
+      if (
+        scroller.matches(':focus-visible') &&
+        scroller.getBoundingClientRect().top < header
+      )
+        scroller.scrollIntoView({ block: 'start' });
+    });
   }
 
   if (figure) {
