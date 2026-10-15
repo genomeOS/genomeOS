@@ -9,7 +9,9 @@
  *   attached for the visual review.
  * - The story starts only once 35% of the figure shows; off screen every animation pauses; the
  *   Pause toggle is sticky and Replay starts over.
- * - Above the fold it never paints its last frame and then empties (spec §2.7 rule 5).
+ * - Above the fold it never paints its last frame and then empties (spec §2.7 rule 5), and a page
+ *   that arrives too late to arm keeps that last frame through the build, frame by frame.
+ * - A layout switch paints only the moment on screen: never an empty stage, never the last frame.
  * - Reduced motion: no animation at all, every word in full, the story's last frame; phones add
  *   a close-up of each moon above its text.
  * - Phones: the camera closes in on each landing. Tablets: their own layout.
