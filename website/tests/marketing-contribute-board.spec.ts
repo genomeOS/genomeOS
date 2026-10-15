@@ -504,6 +504,87 @@ for (const width of [1024, 1100, 1152, 1280, 1440]) {
       }
     });
 
+    // Review of T5 round 3: a bubble scales from its tail with an overshoot, so an edge far from
+    // the tail swung 9–13 px past In review's borders for about 100 ms at 1,152 and 1,280 px.
+    // Every 10 ms through each bubble's pop, read from its own story track, no bubble crosses.
+    test('keeps every speech bubble inside its speaker’s column while it pops', async ({
+      page,
+    }) => {
+      await openBoard(page);
+      const pops = await page.evaluate((selector) => {
+        const svg = document.querySelector(`${selector} .floor-svg--live`)!;
+        return [...svg.querySelectorAll('.bubble-pop')].flatMap((pop) =>
+          pop.getAnimations().flatMap((animation): [number, number][] => {
+            const effect = animation.effect as KeyframeEffect;
+            if (effect.getTiming().iterations !== 1) return [];
+            const length = Number(effect.getComputedTiming().duration);
+            const frames = effect.getKeyframes();
+            const at = frames.findIndex(
+              (frame, index) =>
+                frame.transform === 'scale(0)' &&
+                frames[index + 1]?.transform === 'scale(1)',
+            );
+            return at < 0
+              ? []
+              : [
+                  [
+                    Number(frames[at].computedOffset) * length,
+                    Number(frames[at + 1].computedOffset) * length,
+                  ],
+                ];
+          }),
+        );
+      }, BOARD);
+      expect(pops.length).toBeGreaterThanOrEqual(SAYS.length);
+      const crossings = await page.evaluate(
+        async ([selector, windows]) => {
+          const figure = document.querySelector<HTMLElement>(selector)!;
+          const svg = figure.querySelector('.floor-svg--live')!;
+          const columns = [...figure.querySelectorAll('[data-col]')].map(
+            (column) => column.getBoundingClientRect(),
+          );
+          const found: string[] = [];
+          for (const [from, to] of windows)
+            for (let t = Math.floor(from); t <= to + 10; t += 10) {
+              await window.__motion!.seek('board', t);
+              for (const bubble of svg.querySelectorAll<SVGGElement>(
+                '.bubble',
+              )) {
+                if (
+                  !bubble.checkVisibility({
+                    opacityProperty: true,
+                    visibilityProperty: true,
+                  })
+                )
+                  continue;
+                const body = bubble.querySelector<SVGPathElement>('path')!;
+                const [, tx, ty] = /L(-?[\d.]+) (-?[\d.]+)/.exec(
+                  body.getAttribute('d')!,
+                )!;
+                const tip = new DOMPoint(
+                  Number(tx),
+                  Number(ty),
+                ).matrixTransform(body.getScreenCTM()!);
+                const box = body.getBoundingClientRect();
+                const column = columns.find(
+                  (edges) => tip.x >= edges.left && tip.x <= edges.right,
+                );
+                const inside = column
+                  ? Math.min(box.left - column.left, column.right - box.right)
+                  : -999;
+                if (inside < 0)
+                  found.push(
+                    `“${bubble.textContent!.replace(/\s+/g, ' ').trim()}” ${inside.toFixed(1)} px at ${t} ms`,
+                  );
+              }
+            }
+          return found;
+        },
+        [BOARD, pops] as const,
+      );
+      expect(crossings).toEqual([]);
+    });
+
     test('keeps every speech bubble inside its speaker’s column, its tail on the helmet', async ({
       page,
     }) => {

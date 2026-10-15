@@ -56,6 +56,9 @@ const BLINK_LOOP: Record<(typeof CAST_BOARD)[number], number> = {
   E2: 6100,
 };
 
+/** How far EASE.back overshoots its end (cubic-bezier(0.3, 1.6, 0.55, 1) peaks at 1.111). */
+const POP_OVERSHOOT = 0.111;
+
 export function initBoard(figure: HTMLElement): void {
   const scroller = figure.querySelector<HTMLElement>('.gh-scroll')!;
   const pan = figure.querySelector<HTMLElement>('.gh-pan')!;
@@ -74,6 +77,29 @@ export function initBoard(figure: HTMLElement): void {
 
   let geo: Geo;
   let P: Plan;
+
+  /**
+   * A bubble pops with its overshoot only where the overshoot stays inside its speaker's column:
+   * it scales about its tail, so an edge far from the tail swings out by up to 11% of its distance,
+   * past the BUBBLE_INSET kept at rest (review of T5 round 3: 9–13 px over In review's borders at
+   * 1,152 and 1,280 px). Closer to a border, it pops without one. Measured before its tracks exist.
+   */
+  const popsClear = (pop: SVGGElement | null): boolean => {
+    if (!pop) return true;
+    const box = pop.getBoundingClientRect();
+    const middle = box.left + box.width / 2;
+    const column = columns
+      .map((element) => element.getBoundingClientRect())
+      .find((rect) => rect.left <= middle && middle <= rect.right);
+    if (!column || box.width === 0) return true;
+    const share = parseFloat(pop.style.transformOrigin) / 100;
+    const origin =
+      box.left + (Number.isFinite(share) ? share : 0.5) * box.width;
+    return (
+      (origin - box.left) * POP_OVERSHOOT <= box.left - column.left &&
+      (box.right - origin) * POP_OVERSHOOT <= column.right - box.right
+    );
+  };
 
   /** The board as it is laid out now: the floor band spans the track, columns relative to it;
    * narrow desktop columns draw the floor smaller (board-layout.ts `sceneScale`). */
@@ -145,9 +171,10 @@ export function initBoard(figure: HTMLElement): void {
         [said.t1 - 200, { opacity: 1 }, EASE.out],
         [said.t1, { opacity: 0 }],
       ]);
-      tl.story(bubble?.querySelector('.bubble-pop') ?? null, [
+      const pop = bubble?.querySelector<SVGGElement>('.bubble-pop') ?? null;
+      tl.story(pop, [
         [0, 'scale(0)'],
-        [said.t0, 'scale(0)', EASE.back],
+        [said.t0, 'scale(0)', popsClear(pop) ? EASE.back : EASE.out],
         [said.t0 + 280, 'scale(1)'],
       ]);
     }
