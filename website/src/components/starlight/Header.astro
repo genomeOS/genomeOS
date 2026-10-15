@@ -7,10 +7,11 @@
  * (whose footer carries the social icons), so the repository is one click away at every width.
  *
  * The Atlas link is the site header's pill (design critique of the integrated build: the docs bar
- * had a plain outline with no globe, no arrow and no glow): the same markup as SiteHeader.astro's
- * .launch-atlas-cta, a black pill in an aurora rim with the globe and the arrow, and its aurora
- * held still where the site's comes to rest (no motion on the docs), in the site's compact form
- * where the nav first shows (72em to 87rem), as the site sets it there. The phone bar's menu is the
+ * had a plain outline with no globe, no arrow and no glow): SiteHeader.astro's .launch-atlas-cta,
+ * a black pill in an aurora rim with a globe and the arrow, its aurora's glow held still where the
+ * site's comes to rest (no motion on the docs), in the site's compact form where room is short.
+ * The globe is the kit's line globe, inline, not the favicon artwork (a 6 KB image past the docs'
+ * budget). The phone bar's menu is the
  * site's "Menu +" (MobileMenuToggle.astro).
  *
  * Design review, round 2: it reads in the site header's order and type, so going from a site page
@@ -48,7 +49,7 @@ import GitHubLink from '../GitHubLink.astro';
 import ThemeSelect from './ThemeSelect.astro';
 import EncodingStyle from '../kit/EncodingStyle.astro';
 import { PRIMARY_NAV } from '../../data/nav';
-import { FAVICON_SVG } from '../../lib/favicons';
+import { ICON_PATHS } from '../kit/icons';
 import { sitePath } from '../../lib/paths';
 import '../../styles/tokens.css';
 ---
@@ -88,13 +89,14 @@ import '../../styles/tokens.css';
     <ThemeSelect place="header" />
   </div>
   <a class="docs-header__atlas print:hidden" href={sitePath('/app/')}>
-    <img
+    <svg
       class="docs-header__atlas-mark"
-      src={sitePath(FAVICON_SVG)}
-      alt=""
-      width="22"
-      height="22"
-    />
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d={ICON_PATHS.globe}></path>
+    </svg>
     <span class="docs-header__atlas-label">
       <span class="brand-name">genomeOS</span> Atlas
     </span>
@@ -261,10 +263,18 @@ import '../../styles/tokens.css';
         0.6rem 0 1.3rem -0.1rem rgb(138 92 255 / 55%);
     }
 
+    /* The kit's line globe in ion, drawn inline: the site pill's favicon artwork would add a 6 KB
+       image to every docs page, past the docs' budget (spec §7: Starlight's baseline plus the
+       theme's CSS). */
     .docs-header__atlas-mark {
       flex: none;
       width: 1.2rem;
       height: 1.2rem;
+      fill: none;
+      stroke: #70e6ff;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1.7;
     }
 
     .docs-header__atlas-label .brand-name {
@@ -307,7 +317,8 @@ import '../../styles/tokens.css';
         background: Canvas;
       }
 
-      .docs-header__atlas-arrow {
+      .docs-header__atlas-arrow,
+      .docs-header__atlas-mark {
         stroke: ButtonText;
       }
     }
