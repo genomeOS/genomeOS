@@ -1,7 +1,7 @@
 /**
- * The Contact page's address (Contact page spec §2): stored as parts that are joined only when a
- * visitor asks for it, so no source file, served page or script holds it whole. The expected
- * address is built here from its parts, at run time, for the same reason.
+ * The Contact page's address (Contact page spec §2): stored as parts that only the browser joins,
+ * so no source file, served page or script holds it whole. The expected address is built here
+ * from its parts, at run time, for the same reason.
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';

@@ -6,10 +6,12 @@
  * - otherwise: once every figure has been scrolled into view and 6.5 s have passed, nothing runs
  *   but the named exceptions of round 2 spec §2.3, each marked `data-motion-exception` (the
  *   genomeOS Atlas pill's aurora, Home's hero film, the Atlas preview's rotation, Contribute's
- *   orbit and board loops), and no animation frame is scheduled where the test ends. Each
- *   exception stops off screen, in a hidden tab and on its Pause; scroll-driven animations (the
- *   hero's scroll fade) are not counted: they move only while the visitor scrolls, and never
- *   under reduced motion;
+ *   orbit and board loops), and no animation frame is scheduled where the test ends. The pill
+ *   runs always (round 1); every other exception is exempt only while its conditions hold: in the
+ *   viewport, in a visible tab, its own Pause not pressed. Off screen, hidden or paused, its subtree
+ *   rests like everything else, and with the tab hidden nothing runs but the pill. Scroll-driven
+ *   animations (the hero's scroll fade) are not counted: they move only while the visitor
+ *   scrolls, and never under reduced motion;
  * - pressing every visible Pause leaves nothing running 6.5 s later but the Atlas pill's aurora,
  *   and no frame scheduled (WCAG 2.2.2);
  * - a figure scrolled offscreen in the middle of its entrance stops scheduling frames;
@@ -58,19 +60,76 @@ const frames = (page: Page) =>
     pending: window.__frames?.pending.size ?? 0,
   }));
 
-/** The Atlas pill's aurora: the one motion that never rests (round 1). */
-const PILL = '[data-motion-exception="launch-atlas-cta"]';
-/** Every named exception of round 2 spec §2.3 (pill, hero film, preview, orbit, board). */
-const EXCEPTIONS = '[data-motion-exception]';
+/**
+ * Round 2 spec §2.3's named exceptions, by their `data-motion-exception` name, each with the Pause
+ * control that stops it (pressed: `aria-pressed="true"` or `data-state="paused"`). The Atlas pill's
+ * aurora runs always (round 1) and has none.
+ */
+const EXCEPTIONS: Readonly<Record<string, string | null>> = {
+  'launch-atlas-cta': null,
+  'hero-film': '[data-video-toggle]',
+  'atlas-preview': '[data-spin-toggle]',
+  orbit: '[data-scene-toggle]',
+  board: '[data-scene-toggle]',
+};
+
+/** Marked exceptions that §2.3 does not name, or that lack their Pause control. */
+const exceptionProblems = (page: Page) =>
+  page.evaluate(
+    (table) =>
+      [
+        ...document.querySelectorAll<HTMLElement>('[data-motion-exception]'),
+      ].flatMap((root) => {
+        const name = root.dataset.motionException ?? '';
+        if (!(name in table))
+          return [`"${name}" is not one of round 2 spec §2.3's exceptions`];
+        const pause = table[name];
+        return pause && !root.querySelector(pause)
+          ? [`${name} has no Pause control (${pause})`]
+          : [];
+      }),
+    EXCEPTIONS,
+  );
 
 /**
- * Running animations and transitions, leaving out those inside `exempt` and, unless
+ * Running animations and transitions, leaving out those in an exempt subtree and, unless
  * `scrollLinked`, animations on a scroll or view timeline (they move only while the page scrolls).
+ * `exempt: 'pill'` leaves out the Atlas pill alone; `'allowed'` also every other exception allowed
+ * to move at this instant: in the viewport, in a visible tab, its Pause not pressed.
  */
-const running = (page: Page, scrollLinked = false, exempt = PILL) =>
+const running = (
+  page: Page,
+  {
+    scrollLinked = false,
+    exempt = 'pill',
+  }: { scrollLinked?: boolean; exempt?: 'pill' | 'allowed' } = {},
+) =>
   page.evaluate(
-    ([countScrollLinked, exemptSelector]) =>
-      document
+    ([countScrollLinked, mode, table]) => {
+      const allowed = [
+        ...document.querySelectorAll<HTMLElement>('[data-motion-exception]'),
+      ].filter((root) => {
+        const name = root.dataset.motionException ?? '';
+        if (!(name in table)) return false;
+        const pause = table[name];
+        if (pause === null) return true; // the pill: always
+        if (mode === 'pill') return false;
+        const control = root.querySelector<HTMLElement>(pause);
+        if (!control) return false;
+        const box = root.getBoundingClientRect();
+        const inView =
+          box.width > 0 &&
+          box.height > 0 &&
+          box.bottom > 0 &&
+          box.right > 0 &&
+          box.top < innerHeight &&
+          box.left < innerWidth;
+        const paused =
+          control.getAttribute('aria-pressed') === 'true' ||
+          control.dataset.state === 'paused';
+        return inView && document.visibilityState === 'visible' && !paused;
+      });
+      return document
         .getAnimations()
         .filter((animation) => animation.playState === 'running')
         .filter(
@@ -79,7 +138,10 @@ const running = (page: Page, scrollLinked = false, exempt = PILL) =>
         )
         .filter((animation) => {
           const target = (animation.effect as KeyframeEffect | null)?.target;
-          return !(target instanceof Element && target.closest(exemptSelector));
+          return !(
+            target instanceof Element &&
+            allowed.some((root) => root.contains(target))
+          );
         })
         .map((animation) => {
           const target = (animation.effect as KeyframeEffect | null)?.target;
@@ -89,10 +151,25 @@ const running = (page: Page, scrollLinked = false, exempt = PILL) =>
               : animation instanceof CSSTransition
                 ? animation.transitionProperty
                 : 'script';
-          return `${name} on ${target instanceof Element ? target.className || target.localName : '?'}`;
-        }),
-    [scrollLinked, exempt] as const,
+          return `${name} on ${target instanceof Element ? target.getAttribute('class') || target.localName : '?'}`;
+        });
+    },
+    [scrollLinked, exempt, EXCEPTIONS] as const,
   );
+
+/** The tab hidden, as a browser reports it: both properties, then the event. */
+const hideTab = (page: Page) =>
+  page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      get: () => true,
+    });
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => 'hidden',
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
 
 async function expectFramesStop(page: Page, label: string): Promise<void> {
   const before = await frames(page);
@@ -110,7 +187,7 @@ for (const manifest of pageManifests) {
     await openManifestPage(page, manifest);
     await page.waitForTimeout(1200);
     // Under reduced motion nothing is linked to the scroll either.
-    expect(await running(page, true)).toEqual([]);
+    expect(await running(page, { scrollLinked: true })).toEqual([]);
     const states = await page.evaluate(() =>
       [...document.querySelectorAll<HTMLElement>('[data-figure-state]')].map(
         (figure) => `${figure.dataset.graphic}: ${figure.dataset.figureState}`,
@@ -142,7 +219,8 @@ for (const manifest of pageManifests) {
       await page.waitForTimeout(400);
     }
     await page.waitForTimeout(6500);
-    expect(await running(page, false, EXCEPTIONS)).toEqual([]);
+    expect(await exceptionProblems(page), 'the marked exceptions').toEqual([]);
+    expect(await running(page, { exempt: 'allowed' })).toEqual([]);
     await expectFramesStop(page, 'after rest');
     // A figure that schedules nothing can still be stuck mid-entrance (the FigureController race
     // the page tasks worked around): every figure scrolled to above must have reached rest.
@@ -159,6 +237,14 @@ for (const manifest of pageManifests) {
         ),
     );
     for (const state of states) expect(state).toMatch(/: rest$/);
+    // A hidden tab stops every exception but the pill.
+    await hideTab(page);
+    await page.waitForTimeout(400);
+    expect(
+      await running(page, { exempt: 'allowed' }),
+      'in a hidden tab',
+    ).toEqual([]);
+    await expectFramesStop(page, 'in a hidden tab');
   });
 
   test(`${manifest.route} rests on every Pause, but for the Atlas pill`, async ({

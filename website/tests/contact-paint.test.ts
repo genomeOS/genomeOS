@@ -1,19 +1,22 @@
 /**
- * The Contact page's pre-paint script (Contact page spec §2, §3.1): it shows the composer and
- * applies a `?topic=…&offer=…` preselect before the first paint. It repeats `parseQuery`'s rule in
- * plain ES5, so every case here runs it against a fake page and compares it with `parseQuery`
- * and the draft builder's own wording: the two cannot drift. At `load`, a composer the island never
- * marked ready goes back to the no-JavaScript page: hidden, with the address spelled out.
+ * The Contact page's pre-paint script (Contact page spec §2, §3.1): before the first paint it shows
+ * the address with Email us and the composer, writes the address, joined from its parts, and
+ * applies a `?topic=…&offer=…` preselect. It repeats `parseQuery`'s rule in plain ES5, so every
+ * case here runs it against a fake page and compares it with `parseQuery` and the draft builder's
+ * own wording: the two cannot drift. At `load`, a page the island never marked ready goes back to
+ * the no-JavaScript page: hidden, with the address spelled out instead of written.
  */
 import { runInNewContext } from 'node:vm';
 
 import { describe, expect, it } from 'vitest';
 
 import {
+  contactDirectScript,
   contactPaintScript,
   offerWording,
   TOPIC_INPUT,
 } from '../src/components/contact/contact-paint';
+import { contactAddress } from '../src/lib/contact-address';
 import {
   OFFERS,
   TOPICS,
@@ -23,10 +26,16 @@ import {
   subjectSuffix,
 } from '../src/lib/contact-draft';
 
-const SCRIPT = contactPaintScript('contact-composer');
+/** Both inline scripts, in the page's order: the address's, then the composer's. */
+const SCRIPT = `${contactDirectScript()}\n${contactPaintScript('contact-composer')}`;
 
 interface Painted {
   hidden: boolean;
+  /** Whether the address with Email us is hidden. */
+  directHidden: boolean;
+  /** The address as written into each of its places (the line, the letter's To). */
+  addresses: string[];
+  revealed: boolean;
   /** Whether the spelled-out address line is hidden, after `load`. */
   fallbackHidden: boolean;
   topic?: string;
@@ -44,6 +53,9 @@ interface Painted {
 function paint(search: string, { islandRan = true } = {}): Painted {
   const painted: Painted = {
     hidden: true,
+    directHidden: true,
+    addresses: [],
+    revealed: false,
     fallbackHidden: true,
     checked: [],
     pressed: {},
@@ -55,6 +67,20 @@ function paint(search: string, { islandRan = true } = {}): Painted {
       painted.fallbackHidden = value;
     },
   };
+  const direct = {
+    set hidden(value: boolean) {
+      painted.directHidden = value;
+    },
+  };
+  // The address line, then the letter's To.
+  const places = ['[data-address]', '[data-to-address]'].map(
+    (selector, index) => ({
+      selector,
+      set textContent(text: string) {
+        painted.addresses[index] = text;
+      },
+    }),
+  );
   const radios = TOPICS.map((value) => ({
     value,
     set checked(on: boolean) {
@@ -84,6 +110,9 @@ function paint(search: string, { islandRan = true } = {}): Painted {
     setAttribute: (name: string, value: string) => {
       attributes[name] = value;
     },
+    removeAttribute: (name: string) => {
+      delete attributes[name];
+    },
     hasAttribute: (name: string) => name in attributes,
     querySelector: (selector: string) => {
       const radio = selector.match(
@@ -101,7 +130,13 @@ function paint(search: string, { islandRan = true } = {}): Painted {
     document: {
       getElementById: (id: string) => (id === 'contact-composer' ? root : null),
       querySelector: (selector: string) =>
-        selector === '[data-contact-fallback]' ? fallback : null,
+        selector === '[data-contact-fallback]'
+          ? fallback
+          : selector === '[data-contact-direct]'
+            ? direct
+            : null,
+      querySelectorAll: (selector: string) =>
+        places.filter((place) => selector.split(', ').includes(place.selector)),
     },
     window: {
       addEventListener: (type: string, listener: () => void) => {
@@ -118,6 +153,7 @@ function paint(search: string, { islandRan = true } = {}): Painted {
   // The island marks the composer ready before `load`, when it runs at all.
   if (islandRan) attributes['data-ready'] = '';
   for (const listener of onLoad) listener();
+  painted.revealed = 'data-revealed' in attributes;
   return painted;
 }
 
@@ -139,16 +175,27 @@ const QUERIES = [
 ];
 
 describe('the pre-paint composer script', () => {
-  it('shows the composer that the page renders hidden for visitors without JavaScript', () => {
+  it('shows the address with Email us and the composer, which the page renders hidden for visitors without JavaScript', () => {
     expect(paint('').hidden).toBe(false);
+    expect(paint('').directHidden).toBe(false);
     expect(paint('?topic=report').hidden).toBe(false);
     expect(paint('').fallbackHidden).toBe(true);
+  });
+
+  it('writes the address, joined from its parts, into the line and the letter before the first paint', () => {
+    const painted = paint('');
+    expect(painted.addresses).toEqual([contactAddress(), contactAddress()]);
+    expect(painted.revealed).toBe(true);
   });
 
   it('goes back to the spelled-out address at load if the island never ran', () => {
     const painted = paint('?topic=contribute&offer=data', { islandRan: false });
     expect(painted.hidden).toBe(true);
+    expect(painted.directHidden).toBe(true);
     expect(painted.fallbackHidden).toBe(false);
+    // The joined address leaves the page with them.
+    expect(painted.addresses).toEqual(['', '']);
+    expect(painted.revealed).toBe(false);
   });
 
   it.each(QUERIES)('agrees with parseQuery on "%s"', (search) => {
