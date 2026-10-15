@@ -66,9 +66,36 @@ interface Beats {
 
 /* ------------------------------------------------------------------------------- the scene */
 
-function animate(svg: SVGSVGElement, tl: Timeline, L: OrbitLayout): void {
-  const S = (selector: string) => svg.querySelector(selector);
+/**
+ * The scene's art on one layout, in two parts that share the crews' beats. `sky` is what a visitor
+ * watches move: the globe, the moons on their orbits with their labels and icons, the pods landing
+ * and the crews leaping out (about a quarter of the tracks). `crews` is the crews' poses, walks and
+ * work, most of the scene. The two touch no element in common, so creating the sky first keeps
+ * every element's tracks in their order; a layout switch does (initOrbit `relayout`).
+ */
+function art(
+  svg: SVGSVGElement,
+  L: OrbitLayout,
+): { sky(tl: Timeline): void; crews(tl: Timeline): void } {
   const beats: Beats = { story: new Map(), travel: new Map() };
+  const moon = (kind: MoonKind) =>
+    svg.querySelector<SVGGElement>(`.orbiter--moon[data-moon="${kind}"]`)!;
+  return {
+    sky: (tl) => sky(svg, tl, L, beats),
+    crews: (tl) => {
+      for (const kind of KINDS)
+        activity(tl, moon(kind), kind, L.r[kind], L, beats);
+    },
+  };
+}
+
+function sky(
+  svg: SVGSVGElement,
+  tl: Timeline,
+  L: OrbitLayout,
+  beats: Beats,
+): void {
+  const S = (selector: string) => svg.querySelector(selector);
 
   // The orbit: ambient, from 0 forever, one revolution in 30 loops.
   svg.querySelectorAll<SVGGElement>('.orbiter').forEach((g) => {
@@ -176,7 +203,6 @@ function animate(svg: SVGSVGElement, tl: Timeline, L: OrbitLayout): void {
     ]);
     iconMotion(tl, m, kind, t0 + 600);
     landing(tl, m, kind, r, L, beats);
-    activity(tl, m, kind, r, L, beats);
   }
 }
 
@@ -1000,6 +1026,14 @@ function columnTracks(tl: Timeline, figure: HTMLElement): void {
 
 /* ------------------------------------------------------------------------------------ init */
 
+/** The next idle moment (as the timeline's commit waits for one), or the next task. */
+const idle = (): Promise<void> =>
+  new Promise((resolve) => {
+    if (typeof requestIdleCallback === 'function')
+      requestIdleCallback(() => resolve(), { timeout: 120 });
+    else setTimeout(resolve, 0);
+  });
+
 /** The layout drawn now: the one SVG the stage's container query shows. */
 const drawnSvg = (figure: HTMLElement) =>
   [...figure.querySelectorAll<SVGSVGElement>('.orbit-svg')].find(
@@ -1015,22 +1049,39 @@ export function initOrbit(figure: HTMLElement): SceneController {
   const box = figure.getBoundingClientRect();
   const rest = !armed && box.top < innerHeight && box.bottom > 0;
   let builtFor: LayoutId | null = null;
-  const build = (tl: Timeline) => {
+  /** Never leave the stage armed and empty if building throws: the last frame stands. */
+  const guard = (queue: () => void) => {
     try {
-      const svg = drawnSvg(figure);
-      if (svg) {
-        builtFor = svg.dataset.layout as LayoutId;
-        const L = LAYOUTS[builtFor];
-        animate(svg, tl, L);
-        if (L.id === 'phone') cameraTracks(tl, svg, L);
-      }
-      columnTracks(tl, figure);
+      queue();
     } catch (error) {
-      // Never leave the stage armed and empty: the last frame stands.
       document.documentElement.removeAttribute('data-arm-orbit');
       figure.removeAttribute('data-orbit-loading');
       throw error;
     }
+  };
+  /**
+   * Queue the scene's tracks on the layout drawn now, in art's two parts: the sky with the phone's
+   * camera and the text columns at once, and the crews from the function returned. A caller that
+   * has just cancelled the tracks passes the SVG it found before: looking again would force a
+   * style and layout pass over every element they had animated.
+   */
+  const build = (
+    tl: Timeline,
+    svg = drawnSvg(figure),
+  ): ((tl: Timeline) => void) => {
+    let crews: (tl: Timeline) => void = () => {};
+    guard(() => {
+      if (svg) {
+        builtFor = svg.dataset.layout as LayoutId;
+        const L = LAYOUTS[builtFor];
+        const scene = art(svg, L);
+        scene.sky(tl);
+        if (L.id === 'phone') cameraTracks(tl, svg, L);
+        crews = (next) => guard(() => scene.crews(next));
+      }
+      columnTracks(tl, figure);
+    });
+    return crews;
   };
   // The timeline creates each idle chunk of tracks at its own time, and a chunk is painted
   // before the next is made. Resting, that time must be the story's end from the first chunk on:
@@ -1038,7 +1089,7 @@ export function initOrbit(figure: HTMLElement): SceneController {
   // seek below (review of T4 round 2, finding 1).
   const first = (tl: Timeline) => {
     if (rest) tl.seek(T.story);
-    build(tl);
+    build(tl)(tl);
   };
   const controller = sceneController(figure, first, {
     name: 'orbit',
@@ -1083,7 +1134,16 @@ export function initOrbit(figure: HTMLElement): SceneController {
     // creates each chunk at it: hold the clock at now first, or the new layout's tracks would
     // paint the story's start until the seek after the commit (review of T4 round 2, finding 2).
     tl.seek(time);
-    build(tl);
+    // Until its tracks exist, the newly drawn layout paints its server markup (the last frame),
+    // and the columns theirs (every word typed), and commit() makes the tracks in idle chunks, a
+    // paint apart. So the sky, the camera and the columns (about a quarter of the tracks) are
+    // queued and made at once, in this task, before that first paint: a seek creates whatever is
+    // queued. The crews' poses, walks and work, most of the work, are worked out in a task of
+    // their own and made in the chunks, so no task runs long (spec §7).
+    const crews = build(tl, svg);
+    tl.seek(time);
+    await idle();
+    crews(tl);
     await tl.commit();
     tl.seek(time);
     rebuilding = false;

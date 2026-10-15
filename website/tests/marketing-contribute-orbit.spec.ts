@@ -48,6 +48,10 @@ interface OrbitFrame {
   globe: number;
   /** Which moons show. */
   moons: Record<(typeof KINDS)[number], boolean>;
+  /** Data's moon centre, in the drawn layout's viewBox units. */
+  data: { x: number; y: number };
+  /** The UI column: its dimming (1 waiting, 0 lit) and the characters typed of its first line. */
+  ui: { wait: number; typed: number };
 }
 
 declare global {
@@ -59,35 +63,61 @@ declare global {
 
 /**
  * Record every frame of the drawn layout for `ms` ms (into `window.__orbitFrames`): an init
- * script, or evaluated in a running page. Self-contained, as both need.
+ * script, or evaluated in a running page. Self-contained, as both need. Each frame is read just
+ * after it is painted, not in its animation-frame callback: those run before the frame's resize
+ * observers, where the scene rebuilds on a layout switch, so they would read a state never painted.
+ * A message posted from the callback arrives once the frame is rendered; if the viewport changed in
+ * between, reading would lay out a frame not yet painted, so that one is skipped.
  */
 function recordFrames(ms: number) {
   const frames: OrbitFrame[] = [];
   window.__orbitFrames = frames;
   const until = performance.now() + ms;
+  const painted = new MessageChannel();
+  const next = () =>
+    requestAnimationFrame(() =>
+      painted.port2.postMessage(`${innerWidth}x${innerHeight}`),
+    );
+  painted.port1.onmessage = ({ data }) => {
+    if (data === `${innerWidth}x${innerHeight}`) sample();
+    if (performance.now() < until) next();
+  };
   const sample = () => {
     const figure = document.querySelector('[data-graphic="orbit"]');
     const svg = [
       ...(figure?.querySelectorAll<SVGSVGElement>('.orbit-svg') ?? []),
     ].find((item) => item.getClientRects().length > 0);
     const globe = svg?.querySelector('.globe');
-    const shown = (kind: string) =>
-      (svg
+    const disc = (kind: string) =>
+      svg
         ?.querySelector(
           `.orbiter--moon[data-moon="${kind}"] .moon > circle:nth-of-type(2)`,
         )
-        ?.getBoundingClientRect().width ?? 0) > 2;
-    if (figure && svg && globe)
+        ?.getBoundingClientRect();
+    const shown = (kind: string) => (disc(kind)?.width ?? 0) > 2;
+    const column = figure?.querySelector('#group-ui');
+    const twin = column?.querySelector('.typed');
+    if (figure && svg && globe && column && twin) {
+      const box = svg.getBoundingClientRect();
+      const data = disc('data')!;
+      const k = svg.viewBox.baseVal.width / box.width;
+      const value = (element: Element, name: string) =>
+        Number(getComputedStyle(element).getPropertyValue(name));
       frames.push({
         layout: svg.dataset.layout ?? null,
         armed: document.documentElement.hasAttribute('data-arm-orbit'),
         state: figure.getAttribute('data-scene-state'),
         globe: Math.round(Number(getComputedStyle(globe).opacity) * 100) / 100,
         moons: { data: shown('data'), model: shown('model'), ui: shown('ui') },
+        data: {
+          x: Math.round((data.x + data.width / 2 - box.x) * k * 10) / 10,
+          y: Math.round((data.y + data.height / 2 - box.y) * k * 10) / 10,
+        },
+        ui: { wait: value(column, '--orbit-wait'), typed: value(twin, '--n') },
       });
-    if (performance.now() < until) requestAnimationFrame(sample);
+    }
   };
-  requestAnimationFrame(sample);
+  next();
 }
 
 async function seek(page: Page, ms: number) {
@@ -779,32 +809,75 @@ test.describe('the orbit scene @desktop-chromium', () => {
     expect(await look()).toMatchObject({ state: 'paused', running: 0 });
   });
 
-  test('never blanks the moment on screen while it switches layout', async ({
+  test('paints only the moment on screen while it switches layout', async ({
     page,
   }) => {
-    // Review of T4 round 2, finding 2: the newly drawn layout's tracks were created at the
-    // story's start, so a switch painted an empty stage for a few frames. Played (not sought) a
-    // few seconds in, the globe is up and Data's moon has arrived.
+    // Review of T4 round 2, finding 2: a switch rebuilds the tracks on the newly drawn layout,
+    // and until they exist it paints whatever it holds. It must hold the moment on screen, never
+    // the story's start (an empty stage) or the server's last frame (every moon, every column
+    // typed).
     await openOrbit(page);
     const figure = page.locator(FIGURE);
     await figure.evaluate((element) =>
       element.scrollIntoView({ block: 'center', behavior: 'instant' }),
     );
     await expect(figure).toHaveAttribute('data-scene-state', 'playing');
+    const tablet = async () =>
+      (await page.evaluate(() => window.__orbitFrames ?? [])).filter(
+        (frame) => frame.layout === 'tablet',
+      );
+
+    // In the story, played (not sought): a few seconds in, the globe is up and only Data's moon
+    // has arrived; the UI column still waits, nothing typed.
     await expect
       .poll(() => page.evaluate(() => window.__motion!.time('orbit')))
       .toBeGreaterThan(T.dataMoon + 1500);
     await page.evaluate(recordFrames, 2500);
     await page.setViewportSize({ width: 900, height: 1000 });
     await page.waitForTimeout(2600);
-    const frames = (
-      await page.evaluate(() => window.__orbitFrames ?? [])
-    ).filter((frame) => frame.layout === 'tablet');
+    let frames = await tablet();
     expect(frames.length).toBeGreaterThan(5);
     expect(
-      frames.filter((frame) => frame.globe !== 1 || !frame.moons.data),
+      frames.filter(
+        (frame) =>
+          frame.globe !== 1 ||
+          JSON.stringify(frame.moons) !==
+            JSON.stringify({ data: true, model: false, ui: false }) ||
+          frame.ui.wait !== 1 ||
+          frame.ui.typed !== 0,
+      ),
     ).toEqual([]);
     await expect(figure).toHaveAttribute('data-scene-state', 'playing');
+
+    // In the idle loops, the moons keep to their orbits: Data's moon never jumps to its resting
+    // place and back (the orbit moves it about 0.1 viewBox units a frame).
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await seek(page, 60000);
+    // Sought, the scene is paused (its toggle pressed): press again to play.
+    const toggle = page.getByRole('button', {
+      name: 'Pause the orbit animation',
+    });
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await toggle.click();
+    await expect(figure).toHaveAttribute('data-scene-state', 'playing');
+    await page.waitForTimeout(1000);
+    await page.evaluate(recordFrames, 2000);
+    await page.setViewportSize({ width: 900, height: 1000 });
+    await page.waitForTimeout(2100);
+    frames = await tablet();
+    expect(frames.length).toBeGreaterThan(5);
+    const jumps = frames
+      .slice(1)
+      .map((frame, i) => ({
+        from: frames[i].data,
+        to: frame.data,
+        by: Math.hypot(
+          frame.data.x - frames[i].data.x,
+          frame.data.y - frames[i].data.y,
+        ),
+      }))
+      .filter((step) => step.by > 3);
+    expect(jumps).toEqual([]);
   });
 
   test('takes its own layout on a tablet, labels at 13 px or more', async ({
