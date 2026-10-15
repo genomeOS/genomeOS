@@ -788,8 +788,18 @@ svg {
   color: var(--color-starlight);
   text-decoration: none;
 }
+/* 44 px touch targets (WCAG 2.5.8 asks 24; design critique 3), made of padding that takes no room:
+ * a link's own padding, as it is inline, and GitHub's, taken back by its margins. Every label
+ * stays where it was. */
+.mobile-nav li > a {
+  padding-block: 0.6rem;
+}
+.mobile-nav .github-link {
+  margin-block: -0.4rem;
+  padding-block: 0.4rem;
+}
 /* The current page, marked as the docs sidebar marks it: ion, with a square side rule at the
- * panel's inner edge (the desktop nav brightens it instead). */
+ * panel's inner edge (the desktop nav brightens it instead), 0.2rem beyond the label's glyphs. */
 .mobile-nav a[aria-current='page'] {
   position: relative;
   color: var(--color-ion);
@@ -797,8 +807,8 @@ svg {
 .mobile-nav a[aria-current='page']::before {
   content: '';
   position: absolute;
-  top: -0.2rem;
-  bottom: -0.2rem;
+  top: calc(0.6rem - 0.2rem);
+  bottom: calc(0.6rem - 0.2rem);
   left: -1.2rem;
   border-left: 3px solid var(--color-ion);
 }
@@ -867,6 +877,17 @@ svg {
   .site-footer__inner {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+/* Too narrow for the footer's three links on one row (about 304 px): one column, never one link
+ * above two (design critique 3, m-5). The markup stays, so Contact keeps out of the Site policies
+ * nav. */
+@media (max-width: 22rem) {
+  .site-footer__links-row,
+  .site-footer__links {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 
