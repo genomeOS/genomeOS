@@ -961,6 +961,49 @@ test.describe('the letter is set like a letter', () => {
   });
 });
 
+// Design critique 3: the spacing of the page's own parts.
+test.describe('the page keeps the site’s spacing', () => {
+  const VIEWPORTS = [
+    [1440, 900],
+    [1024, 768],
+    [390, 844],
+  ] as const;
+
+  // m-1: the whole page is its intro, which ended on its own bottom padding, 42 to 68 px.
+  test('it ends on a band’s padding above the footer, as every other page does', async ({
+    page,
+  }) => {
+    for (const [width, height] of VIEWPORTS) {
+      await page.setViewportSize({ width, height });
+      await page.goto('/contact/');
+      await page.evaluate(() => document.fonts.ready);
+      const end = await page.evaluate(() => {
+        const probe = document.createElement('div');
+        probe.style.paddingTop = 'var(--band-pad)';
+        document.body.append(probe);
+        const band = Number.parseFloat(getComputedStyle(probe).paddingTop);
+        probe.remove();
+        const last = Math.max(
+          ...[
+            ...document.querySelectorAll('.contact-letter, .contact-problem'),
+          ].map((part) => part.getBoundingClientRect().bottom),
+        );
+        const footer = document
+          .querySelector('.site-footer')!
+          .getBoundingClientRect().top;
+        const rule = getComputedStyle(
+          document.querySelector('.page-intro')!,
+        ).borderBottomWidth;
+        return { band, gap: footer - last, rule };
+      });
+      expect(end.gap, `${width} px`).toBeGreaterThanOrEqual(end.band - 0.5);
+      expect(end.gap, `${width} px`).toBeLessThanOrEqual(end.band + 0.5);
+      // The footer's hairline is the only rule there, as below every other page.
+      expect(end.rule, `${width} px`).toBe('0px');
+    }
+  });
+});
+
 test.describe('the phone dock @mobile-chromium', () => {
   const dock = (page: Page) => page.locator('[data-dock]');
   const CORNER = 81; // 4.5rem at the 18 px root: the cookie control's (spec §2.4)

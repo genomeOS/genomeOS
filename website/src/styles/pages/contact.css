@@ -23,6 +23,17 @@
   }
 }
 
+/* The whole page is its intro, so it ends as every other page does above the footer (design
+   critique 3, m-1): on a band's padding, not the intro's own, and on the footer's hairline alone,
+   not the intro's rule doubling it. */
+.contact-page .page-intro {
+  border-bottom: 0;
+}
+
+.contact-page .page-intro--split .page-intro__inner {
+  padding-bottom: var(--band-pad);
+}
+
 .contact-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
