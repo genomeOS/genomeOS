@@ -62,6 +62,13 @@ describe('when the poster stays', () => {
     expect(posterReason(allowed)).toBe(null);
   });
 
+  it('keeps the poster in forced colours, where the backdrop is hidden (spec §8.9)', () => {
+    expect(posterReason({ ...allowed, forcedColors: true })).toBe(
+      'forced-colors',
+    );
+    expect(posterReason({ ...allowed, forcedColors: false })).toBe(null);
+  });
+
   it('keeps the poster when no source can play', () => {
     expect(posterReason({ ...allowed, playable: 0 })).toBe('unsupported');
     // Reduced motion and Save-Data are named first: no source is even looked at.

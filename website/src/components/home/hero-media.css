@@ -119,6 +119,8 @@
   color: var(--color-text-soft);
   font-size: var(--type-lede);
   line-height: 1.5;
+  /* No last word alone on its line (spec §4.1.1: "everyone." at 320 px). */
+  text-wrap: pretty;
 }
 
 .home-hero__actions {

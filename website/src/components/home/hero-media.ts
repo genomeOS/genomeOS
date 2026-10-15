@@ -61,6 +61,7 @@ export const HERO_MOTION_KEY = 'genomeos:hero-motion';
 
 export type PosterReason =
   | 'reduced-motion'
+  | 'forced-colors'
   | 'save-data'
   | 'slow-connection'
   | 'unsupported'
@@ -116,6 +117,8 @@ export function throughputKbps(
 /** Why the poster stays, or null when the film may play. */
 export function posterReason(environment: {
   reducedMotion: boolean;
+  /** Forced colours hide the backdrop (hero-media.css, spec §8.9): no film behind it. */
+  forcedColors?: boolean;
   saveData?: boolean;
   effectiveType?: string;
   /** Whether the browser has NetworkInformation (`navigator.connection`). */
@@ -126,6 +129,7 @@ export function posterReason(environment: {
   playable?: number;
 }): PosterReason | null {
   if (environment.reducedMotion) return 'reduced-motion';
+  if (environment.forcedColors) return 'forced-colors';
   if (environment.saveData) return 'save-data';
   if (
     environment.effectiveType &&
@@ -211,6 +215,7 @@ export function initHeroMedia(root: HTMLElement): void {
     video.dataset.sources ?? '[]',
   ) as HeroVideoSource[];
   const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+  const forced = matchMedia('(forced-colors: active)');
   const connection = (navigator as Navigator & { connection?: Connection })
     .connection;
 
@@ -309,6 +314,7 @@ export function initHeroMedia(root: HTMLElement): void {
     ).filter((source) => video.canPlayType(source.type) !== '');
     const reason = posterReason({
       reducedMotion: reduce.matches,
+      forcedColors: forced.matches,
       saveData: connection?.saveData,
       effectiveType: connection?.effectiveType,
       networkInfo: Boolean(connection),
@@ -352,6 +358,11 @@ export function initHeroMedia(root: HTMLElement): void {
   document.addEventListener('visibilitychange', sync);
   reduce.addEventListener('change', () => {
     if (reduce.matches) keepPoster('reduced-motion');
+  });
+  // In forced colours the backdrop is hidden, so a film there would download and play unseen,
+  // under a Pause control for nothing (review of T1).
+  forced.addEventListener('change', () => {
+    if (forced.matches) keepPoster('forced-colors');
   });
 
   // After the load event, and then an idle moment: the poster is the LCP, and the film never

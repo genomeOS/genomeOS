@@ -304,6 +304,24 @@ for (const { reason, reduce, script } of POSTER_CASES)
     expect(requested.filter((url) => url.includes('/media/hero/'))).toEqual([]);
   });
 
+// Spec §8.9 (review of T1): forced colours hide the film's backdrop, so the film is never fetched
+// and no Pause shows for a film nobody could see.
+test('in forced colours the film never loads and its control never shows (H-6)', async ({
+  page,
+}) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  const requested: string[] = [];
+  page.on('request', (request) => requested.push(request.url()));
+  await page.goto('/');
+  const root = film(page);
+  await expect(root).toHaveAttribute('data-video-reason', 'forced-colors');
+  await expect(root).toHaveAttribute('data-video', 'poster');
+  await expect(filmVideo(page).locator('source')).toHaveCount(0);
+  await expect(filmToggle(page)).toBeHidden();
+  await page.waitForTimeout(1000);
+  expect(requested.filter((url) => url.includes('/media/hero/'))).toEqual([]);
+});
+
 // Round 2 spec §0.3 #19: where NetworkInformation is missing (Safari, Firefox), a poster that
 // arrives below 1.5 Mbit/s keeps the film off. Here the connection is throttled for real.
 test('without NetworkInformation, a slowly arriving poster keeps the film off (H-6)', async ({
