@@ -1,0 +1,171 @@
+---
+/**
+ * Join us: the crew (round 2 spec §4.1.6, §3.1; R2-6; #454). Decorative: kit astronauts at work on a
+ * ledge of hex tiles (the Atlas's cell, in its no-value footprint): a coder reading a tablet (A2), a
+ * builder at the workbench (A6), an expert thinking in a lab coat (E3) and a data person holding up a
+ * chart (A4), then "Your spot", the violet dashed outline that is the site's mark for "not yet"
+ * (the only violet in a figure, spec §3.1).
+ *
+ *   wide    (figure ≥ 34rem, a container query) viewBox 880 units wide, astronauts at 0.9
+ *   narrow  viewBox 420 units: the coder, the expert, the data person and the spot
+ *
+ * The label is HTML, so it keeps its size at any width. Hovering or focusing one of the band's
+ * three calls to action fills the spot: a newcomer (A8) lands in it, waving (pages/index.astro sets
+ * `data-filled`; the landing is a CSS transition, instant under reduced motion). crew.ts plays the
+ * hop-in once (each astronaut lands with a low-gravity squash, the spot pulses once), then rest:
+ * no loop, so no Pause.
+ */
+import Astronaut from '../kit/Astronaut.astro';
+import KitDefs from '../kit/KitDefs.astro';
+import type { CastId } from '../../graphics/astro/cast';
+import type { PoseName } from '../../graphics/astro/poses';
+import type { AstronautOptions } from '../../graphics/astro/rig';
+import { ghost } from '../../graphics/astro/rig';
+import { chartCard } from '../../graphics/astro/props';
+
+interface Member {
+  cast: CastId;
+  pose: PoseName;
+  options?: AstronautOptions;
+  x: number;
+}
+
+const SCALE = 0.9;
+const TOP = -124;
+const BOTTOM = 46;
+/** The label's top edge, above the outline's helmet (about −86 at this scale). */
+const LABEL_TOP = -122;
+const coder: Omit<Member, 'x'> = {
+  cast: 'A2',
+  pose: 'scroll',
+  options: { tabletGlyph: '</>' },
+};
+const builder: Omit<Member, 'x'> = { cast: 'A6', pose: 'hammerUp' };
+const expert: Omit<Member, 'x'> = { cast: 'E3', pose: 'think' };
+const data: Omit<Member, 'x'> = {
+  cast: 'A4',
+  pose: 'present',
+  options: { held: chartCard() },
+};
+
+const layouts = [
+  {
+    name: 'wide',
+    width: 880,
+    members: [
+      { ...coder, x: 96 },
+      { ...builder, x: 246 },
+      { ...expert, x: 430 },
+      { ...data, x: 590 },
+    ] as Member[],
+    spot: 770,
+  },
+  {
+    name: 'narrow',
+    width: 420,
+    members: [
+      { ...coder, x: 58 },
+      { ...expert, x: 168 },
+      { ...data, x: 272 },
+    ] as Member[],
+    spot: 370,
+  },
+].map((layout) => {
+  // The ledge: one row of pointy-top hex tiles under the feet, fading out at both ends.
+  const R = 13;
+  const W = Math.sqrt(3) * R;
+  const count = Math.ceil(layout.width / W) + 1;
+  const hex = (cx: number, cy: number) =>
+    Array.from({ length: 6 }, (_, k) => {
+      const a = (Math.PI / 3) * k - Math.PI / 2;
+      return `${k ? 'L' : 'M'}${(cx + (R - 0.6) * Math.cos(a)).toFixed(1)} ${(cy + (R - 0.6) * Math.sin(a)).toFixed(1)}`;
+    }).join('') + 'Z';
+  const tiles = Array.from({ length: count }, (_, i) => {
+    const cx = i * W;
+    const edge = Math.min(cx, layout.width - cx) / (layout.width * 0.18);
+    return {
+      d: hex(cx, R + 1),
+      opacity: Math.max(0.15, Math.min(1, edge)).toFixed(2),
+    };
+  });
+  return {
+    ...layout,
+    viewBox: `0 ${TOP} ${layout.width} ${BOTTOM - TOP}`,
+    height: BOTTOM - TOP,
+    tiles,
+    // The label's place over the spot, as a share of the stage (it is HTML: crew label).
+    labelX: `${((layout.spot / layout.width) * 100).toFixed(2)}%`,
+    labelY: `${(((LABEL_TOP - TOP) / (BOTTOM - TOP)) * 100).toFixed(2)}%`,
+  };
+});
+const caption =
+  'Four people at work: a coder, a builder, an expert thinking and a data person, with an empty spot for you.';
+---
+
+<figure class="crew" data-graphic="crew" data-kind="mechanism">
+  <div
+    class="crew__stage"
+    data-figure-stage
+    role="img"
+    aria-labelledby="crew-caption"
+  >
+    <KitDefs sprite />
+    {
+      layouts.map((layout) => (
+        <div class="crew__layout" data-layout={layout.name}>
+          <svg
+            class="crew__svg"
+            viewBox={layout.viewBox}
+            width={layout.width}
+            height={layout.height}
+            aria-hidden="true"
+            focusable="false"
+          >
+            <g class="crew__ledge">
+              {layout.tiles.map((tile) => (
+                <path d={tile.d} opacity={tile.opacity} />
+              ))}
+            </g>
+            <g
+              class="crew__spot"
+              transform={`translate(${layout.spot} 0) scale(${SCALE})`}
+              set:html={ghost('average')}
+            />
+            {layout.members.map((member) => (
+              <g
+                class="crew__member"
+                data-cast={member.cast}
+                data-pose={member.pose}
+              >
+                <Astronaut
+                  cast={member.cast}
+                  pose={member.pose}
+                  x={member.x}
+                  scale={SCALE}
+                  options={member.options}
+                />
+              </g>
+            ))}
+            <g class="crew__newcomer">
+              <Astronaut
+                cast="A8"
+                pose="wave"
+                x={layout.spot}
+                scale={SCALE}
+                facing={-1}
+              />
+            </g>
+          </svg>
+          <p
+            class="crew__label"
+            aria-hidden="true"
+            style={`--x: ${layout.labelX}; --y: ${layout.labelY}`}
+          >
+            Your spot
+          </p>
+        </div>
+      ))
+    }
+  </div>
+  <figcaption class="visually-hidden" id="crew-caption">{caption}</figcaption>
+</figure>
