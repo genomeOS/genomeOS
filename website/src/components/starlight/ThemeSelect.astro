@@ -1,6 +1,78 @@
 ---
 /**
- * The docs have one theme, dark like the rest of the site (site redesign spec §1.5, #454), so there
- * is no theme picker. ThemeProvider.astro pins the theme before first paint.
+ * The docs theme control (round 2 spec §4.4, R2-9; docs-light.md §4; #454): one square toggle
+ * button, "Dark theme", pressed while the docs are dark. Light is the default (ThemeProvider.astro),
+ * so Starlight's three-way picker (Auto, Dark, Light) would read "Auto" while a dark-OS reader sees
+ * paper; one toggle says what it does.
+ *
+ * Starlight renders this override in the phone menu's footer (MobileMenuFooter), with its label;
+ * Header.astro renders it from 50em with place="header", between Search and the Atlas link, as an
+ * icon with its name visually hidden. The icon shows the theme a press switches to: a moon on paper,
+ * a sun in the dark. The name never changes, so aria-pressed alone carries the state (WCAG 4.1.2).
+ * The choice is stored under Starlight's own key with Starlight's own values ('dark', or '' for the
+ * default), so every toggle on the page and every later page agree. Styles: starlight.css.
  */
+interface Props {
+  place?: 'header' | 'menu';
+}
+
+const { place = 'menu' } = Astro.props;
 ---
+
+<button
+  type="button"
+  class:list={['docs-theme', `docs-theme--${place}`, 'print:hidden']}
+  data-docs-theme
+  aria-pressed="false"
+>
+  <svg
+    class="docs-theme__icon docs-theme__icon--sun"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <path
+      d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6 18 18M6 18l1.4-1.4M16.6 7.4 18 6"
+    ></path>
+    <rect x="8.25" y="8.25" width="7.5" height="7.5"></rect>
+  </svg>
+  <svg
+    class="docs-theme__icon docs-theme__icon--moon"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <path d="M19.5 14.6A7.6 7.6 0 0 1 9.4 4.5a7.6 7.6 0 1 0 10.1 10.1Z"></path>
+  </svg>
+  <span class="docs-theme__label">Dark theme</span>
+</button>
+
+<script>
+  const KEY = 'starlight-theme';
+  const root = document.documentElement;
+  const toggles = () =>
+    document.querySelectorAll<HTMLButtonElement>('[data-docs-theme]');
+
+  function sync(): void {
+    const dark = root.dataset.theme === 'dark';
+    for (const toggle of toggles()) {
+      toggle.setAttribute('aria-pressed', String(dark));
+      toggle.title = dark
+        ? 'Switch to the light theme'
+        : 'Switch to the dark theme';
+    }
+  }
+
+  for (const toggle of toggles())
+    toggle.addEventListener('click', () => {
+      const dark = root.dataset.theme !== 'dark';
+      root.dataset.theme = dark ? 'dark' : 'light';
+      try {
+        localStorage.setItem(KEY, dark ? 'dark' : '');
+      } catch {
+        // Storage blocked: the choice lasts for this page only.
+      }
+      sync();
+    });
+  sync();
+</script>

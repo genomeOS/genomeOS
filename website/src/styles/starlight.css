@@ -1,8 +1,38 @@
-/* The docs are dark only, like the site (#454): ThemeProvider.astro pins data-theme="dark". */
-:root,
-:root[data-theme='dark'] {
+/*
+ * The docs theme (#454; round 2 spec §4.4, R2-9; docs-light.md, variant V1).
+ *
+ * The docs read as the same site on a different surface: the site's dark header, kept exactly, over
+ * a light "paper" reading surface, so a visitor knows they are in the reference part of the site.
+ * Light is the default (ThemeProvider.astro, which never follows the OS); the "Dark theme" toggle
+ * (ThemeSelect.astro) gives today's dark docs, which a visit with scripting off also keeps, since
+ * Starlight server-renders data-theme="dark". So: shared values on :root, the dark palette under
+ * [data-theme='dark'], the paper family under :not([data-theme='dark']).
+ *
+ * The paper family is the site's palette turned over: orbit (#071831), the site's alternate ground,
+ * becomes the ink; starlight's cool white becomes the paper; the four accents keep their hues and
+ * drop in lightness until they read at 4.5:1 or more on every light ground they touch
+ * (docs-light.md §7; tests/docs-theme.test.ts recomputes the table from this file).
+ *
+ * The docs bar is `header.header`, never `.header`: Expressive Code titles its code frames with a
+ * figcaption.header, which a bare class gave the bar's blur, hairline and padding.
+ */
+
+/* ---------- shared, every theme ---------- */
+:root {
   --sl-font: 'Figtree Variable', 'Avenir Next', sans-serif;
   --sl-font-system-mono: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  --sl-text-xs: 0.95rem;
+  --sl-text-sm: 1rem;
+  --sl-text-base: 1.1rem;
+  --sl-text-lg: 1.25rem;
+  --sl-text-body: var(--sl-text-base);
+  --sl-text-body-sm: var(--sl-text-sm);
+  /* The site's page H1 (design review, round 3); tokens.css comes with the docs header. */
+  --sl-text-h1: var(--type-h1);
+}
+
+/* ---------- the dark docs: the reader's choice, and the page without scripting ---------- */
+:root[data-theme='dark'] {
   --sl-color-accent-low: #102b52;
   --sl-color-accent: #70e6ff;
   --sl-color-accent-high: #dff9ff;
@@ -18,16 +48,157 @@
   --sl-color-bg-nav: rgb(2 7 18 / 92%);
   --sl-color-bg-sidebar: #051226;
   --sl-color-hairline: rgb(112 230 255 / 18%);
-  --sl-text-xs: 0.95rem;
-  --sl-text-sm: 1rem;
-  --sl-text-base: 1.1rem;
-  --sl-text-lg: 1.25rem;
-  --sl-text-body: var(--sl-text-base);
-  --sl-text-body-sm: var(--sl-text-sm);
-  /* The site's page H1 (design review, round 3); tokens.css comes with the docs header. */
-  --sl-text-h1: var(--type-h1);
 }
 
+/* ---------- the paper family (docs-light.md §2) ---------- */
+:root:not([data-theme='dark']) {
+  color-scheme: light;
+
+  /* Grounds */
+  --paper: #f6f9fc; /* page */
+  --paper-band: #edf2f8; /* sidebar, phone menu, phone contents bar */
+  --paper-code: #eef3f9; /* code ground (Starlight gray-7) */
+  --paper-bar: #e2e9f2; /* terminal title bar, inline code (Starlight gray-6) */
+  --paper-raised: #ffffff; /* cards, plates, fields */
+
+  /* Ink */
+  --ink: #071831; /* headings, current page: 16.8:1 on paper */
+  --ink-soft: #263850; /* body: 11.3:1 */
+  --ink-muted: #485b74; /* contents, secondary, footer links: 6.6:1 */
+  --ink-faint: #5b6e87; /* map strokes only, never text: 4.9:1 */
+
+  /* The site's accents at reading strength on paper */
+  --ion-ink: #006a82; /* links, kicker, focus, current marks: 5.9:1 */
+  --ion-ink-strong: #004e61; /* link hover: 8.8:1 */
+  --aurora-ink: #006f50; /* Tip aside: 5.9:1 */
+  --genome-ink: #6b46b8; /* code keywords and flags: 6.2:1 */
+  --signal-ink: #845c00; /* Caution aside, the map's validation gate: 5.7:1 */
+  --danger-ink: #bd1e5f; /* Danger aside only (the site has no red): 5.4:1 */
+
+  /* Lines */
+  --paper-line: rgb(
+    0 106 130 / 20%
+  ); /* hairlines: the site's ion line, on paper */
+  --paper-line-strong: rgb(0 106 130 / 50%); /* control borders, plate ticks */
+  --paper-deep-line: rgb(7 24 49 / 12%); /* table rows, dividers */
+
+  /* Starlight's colour API (props.css names); its scale inverts in light. */
+  --sl-color-white: var(--ink);
+  --sl-color-gray-1: #14263f;
+  --sl-color-gray-2: var(--ink-soft);
+  --sl-color-gray-3: var(--ink-muted);
+  --sl-color-gray-4: #8796aa; /* borders only, never text */
+  --sl-color-gray-5: #c9d6e3; /* borders only */
+  --sl-color-gray-6: var(--paper-bar);
+  --sl-color-gray-7: var(--paper-code);
+  --sl-color-black: var(--paper);
+  --sl-color-accent-low: #d3e9ef;
+  --sl-color-accent: var(--ion-ink);
+  --sl-color-accent-high: var(--ion-ink-strong);
+  --sl-color-text: var(--ink-soft);
+  --sl-color-text-accent: var(--ion-ink);
+  --sl-color-text-invert: var(--paper);
+  --sl-color-bg: var(--paper);
+  --sl-color-bg-nav: var(--paper);
+  --sl-color-bg-sidebar: var(--paper-band);
+  --sl-color-bg-inline-code: var(--paper-bar);
+  --sl-color-bg-accent: var(--ion-ink);
+  --sl-color-hairline: var(--paper-line);
+  --sl-color-hairline-light: var(--paper-line);
+  --sl-color-hairline-shade: var(--paper-deep-line);
+  --sl-color-backdrop-overlay: rgb(7 24 49 / 42%);
+  --sl-shadow-lg:
+    0 1.5rem 3rem rgb(7 24 49 / 14%), 0 0.25rem 0.75rem rgb(7 24 49 / 8%);
+
+  /* The site's tokens (tokens.css), re-pointed for the page body: the docs map and the header
+     component draw with them. The header gets the dark values back (V1, below). */
+  --color-void: var(--paper);
+  --color-orbit: var(--paper-band);
+  --color-plate: var(--paper-raised);
+  --color-plate-raised: var(--paper-code);
+  --color-starlight: var(--ink);
+  --color-text-soft: var(--ink-soft);
+  --color-muted: var(--ink-muted);
+  --color-faint: var(--ink-faint);
+  --color-ion: var(--ion-ink);
+  --color-line: var(--paper-line);
+  --color-line-strong: var(--paper-line-strong);
+  --color-deep-line: var(--paper-deep-line);
+  --color-grid-dot: rgb(7 24 49 / 11%);
+  --focus-ring: 0 0 0 3px rgb(0 106 130 / 24%);
+}
+
+/* A dialog's backdrop does not inherit from :root everywhere; Starlight sets it the same way. */
+:root:not([data-theme='dark']) ::backdrop {
+  --sl-color-backdrop-overlay: rgb(7 24 49 / 42%);
+}
+
+/* ---------- V1: the site's dark header, kept exactly (docs-light.md §3.6) ----------
+   The header subtree gets the dark token set back, so the bar is the site's bar pixel for pixel
+   and only the reading surface below it turns to paper. Opaque, so paper never tints it while
+   scrolling. */
+:root:not([data-theme='dark']) header.header {
+  color-scheme: dark;
+
+  --color-void: #020712;
+  --color-orbit: #071831;
+  --color-plate: #06142a;
+  --color-plate-raised: #0a2140;
+  --color-starlight: #f2f8ff;
+  --color-text-soft: #cfdcec;
+  --color-muted: #a5b9d3;
+  --color-faint: #7f93ae;
+  --color-ion: #70e6ff;
+  --color-line: rgb(112 230 255 / 18%);
+  --color-line-strong: rgb(112 230 255 / 42%);
+  --color-deep-line: rgb(165 185 211 / 14%);
+  --sl-color-white: #f2f8ff;
+  --sl-color-gray-1: #e1edfb;
+  --sl-color-gray-2: #c1d1e5;
+  --sl-color-gray-3: #91a8c4;
+  --sl-color-gray-4: #49627e;
+  --sl-color-gray-5: #17304f;
+  --sl-color-gray-6: #071831;
+  --sl-color-black: #020712;
+  --sl-color-accent-low: #102b52;
+  --sl-color-accent: #70e6ff;
+  --sl-color-accent-high: #dff9ff;
+  --sl-color-text: #c1d1e5;
+  --sl-color-text-accent: #dff9ff;
+  --sl-color-bg-nav: #020712;
+  --sl-color-hairline: rgb(112 230 255 / 18%);
+
+  background-color: #020712;
+  border-bottom-color: #020712;
+}
+
+/* The search dialog, which Starlight renders inside the header, belongs to the page: paper again,
+   so results read like the pages they lead to. */
+:root:not([data-theme='dark']) header.header dialog {
+  color-scheme: light;
+
+  --sl-color-white: var(--ink);
+  --sl-color-gray-1: #14263f;
+  --sl-color-gray-2: var(--ink-soft);
+  --sl-color-gray-3: var(--ink-muted);
+  --sl-color-gray-4: #8796aa;
+  --sl-color-gray-5: #c9d6e3;
+  --sl-color-gray-6: var(--paper-bar);
+  --sl-color-black: var(--paper);
+  --sl-color-accent-low: #d3e9ef;
+  --sl-color-accent: var(--ion-ink);
+  --sl-color-accent-high: var(--ion-ink-strong);
+  --sl-color-text: var(--ink-soft);
+  --sl-color-text-accent: var(--ion-ink);
+  --sl-search-corners: 0;
+  --pagefind-ui-border-radius: 0;
+
+  border-color: var(--paper-line);
+  border-radius: 0;
+  background-color: var(--paper);
+}
+
+/* ---------- type ---------- */
 html {
   font-size: 112.5%;
   scroll-behavior: smooth;
@@ -36,6 +207,16 @@ html {
 body {
   font-family: var(--sl-font);
   line-height: 1.65;
+}
+
+:root:not([data-theme='dark']) body {
+  background-color: var(--paper);
+  color: var(--ink-soft);
+}
+
+:root:not([data-theme='dark']) ::selection {
+  background-color: rgb(0 106 130 / 20%);
+  color: var(--ink);
 }
 
 .brand-name {
@@ -70,8 +251,130 @@ h1 {
   letter-spacing: -0.015em;
 }
 
-/* Square controls, as on the site (spec §2.4): the search field, its key hint and the phone's
-   menu button, which is an outlined square rather than a white disc. */
+/* Dark text on a light ground reads thinner than light text on dark (irradiation), so on paper
+   each display weight gains 20 to hold the site's apparent weight (docs-light.md §3.1). The bar's
+   wordmark keeps the site's. */
+:root:not([data-theme='dark']) h1 {
+  font-weight: 390;
+  color: var(--ink);
+}
+
+:root:not([data-theme='dark']) .sl-markdown-content h2 {
+  font-weight: 420;
+}
+
+:root:not([data-theme='dark']) .sl-markdown-content h3 {
+  font-weight: 540;
+}
+
+:root:not([data-theme='dark']) .sl-markdown-content :is(h2, h3, h4) {
+  color: var(--ink);
+}
+
+:root:not([data-theme='dark']) .sl-markdown-content .brand-name {
+  font-weight: 430;
+  color: var(--ink);
+}
+
+/* The section kicker over a guide's title (PageTitle.astro): the site's kicker (spec §2.3), naming
+   the part of the site the reader is in. Ion on the dark docs, ion ink on paper. */
+.docs-kicker {
+  margin: 0 0 0.6rem;
+  color: var(--color-ion);
+  font-family: 'Figtree Variable', 'Avenir Next', sans-serif;
+  font-size: var(--type-kicker);
+  font-weight: 640;
+  line-height: 1.3;
+}
+
+.docs-kicker + h1 {
+  margin-top: 0;
+}
+
+/* The title band reads as drafting paper: the plates' 24 px dot grid, very quiet, so the reference
+   part has its own surface without a new motif (docs-light.md §3.2). */
+:root:not([data-theme='dark']) .main-pane > main > .content-panel:first-child {
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    rgb(7 24 49 / 9%) 1px,
+    transparent 1.3px
+  );
+  background-position: -1px -1px;
+  background-size: 24px 24px;
+}
+
+:root:not([data-theme='dark']) .content-panel + .content-panel {
+  border-top-color: var(--paper-line);
+}
+
+/* ---------- links and focus ---------- */
+:root:not([data-theme='dark'])
+  .sl-markdown-content
+  a:not(:where(.not-content *)) {
+  color: var(--ion-ink);
+  text-decoration-color: rgb(0 106 130 / 55%);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+:root:not([data-theme='dark'])
+  .sl-markdown-content
+  a:not(:where(.not-content *)):hover {
+  color: var(--ion-ink-strong);
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 2px;
+}
+
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible,
+select:focus-visible {
+  outline: 2px solid #70e6ff;
+  outline-offset: 4px;
+  box-shadow: 0 0 0 3px rgb(112 230 255 / 28%);
+}
+
+:root:not([data-theme='dark']) :is(a, button, summary, select):focus-visible {
+  outline-color: var(--ion-ink);
+  box-shadow: 0 0 0 3px rgb(0 106 130 / 22%);
+}
+
+/* The bar keeps the site's ion ring; the search dialog it opens is paper, so ion ink again. */
+:root:not([data-theme='dark']) header.header :is(a, button):focus-visible {
+  outline-color: #70e6ff;
+  box-shadow: 0 0 0 3px rgb(112 230 255 / 28%);
+}
+
+:root:not([data-theme='dark'])
+  header.header
+  dialog
+  :is(a, button):focus-visible {
+  outline-color: var(--ion-ink);
+  box-shadow: 0 0 0 3px rgb(0 106 130 / 22%);
+}
+
+/* Search's field takes the paper ring too, not the browser's blue. */
+:root:not([data-theme='dark']) header.header dialog input:focus-visible {
+  outline: 2px solid var(--ion-ink);
+  outline-offset: 2px;
+}
+
+/* ---------- inline code ----------
+   Monospace sets wider and darker than Figtree at the same size, so on paper inline code steps
+   down to 0.86em and keeps a quiet chip: identifiers stay findable without stippling the
+   paragraph. */
+:root:not([data-theme='dark'])
+  .sl-markdown-content
+  code:not(:where(.not-content *)) {
+  padding: 0.12em 0.36em;
+  color: var(--ink);
+  background-color: var(--paper-bar);
+  font-size: 0.86em;
+}
+
+/* ---------- square controls, as on the site (spec §2.4) ----------
+   The search field, its key hint and the phone's menu button, which is an outlined square on the
+   dark bar in both themes rather than a white disc. */
 button[data-open-modal],
 button[data-open-modal] > kbd {
   border-radius: 0;
@@ -86,18 +389,39 @@ button[data-open-modal] > kbd {
 .sl-menu-button {
   border: 1px solid rgb(112 230 255 / 42%);
   border-radius: 0;
-  background-color: var(--sl-color-black);
-  color: var(--sl-color-white);
+  background-color: #020712;
+  color: #f2f8ff;
   box-shadow: none;
 }
 
 .sl-menu-button:has(~ :popover-open) {
-  border-color: var(--sl-color-accent);
-  background-color: var(--sl-color-gray-6);
+  border-color: #70e6ff;
+  background-color: #071831;
 }
 
-/* The sidebar's current page: the site's square ion rule on a faint ion ground, never a filled
-   pale pill; every sidebar link is square. */
+/* ---------- the bar ---------- */
+header.header {
+  border-bottom-color: var(--sl-color-hairline);
+  backdrop-filter: blur(18px);
+}
+
+/* Where the sidebar sits beside the page, the bar's contents sit in the site's content column: the
+   site gutter, or the room either side of the 76rem container (tokens.css, global.css
+   .site-header__inner), so the lockup and the nav stand where they stand on a site page (design
+   review, round 3). The percentage is of the viewport, the fixed bar's containing block. */
+@media (min-width: 50rem) {
+  header.header {
+    padding-inline: max(var(--space-page), (100% - var(--content-width)) / 2);
+  }
+}
+
+/* ---------- the sidebar ----------
+   The current page: the site's square ion rule on a faint ion ground, never a filled pale pill;
+   every sidebar link is square. On paper, a band with an ion hairline edge. */
+.sidebar-pane {
+  border-right-color: var(--sl-color-hairline);
+}
+
 .sidebar-content a {
   border-radius: 0;
 }
@@ -111,6 +435,88 @@ button[data-open-modal] > kbd {
   font-weight: 620;
 }
 
+:root:not([data-theme='dark']) .sidebar-pane {
+  background-color: var(--paper-band);
+  border-inline-end: 1px solid var(--paper-line);
+}
+
+:root:not([data-theme='dark']) .sidebar-content .large {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+:root:not([data-theme='dark']) .sidebar-content a {
+  color: var(--ink-soft);
+}
+
+:root:not([data-theme='dark']) .sidebar-content a:hover {
+  background-color: rgb(0 106 130 / 6%);
+  color: var(--ink);
+}
+
+:root:not([data-theme='dark']) .sidebar-content a[aria-current='page'],
+:root:not([data-theme='dark']) .sidebar-content a[aria-current='page']:hover,
+:root:not([data-theme='dark']) .sidebar-content a[aria-current='page']:focus {
+  background-color: rgb(0 106 130 / 10%);
+  color: var(--ink);
+}
+
+:root:not([data-theme='dark']) .sidebar-content summary svg {
+  color: var(--ink-muted);
+}
+
+:root:not([data-theme='dark']) .mobile-preferences {
+  border-top-color: var(--paper-line);
+}
+
+/* ---------- the right-hand contents ---------- */
+:root:not([data-theme='dark']) .right-sidebar {
+  border-inline-start-color: var(--paper-line);
+}
+
+/* Figtree, not Raleway, which is too display-like at this size. */
+:root:not([data-theme='dark']) starlight-toc h2 {
+  color: var(--ink);
+  font-family: 'Figtree Variable', 'Avenir Next', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+:root:not([data-theme='dark']) starlight-toc a {
+  color: var(--ink-muted);
+}
+
+:root:not([data-theme='dark']) starlight-toc a[aria-current='true'] {
+  color: var(--ion-ink);
+  box-shadow: inset 2px 0 0 var(--ion-ink);
+}
+
+/* The phone's "On this page" bar under the header. */
+:root:not([data-theme='dark']) mobile-starlight-toc nav {
+  background-color: var(--paper-band);
+  border-top-color: var(--paper-line);
+  border-bottom: 1px solid var(--paper-line);
+}
+
+:root:not([data-theme='dark']) mobile-starlight-toc .toggle {
+  border-color: var(--paper-line-strong);
+  border-radius: 0;
+  background-color: var(--paper-raised);
+  color: var(--ink);
+}
+
+:root:not([data-theme='dark']) mobile-starlight-toc .display-current {
+  color: var(--ink-muted);
+}
+
+:root:not([data-theme='dark']) mobile-starlight-toc .dropdown {
+  border-color: var(--paper-line);
+  background-color: var(--paper-raised);
+  box-shadow: var(--sl-shadow-lg);
+}
+
+/* ---------- the page ---------- */
 .sl-markdown-content {
   max-width: 48rem;
 }
@@ -123,27 +529,8 @@ button[data-open-modal] > kbd {
   padding-top: 1.5rem;
 }
 
-.header {
-  border-bottom-color: var(--sl-color-hairline);
-  backdrop-filter: blur(18px);
-}
-
-/* Where the sidebar sits beside the page, the bar's contents sit in the site's content column: the
-   site gutter, or the room either side of the 76rem container (tokens.css, global.css
-   .site-header__inner), so the lockup and the nav stand where they stand on a site page (design
-   review, round 3). The percentage is of the viewport, the fixed bar's containing block. */
-@media (min-width: 50rem) {
-  .header {
-    padding-inline: max(var(--space-page), (100% - var(--content-width)) / 2);
-  }
-}
-
-.sidebar-pane {
-  border-right-color: var(--sl-color-hairline);
-}
-
 /* The previous and next cards read as the site's link cards (github-cta.css): square, on a
-   hairline, ion on hover and focus (design review, round 3). */
+   hairline, ion on hover and focus (design review, round 3). On paper, white cards. */
 .pagination-links a {
   border-color: var(--color-line);
   border-radius: 0;
@@ -160,18 +547,64 @@ button[data-open-modal] > kbd {
   background-color: rgb(10 35 67 / 96%);
 }
 
-a:focus-visible,
-button:focus-visible,
-summary:focus-visible,
-select:focus-visible {
-  outline: 2px solid #70e6ff;
-  outline-offset: 4px;
-  box-shadow: 0 0 0 3px rgb(112 230 255 / 28%);
+:root:not([data-theme='dark']) .pagination-links a {
+  background-color: var(--paper-raised);
+  color: var(--ink-muted);
 }
 
+:root:not([data-theme='dark']) .pagination-links a .link-title {
+  color: var(--ink);
+}
+
+:root:not([data-theme='dark']) .pagination-links a svg {
+  color: var(--ion-ink);
+}
+
+:root:not([data-theme='dark']) .pagination-links a:hover,
+:root:not([data-theme='dark']) .pagination-links a:focus-visible {
+  background-color: #f0f7fa;
+}
+
+/* Tables: editorial rules on paper, an ink rule above and below, a 55% ink rule under the head. */
 .sl-markdown-content table {
   display: table;
   width: 100%;
+}
+
+:root:not([data-theme='dark'])
+  .sl-markdown-content
+  table:not(:where(.not-content *)) {
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+  font-size: 0.98rem;
+}
+
+:root:not([data-theme='dark'])
+  .sl-markdown-content
+  th:not(:where(.not-content *)) {
+  border-bottom: 1px solid rgb(7 24 49 / 55%);
+  color: var(--ink);
+  font-weight: 650;
+  vertical-align: bottom;
+}
+
+:root:not([data-theme='dark'])
+  .sl-markdown-content
+  td:not(:where(.not-content *)) {
+  border-bottom-color: var(--paper-deep-line);
+  color: var(--ink-soft);
+}
+
+:root:not([data-theme='dark'])
+  .sl-markdown-content
+  tr:last-child
+  td:not(:where(.not-content *)) {
+  border-bottom: 0;
+}
+
+:root:not([data-theme='dark']) .sl-markdown-content td strong {
+  color: var(--ink);
+  font-variant-numeric: lining-nums tabular-nums;
 }
 
 .sl-markdown-content img {
@@ -182,12 +615,224 @@ select:focus-visible {
   box-shadow: 0 1.5rem 4rem rgb(0 0 0 / 28%);
 }
 
+/* Asides on paper: square, a 3 px rule in the status ink, a 28% hairline frame and a 6% tint over
+   white; the title is the status word in its ink (status colours always come with their word,
+   spec §2.1). */
+:root:not([data-theme='dark']) .starlight-aside {
+  --aside-ink: var(--ion-ink);
+
+  position: relative;
+  padding: 1rem 1.25rem 1.1rem;
+  border: 1px solid color-mix(in srgb, var(--aside-ink) 28%, transparent);
+  border-inline-start: 3px solid var(--aside-ink);
+  background-color: color-mix(
+    in srgb,
+    var(--aside-ink) 6%,
+    var(--paper-raised)
+  );
+  color: var(--ink-soft);
+}
+
+:root:not([data-theme='dark']) .starlight-aside--tip {
+  --aside-ink: var(--aurora-ink);
+}
+
+:root:not([data-theme='dark']) .starlight-aside--caution {
+  --aside-ink: var(--signal-ink);
+}
+
+:root:not([data-theme='dark']) .starlight-aside--danger {
+  --aside-ink: var(--danger-ink);
+}
+
+:root:not([data-theme='dark']) .starlight-aside__title {
+  gap: 0.45rem;
+  color: var(--aside-ink);
+  font-family: 'Figtree Variable', 'Avenir Next', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 680;
+  letter-spacing: 0.01em;
+}
+
+:root:not([data-theme='dark']) .starlight-aside__icon {
+  font-size: 1.1em;
+}
+
+:root:not([data-theme='dark']) .starlight-aside__content a {
+  color: var(--aside-ink);
+}
+
+:root:not([data-theme='dark']) .starlight-aside__content code {
+  background-color: color-mix(
+    in srgb,
+    var(--aside-ink) 9%,
+    var(--paper-raised)
+  );
+}
+
+/* ---------- code blocks: genomeOS Paper (styles/code/genomeos-paper.json, ec.config.mjs) ----------
+   The frames take the Starlight tokens above (useStarlightUiThemeColors); these only square the
+   details and swap the terminal's three round dots for three squares. */
+:root:not([data-theme='dark']) .expressive-code {
+  --ec-brdCol: var(--paper-line);
+  --ec-frm-trmTtbDotsFg: #8796aa;
+  --ec-frm-trmTtbDotsOpa: 1;
+  --ec-frm-trmTtbBrdBtmCol: var(--paper-line);
+  --ec-frm-edTabBarBrdBtmCol: var(--paper-line);
+  --ec-codeSelBg: #c8dde6;
+  --ec-focusBrd: var(--ion-ink);
+  --ec-frm-trmIcon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 16'%3E%3Crect x='1' y='3' width='10' height='10'/%3E%3Crect x='25' y='3' width='10' height='10'/%3E%3Crect x='49' y='3' width='10' height='10'/%3E%3C/svg%3E");
+}
+
+:root:not([data-theme='dark']) .expressive-code .copy button {
+  border-radius: 0;
+}
+
+/* ---------- the theme control (ThemeSelect.astro) ----------
+   One square toggle, "Dark theme": in the header from 50em, between Search and the Atlas link, an
+   icon with its name visually hidden; in the phone menu's footer with its label. The icon shows the
+   theme a press switches to: a moon on paper, a sun in the dark. */
+.docs-theme {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-width: 2.5rem;
+  height: 2.5rem;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgb(112 230 255 / 24%);
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-micro) var(--ease-ui),
+    color var(--dur-micro) var(--ease-ui);
+}
+
+.docs-theme:hover {
+  border-color: var(--color-ion);
+  color: var(--color-starlight);
+}
+
+.docs-theme__icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+
+.docs-theme[aria-pressed='false'] .docs-theme__icon--sun,
+.docs-theme[aria-pressed='true'] .docs-theme__icon--moon {
+  display: none;
+}
+
+.docs-theme--header {
+  display: none;
+}
+
+.docs-theme--header .docs-theme__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (min-width: 50em) {
+  .docs-theme--header {
+    display: inline-flex;
+  }
+}
+
+.docs-theme--menu {
+  padding-inline: 0.75rem;
+  font-size: var(--sl-text-sm);
+}
+
+.docs-theme--menu[aria-pressed='true'] {
+  border-color: var(--color-ion);
+  color: var(--color-starlight);
+}
+
+/* On paper (the phone menu), and back to the bar's colours in the header. */
+:root:not([data-theme='dark']) .docs-theme {
+  border-color: var(--paper-line-strong);
+  color: var(--ink-muted);
+}
+
+:root:not([data-theme='dark']) .docs-theme:hover {
+  border-color: var(--ion-ink);
+  color: var(--ink);
+}
+
+:root:not([data-theme='dark']) header.header .docs-theme {
+  border-color: rgb(112 230 255 / 24%);
+  color: #a5b9d3;
+}
+
+:root:not([data-theme='dark']) header.header .docs-theme:hover {
+  border-color: #70e6ff;
+  color: #f2f8ff;
+}
+
+/* ---------- the footer links, the edit link and the cookie control on paper ----------
+   The cookie control stays site chrome (ruling 11): only its colours change here. */
+:root:not([data-theme='dark']) .docs-site-links a,
+:root:not([data-theme='dark']) .docs-site-links .docs-site-links__button {
+  color: var(--ink-muted);
+}
+
+:root:not([data-theme='dark']) .docs-site-links a:hover,
+:root:not([data-theme='dark']) .docs-site-links .docs-site-links__button:hover {
+  color: var(--ink);
+}
+
+:root:not([data-theme='dark']) .cookie-control__toggle {
+  border-color: rgb(0 106 130 / 34%);
+  background: rgb(255 255 255 / 88%);
+  color: var(--ink-muted);
+  box-shadow: 0 0.35rem 1.2rem rgb(7 24 49 / 12%);
+}
+
+:root:not([data-theme='dark']) .cookie-control__toggle:hover,
+:root:not([data-theme='dark'])
+  .cookie-control[data-open]
+  .cookie-control__toggle {
+  border-color: var(--ion-ink);
+  background: #fff;
+  color: var(--ink);
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
   }
 
-  .pagination-links a {
+  .pagination-links a,
+  .docs-theme {
     transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .docs-theme {
+    border-color: ButtonText;
+    color: ButtonText;
+  }
+}
+
+/* Without scripting the toggle could not act, so it is not offered; the server-rendered dark docs
+   stay (ThemeProvider.astro). */
+@media (scripting: none) {
+  .docs-theme {
+    display: none;
   }
 }

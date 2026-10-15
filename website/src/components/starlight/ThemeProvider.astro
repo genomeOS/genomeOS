@@ -1,11 +1,24 @@
 ---
 /**
- * Dark docs, always (site redesign spec §1.5, #454). Starlight's provider follows the OS, which
- * rendered the docs light on a light OS while the site is dark-only. Inlined so the theme is set
- * before first paint.
+ * Light docs by default (round 2 spec §4.4, R2-9; docs-light.md §4; #454). The reader's choice
+ * from the theme toggle (ThemeSelect.astro) is kept under Starlight's own key, `starlight-theme`;
+ * the operating system's preference is not followed, so every reader first meets the reference part
+ * of the site on paper (a dark-OS reader would otherwise never see the "different part" signal).
+ * Blocked storage falls back to light. Inlined so the theme is set before first paint. Starlight's
+ * Page.astro server-renders data-theme="dark", so a visit with scripting off keeps today's dark
+ * docs, and the toggle hides itself then (starlight.css).
  */
 ---
 
 <script is:inline>
-  document.documentElement.dataset.theme = 'dark';
+  (() => {
+    let stored = null;
+    try {
+      stored = localStorage.getItem('starlight-theme');
+    } catch {
+      // Storage blocked: the default stands.
+    }
+    document.documentElement.dataset.theme =
+      stored === 'dark' ? 'dark' : 'light';
+  })();
 </script>

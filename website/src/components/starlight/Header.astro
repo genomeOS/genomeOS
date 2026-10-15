@@ -25,10 +25,21 @@
  * container, and where its room is too small its button sheds the key hint, then its label,
  * leaving the outlined square magnifier (Starlight's own phone header shows that). It keeps the
  * name "Search" and Ctrl/⌘ K, and no nav item moves or goes.
+ *
+ * Round 2 (spec §4.4, R2-9; docs-light.md V1): the docs read on paper under this bar, which stays
+ * the site's dark bar exactly (starlight.css gives the header subtree the dark tokens back). The
+ * "Dark theme" toggle (ThemeSelect.astro) sits from 50em between Search and the Atlas link, half a
+ * rem after Search: the two docs tools read as one pair. Search, the size container, gives up the
+ * toggle's room first (spec §1.1, plan T6), so it sheds its key hint a little sooner than before.
+ * Where the whole nav first shows (72em to 78em) even the bare magnifier and the toggle had no room
+ * left, so there the row's gaps close to half a rem (the lockup keeping its slot, so the nav stands
+ * where the site's does) and the Atlas link takes the site pill's 0.94rem type. Nothing in the nav
+ * moves or goes.
  */
 import Search from '@astrojs/starlight/components/Search.astro';
 
 import GitHubLink from '../GitHubLink.astro';
+import ThemeSelect from './ThemeSelect.astro';
 import EncodingStyle from '../kit/EncodingStyle.astro';
 import { PRIMARY_NAV } from '../../data/nav';
 import { sitePath } from '../../lib/paths';
@@ -63,8 +74,11 @@ import '../../styles/tokens.css';
       <li class="docs-header__github"><GitHubLink /></li>
     </ul>
   </nav>
-  <div class="docs-header__search print:hidden">
-    <Search />
+  <div class="docs-header__tools print:hidden">
+    <div class="docs-header__search">
+      <Search />
+    </div>
+    <ThemeSelect place="header" />
   </div>
   <a class="docs-header__atlas print:hidden" href={sitePath('/app/')}>
     <span class="brand-name">genomeOS</span> Atlas
@@ -93,8 +107,19 @@ import '../../styles/tokens.css';
       height: 2rem;
     }
 
-    /* Search takes the room the nav leaves, its field set against the Atlas link on the right. It
-       is a size container, so its button can fit that room (the utility layer, below). */
+    /* The docs tools, Search and the theme toggle, take the room the nav leaves, set against the
+       Atlas link on the right, half a rem apart. */
+    .docs-header__tools {
+      display: flex;
+      flex: 1 1 auto;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      min-width: 0;
+    }
+
+    /* Search takes what the toggle leaves. It is a size container, so its button can fit that room
+       (the utility layer, below). */
     .docs-header__search {
       container: docs-search / inline-size;
       display: flex;
@@ -216,6 +241,23 @@ import '../../styles/tokens.css';
 
       .docs-header__nav li:not(.docs-header__github) {
         display: flex;
+      }
+    }
+
+    /* Where the whole nav first shows, the bare magnifier and the toggle need about 45 px more than
+       the row leaves: the gaps close to half a rem (the lockup's slot grows by what its gap gave
+       up, so the nav does not move) and the Atlas link takes the site pill's type size. */
+    @media (72em <= width < 78em) {
+      .docs-header {
+        gap: 0.5rem;
+      }
+
+      .docs-header__home {
+        margin-inline-end: calc((3.6rem - 2.6rem) * 1395 / 300 + 0.75rem);
+      }
+
+      .docs-header__atlas {
+        font-size: 0.94rem;
       }
     }
   }
