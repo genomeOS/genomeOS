@@ -1,10 +1,15 @@
 ---
 /**
- * The docs page title (round 2 spec §4.4, plan I-12; #454). A stub for now: it renders Starlight's
- * own PageTitle, unchanged. The Docs light-theme task replaces the body with the "Docs" kicker
- * above guide titles (the landing has none).
+ * A guide's title with the section kicker "Docs" above it (round 2 spec §4.4, plan I-12; R2-9;
+ * docs-light.md §3.4; #454): the site's kicker (spec §2.3), naming the part of the site the reader
+ * is in. Below 72em the header's nav, which marks Docs as current, is hidden, so on tablets and
+ * phones this is the one visible "you are in Docs" on a guide. The landing's H1 already says Docs,
+ * so it has none. Styles: starlight.css (.docs-kicker).
  */
 import Default from '@astrojs/starlight/components/PageTitle.astro';
+
+const isLanding = Astro.locals.starlightRoute.id === 'docs';
 ---
 
+{!isLanding && <p class="docs-kicker">Docs</p>}
 <Default />

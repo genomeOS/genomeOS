@@ -1,0 +1,220 @@
+{
+  "$comment": "genomeOS Paper: the docs' light code theme (round 2 spec §4.4, R2-9; docs-light.md §5; #454). Four hues, the site's four accents darkened for paper: ion (commands, functions, tags), genome violet (keywords, operators, flags), aurora (strings), signal amber (numbers, constants). Every token colour is >= 5.5:1 on the code ground #eef3f9 (tests/docs-theme.test.ts) and so also on #f6f7f9, Expressive Code's contrast reference with useStarlightUiThemeColors: Expressive Code never has to adjust one. Invalid and deleted text is the danger rose darkened to #b9195c (5.6:1 on the code ground).",
+  "name": "genomeOS Paper",
+  "type": "light",
+  "colors": {
+    "editor.background": "#eef3f9",
+    "editor.foreground": "#263850",
+    "editor.selectionBackground": "#c8dde6",
+    "editorLineNumber.foreground": "#5b6e87",
+    "editorLineNumber.activeForeground": "#071831",
+    "editorCursor.foreground": "#006a82",
+    "focusBorder": "#006a82",
+    "titleBar.activeBackground": "#e2e9f2",
+    "titleBar.activeForeground": "#263850",
+    "titleBar.border": "#c9d6e3",
+    "editorGroupHeader.tabsBackground": "#e2e9f2",
+    "editorGroupHeader.tabsBorder": "#c9d6e3",
+    "tab.activeBackground": "#eef3f9",
+    "tab.activeForeground": "#071831",
+    "tab.activeBorder": "#eef3f9",
+    "tab.activeBorderTop": "#006a82",
+    "tab.inactiveBackground": "#e2e9f2",
+    "tab.inactiveForeground": "#485b74",
+    "scrollbarSlider.background": "#0718311a",
+    "scrollbarSlider.hoverBackground": "#07183140",
+    "diffEditor.insertedTextBackground": "#006b4d1f",
+    "diffEditor.removedTextBackground": "#b9195c1a"
+  },
+  "tokenColors": [
+    {
+      "name": "Plain text and unquoted shell arguments",
+      "scope": ["source", "string.unquoted.argument", "meta.embedded"],
+      "settings": {
+        "foreground": "#263850"
+      }
+    },
+    {
+      "name": "Comments",
+      "scope": ["comment", "punctuation.definition.comment", "string.comment"],
+      "settings": {
+        "foreground": "#506278",
+        "fontStyle": "italic"
+      }
+    },
+    {
+      "name": "Keywords, storage, control flow",
+      "scope": [
+        "keyword",
+        "keyword.control",
+        "storage",
+        "storage.type",
+        "storage.modifier",
+        "keyword.other.unit"
+      ],
+      "settings": {
+        "foreground": "#6b46b8"
+      }
+    },
+    {
+      "name": "Operators and shell flags",
+      "scope": [
+        "keyword.operator",
+        "constant.other.option",
+        "punctuation.separator.key-value",
+        "keyword.operator.assignment"
+      ],
+      "settings": {
+        "foreground": "#6b46b8"
+      }
+    },
+    {
+      "name": "Commands, functions, methods, tags",
+      "scope": [
+        "entity.name.function",
+        "support.function",
+        "meta.function-call entity.name.function",
+        "entity.name.command",
+        "variable.function",
+        "entity.name.tag",
+        "support.class.component"
+      ],
+      "settings": {
+        "foreground": "#00657c"
+      }
+    },
+    {
+      "name": "Shell builtins",
+      "scope": ["support.function.builtin", "entity.name.command.builtin"],
+      "settings": {
+        "foreground": "#00657c"
+      }
+    },
+    {
+      "name": "Strings",
+      "scope": [
+        "string",
+        "string.quoted",
+        "string.template",
+        "punctuation.definition.string",
+        "markup.inline.raw"
+      ],
+      "settings": {
+        "foreground": "#006b4d"
+      }
+    },
+    {
+      "name": "Numbers, language constants, escapes",
+      "scope": [
+        "constant.numeric",
+        "constant.language",
+        "constant.character",
+        "constant.other",
+        "support.constant",
+        "string.regexp"
+      ],
+      "settings": {
+        "foreground": "#7a5500"
+      }
+    },
+    {
+      "name": "Character escapes",
+      "scope": ["constant.character.escape"],
+      "settings": {
+        "foreground": "#6b46b8"
+      }
+    },
+    {
+      "name": "Variables and parameters",
+      "scope": [
+        "variable",
+        "variable.other",
+        "variable.parameter",
+        "variable.other.assignment",
+        "variable.other.normal",
+        "punctuation.definition.variable"
+      ],
+      "settings": {
+        "foreground": "#071831"
+      }
+    },
+    {
+      "name": "Types, classes, modules",
+      "scope": [
+        "entity.name.type",
+        "entity.name.class",
+        "support.type",
+        "support.class",
+        "entity.other.inherited-class",
+        "entity.name.namespace"
+      ],
+      "settings": {
+        "foreground": "#004e61"
+      }
+    },
+    {
+      "name": "Properties, attributes, keys",
+      "scope": [
+        "entity.other.attribute-name",
+        "support.type.property-name",
+        "meta.object-literal.key",
+        "variable.other.property",
+        "variable.other.object.property",
+        "entity.name.tag.yaml",
+        "support.type.property-name.json"
+      ],
+      "settings": {
+        "foreground": "#004e61"
+      }
+    },
+    {
+      "name": "Punctuation",
+      "scope": [
+        "punctuation",
+        "meta.brace",
+        "punctuation.definition.tag",
+        "punctuation.separator",
+        "punctuation.terminator"
+      ],
+      "settings": {
+        "foreground": "#485b74"
+      }
+    },
+    {
+      "name": "Markdown headings and emphasis",
+      "scope": ["markup.heading", "entity.name.section"],
+      "settings": {
+        "foreground": "#071831",
+        "fontStyle": "bold"
+      }
+    },
+    {
+      "name": "Markdown links",
+      "scope": ["markup.underline.link", "string.other.link"],
+      "settings": {
+        "foreground": "#00657c",
+        "fontStyle": "underline"
+      }
+    },
+    {
+      "name": "Diff",
+      "scope": ["markup.inserted"],
+      "settings": {
+        "foreground": "#006b4d"
+      }
+    },
+    {
+      "scope": ["markup.deleted"],
+      "settings": {
+        "foreground": "#b9195c"
+      }
+    },
+    {
+      "name": "Invalid",
+      "scope": ["invalid", "invalid.illegal"],
+      "settings": {
+        "foreground": "#b9195c"
+      }
+    }
+  ]
+}

@@ -2,8 +2,9 @@
  * The Docs landing as built (site redesign spec §4.4, §1.5, §9.2; #454): a pipeline map of the
  * guides instead of the old AI picture. Every station is a link to its guide, a bracket over all of
  * them links to the safeguards, and a row beneath links the three "work on it" guides. The map is
- * static SVG: the page ships Starlight's own scripts and nothing more. The docs are dark, with no
- * theme picker, and the two guides that mention a working group link to Contribute's groups.
+ * static SVG: the page ships Starlight's own scripts and nothing more. The docs are light by
+ * default, with one theme toggle (round 2 spec §4.4), and the two guides that mention a working
+ * group link to Contribute's groups.
  */
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
@@ -236,12 +237,21 @@ describe('the Docs landing', () => {
     );
   });
 
-  it.each(GUIDES)('/%s/ renders dark, with no theme picker', (guide) => {
-    const html = builtHtml(guide);
-    expect(html).not.toBe('');
-    expect(html).toContain("document.documentElement.dataset.theme = 'dark'");
-    expect(html).not.toContain('starlight-theme-select');
-  });
+  // Round 2 (spec §4.4, R2-9): light by default on a paper surface, with one "Dark theme" toggle
+  // in place of Starlight's three-way picker (docs-theme.test.ts runs the provider itself).
+  it.each(GUIDES)(
+    '/%s/ renders light by default, with the theme control',
+    (guide) => {
+      const html = builtHtml(guide);
+      expect(html).not.toBe('');
+      expect(html).toContain("stored === 'dark' ? 'dark' : 'light'");
+      expect(html).not.toContain(
+        "document.documentElement.dataset.theme = 'dark'",
+      );
+      expect(html.match(/<button\b[^>]*\bdata-docs-theme\b/g)).toHaveLength(2);
+      expect(html).not.toContain('starlight-theme-select');
+    },
+  );
 
   it.each([
     ['docs/data-and-literature', 'The Data '],
