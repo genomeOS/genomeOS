@@ -69,8 +69,8 @@
   padding-block: clamp(2.5rem, 8vh, 5rem) clamp(5rem, 12vh, 7rem);
 }
 
-/* As wide as its widest line (the H1 at 12ch keeps three lines from a phone to 1920 px), so the
-   scrim below ends where the text does. */
+/* As wide as its widest line (the H1 sets on two lines from a phone to 1920 px), so the scrim
+   below ends where the text does. */
 .home-hero__text {
   position: relative;
   width: fit-content;
