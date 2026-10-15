@@ -240,9 +240,11 @@ describe('projects page content', () => {
     );
   });
 
-  it('opens Process on the join-up schematic: five outcomes, no numbers', () => {
+  it('opens Process on the join-up: five outcomes, no numbers, no label saying what it is', () => {
     const joinUp = figure('join-up');
-    expect(joinUp).toContain('data-status="schematic"');
+    // The owner (2026-10-15): a drawing needs no "Schematic" tag to say so.
+    expect(joinUp).not.toContain('kit-status-tag');
+    expect(text(joinUp)).not.toContain('Schematic');
     expect(joinUp).toContain('From scattered tables to placed evidence');
     for (const outcome of [
       'Placed',
