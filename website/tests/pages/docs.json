@@ -5,12 +5,14 @@
   "conceptsEnforced": true,
   "concepts": 1,
   "wordsExclude": "table",
-  "jsKbGz": null,
+  "jsKbGz": 29.8,
   "dataKbGz": 0,
-  "transferKbGz": null,
+  "transferKbGz": 146.3,
   "lcpMs": {
     "desktop": 1200,
     "phone": 2500
   },
-  "cls": 0.02
+  "cls": 0.02,
+  "imagesKbGz": 11.0,
+  "budgetNote": "Round 2 integration (T7): spec §7's Docs row, Starlight's baseline as round 1 measured it plus the paper theme's allowance: first-load JS 28.8 + 1 KB (the theme control; measured 28.8, the control is inline), transfer 141.3 + 4 KB CSS + 1 KB (measured 144.0). Initial images 10.0 plus 10%: only the header lockup."
 }

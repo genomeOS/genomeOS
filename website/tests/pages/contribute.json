@@ -11,18 +11,20 @@
     "#how-work-moves": 142,
     "#start": 34
   },
-  "jsKbGz": 10,
+  "jsKbGz": 8.8,
   "lazyJsKbGz": {
-    "orbit": 40,
-    "board": 40
+    "orbit": 7.8,
+    "board": 9.7,
+    "scene-kit": 14.1
   },
   "dataKbGz": 0,
-  "imagesKbGz": 0,
-  "transferKbGz": 220,
+  "imagesKbGz": 17.6,
+  "transferKbGz": 181.1,
   "lcpMs": {
     "desktop": 1000,
     "phone": 2200
   },
   "cls": 0.02,
-  "leadFigure": true
+  "leadFigure": true,
+  "budgetNote": "Round 2 integration (T7), measured plus at most 10%: first-load JS 8.0, the page's own (spec §7: 10); the orbit (7.1), its scene kit (12.9, shared with the board) and the board (8.9) are lazy modules, counted as such though the orbit is the lead figure and loads at once, and every byte of them is in the initial transfer (164.7). Initial images 16.0: no page image (spec §7's 0), only the header lockup and the favicon every route loads."
 }

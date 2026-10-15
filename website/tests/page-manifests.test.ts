@@ -39,6 +39,9 @@ const CAPS: Record<
     transferKbGz: 220,
     lazyJsKbGz: { orbit: 40, board: 40 },
   },
+  // Starlight's baseline as round 1 measured it (28.8 JS, 141.3 transfer), plus the theme
+  // control's 1 KB and the paper theme's 4 KB of CSS.
+  docs: { words: 200, jsKbGz: 29.8, dataKbGz: 0, transferKbGz: 146.3 },
 };
 
 describe('page manifests', () => {
@@ -79,21 +82,33 @@ describe('page manifests', () => {
           cap.deferredMediaKb.phone,
         );
       }
-      // Per-section budgets, so no section can grow into another's room (spec §10; the page
-      // total stays the hard limit).
-      expect(
-        Object.keys(page.sections ?? {}).length,
-        `${name} has section budgets`,
-      ).toBeGreaterThan(0);
+      // Per-section budgets on the round-2 pages, so no section can grow into another's room
+      // (spec §10; the page total stays the hard limit).
+      if (name !== 'docs')
+        expect(
+          Object.keys(page.sections ?? {}).length,
+          `${name} has section budgets`,
+        ).toBeGreaterThan(0);
     },
   );
 
-  it('budgets Projects by what shows before a section opens (ruling 42)', () => {
+  it('budgets Projects by what shows before a section opens (rulings 40 and 42)', () => {
     const projects = pageManifests.find((entry) => entry.name === 'projects')!;
     expect(projects.sections).toEqual({
       '#projects': 62,
       '.atlas-ov': 75,
       '.acc-list': 61,
     });
+    // A closed section loads nothing: its figures' modules and data wait for it to open.
+    expect(projects.dataKbGz).toBe(0);
+    expect(projects.lazyJsKbGz).toBeUndefined();
+  });
+
+  it('says where every enforced budget came from', () => {
+    for (const name of ['home', 'projects', 'contribute', 'docs'])
+      expect(
+        pageManifests.find((entry) => entry.name === name)!.budgetNote,
+        name,
+      ).toMatch(/measured/);
   });
 });
