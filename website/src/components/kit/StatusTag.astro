@@ -1,15 +1,17 @@
 ---
 /**
- * Honest status tags (site redesign spec §2.6, #454). Signal gold means only validation, refusal or
- * caution, so there are exactly three kinds:
+ * The figure status tag (site redesign spec §2.6, round 2 spec §2.2, #454). Signal gold means only
+ * validation, refusal or caution, and the marketing site has one kind left:
  *
- *   not-validated   every figure that draws a modeled surface, until the HbS, G6PD and
- *                   carrier-screening gate passes
- *   schematic       marks that resemble data but hold none (e.g. the Project join-up)
- *   worked-example  a figure computed from stated illustrative counts, labelled "Example"
+ *   worked-example  a figure computed from stated illustrative counts, labelled "Example" (R2-15:
+ *                   the counts figure on Projects, so nobody reads its surveys as real places)
+ *
+ * The owner retired the other two (rulings 15 and 39, 2026-10-15): "Not yet validated" became a
+ * plain figure note with a link to the Atlas (`.figure-note`, R2-14), and "Schematic" went, since
+ * a drawing needs no label saying it is one.
  */
 
-type StatusKind = 'not-validated' | 'schematic' | 'worked-example';
+type StatusKind = 'worked-example';
 
 interface Props {
   kind: StatusKind;
@@ -17,9 +19,6 @@ interface Props {
 }
 
 const LABEL: Record<StatusKind, string> = {
-  'not-validated': 'Not yet validated',
-  schematic: 'Schematic',
-  // Round 2 (R2-15, spec §2.2): "Example", so nobody reads an illustrative figure as real places.
   'worked-example': 'Example',
 };
 
