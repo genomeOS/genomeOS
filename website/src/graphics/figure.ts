@@ -291,16 +291,23 @@ export class FigureController {
 
 /**
  * A live-region writer for a figure's readout: it speaks only when the visitor changed
- * something, at most once per 400 ms; the last text always lands.
+ * something, at most once per 400 ms; the last text always lands. `render` lays the text out (one
+ * fact a line, say); by default it is the region's text.
  */
-export function createAnnouncer(region: HTMLElement, intervalMs = 400) {
+export function createAnnouncer(
+  region: HTMLElement,
+  intervalMs = 400,
+  render: (region: HTMLElement, text: string) => void = (target, text) => {
+    target.textContent = text;
+  },
+) {
   let last = 0;
   let pending = 0;
   let next: string | null = null;
   const write = () => {
     pending = 0;
     if (next === null) return;
-    region.textContent = next;
+    render(region, next);
     next = null;
     last = performance.now();
   };

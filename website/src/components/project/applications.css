@@ -10,13 +10,6 @@
   margin: 0;
 }
 
-.apps__rule {
-  margin: 0 0 1.25rem;
-  color: var(--color-starlight);
-  font-size: var(--type-legend);
-  font-weight: 620;
-}
-
 .apps__grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

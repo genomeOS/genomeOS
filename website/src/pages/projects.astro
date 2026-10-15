@@ -15,8 +15,8 @@
  *                 Where it stands                      #status
  *   then follow the work (a link row, no figure)
  *
- * Outline: h1 "What we’re building" → h2 "genomeOS Atlas" → an h3 per section row (in its
- * summary) → h4 subsections inside "How it works" (and h2 "Follow the work"). Round 1's ids are
+ * Outline: h1 "What we’re building." → h2 "genomeOS Atlas" → an h3 per section row (in its
+ * summary) → h4 subsections inside "How it works" (and h2 "Follow the work."). Round 1's ids are
  * kept, so old deep links land after the redirect, and a link into a closed section opens it.
  * Eight concept sections, each carried by one figure; the words are the spec's copy deck.
  */
@@ -150,7 +150,7 @@ const LINKS: {
     <PageIntro
       layout="split"
       note="Projects"
-      title="What we’re building"
+      title="What we’re building."
       lede="One project is live. Many more can start with you."
     >
       <ProjectIndex slot="figure" />
@@ -206,8 +206,8 @@ const LINKS: {
               data-graphic="applications"
               data-kind="mechanism"
             >
-              <figcaption class="apps__rule" data-figure-chrome>
-                Population evidence is context, not a diagnosis.
+              <figcaption class="visually-hidden">
+                Six uses for the Atlas, from screening programs to research.
               </figcaption>
               <div
                 class="apps__grid"
@@ -370,7 +370,7 @@ const LINKS: {
 
   <section class="band proj-follow" aria-labelledby="follow-title">
     <div class="section-shell">
-      <h2 class="proj-h2" id="follow-title">Follow the work</h2>
+      <h2 class="proj-h2" id="follow-title">Follow the work.</h2>
       <ul class="proj-links">
         {
           LINKS.map((link) => (

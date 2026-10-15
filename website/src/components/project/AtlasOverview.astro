@@ -6,18 +6,22 @@
  *
  *   text     "Project 1", the chapter's h2 in the wordmark, why it matters, what it is and what you
  *            can do with it, and the "Open the genomeOS Atlas" pill
- *   visual   the Atlas mark, large, with its key: a measured survey, a modeled estimate, no
- *            estimate (the encoding every Atlas map uses; the kit's glyphs)
+ *   visual   the product itself: a still of the live Atlas on its HbS map (src/assets/projects/
+ *            atlas-hbs.webp, captured from /app/?entity=hbs-rs334 with the published data, day/night
+ *            lighting off, cropped to the globe, its color key and its provenance line), so the
+ *            page's one picture is the real thing, not a second copy of the index's mark or of
+ *            Home's toy globe (design critique of the integrated build)
  *   facts    three totals from the pinned corpus revision (src/data/corpusMetrics.ts), the people
  *            total marked "not deduplicated", and "How we count" behind a disclosure
  *
  * The totals are static text, so a total never reads as zero on screen, in a screenshot or to a
- * screen reader. The mark is decorative; its key is the figure's caption. Nothing here moves or
- * loads data. It replaces round 2's chapter opener and its Purpose · Process · Status chips: the
- * section rows below are the chapter's navigation now.
+ * screen reader. Nothing here moves or loads data; the still loads lazily as an AVIF or WebP sized
+ * to its column. It replaces round 2's chapter opener and its Purpose · Process · Status chips:
+ * the section rows below are the chapter's navigation now.
  */
-import AtlasMark from '../kit/AtlasMark.astro';
-import Glyph from '../kit/Glyph.astro';
+import { Picture } from 'astro:assets';
+
+import atlasStill from '../../assets/projects/atlas-hbs.webp';
 import { corpusMetrics, metricTotal } from '../../data/corpusMetrics';
 import { sitePath } from '../../lib/paths';
 
@@ -28,7 +32,7 @@ const FACTS = [
   {
     value: metricTotal(variants),
     shown: int(metricTotal(variants)),
-    label: 'Genetic variants & alleles',
+    label: 'Variants & alleles in the source tables',
   },
   {
     value: metricTotal(people),
@@ -75,13 +79,19 @@ const FACTS = [
   </div>
 
   <figure class="atlas-ov__visual">
-    <AtlasMark size="100%" class="atlas-ov__mark" idPrefix="overview-mark" />
-    <figcaption>
-      <ul class="atlas-ov__key">
-        <li><Glyph name="stud-md" size={18} />Measured survey</li>
-        <li><Glyph name="hex" size={18} />Modeled estimate</li>
-        <li><Glyph name="hatch" size={18} />No estimate</li>
-      </ul>
+    <Picture
+      class="atlas-ov__still"
+      src={atlasStill}
+      formats={['avif', 'webp']}
+      widths={[560, 800, 1120, 1600]}
+      sizes="(min-width: 52rem) 56vw, 100vw"
+      quality={60}
+      loading="lazy"
+      decoding="async"
+      alt="The genomeOS Atlas showing the sickle-cell variant HbS on a globe of Africa, Europe and western Asia: a teal surface, brightest across West, Central and East Africa, with its color key from 0.08% to 17.3%."
+    />
+    <figcaption class="atlas-ov__caption">
+      The live Atlas, on its HbS map.
     </figcaption>
   </figure>
 

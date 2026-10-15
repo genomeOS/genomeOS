@@ -129,11 +129,13 @@ describe('projects page content', () => {
   it('opens with one h1, the Atlas chapter’s h2, and an h3 in each section’s summary', () => {
     expect(project.match(/<h1\b/g) ?? []).toHaveLength(1);
     const h1 = project.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/)![1];
-    expect(text(h1).trim()).toBe('What we’re building');
+    // Sentence-style headlines end with a period (rulings, item 27; design critique of the
+    // integrated build).
+    expect(text(h1).trim()).toBe('What we’re building.');
     const h2s = [...project.matchAll(/<h2\b[^>]*>([\s\S]*?)<\/h2>/g)].map(
       ([, inner]) => text(inner).trim(),
     );
-    expect(h2s).toEqual(['genomeOS Atlas', 'Follow the work']);
+    expect(h2s).toEqual(['genomeOS Atlas', 'Follow the work.']);
     const h3s = [...project.matchAll(/<h3\b[^>]*>([\s\S]*?)<\/h3>/g)].map(
       ([, inner]) => text(inner).trim(),
     );
@@ -223,19 +225,30 @@ describe('projects page content', () => {
       'Project 1',
       'Where a genetic variant is common shapes who is offered screening, how a test result is read and where a study can recruit.',
       'The Atlas maps variants on an interactive globe. Pick one, inspect any place and see where evidence is thin.',
-      'Measured survey',
-      'Modeled estimate',
-      'No estimate',
+      'The live Atlas, on its HbS map.',
       'How we count',
     ])
       expect(overview).toContain(line);
     expect(overviewHtml()).toMatch(
       /<a class="atlas-open" href="\/app\/">[\s\S]*?Open the <span class="brand-name">genomeOS<\/span> Atlas/,
     );
-    // The mark is decoration; its key is the caption.
-    expect(overviewHtml()).toMatch(
-      /<svg class="atlas-mark[^"]*"[^>]*aria-hidden="true"/,
+    // The one visual is the product itself (design critique of the integrated build): a still of
+    // the live Atlas on its HbS map, an AVIF or WebP sized to its column, loaded lazily, described in
+    // its alt text; not the index's mark again.
+    const visual = overviewHtml().match(
+      /<figure class="atlas-ov__visual"[\s\S]*?<\/figure>/,
+    )![0];
+    expect(visual).toMatch(/<source[^>]*type="image\/avif"/);
+    expect(visual).toMatch(/<source[^>]*type="image\/webp"/);
+    const still = visual.match(/<img\b[^>]*>/)![0];
+    expect(still).toContain('loading="lazy"');
+    expect(still).toMatch(
+      /\bwidth="\d+"[^>]*\bheight="\d+"|\bheight="\d+"[^>]*\bwidth="\d+"/,
     );
+    expect(still).toMatch(
+      /alt="The genomeOS Atlas showing the sickle-cell variant HbS[^"]+"/,
+    );
+    expect(overviewHtml()).not.toContain('atlas-mark');
   });
 
   it('gives three key facts, pinned to the corpus revision, and how they are counted', () => {
@@ -248,7 +261,9 @@ describe('projects page content', () => {
       expect(attributes).not.toContain('data-count-to');
     }
     const words = text(overviewHtml());
-    expect(words).toContain('Genetic variants & alleles');
+    // Qualified, so it is not read against the status rail's markers with modeled maps (design
+    // critique of the integrated build).
+    expect(words).toContain('Variants & alleles in the source tables');
     expect(words).toContain('People represented, not deduplicated');
     expect(words).toContain('Diseases represented');
     expect(overviewHtml()).toMatch(
@@ -317,19 +332,27 @@ describe('projects page content', () => {
       for (const id of ids) expect(section(name), id).toContain(`id="${id}"`);
   });
 
-  it('indexes the projects: the Atlas, live and in development, then more to come', () => {
+  // Design critique of the integrated build: the index repeated the overview right below it (the
+  // mark, the name, an Open button and "Read more"). It is a compact list: each project's name, its
+  // status and one line, and "Share an idea" for the next one.
+  it('indexes the projects in a compact list: the Atlas, live and in development, then more to come', () => {
     const index = figure('project-index');
     const words = text(index);
     expect(words).toContain('genomeOS Atlas');
     expect(words).toContain('Live, in development');
     expect(words).toContain(
-      'Genetic data sit scattered in papers and databases. The Atlas places them, models what they support and shows the gaps.',
+      'Scattered genetic data, placed and modeled on one open map.',
     );
     expect(words).toContain('Next project');
     expect(words).toContain('More to come');
     expect(words).toContain('Every project starts as a community idea.');
-    expect(index).toMatch(/href="\/app\/"[^>]*>\s*Open the Atlas/);
-    expect(index).toMatch(/href="#atlas"[^>]*>\s*Read more/);
+    // No mark, no Open button and no "Read more": the Atlas's name links to its chapter.
+    expect(index).not.toMatch(/<svg class="atlas-mark/);
+    expect(index).not.toMatch(/Open the Atlas|Read more/);
+    expect(index).not.toMatch(/href="\/app\/"/);
+    expect(index).toMatch(
+      /<a href="#atlas"><span class="brand-name">genomeOS<\/span> Atlas<\/a>/,
+    );
     expect(index).toMatch(
       /href="https:\/\/github\.com\/genomeOS\/genomeOS\/discussions"[^>]*target="_blank"[^>]*>\s*Share an idea/,
     );
@@ -554,8 +577,11 @@ describe('projects page content', () => {
       'Medicines and drug response Future exploration Variants that change a dose.',
       'Research and discovery Patterns worth testing.',
     ]);
-    expect(text(apps)).toContain(
-      'Population evidence is context, not a diagnosis.',
+    // No caveat line over the cards (rulings, item 37; design critique of the integrated build):
+    // the figure's caption only says what it shows.
+    expect(text(apps)).not.toContain('context, not a diagnosis');
+    expect(apps).toMatch(
+      /<figcaption class="visually-hidden">\s*Six uses for the Atlas, from screening programs to research\.\s*<\/figcaption>/,
     );
     expect(project).toMatch(
       /href="https:\/\/github\.com\/genomeOS\/genomeOS\/discussions\/1"[\s\S]{0,200}Suggest an application/,

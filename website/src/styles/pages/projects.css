@@ -98,69 +98,54 @@
 
 /* ---------- intro: the project index (lead figure) ---------- */
 
+/* A compact list (design critique of the integrated build): each project's name, its status and one
+   line, between hairlines; two abreast, 2fr : 1fr, one column below 52rem. */
 .pidx {
   margin: 0;
 }
 
-.pidx__grid {
+.pidx__list {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-  gap: var(--grid-gap);
+  gap: 0 var(--grid-gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.pidx__card {
-  position: relative;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  gap: clamp(1.25rem, 2.4vw, 2rem);
+.pidx__item {
   min-width: 0;
-  padding: clamp(1.4rem, 2.6vw, 2rem);
-  border: 1px solid var(--color-line-strong);
-  background: linear-gradient(140deg, rgb(10 33 64 / 92%), rgb(6 20 42 / 92%));
+  padding-block: 1.15rem 0.35rem;
+  border-top: 1px solid var(--color-line-strong);
 }
 
-/* The future, in violet dashes: a frame and a "+" (spec §6.1 rule 7), never a fill. */
-.pidx__card--next {
-  grid-template-columns: minmax(0, 1fr);
-  align-content: start;
-  gap: 1.1rem;
-  border: 1.5px dashed rgb(173 139 255 / 62%);
-  background: transparent;
+/* The future, in violet dashes (spec §6.1 rule 7): its rule, never a fill. */
+.pidx__item--next {
+  border-top: 1.5px dashed rgb(173 139 255 / 62%);
 }
 
-.pidx__mark {
-  display: block;
-  flex: none;
-}
-
-.pidx__plus {
-  width: 3.5rem;
-  height: 3.5rem;
-  fill: none;
-  stroke: var(--color-genome);
-}
-
-.pidx__plus circle {
-  stroke-width: 1.5;
-  stroke-dasharray: 5 4;
-}
-
-.pidx__plus path {
-  stroke-width: 1.6;
-}
-
-.pidx__title {
+.pidx__name {
   margin: 0;
   color: var(--color-starlight);
   font-family: var(--font-display);
-  font-size: clamp(1.6rem, 2.4vw, 2.1rem);
+  font-size: clamp(1.45rem, 2.1vw, 1.85rem);
   font-weight: 400;
   letter-spacing: -0.03em;
-  line-height: 1.1;
+  line-height: 1.15;
 }
 
-.pidx__title .brand-name {
+.pidx__name a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.pidx__name a:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+
+.pidx__name .brand-name {
   letter-spacing: 0.06em;
 }
 
@@ -168,7 +153,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  margin: 0.65rem 0 0;
+  margin: 0.45rem 0 0;
   font-size: 0.9rem;
   font-weight: 640;
 }
@@ -201,43 +186,13 @@
 
 .pidx__text {
   max-width: 46ch;
-  margin: 0.9rem 0 0;
+  margin: 0.5rem 0 0;
   color: var(--color-text-soft);
-  font-size: 1.02rem;
+  font-size: 1rem;
   line-height: 1.55;
 }
 
-.pidx__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.9rem 1.5rem;
-  margin-top: 1.4rem;
-}
-
-/* The site's primary button (home.css's .button-link, which this page does not load). */
-.pidx .button-link {
-  min-height: 2.9rem;
-  padding: 0.6rem 1.1rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--color-ion);
-  background: var(--color-ion);
-  color: var(--color-void);
-  font-weight: 720;
-  text-decoration: none;
-  transition:
-    background-color var(--dur-micro) var(--ease-ui),
-    border-color var(--dur-micro) var(--ease-ui);
-}
-
-.pidx .button-link:hover {
-  border-color: var(--color-starlight);
-  background: var(--color-starlight);
-}
-
-.pidx__more {
+.pidx__share {
   display: inline-flex;
   align-items: center;
   min-height: 2.75rem;
@@ -245,26 +200,30 @@
 }
 
 @media (max-width: 52rem) {
-  .pidx__grid {
+  .pidx__list {
     grid-template-columns: minmax(0, 1fr);
   }
-}
 
-@media (max-width: 36rem) {
-  .pidx__card {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 1rem;
-  }
-
-  .pidx__mark {
-    width: 5.5rem;
-    height: 5.5rem;
+  .pidx__item + .pidx__item {
+    margin-top: 0.75rem;
   }
 }
 
 /* ---------- the genomeOS Atlas overview ---------- */
 
-/* Text 7/12 beside the mark 4/12; the totals run the full width under both, then the sections. */
+/* The slim index hands straight over to the overview, so the product still shows on the first
+   screen of a laptop (design critique of the integrated build). Two classes: the built stylesheet
+   may order the shared .band and .page-intro rules after these. */
+.proj-intro .page-intro--split .page-intro__inner {
+  padding-block: clamp(2.25rem, 4vw, 3rem) clamp(1.5rem, 3vw, 2.25rem);
+}
+
+.band.atlas {
+  padding-top: clamp(2.5rem, 5vw, 3.75rem);
+}
+
+/* Text 5/12 beside the product still 7/12; the totals run the full width under both, then the
+   sections. */
 .atlas-ov {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -274,7 +233,7 @@
 }
 
 .atlas-ov__text {
-  grid-column: 1 / span 7;
+  grid-column: 1 / span 5;
 }
 
 .atlas-ov__kicker {
@@ -316,36 +275,27 @@
   margin-top: clamp(1.5rem, 3vw, 2.1rem);
 }
 
+/* The product still, framed like a plate: a hairline, square corners, a caption under it. Its box
+   is reserved by the image's own width and height, so nothing shifts while it loads. */
 .atlas-ov__visual {
-  grid-column: 9 / span 4;
+  grid-column: 6 / span 7;
   display: grid;
-  justify-items: center;
-  gap: 1.1rem;
+  gap: 0.75rem;
   margin: 0;
 }
 
-.atlas-ov__mark {
-  width: min(100%, 19rem);
+.atlas-ov__still {
+  display: block;
+  width: 100%;
   height: auto;
-  aspect-ratio: 1;
+  border: 1px solid var(--color-line-strong);
+  background: var(--color-void);
 }
 
-.atlas-ov__key {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.4rem 1.25rem;
+.atlas-ov__caption {
   margin: 0;
-  padding: 0;
   color: var(--color-muted);
   font-size: var(--type-legend);
-  list-style: none;
-}
-
-.atlas-ov__key li {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
 }
 
 .atlas-ov__facts {
@@ -397,12 +347,16 @@
   font-size: var(--type-legend);
 }
 
+/* The browser's own disclosure triangle, as "View as table" shows it (design critique of the
+   integrated build: the one disclosure on the page without a marker). */
 .atlas-ov__method summary {
-  display: inline-flex;
-  align-items: center;
+  display: list-item;
+  width: fit-content;
   min-height: 44px;
+  padding-block: 0.7rem;
   color: var(--color-ion);
   font-weight: 620;
+  line-height: 1.3;
   cursor: pointer;
 }
 
@@ -423,10 +377,6 @@
   .atlas-ov__text,
   .atlas-ov__visual {
     grid-column: 1 / -1;
-  }
-
-  .atlas-ov__mark {
-    width: min(100%, 15rem);
   }
 }
 
@@ -1367,10 +1317,15 @@
   margin-top: 1rem;
 }
 
-/* Four lines reserved, with the box's 1 px borders: an area's readout (share, range, frequency,
-   distance) runs to four in the side panel, and the panel must not grow under the pointer. */
+/* Four lines reserved, with the box's 1 px borders: an area's readout sets its four facts (share,
+   range, frequency, distance) one a line (hbs-map.ts readoutLines), and the panel must not grow
+   under the pointer. */
 .hbs > .hbs__readout {
   min-height: calc(4 * 1.45em + 1.3rem + 2px);
+}
+
+.hbs__line {
+  display: block;
 }
 
 .hbs > .kit-figure__legend {
@@ -1481,13 +1436,19 @@
   line-height: 1.4;
 }
 
-/* The threshold sits in a box as wide as its widest stop ("0.5%", 2.3em in tabular figures),
-   right-aligned, so the words after it never move as it changes (ruling 36: no layout shift). */
+/* The threshold sits in a box as wide as the shown genotype's widest stop ("20%" and "80%", 2.1em
+   in tabular figures; SS's "0.5%", 2.3em), so the words after it never move as the slider moves
+   (ruling 36: no layout shift); left-aligned, so the sentence reads on from "where" without a hole
+   (design critique of the integrated build). */
 .hbs__slider-label output {
   display: inline-block;
-  min-width: 2.3em;
-  text-align: right;
+  min-width: 2.1em;
+  text-align: left;
   font-variant-numeric: lining-nums tabular-nums;
+}
+
+.hbs[data-hbs-genotype='SS'] .hbs__slider-label output {
+  min-width: 2.3em;
 }
 
 /* The slider itself is the site's range control (.kit-range, global.css). */
@@ -1621,9 +1582,10 @@
   stroke-dasharray: 6 4;
 }
 
-/* The genotype triad: one shared cell frame, three pressable genotypes. Beside the map, it fills
-   the stage's height: the frame takes the room the buttons leave, so the frame's top meets the
-   map's top and the last button's bottom meets the map's bottom (design review, round 2). */
+/* The genotype triad: one shared cell frame, three pressable genotypes. Beside the map, a square
+   frame with the buttons right under it, the group level with the map's top (design critique of
+   the integrated build: stretched to the map's height, the frame was a 216 × 530 px dark panel
+   around a 140 px cell). */
 .triad {
   display: grid;
   grid-column: 1;
@@ -1640,24 +1602,6 @@
   aspect-ratio: 1;
   border: 1px solid var(--color-deep-line);
   background: var(--color-plate);
-}
-
-@media (min-width: 48em) {
-  .triad {
-    grid-template-rows: minmax(8rem, 1fr) auto;
-    align-self: stretch;
-  }
-
-  /* The cell is drawn to fit the frame, so the map, not the drawing, sets the stage's height. */
-  .triad__frame {
-    position: relative;
-    aspect-ratio: auto;
-  }
-
-  .triad__svg {
-    position: absolute;
-    inset: 0;
-  }
 }
 
 .triad__svg {
@@ -2571,7 +2515,9 @@
   }
 }
 
-/* Three over two: six tracks, each card spanning two. */
+/* Three over two, the second row filling the width (six tracks: three cards of two, two of three),
+   then all five in one row once they fit (design critique of the integrated build: 3 + 2 left a
+   hole at 1024 px and up). */
 @media (min-width: 56em) {
   .proj-links {
     grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -2580,6 +2526,22 @@
   .proj-links > li,
   .proj-links > :first-child {
     grid-column: span 2;
+  }
+
+  .proj-links > :nth-child(n + 4) {
+    grid-column: span 3;
+  }
+}
+
+@media (min-width: 66em) {
+  .proj-links {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .proj-links > li,
+  .proj-links > :first-child,
+  .proj-links > :nth-child(n + 4) {
+    grid-column: auto;
   }
 }
 

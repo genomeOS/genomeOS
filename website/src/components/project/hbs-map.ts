@@ -160,6 +160,28 @@ export function describeHit(
     : line;
 }
 
+/**
+ * The readout, one fact a line with no separators on screen (design critique of the integrated
+ * build: the run-on paragraph wrapped onto lines that began with "·"). The separators stay in the
+ * text, visually hidden, so a screen reader and the region's text read as describeHit wrote it.
+ */
+export function readoutLines(region: HTMLElement, text: string): void {
+  const nodes: Node[] = [];
+  text.split(' · ').forEach((part, index) => {
+    if (index > 0) {
+      const gap = document.createElement('span');
+      gap.className = 'visually-hidden';
+      gap.textContent = ' · ';
+      nodes.push(gap);
+    }
+    const line = document.createElement('span');
+    line.className = 'hbs__line';
+    line.textContent = part;
+    nodes.push(line);
+  });
+  region.replaceChildren(...nodes);
+}
+
 /** Whether two hits read out the same: one area, or the same studs, nearest first. */
 export function sameHit(a: HexHit | null, b: HexHit | null): boolean {
   if (!a || !b) return a === b;
@@ -677,7 +699,7 @@ export async function initHbsMap(
 
   /* ----- readout: pointer, tap and keyboard reticle ----- */
   const idle = readout.textContent ?? '';
-  const announce = createAnnouncer(readout);
+  const announce = createAnnouncer(readout, 400, readoutLines);
   let reticleAt: [number, number] | null = null;
   // A pointer moving inside one area or stud cluster changes nothing: skip the redraw and the
   // announcement (a full redraw costs several ms, and a phone runs it four times slower).

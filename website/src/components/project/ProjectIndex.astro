@@ -1,20 +1,19 @@
 ---
 /**
  * The project index (round 2 spec §4.2.1; R2-4; #454), Projects' lead figure: the Foundation's
- * projects as two cards, 2fr : 1fr, one column below 52rem.
+ * projects as a compact list, two entries abreast (2fr : 1fr), one column below 52rem.
  *
- *   genomeOS Atlas   the Atlas mark (the abstract globe of Home's step 3), the title in the
- *                    wordmark, its status "Live, in development" (aurora: now), what it does,
- *                    "Open the Atlas" and "Read more ↓" to the chapter below
- *   Next project     a violet dashed frame and "+" (future), "More to come", and "Share an idea ↗"
- *                    to GitHub Discussions: no future project is named, because none is decided
+ *   genomeOS Atlas   the name (a link to its chapter below), its status "Live, in development"
+ *                    (aurora: now) and one line on what it is
+ *   Next project     "More to come" (violet dashes: future), one line, and "Share an idea ↗" to
+ *                    GitHub Discussions: no future project is named, because none is decided
  *
- * Card titles are styled paragraphs, so "genomeOS Atlas" is not a second heading beside the
- * chapter's h2. The cards are navigation and text; the marks are decorative.
+ * No mark, no button and no "Read more" (design critique of the integrated build): the Atlas
+ * overview opens right below with the product itself and the one "Open the genomeOS Atlas" pill,
+ * so the index only says what exists. Entry names are styled paragraphs, so "genomeOS Atlas" is
+ * not a second heading beside the chapter's h2.
  */
-import AtlasMark from '../kit/AtlasMark.astro';
 import { GITHUB_REPOSITORY } from '../../data/nav';
-import { sitePath } from '../../lib/paths';
 ---
 
 <figure
@@ -26,57 +25,28 @@ import { sitePath } from '../../lib/paths';
     Our projects: the <span class="brand-name">genomeOS</span> Atlas, live and in
     development, and the next project, still to come.
   </figcaption>
-  <div
-    class="pidx__grid"
-    data-figure-stage
-    role="group"
-    aria-label="Our projects"
-  >
-    <article class="pidx__card pidx__card--live" aria-labelledby="pidx-atlas">
-      <AtlasMark size="8.5rem" class="pidx__mark" idPrefix="pidx-mark" />
-      <div class="pidx__body">
-        <p class="pidx__title" id="pidx-atlas">
-          <span class="brand-name">genomeOS</span> Atlas
-        </p>
-        <p class="pidx__status pidx__status--live">Live, in development</p>
-        <p class="pidx__text">
-          Genetic data sit scattered in papers and databases. The Atlas places
-          them, models what they support and shows the gaps.
-        </p>
-        <div class="pidx__actions">
-          <a class="button-link pidx__open" href={sitePath('/app/')}
-            >Open the Atlas</a
-          >
-          <a class="pidx__more" href="#atlas"
-            >Read more<span aria-hidden="true">&nbsp;↓</span></a
-          >
-        </div>
-      </div>
-    </article>
-    <article class="pidx__card pidx__card--next" aria-labelledby="pidx-next">
-      <svg
-        class="pidx__plus"
-        viewBox="0 0 56 56"
-        aria-hidden="true"
-        focusable="false"
-      >
-        <circle cx="28" cy="28" r="22"></circle>
-        <path d="M28 18v20M18 28h20"></path>
-      </svg>
-      <div class="pidx__body">
-        <p class="pidx__title" id="pidx-next">Next project</p>
-        <p class="pidx__status pidx__status--future">More to come</p>
-        <p class="pidx__text">Every project starts as a community idea.</p>
-        <div class="pidx__actions">
-          <a
-            class="pidx__more"
-            href={`${GITHUB_REPOSITORY}/discussions`}
-            target="_blank"
-            rel="noopener noreferrer"
-            >Share an idea<span aria-hidden="true">&nbsp;↗</span></a
-          >
-        </div>
-      </div>
-    </article>
-  </div>
+  <ul class="pidx__list" data-figure-stage aria-label="Our projects">
+    <li class="pidx__item pidx__item--live">
+      <p class="pidx__name">
+        <a href="#atlas"><span class="brand-name">genomeOS</span> Atlas</a>
+      </p>
+      <p class="pidx__status pidx__status--live">Live, in development</p>
+      <p class="pidx__text">
+        Scattered genetic data, placed and modeled on one open map.
+      </p>
+    </li>
+    <li class="pidx__item pidx__item--next">
+      <p class="pidx__name">Next project</p>
+      <p class="pidx__status pidx__status--future">More to come</p>
+      <p class="pidx__text">
+        Every project starts as a community idea. <a
+          class="pidx__share"
+          href={`${GITHUB_REPOSITORY}/discussions`}
+          target="_blank"
+          rel="noopener noreferrer"
+          >Share an idea<span aria-hidden="true">&nbsp;↗</span></a
+        >
+      </p>
+    </li>
+  </ul>
 </figure>
