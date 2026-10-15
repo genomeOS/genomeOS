@@ -1,10 +1,14 @@
 ---
 /**
- * How work moves (site redesign spec §4.3 C2; round 2 spec §4.3.4, plan I-9; #454): the whole
- * #how-work-moves section of Contribute, with its heading, legend, the work board, the milestone
- * rail and the link to the workflow in Docs. Extracted verbatim from contribute.astro (round 2 plan
- * T0 step 3), so the board task owns the section, its CSS (how-work-moves.css) and its script.
- * No props.
+ * How work moves (round 2 spec §4.3.4, plan I-9; R2-8; #454): the whole #how-work-moves section of
+ * Contribute: the heading and its one-line legend, the board (WorkBoard.astro: GitHub's board in its
+ * dark UI, where one issue goes from hello to merge with the astronauts), the milestone rail and the
+ * workflow in Docs. No props; the page renders <HowWorkMoves /> after the transit line.
+ *
+ * The section's own script stays tiny on first load: it imports the board's scene (board.ts, a lazy
+ * chunk named "board") only when the board is within a viewport of the screen (or at once when a
+ * test freezes the page with `?t=`), and never under reduced motion, where the server-drawn
+ * storyboard is the picture and the script only lets the phone's column buttons scroll the track.
  */
 import Mark from './Mark.astro';
 import MilestoneRail from './MilestoneRail.astro';
@@ -23,8 +27,7 @@ import './how-work-moves.css';
     <div class="contribute-head">
       <h2 class="contribute-h2" id="how-work-moves-title">How work moves</h2>
       <p class="contribute-legend">
-        <strong>One issue, from hello to review.</strong> Board statuses mean exactly
-        what they say.
+        <strong>One issue, from hello to merge.</strong>
       </p>
     </div>
     <WorkBoard />
@@ -38,6 +41,70 @@ import './how-work-moves.css';
 </section>
 
 <script>
-  // The board's steps (board.ts), in the section's own script.
-  import './board';
+  const figure = document.querySelector<HTMLElement>(
+    '[data-graphic="work-board"]',
+  );
+
+  /** Reduced motion: the storyboard stays; the column buttons scroll the phone's native track. */
+  function nativeColumns(board: HTMLElement): void {
+    const nav = board.querySelector<HTMLElement>('.wb-colnav');
+    const scroller = board.querySelector<HTMLElement>('.gh-scroll');
+    if (!nav || !scroller) return;
+    const columns = [...board.querySelectorAll<HTMLElement>('[data-col]')];
+    const buttons = [...nav.querySelectorAll<HTMLButtonElement>('button')];
+    const press = (index: number) =>
+      buttons.forEach((button, at) =>
+        button.setAttribute('aria-pressed', String(at === index)),
+      );
+    const offset = (index: number) => {
+      const view = scroller.getBoundingClientRect();
+      const column = columns[index].getBoundingClientRect();
+      return column.left + column.width / 2 - (view.left + view.width / 2);
+    };
+    const show = (index: number) => {
+      scroller.scrollBy({ left: offset(index), behavior: 'instant' });
+      press(index);
+    };
+    nav.hidden = false;
+    nav.addEventListener('click', (event) => {
+      const button = (event.target as Element).closest('button');
+      if (button) show(buttons.indexOf(button as HTMLButtonElement));
+    });
+    // The pressed button follows a swipe once the track settles.
+    let settle = 0;
+    scroller.addEventListener(
+      'scroll',
+      () => {
+        window.clearTimeout(settle);
+        settle = window.setTimeout(() => {
+          const gaps = columns.map((_, index) => Math.abs(offset(index)));
+          press(gaps.indexOf(Math.min(...gaps)));
+        }, 120);
+      },
+      { passive: true },
+    );
+    // The track rests on Merge, where the story ends.
+    if (scroller.scrollWidth > scroller.clientWidth) show(columns.length - 1);
+  }
+
+  if (figure) {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches)
+      nativeColumns(figure);
+    else {
+      const load = () =>
+        import('./board').then(({ initBoard }) => initBoard(figure));
+      if (/[?&]t=/.test(location.search)) void load();
+      else {
+        const near = new IntersectionObserver(
+          (entries) => {
+            if (!entries.some((entry) => entry.isIntersecting)) return;
+            near.disconnect();
+            void load();
+          },
+          { rootMargin: '100% 0px' },
+        );
+        near.observe(figure);
+      }
+    }
+  }
 </script>

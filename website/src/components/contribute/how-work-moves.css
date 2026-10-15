@@ -1,667 +1,441 @@
 /*
- * How work moves (site redesign spec §4.3 C2; round 2 spec §4.3.4): the work board plate, its steps
- * and its milestone rail, cut verbatim from styles/pages/contribute.css (round 2 plan T0 step 3), so
- * the board task owns one file. HowWorkMoves.astro imports it. The section's heading, legend and
- * docs link use the page's own type (.contribute-h2, .contribute-head, .contribute-legend,
- * .contribute-more), which stays in contribute.css.
+ * How work moves (round 2 spec §4.3.4, §0.4, §8; R2-8; #454): GitHub's project board in its own dark
+ * UI (Primer dark) inside the site's square mechanism plate, the astronauts' floor under the columns,
+ * the phone's column buttons, and the milestone rail. HowWorkMoves.astro imports it. The heading,
+ * legend and docs link use the page's own type (.contribute-head, .contribute-h2, .contribute-legend,
+ * .contribute-more in contribute.css).
+ *
+ * Inside the mock only: GitHub's 6 px radii, its colours (canvas #0d1117, panels #161b22, borders
+ * #30363d, text #e6edf3, muted #7d8590 at 4.64:1 on panels) and its type sizes set in Figtree, never
+ * under 13 px. The grid's 12 px pad and 8 px gaps are the floor's geometry (board-layout.ts PAD,
+ * GAP); the floor band's height and lift are FLOOR_H and FLOOR_LIFT there.
  */
 
-.wb-plate > .kit-plate__bar--top {
-  padding: 0;
+.wb {
+  --gh-canvas: #0d1117;
+  --gh-panel: #161b22;
+  --gh-border: #30363d;
+  --gh-text: #e6edf3;
+  --gh-muted: #7d8590;
+  --gh-accent: #1f6feb;
+  --gh-floor-h: 206px;
 }
 
-/* Without the script the tabs stay hidden, so their bar goes too. */
-.wb-plate > .kit-plate__bar--top:has(> [role='tablist'][hidden]) {
+/* ---------- the header: the board's title, and the scene's Pause and Replay ---------- */
+
+.wb > .wb-head {
+  gap: 0.75rem;
+  min-height: 3.25rem;
+  padding: 0.35rem 0.5rem 0.2rem 1rem;
+  border-bottom: 0;
+  background: var(--gh-canvas);
+}
+
+.wb-head__title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0;
+  color: var(--gh-text);
+  font-size: 16px;
+  font-weight: 620;
+  line-height: 1.3;
+}
+
+.wb .gh-i {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+/* ---------- the board ---------- */
+
+.gh {
+  position: relative;
+  min-width: 0;
+  background: var(--gh-canvas);
+  color: var(--gh-text);
+  font-family: var(--font-body);
+}
+
+.gh-tabs {
+  display: flex;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--gh-border);
+}
+
+.gh-tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 8px 9px;
+  box-shadow: inset 0 -2px 0 #f78166;
+  color: var(--gh-text);
+  font-size: 14px;
+  font-weight: 620;
+  line-height: 20px;
+}
+
+.gh-scroll {
+  position: relative;
+  overflow: hidden;
+}
+
+.gh-pan,
+.gh-track {
+  position: relative;
+}
+
+.gh-cols {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  padding: 12px;
+}
+
+.gh-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--gh-border);
+  border-radius: 6px;
+  background: var(--gh-panel);
+}
+
+.gh-col__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px 2px 12px;
+  font-size: 14px;
+  font-weight: 620;
+  line-height: 20px;
+}
+
+.gh-col__name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.gh-count {
+  display: inline-grid;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 2em;
+  background: rgb(110 118 129 / 40%);
+  color: var(--gh-text);
+  font-size: 13px;
+  font-weight: 520;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.gh-count > span {
+  grid-area: 1 / 1;
+}
+
+.gh-col__kebab {
+  display: flex;
+  margin-left: auto;
+}
+
+.gh-col__line {
+  margin: 0;
+  padding: 0 12px 8px;
+  color: var(--gh-muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.gh-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 8px;
+}
+
+.gh-card {
+  position: relative;
+  margin: 0;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--gh-border);
+  border-radius: 6px;
+  background: var(--gh-canvas);
+}
+
+.gh-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  color: var(--gh-muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+/* "genomeOS" as GitHub writes a repository's name: the brand span inherits the mock's type. */
+.gh .brand-name {
+  font: inherit;
+  letter-spacing: 0;
+}
+
+.gh-card__title {
+  margin: 0;
+  color: var(--gh-text);
+  font-size: 14px;
+  font-weight: 620;
+  line-height: 1.35;
+  overflow-wrap: break-word;
+}
+
+.gh-card__labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 8px 0 0;
+}
+
+.gh-label {
+  padding: 0 7px;
+  border: 1px solid;
+  border-radius: 2em;
+  font-size: 13px;
+  font-weight: 520;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.gh-hover {
+  position: absolute;
+  inset: -1px;
+  border: 1px solid #58a6ff;
+  border-radius: 6px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ---------- the example card ---------- */
+
+/* The copies in Backlog, In progress and In review only hold its place. */
+.gh-card--example[data-example='slot'] {
+  visibility: hidden;
+}
+
+.ex-icon,
+.ex-pr-icon {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.ex-merged,
+.ex-pr-merged {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  background: var(--gh-canvas);
+}
+
+.ex-av,
+.ex-rev {
+  display: inline-flex;
+  margin-left: auto;
+}
+
+.wb .gh-av {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+
+.ex-rev .gh-av + .gh-av {
+  margin-left: -4px;
+}
+
+/* On the narrowest desktop columns the reviewers' helmets give way to the status word (the
+   experts are on the floor below anyway). */
+.gh-card--example {
+  container-type: inline-size;
+}
+
+@container (width < 190px) {
+  .ex-rev {
+    display: none;
+  }
+}
+
+.ex-pr {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  overflow: hidden;
+  border-top: 1px solid var(--gh-border);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.ex-st {
+  display: inline-grid;
+}
+
+.st {
+  display: inline-flex;
+  grid-area: 1 / 1;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.st[hidden] {
   display: none;
 }
 
-.wb-tabs {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  width: 100%;
-}
-
-.wb-tabs [role='tab'] {
-  display: flex;
-  align-items: baseline;
-  gap: 0.45rem;
-  min-width: 0;
-  min-height: 3rem;
-  margin: 0;
-  padding: 0.75rem 1rem calc(0.7rem + 1px);
-  border: 0;
-  border-bottom: 1px solid var(--color-deep-line);
-  background: transparent;
-  color: var(--color-muted);
-  font: inherit;
-  font-size: 0.9rem;
-  font-weight: 620;
-  line-height: 1.3;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    color var(--dur-micro) var(--ease-ui),
-    background-color var(--dur-micro) var(--ease-ui);
-}
-
-.wb-tabs [role='tab'] + [role='tab'] {
-  box-shadow: inset 1px 0 0 var(--color-deep-line);
-}
-
-.wb-tabs [role='tab']:hover {
-  color: var(--color-starlight);
-}
-
-.wb-tabs [role='tab'][aria-selected='true'] {
-  border-bottom-color: var(--color-ion);
-  background: var(--color-plate-raised);
-  box-shadow: inset 0 -1px 0 var(--color-ion);
-  color: var(--color-starlight);
-}
-
-.wb-tabs [role='tab'] + [role='tab'][aria-selected='true'] {
-  box-shadow:
-    inset 0 -1px 0 var(--color-ion),
-    inset 1px 0 0 var(--color-deep-line);
-}
-
-.wb-tab__n {
-  color: var(--color-ion);
-  font-variant-numeric: lining-nums tabular-nums;
-}
-
-.wb-tab__label {
-  overflow-wrap: normal;
-  word-break: normal;
-  hyphens: none;
-}
-
-/* The board. Narrow stage: six compact rows (the Discussion and the five statuses), a card marker
-   in the row the card is in, and the card itself in a dock under the rows. Wide stage (1,000 px):
-   the Discussion and five status columns, the card inside its column. Every card variant holds
-   its cell (hidden ones invisibly), so the board's size never changes as the card moves. */
-.wb-plate > .kit-plate__stage {
-  container: wb / inline-size;
-}
-
-.wb {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  row-gap: 0.35rem;
-}
-
-.wb-place {
-  display: grid;
-  grid-template-columns: 8rem minmax(0, 1fr) auto;
-  column-gap: 0.6rem;
-  align-items: center;
-  min-width: 0;
-  min-height: 3rem;
-  padding: 0.4rem 0.5rem;
-  border: 1px solid var(--color-deep-line);
-  background: rgb(7 24 49 / 55%);
-  transition:
-    border-color var(--dur-ui) var(--ease-ui),
-    background-color var(--dur-ui) var(--ease-ui);
-}
-
-.wb-place.is-here {
-  border-color: rgb(112 230 255 / 70%);
-  background: rgb(112 230 255 / 6%);
-}
-
-.wb-station {
-  border-style: dashed;
-  background: transparent;
-}
-
-.wb-station.is-here {
-  background: rgb(112 230 255 / 4%);
-}
-
-.wb-place__head {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  min-height: 1.6rem;
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 0.8rem;
-  font-weight: 650;
-  line-height: 1.25;
-  transition: color var(--dur-ui) var(--ease-ui);
-}
-
-.wb-place.is-here .wb-place__head {
-  color: var(--color-ion);
-}
-
-.wb-station__head {
-  grid-column: 1 / span 2;
-  color: var(--color-text-soft);
-}
-
-/* Step 3: the Ready header lights. */
-.wb[data-step='3'] .wb-col[data-place='ready'] .wb-col__head {
-  color: var(--color-starlight);
-}
-
-.wb[data-step='3'] .wb-col[data-place='ready'] .wb-col__head::after {
-  width: 0.45rem;
-  height: 0.45rem;
+.st i {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: var(--color-ion);
-  box-shadow: 0 0 0 4px rgb(112 230 255 / 18%);
+  background: currentcolor;
+}
+
+/* Status words always beside their colour: 7.5:1, 7.45:1 and 5.64:1 on the canvas (spec §8). */
+.st-req {
+  color: #d29922;
+}
+
+.st-ok {
+  color: #3fb950;
+}
+
+.st-merged {
+  color: #a371f7;
+}
+
+/* ---------- the floor: the storyboard, or the live scene ---------- */
+
+.gh-stage {
+  position: relative;
+  flex: 1;
+  min-height: var(--gh-floor-h);
+}
+
+/* The floor line in each column (the floor's figures stand on it). */
+.gh-stage::after {
+  position: absolute;
+  right: 10px;
+  bottom: 21px;
+  left: 10px;
+  height: 1px;
+  background: var(--gh-border);
   content: '';
 }
 
-/* The margin is room for the reply mark beside the bubble, clear of the station's name. */
-.wb-station__bubble {
-  position: relative;
-  display: inline-flex;
-  margin-right: 0.6rem;
-  color: var(--color-ion);
-}
-
-/* Step 1: the bubble replies, a mark at its upper right, clear of the name and the idea card. */
-.wb-station__reply {
+.gh-floor {
   position: absolute;
-  top: -0.45rem;
-  right: -0.85rem;
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px 3px;
-  border: 1px solid var(--color-aurora);
-  background: var(--color-plate);
-  visibility: hidden;
-}
-
-.wb-station__reply i {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--color-aurora);
-}
-
-.wb[data-step='1'] .wb-station__reply {
-  visibility: visible;
-}
-
-.wb-ghosts {
-  position: relative;
-  display: flex;
-  gap: 0.4rem;
-  min-width: 0;
-}
-
-.wb-ghost {
-  display: grid;
-  flex: none;
-  align-content: start;
-  gap: 5px;
-  width: 3.4rem;
-  height: 2rem;
-  padding: 0.4rem 0.45rem;
-  border: 1px solid rgb(165 185 211 / 16%);
-}
-
-.wb-ghost i {
-  height: 3px;
-  background: rgb(165 185 211 / 13%);
-}
-
-.wb-ghost i + i {
-  width: 60%;
-}
-
-/* Step 2: a magnifier sweeps the Backlog. */
-.wb-lens {
-  --wb-sweep: translateX(4.5rem);
-
-  position: absolute;
-  top: 50%;
-  left: -0.2rem;
-  z-index: 2;
-  margin-top: -11px;
-  color: var(--color-ion);
-  visibility: hidden;
-  pointer-events: none;
-  transform: var(--wb-sweep);
-}
-
-.wb[data-step='2'] .wb-lens {
-  visibility: visible;
-}
-
-/* The card's marker in its row (narrow stage only). */
-.wb-marker {
-  display: inline-grid;
-  place-items: center;
-  width: 2.1rem;
-  height: 1.7rem;
-  border: 1px solid rgb(112 230 255 / 60%);
-  background: var(--color-plate-raised);
-  color: var(--color-ion);
-  visibility: hidden;
-}
-
-.wb-marker--idea {
-  border-style: dashed;
-}
-
-.wb-place.is-here .wb-marker {
-  visibility: visible;
-}
-
-/* One card per step; the hidden ones keep their space, all in one cell. */
-.wb-card {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  grid-row: 8;
-  grid-column: 1;
-  align-content: start;
-  align-self: start;
-  gap: 0.35rem;
-  min-width: 0;
-  margin-top: 0.15rem;
-  padding: 0.5rem 0.6rem 0.55rem;
-  border: 1px solid rgb(112 230 255 / 60%);
-  background: var(--color-plate-raised);
-  box-shadow: 0 0.6rem 1.5rem rgb(0 0 0 / 35%);
-}
-
-.wb-card[hidden] {
-  display: grid;
-  visibility: hidden;
-}
-
-.wb-card--idea {
-  border-style: dashed;
-  box-shadow: none;
-}
-
-.wb-card p {
-  margin: 0;
-}
-
-.wb-card__title {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  color: var(--color-starlight);
-  font-size: 0.84rem;
-  font-weight: 640;
-  line-height: 1.3;
-}
-
-.wb-card__title .contribute-mark {
-  color: var(--color-ion);
-}
-
-.wb-card__labels,
-.wb-card__flags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-}
-
-.wb-card__labels span,
-.wb-card__mention span,
-.wb-card__flags span {
-  display: inline-block;
-  padding: 0.04rem 0.35rem 0.08rem;
-  border: 1px solid var(--color-deep-line);
-  color: var(--color-muted);
-  font-size: 0.74rem;
-  font-weight: 600;
-  line-height: 1.4;
-}
-
-.wb-card__mention span {
-  border-color: var(--color-line-strong);
-  color: var(--color-ion);
-}
-
-.wb-card .wb-card__flag--decision {
-  border-color: rgb(244 200 106 / 70%);
-  color: var(--color-signal);
-}
-
-.wb-card__checks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.2rem 0.75rem;
-  margin: 0.1rem 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.wb-card__checks li {
-  position: relative;
-  padding-left: 1.15rem;
-  color: var(--color-text-soft);
-  font-size: 0.74rem;
-  font-weight: 560;
-  line-height: 1.4;
-}
-
-.wb-card__checks li::before,
-.wb-card__checks li::after {
-  position: absolute;
-  content: '';
-}
-
-.wb-card__checks li::before {
-  top: 0.18rem;
+  right: 0;
+  bottom: 12px;
   left: 0;
-  width: 0.7rem;
-  height: 0.7rem;
-  border: 1.5px solid var(--color-ion);
-  background: var(--color-ion);
+  z-index: 3;
+  height: var(--gh-floor-h);
+  pointer-events: none;
 }
 
-.wb-card__checks li::after {
-  top: 0.26rem;
-  left: 0.24rem;
-  width: 0.22rem;
-  height: 0.42rem;
-  border: solid var(--color-plate-raised);
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg);
-}
-
-.wb-card__pr {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding-top: 0.35rem;
-  border-top: 1px solid var(--color-deep-line);
-  color: var(--color-text-soft);
-  font-size: 0.78rem;
-  font-weight: 620;
-}
-
-.wb-card__pr .contribute-mark {
-  color: var(--color-aurora);
-}
-
-/* The column definition line: every variant holds the same cell, so the line never shifts. */
-.wb-def {
-  display: grid;
-  grid-row: 7;
-  min-height: 1.5em;
-  margin: 0.35rem 0 0;
-  color: var(--color-text-soft);
-  font-size: 0.9rem;
-  line-height: 1.45;
-}
-
-.wb-def > span {
-  grid-area: 1 / 1;
-}
-
-.wb-def > [hidden] {
+.floor-svg {
   display: block;
-  visibility: hidden;
+  overflow: visible;
 }
 
-.wb-def strong {
-  color: var(--color-ion);
-  font-weight: 650;
+.floor-svg text {
+  font-family: var(--font-body);
 }
 
-@container wb (max-width: 420px) {
-  .wb-place {
-    grid-template-columns: 6.6rem minmax(0, 1fr) auto;
-    column-gap: 0.4rem;
-  }
+/* ---------- the figcaption ---------- */
 
-  .wb-ghosts .wb-ghost:nth-child(n + 2) {
-    display: none;
-  }
+.wb > .wb-caption {
+  min-height: 2.9rem;
 }
 
-@container wb (min-width: 1000px) {
-  .wb {
-    grid-template-columns: minmax(0, 0.9fr) repeat(5, minmax(0, 1fr));
-    grid-template-rows: auto auto auto;
-    column-gap: 0.45rem;
-    row-gap: 0;
-  }
+/* ---------- the column buttons (phones and tablets) ---------- */
 
-  .wb-place {
-    grid-row: 1 / 3;
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: subgrid;
-    row-gap: 0.55rem;
-    align-items: start;
-    padding: 0.6rem 0.45rem 0.7rem;
-  }
-
-  .wb-station__head {
-    grid-column: auto;
-  }
-
-  .wb-ghosts {
-    flex-direction: column;
-    grid-row: 2;
-  }
-
-  .wb-ghost {
-    width: 100%;
-    height: 3rem;
-  }
-
-  .wb-lens {
-    --wb-sweep: translateY(5.5rem);
-
-    top: 0.4rem;
-    right: 0.4rem;
-    left: auto;
-    margin-top: 0;
-  }
-
-  .wb-marker {
-    display: none;
-  }
-
-  /* Places and cards both name their columns: auto-placement would push the places past the
-     cards' cells into implicit columns. Each card sits in its own column's body. */
-  .wb-place[data-place='discussion'],
-  .wb-card[data-at='discussion'] {
-    grid-column: 1;
-  }
-
-  .wb-place[data-place='backlog'] {
-    grid-column: 2;
-  }
-
-  .wb-place[data-place='ready'] {
-    grid-column: 3;
-  }
-
-  .wb-place[data-place='in-progress'] {
-    grid-column: 4;
-  }
-
-  .wb-place[data-place='in-review'] {
-    grid-column: 5;
-  }
-
-  .wb-place[data-place='blocked'] {
-    grid-column: 6;
-  }
-
-  /* The card keeps a margin inside its column's frame, under it too (the tallest card, step 4's,
-     sets the row). */
-  .wb-card {
-    grid-row: 2;
-    margin: 0 0.45rem 0.6rem;
-    padding-inline: 0.5rem;
-  }
-
-  .wb-card[data-at='backlog'] {
-    grid-column: 2;
-  }
-
-  .wb-card[data-at='ready'] {
-    grid-column: 3;
-  }
-
-  .wb-card[data-at='in-progress'] {
-    grid-column: 4;
-  }
-
-  .wb-card[data-at='in-review'] {
-    grid-column: 5;
-  }
-
-  .wb-def {
-    grid-row: 3;
-    grid-column: 1 / -1;
-    margin-top: 0.75rem;
-  }
+.wb-colnav {
+  display: none;
 }
 
-/* The five steps: a numbered list without the script; one visible tabpanel with it, every panel
-   holding the same cell so the page below never shifts. */
-.wb-plate > .kit-plate__bar--bottom {
-  display: block;
-  padding-block: 0.9rem 1rem;
-}
+/* ---------- phones and tablets: a track of 300 px columns ---------- */
 
-.wb-panels {
-  display: grid;
-  gap: 0.5rem;
-  max-width: 62ch;
-  margin: 0;
-  padding: 0 0 0 1.3rem;
-  color: var(--color-text-soft);
-  font-size: 1rem;
-  line-height: 1.55;
-}
-
-.wb-panels li::marker {
-  color: var(--color-ion);
-  font-weight: 650;
-}
-
-.wb-plate.is-enhanced .wb-panels {
-  padding-left: 0;
-  list-style: none;
-}
-
-.wb-plate.is-enhanced .wb-panels > li {
-  grid-area: 1 / 1;
-}
-
-.wb-plate.is-enhanced .wb-panel[hidden] {
-  display: block;
-  visibility: hidden;
-}
-
-.wb-label {
-  display: inline-block;
-  padding: 0 0.4rem 0.05rem;
-  border: 1px solid var(--color-deep-line);
-  color: var(--color-starlight);
-  font-size: 0.92em;
-  font-weight: 620;
-  white-space: nowrap;
-}
-
-.wb-term {
-  white-space: nowrap;
-}
-
-.wb-label--decision {
-  border-color: rgb(244 200 106 / 70%);
-  color: var(--color-signal);
-}
-
-/* Step changes, once each time a step is shown (reduced motion: none). */
-@media screen and (prefers-reduced-motion: no-preference) {
-  .wb[data-step='1'] .wb-station__reply,
-  .wb[data-step='2'] .wb-card__mention span {
-    animation: wb-pop 260ms var(--ease-figure) 380ms both;
+@media (max-width: 63.99rem) {
+  .wb > .wb-head {
+    padding-left: 0.85rem;
   }
 
-  .wb[data-step='2'] .wb-lens {
-    animation: wb-sweep 900ms var(--ease-camera) 120ms both;
+  /* Without the scene (no script, reduced motion) the track scrolls by hand, column by column. */
+  .gh-scroll {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scrollbar-color: var(--gh-border) transparent;
   }
 
-  .wb[data-step='4'] .wb-card__checks li::before {
-    animation: wb-tick 200ms var(--ease-figure) both;
-    animation-delay: calc(450ms + var(--wb-i, 0) * 110ms);
+  .wb.is-live .gh-scroll {
+    overflow: hidden;
   }
 
-  .wb[data-step='4'] .wb-card__checks li:nth-child(2)::before {
-    --wb-i: 1;
+  .gh-track {
+    width: max-content;
   }
 
-  .wb[data-step='4'] .wb-card__checks li:nth-child(3)::before {
-    --wb-i: 2;
+  .gh-cols {
+    grid-template-columns: repeat(5, 300px);
   }
 
-  .wb[data-step='4'] .wb-card__checks li:nth-child(4)::before {
-    --wb-i: 3;
+  .gh-col {
+    scroll-snap-align: center;
   }
 
-  .wb[data-step='4'] .wb-card__flags span {
-    animation: wb-pop 260ms var(--ease-figure) 900ms both;
+  .gh-pan {
+    transition: transform 700ms var(--ease-camera);
   }
 
-  .wb[data-step='5'] .wb-card__pr {
-    animation: wb-dock 380ms var(--ease-camera) 460ms both;
-  }
-}
-
-@keyframes wb-pop {
-  from {
-    opacity: 0;
-    transform: scale(0.9);
+  .wb-colnav:not([hidden]) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px 12px 12px;
+    border-top: 1px solid var(--gh-border);
+    background: var(--gh-canvas);
   }
 
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@keyframes wb-sweep {
-  from {
-    transform: none;
-  }
-
-  to {
-    transform: var(--wb-sweep);
-  }
-}
-
-@keyframes wb-tick {
-  from {
+  .wb-colnav button {
+    min-height: 44px;
+    margin: 0;
+    padding: 0 12px;
+    border: 1px solid var(--gh-border);
+    border-radius: 0;
     background: transparent;
+    color: var(--color-muted);
+    font: 600 0.8rem/1 var(--font-body);
+    cursor: pointer;
   }
 
-  to {
-    background: var(--color-ion);
+  .wb-colnav button:hover {
+    color: var(--color-starlight);
+  }
+
+  .wb-colnav button[aria-pressed='true'] {
+    border-color: var(--color-ion);
+    color: var(--color-starlight);
+  }
+
+  .wb-colnav button:focus-visible {
+    outline: 2px solid var(--color-ion);
+    outline-offset: 2px;
   }
 }
 
-@keyframes wb-dock {
-  from {
-    opacity: 0;
-    transform: translateX(0.9rem);
-  }
+/* ---------- milestones ---------- */
 
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-/* Milestones: four diamonds on a hairline. */
 .wb-milestones {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -725,8 +499,6 @@
   transform: rotate(45deg);
 }
 
-/* ---------- phones and narrow columns ---------- */
-
 @media (max-width: 52rem) {
   .wb-milestones__lead,
   .wb-milestones__rail {
@@ -735,34 +507,6 @@
 }
 
 @media (max-width: 40rem) {
-  .wb-tabs {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
-
-  /* Two rows inside the gutters: three tabs, then two; labels wrap between words only. */
-  .wb-tabs [role='tab'] {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.1rem;
-    grid-column: span 2;
-    min-height: 3.6rem;
-    padding: 0.55rem 0.55rem calc(0.5rem + 1px);
-    font-size: 0.84rem;
-  }
-
-  .wb-tabs [role='tab']:nth-child(4),
-  .wb-tabs [role='tab']:nth-child(5) {
-    grid-column: span 3;
-  }
-
-  .wb-tabs [role='tab']:nth-child(4) {
-    box-shadow: none;
-  }
-
-  .wb-tabs [role='tab']:nth-child(4)[aria-selected='true'] {
-    box-shadow: inset 0 -1px 0 var(--color-ion);
-  }
-
   .wb-milestones__rail {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     row-gap: 1.1rem;
@@ -785,37 +529,31 @@
 /* ---------- reduced motion, print, forced colours ---------- */
 
 @media (prefers-reduced-motion: reduce) {
-  :is(.wb-plate) *,
-  :is(.wb-plate) *::before,
-  :is(.wb-plate) *::after {
-    animation: none !important;
-    transition: none !important;
+  .gh-pan {
+    transition: none;
   }
 }
 
 @media print {
-  .wb-plate .wb-panel[hidden] {
-    visibility: visible;
+  .wb-colnav {
+    display: none !important;
   }
 
-  .wb-plate.is-enhanced .wb-panels {
-    padding-left: 1.3rem;
-    list-style: decimal;
-  }
-
-  .wb-plate.is-enhanced .wb-panels > li {
-    grid-area: auto;
-  }
-
-  .wb-plate > .kit-plate__bar--top {
-    display: none;
+  .gh-scroll {
+    overflow: visible;
   }
 }
 
 @media (forced-colors: active) {
-  .wb-card,
-  .wb-place,
-  .wb-place.is-here {
+  .gh-col,
+  .gh-card,
+  .gh-label,
+  .gh-count,
+  .wb-colnav button {
     border-color: CanvasText;
+  }
+
+  .gh-stage::after {
+    background: CanvasText;
   }
 }
