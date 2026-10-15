@@ -307,9 +307,11 @@
  * make elements on it light up. clicking it brings you to the Issues page on GH with
  * working-group-specific filters applied"). The page's island opens the URL its column's link holds
  * (contribute.astro); keyboards and screen readers have the column links, as the stage is one image
- * with no tab stop. Only the moon's own art takes the pointer: its disc and engraving, its crew and
- * props, and its label while it shows (orbit.ts hides a faded one); the sky, the orbit, the globe,
- * and a pod or a bubble passing over, let it through.
+ * with no tab stop. Only the moon's own art takes the pointer, and only while it shows: its disc
+ * and engraving (not the glow round it), its crew once landed and its props once set up, and its
+ * label while it shows. orbit.ts hides each of those with `visibility` as well as opacity until
+ * then, as the pointer ignores opacity (review of the orbit's hover, finding 9). The sky, the orbit,
+ * the globe, and a pod or a bubble passing over, let it through.
  *
  * Hovered, the moon wakes: its engraving lights to full ion with a faint glow, its rim brightens, a
  * dotted ring like the orbit's own draws round it, the crew's suits and visors catch the light,
@@ -327,6 +329,10 @@
 .orbit-svg :is(.moon, .on-moon, .moon-label) {
   pointer-events: visiblePainted;
   cursor: pointer;
+}
+
+.orbit-svg .moon > circle:first-child {
+  pointer-events: none;
 }
 
 .orbit-svg .moon-icon,
@@ -855,6 +861,7 @@
   }
 
   :root[data-arm-orbit] .orbit:not([data-scene-state]) .orb-label {
+    visibility: hidden;
     opacity: 0;
   }
 

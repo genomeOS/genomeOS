@@ -66,10 +66,12 @@ import {
 const f = (n: number) => +(+n).toFixed(2);
 
 /**
- * A label's keyframe at this opacity. At 0 a label is `hidden` as well, so the pointer passes
- * through it (a label lights its moon on hover and opens its issues, contribute.css); otherwise it
- * inherits, so a label hidden by any of its three tracks (its moon's arrival, its cover, the phone's
- * camera) stays hidden, and one fading shows, as `visibility` interpolates.
+ * A keyframe at this opacity for a label, a crew or a prop. At 0 it is `hidden` as well, so the
+ * pointer passes through it (the moon's art lights its moon on hover and opens its issues,
+ * contribute.css; the pointer ignores opacity): a faded label, a crew before it lands, a prop
+ * before it is set up. Otherwise it inherits, so a label hidden by any of its three tracks (its
+ * moon's arrival, its cover, the phone's camera) stays hidden, and one fading shows, as
+ * `visibility` interpolates.
  */
 const shown = (opacity: number): Keyframe => ({
   opacity,
@@ -347,7 +349,8 @@ function landing(
     ],
   ]);
   // The crew pop out of the hatch: the window helmets duck as the full figures leap clear, in a
-  // low-gravity arc to their work spots, landing with a squash.
+  // low-gravity arc to their work spots, landing with a squash. Until then a figure is hidden, out
+  // of the pointer's way too (`shown`).
   const crew = CREW[kind];
   crew.forEach((c, i) => {
     const te = td + 420 + i * 260;
@@ -358,9 +361,9 @@ function landing(
     const astro = m.querySelector(`.crew-${c.id} .astro`);
     const startDeg = (i - (crew.length - 1) / 2) * 6;
     tl.story(astro, [
-      [te, { opacity: 0, transform: 'scale(.6)' }],
-      [te + 1, { opacity: 1, transform: 'scale(.6)' }, EASE.out],
-      [te + 260, { opacity: 1, transform: 'scale(1)' }],
+      [te, { ...shown(0), transform: 'scale(.6)' }],
+      [te + 1, { ...shown(1), transform: 'scale(.6)' }, EASE.out],
+      [te + 260, { ...shown(1), transform: 'scale(1)' }],
     ]);
     beats.travel.set(c.id, [
       [0, startDeg],
@@ -560,8 +563,8 @@ function activity(
       'story',
       m.querySelector('.setup-cart'),
       [
-        [td + 1499, { opacity: 0 }],
-        [td + 1500, { opacity: 1 }],
+        [td + 1499, shown(0)],
+        [td + 1500, shown(1)],
       ],
     ]);
   }
@@ -644,8 +647,8 @@ function activity(
       'story',
       m.querySelector('.setup-probe'),
       [
-        [td + 1700, { transform: 'translateY(-40px)', opacity: 0 }, EASE.down],
-        [td + 2100, { transform: 'translateY(0px)', opacity: 1 }],
+        [td + 1700, { transform: 'translateY(-40px)', ...shown(0) }, EASE.down],
+        [td + 2100, { transform: 'translateY(0px)', ...shown(1) }],
       ],
     ]);
     extras.push([

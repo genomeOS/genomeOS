@@ -29,7 +29,8 @@
  *   the columns down to their links at 1440 × 900 and up; the bar, the stage and every typed line
  *   at 1366 × 768 and 1280 × 800; the moon labels at 13 px or more at each. * - A moon under the pointer (owner, 2026-10-15) lights alone, from its disc or its label, and a
  *   click (a tap on a phone) opens its group's issues on GitHub in a new tab, its column link's
- *   URL; a faded label lets the pointer through; under reduced motion the same, at once.
+ *   URL; only its art that shows takes the pointer (a faded label, a crew yet to land and the
+ *   moon's glow let it through); under reduced motion the same, at once.
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -1502,20 +1503,113 @@ test.describe('a moon under the pointer @desktop-chromium', () => {
 
   test('lets a faded label pass the pointer through', async ({ page }) => {
     await openOrbit(page);
-    // The UI moon at the front of its orbit: its label has faded out at the stage's bottom edge.
-    await seek(page, (T.orbit * (74 - 90 + 360)) / 360);
-    const label = await page.evaluate(() => {
+    await page
+      .locator(FIGURE)
+      .evaluate((element) =>
+        element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+      );
+    // The UI moon nears the front of its orbit: its label has faded out at the stage's bottom
+    // edge. Back from the front, the earliest moment it is hidden, its middle still well inside
+    // the stage, where a label that took the pointer would be hit.
+    const faded = await page.evaluate(
+      async (front) => {
+        const look = () => {
+          const svg = [
+            ...document.querySelectorAll<SVGSVGElement>(
+              '[data-graphic="orbit"] .orbit-svg',
+            ),
+          ].find((item) => item.getClientRects().length > 0)!;
+          const text = svg.querySelector(
+            '.orbiter--label[data-moon="ui"] .moon-label',
+          )!;
+          const box = text.getBoundingClientRect();
+          const stage = document
+            .querySelector('[data-graphic="orbit"] [data-figure-stage]')!
+            .getBoundingClientRect();
+          const x = box.x + box.width / 2;
+          const y = box.y + box.height / 2;
+          return {
+            visibility: getComputedStyle(text).visibility,
+            inside: stage.bottom - y,
+            hit: !!document.elementFromPoint(x, y)?.closest('.orbiter--label'),
+          };
+        };
+        let earliest = null;
+        for (let t = front; t > front - 40000; t -= 1000) {
+          await window.__motion!.seek('orbit', t);
+          const seen = look();
+          if (seen.visibility !== 'hidden') break;
+          earliest = seen;
+        }
+        return earliest;
+      },
+      (T.orbit * (74 - 90 + 360)) / 360,
+    );
+    expect(faded).toMatchObject({ visibility: 'hidden', hit: false });
+    expect(faded!.inside).toBeGreaterThan(5);
+  });
+
+  test('takes the pointer only where a moon’s art shows', async ({ page }) => {
+    await openOrbit(page);
+    await page
+      .locator(FIGURE)
+      .evaluate((element) =>
+        element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+      );
+    // Which moon, if any, takes a point of the drawn layout.
+    const at = (where: {
+      kind: string;
+      part: 'label' | 'disc';
+      x: number;
+      y: number;
+    }) =>
+      page.evaluate(({ kind, part, x, y }) => {
+        const svg = [
+          ...document.querySelectorAll<SVGSVGElement>(
+            '[data-graphic="orbit"] .orbit-svg',
+          ),
+        ].find((item) => item.getClientRects().length > 0)!;
+        const box = svg
+          .querySelector(
+            part === 'label'
+              ? `.orbiter--label[data-moon="${kind}"] .moon-label`
+              : `.orbiter--moon[data-moon="${kind}"] .moon > circle:nth-of-type(2)`,
+          )!
+          .getBoundingClientRect();
+        return (
+          document
+            .elementFromPoint(box.x + box.width * x, box.y + y)
+            ?.closest('[data-moon]')
+            ?.getAttribute('data-moon') ?? null
+        );
+      }, where);
+    // 15 s in, the UI moon has arrived: its crew, yet to land, would sit over the right half of
+    // the Modeling label, and take it to the UI group's issues.
+    await seek(page, 15000);
+    const middle = await page.evaluate(() => {
       const svg = [
         ...document.querySelectorAll<SVGSVGElement>(
           '[data-graphic="orbit"] .orbit-svg',
         ),
       ].find((item) => item.getClientRects().length > 0)!;
-      const text = svg.querySelector(
-        '.orbiter--label[data-moon="ui"] .moon-label',
-      )!;
-      return getComputedStyle(text).visibility;
+      return (
+        svg
+          .querySelector('.orbiter--label[data-moon="model"] .moon-label')!
+          .getBoundingClientRect().height / 2
+      );
     });
-    expect(label).toBe('hidden');
+    for (const x of [0.7, 0.92])
+      expect(
+        await at({ kind: 'model', part: 'label', x, y: middle }),
+        `${x} along the Modeling label`,
+      ).toBe('model');
+    // 10 s in, Data's crew is yet to land: the sky over its moon, and its glow, take nothing.
+    await seek(page, 10000);
+    for (const y of [-30, -8])
+      expect(
+        await at({ kind: 'data', part: 'disc', x: 0.5, y }),
+        `${-y} px over Data's disc`,
+      ).toBeNull();
   });
 
   test('opens the group’s issues on GitHub in a new tab, and takes no focus', async ({
