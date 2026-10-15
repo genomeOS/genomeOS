@@ -1,13 +1,14 @@
 /**
- * Projects page content (round 2 spec §4.2, §6, §11.1; rulings R2-4, R2-14, R2-15, R2-16; #454).
- * Owned by the Projects task.
+ * Projects page content (round 2 spec §4.2, §6, §11.1; rulings R2-4, R2-14, R2-15, R2-16, 35–39;
+ * the owner's restructure of 2026-10-15; #454). Owned by the Projects task.
  *
  * The built page opens on the project index (the genomeOS Atlas, live and in development, and an
- * honest "more to come"), then the Atlas's chapter: Purpose (HbS, applications), Process (join-up,
- * counts, pipeline, safeguards) and Status, with eight concept sections and one figure each. It
- * keeps round 1's ids, writes counts in people, carries no "Not yet validated" tag (a plain note and
- * a link to the Atlas instead) and speaks US English. The HbS threshold figure's two outline classes
- * are checked against the decoded figure data at every slider stop.
+ * honest "more to come"), then the Atlas chapter: an overview of the essentials (about 80 words, the
+ * pill, the mark and its key, three pinned totals), and four sections closed by default, each a
+ * summary row with an icon, an h3 and a teaser: hemoglobin S, applications, how it works (join-up,
+ * counts, pipeline, safeguards) and where it stands. Eight concept sections with one figure each;
+ * round 1's ids; counts in people; no validation caveat or status tag but "Example"; US English.
+ * The HbS threshold figure's outline classes are checked against the decoded figure data.
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -61,6 +62,36 @@ function figure(name: string): string {
   return project.slice(start, end + '</figure>'.length);
 }
 
+/** A collapsed section of the Atlas chapter, by its data-acc name. */
+function section(name: string): string {
+  const at = project.indexOf(`data-acc="${name}"`);
+  if (at === -1) return '';
+  const start = project.lastIndexOf('<details', at);
+  // Sections never nest, but a section holds inner <details> ("View as table"): count them.
+  let depth = 0;
+  const tag = /<(\/?)details\b/g;
+  tag.lastIndex = start;
+  for (let match = tag.exec(project); match; match = tag.exec(project)) {
+    depth += match[1] ? -1 : 1;
+    if (depth === 0)
+      return project.slice(start, match.index + '</details>'.length);
+  }
+  return '';
+}
+
+/** Every section's summary row, in order. */
+const summaries = () =>
+  [
+    ...project.matchAll(/<summary class="acc__summary">([\s\S]*?)<\/summary>/g),
+  ].map(([, inner]) => inner);
+
+/** The Atlas overview, from the chapter's start to its first section. */
+const overviewHtml = () => {
+  const start = project.indexOf('class="atlas-ov"');
+  const end = project.indexOf('class="acc-list"');
+  return start === -1 || end === -1 ? '' : project.slice(start, end);
+};
+
 /** Text a reader sees or hears: tags, scripts and styles removed, character references decoded. */
 const text = (html: string) =>
   html
@@ -77,7 +108,7 @@ const text = (html: string) =>
     .replace(/\s+/g, ' ');
 
 describe('projects page content', () => {
-  it('opens with one h1, the Atlas chapter’s h2 and an h3 for each of its sections', () => {
+  it('opens with one h1, the Atlas chapter’s h2, and an h3 in each section’s summary', () => {
     expect(project.match(/<h1\b/g) ?? []).toHaveLength(1);
     const h1 = project.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/)![1];
     expect(text(h1).trim()).toBe('What we’re building');
@@ -89,18 +120,125 @@ describe('projects page content', () => {
       ([, inner]) => text(inner).trim(),
     );
     expect(h3s).toEqual([
-      'Why hemoglobin S makes the mission tangible',
-      'From scattered evidence to better decisions.',
+      'Why hemoglobin S makes it tangible',
+      'What it could be used for',
+      'How it works',
+      'Where it stands',
+    ]);
+    // Each section's h3 is its summary's title, so the outline survives the rows being closed.
+    for (const summary of summaries())
+      expect(summary).toMatch(/<h3\b[^>]*class="acc__title"/);
+    // How it works holds its four parts as h4s, in order.
+    const how = section('how');
+    const parts = [
+      ...how.matchAll(/<h4\b[^>]*class="h4-section"[^>]*>([\s\S]*?)<\/h4>/g),
+    ].map(([, inner]) => text(inner).trim());
+    expect(parts).toEqual([
       'From scattered tables to placed evidence',
       'Counts, not guesses.',
       'From evidence to an explorable map',
       'Six rules the interface cannot hide',
-      'What exists—and what comes later',
     ]);
     // The chapter's wordmark is set in the brand face.
     expect(project).toMatch(
       /<h2\b[^>]*>\s*<span class="brand-name">genomeOS<\/span> Atlas\s*<\/h2>/,
     );
+  });
+
+  it('keeps the chapter’s detail in four sections, closed by default, each a summary row', () => {
+    const tags = [...project.matchAll(/<details\b[^>]*class="acc"[^>]*>/g)].map(
+      ([tag]) => tag,
+    );
+    expect(tags.map((tag) => tag.match(/data-acc="([^"]+)"/)?.[1])).toEqual([
+      'hbs',
+      'uses',
+      'how',
+      'status',
+    ]);
+    for (const tag of tags) expect(tag).not.toMatch(/\bopen\b/);
+    const rows = summaries().map((summary) => ({
+      icon: /<span class="acc__icon" aria-hidden="true">\s*<svg\b/.test(
+        summary,
+      ),
+      chevron: /<svg class="acc__chevron"[^>]*aria-hidden="true"/.test(summary),
+      teaser: text(
+        summary.match(/<span class="acc__teaser">([\s\S]*?)<\/span>/)![1],
+      ).trim(),
+    }));
+    expect(rows).toEqual([
+      {
+        icon: true,
+        chevron: true,
+        teaser:
+          'One variant, three genotypes, and where each is expected among births.',
+      },
+      {
+        icon: true,
+        chevron: true,
+        teaser: 'Screening, diagnosis, trials, and where to sample next.',
+      },
+      {
+        icon: true,
+        chevron: true,
+        teaser:
+          'From scattered tables to a map, with rules that keep it honest.',
+      },
+      {
+        icon: true,
+        chevron: true,
+        teaser: 'What is available now, in development and further out.',
+      },
+    ]);
+    // The old chapter chips are gone: the rows are the chapter's navigation.
+    expect(project).not.toContain('aria-label="genomeOS Atlas sections"');
+  });
+
+  it('opens the Atlas chapter on an overview of the essentials, in about 80 words', () => {
+    const overview = text(
+      overviewHtml().replace(/<details\b[\s\S]*?<\/details>/, (block) =>
+        block.replace(/<div>[\s\S]*<\/div>/, ''),
+      ),
+    ).trim();
+    const words = overview.match(/[\p{L}\p{N}][\p{L}\p{N}'’.\-]*/gu) ?? [];
+    expect(words.length, overview).toBeLessThanOrEqual(80);
+    for (const line of [
+      'Project 1',
+      'Where a genetic variant is common shapes who is offered screening, how a test result is read and where a study can recruit.',
+      'The Atlas maps variants on an interactive globe. Pick one, inspect any place and see where evidence is thin.',
+      'Measured survey',
+      'Modeled estimate',
+      'No estimate',
+      'How we count',
+    ])
+      expect(overview).toContain(line);
+    expect(overviewHtml()).toMatch(
+      /<a class="atlas-open" href="\/app\/">[\s\S]*?Open the <span class="brand-name">genomeOS<\/span> Atlas/,
+    );
+    // The mark is decoration; its key is the caption.
+    expect(overviewHtml()).toMatch(
+      /<svg class="atlas-mark[^"]*"[^>]*aria-hidden="true"/,
+    );
+  });
+
+  it('gives three key facts, pinned to the corpus revision, and how they are counted', () => {
+    const totals = [
+      ...overviewHtml().matchAll(/<data\b([^>]*)>([^<]*)<\/data>/g),
+    ];
+    expect(totals.map((match) => match[2])).toEqual(['4,392', '6.69M', '2']);
+    for (const [, attributes] of totals) {
+      expect(attributes).not.toContain('aria-hidden');
+      expect(attributes).not.toContain('data-count-to');
+    }
+    const words = text(overviewHtml());
+    expect(words).toContain('Genetic variants & alleles');
+    expect(words).toContain('People represented, not deduplicated');
+    expect(words).toContain('Diseases represented');
+    expect(overviewHtml()).toMatch(
+      /<summary[^>]*>\s*How we count\s*<\/summary>/,
+    );
+    expect(overviewHtml()).toContain(corpusRevision);
+    // Stated once: the status rail no longer repeats them.
+    expect(figure('status-rail')).not.toContain('<data');
   });
 
   it('keeps every round-1 fragment the /project/ redirect forwards', () => {
@@ -116,6 +254,7 @@ describe('projects page content', () => {
       'safeguards-title',
       'pipeline',
       'pipeline-title',
+      'process-title',
       'status',
       'status-title',
       'follow-title',
@@ -150,6 +289,14 @@ describe('projects page content', () => {
     ])
       expect(figure(name), name).not.toBe('');
     expect(project).not.toContain('data-graphic="scale-ladder"');
+    // Every concept but the index sits inside its collapsed section.
+    for (const [name, ids] of [
+      ['hbs', ['hbs']],
+      ['uses', ['applications']],
+      ['how', ['join-up', 'counts', 'pipeline', 'safeguards']],
+      ['status', ['status']],
+    ] as const)
+      for (const id of ids) expect(section(name), id).toContain(`id="${id}"`);
   });
 
   it('indexes the projects: the Atlas, live and in development, then more to come', () => {
@@ -176,20 +323,6 @@ describe('projects page content', () => {
     );
   });
 
-  it('jumps to Purpose, Process and Status from the chapter opener', () => {
-    const nav = project.match(
-      /<nav\b[^>]*aria-label="genomeOS Atlas sections"[^>]*>([\s\S]*?)<\/nav>/,
-    )![1];
-    const links = [...nav.matchAll(/href="([^"]+)"[^>]*>([^<]+)</g)].map(
-      ([, href, label]) => `${label.trim()} ${href}`,
-    );
-    expect(links).toEqual([
-      'Purpose #hbs',
-      'Process #join-up',
-      'Status #status',
-    ]);
-  });
-
   it('labels current work, active work, and future ideas separately', () => {
     expect(project).toMatch(
       /Available now[\s\S]*In active development[\s\S]*Future exploration/,
@@ -206,7 +339,7 @@ describe('projects page content', () => {
     expect(project).toMatch(/HbS[\s\S]*G6PD[\s\S]*screening/);
     // "hemoglobin S" is one name: a no-break space keeps the S off the start of a line.
     expect(project).toMatch(
-      /Why hemoglobin(?:&nbsp;|&#160;| )S makes the mission tangible/,
+      /Why hemoglobin(?:&nbsp;|&#160;|\u00a0)S makes it tangible/,
     );
     expect(project).toMatch(/population-location registry/i);
     expect(project).toMatch(/interactive public map/i);
@@ -332,24 +465,6 @@ describe('projects page content', () => {
     expect(text(project)).toContain(
       `The Atlas: observations and surfaces for ${catalog.artifacts.length} markers`,
     );
-  });
-
-  it('heads the status rail with the evidence totals and how they are counted', () => {
-    const rail = figure('status-rail');
-    const totals = [...rail.matchAll(/<data\b([^>]*)>([^<]*)<\/data>/g)];
-    expect(totals.map((match) => match[2])).toEqual(['4,392', '6.69M', '2']);
-    for (const [, attributes] of totals) {
-      expect(attributes).not.toContain('aria-hidden');
-      expect(attributes).not.toContain('data-count-to');
-    }
-    const words = text(rail);
-    expect(words).toContain('Genetic variants & alleles');
-    expect(words).toContain('People represented, not deduplicated');
-    expect(words).toContain('Diseases represented');
-    expect(rail).toMatch(/<summary[^>]*>\s*How we count\s*<\/summary>/);
-    expect(rail).toContain(corpusRevision);
-    // The composition bars retire with EvidenceBase.
-    expect(rail).not.toContain('eb-bar');
   });
 
   it('lists six applications, with horizons only where a status applies', () => {

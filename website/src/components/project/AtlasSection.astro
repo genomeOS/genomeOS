@@ -1,0 +1,56 @@
+---
+/**
+ * One collapsed section of the genomeOS Atlas chapter (owner request, 2026-10-15; round 2 spec
+ * §4.2): a native `<details>`, closed by default, whose `<summary>` reads as an accordion row: a
+ * thematic line icon, the section's h3, a one-line teaser and a chevron that turns on open. The
+ * summary is the control (keyboard, focus ring and expanded state come from `<details>` itself);
+ * the icon and chevron are `aria-hidden`.
+ *
+ * The body holds the section's figures. They load nothing and do not move until the section opens:
+ * the page's island (accordion.ts) imports the section's module on its first `toggle`, opens the
+ * section a deep link points into, and opens every section for printing. `data-acc` names the
+ * module.
+ */
+import {
+  CHEVRON_PATH,
+  SECTION_ICON_PATHS,
+  type SectionIconName,
+} from './section-icons';
+
+interface Props {
+  /** The section's module (accordion.ts), and its hook for tests. */
+  name: string;
+  icon: SectionIconName;
+  title: string;
+  /** The h3's id: deep links and the sections inside it name it. */
+  titleId: string;
+  teaser: string;
+}
+
+const { name, icon, title, titleId, teaser } = Astro.props;
+---
+
+<details class="acc" data-acc={name}>
+  <summary class="acc__summary">
+    <span class="acc__icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" focusable="false">
+        <path d={SECTION_ICON_PATHS[icon]}></path>
+      </svg>
+    </span>
+    <span class="acc__words">
+      <h3 class="acc__title" id={titleId}>{title}</h3>
+      <span class="acc__teaser">{teaser}</span>
+    </span>
+    <svg
+      class="acc__chevron"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d={CHEVRON_PATH}></path>
+    </svg>
+  </summary>
+  <div class="acc__body">
+    <slot />
+  </div>
+</details>

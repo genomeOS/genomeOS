@@ -164,11 +164,18 @@ describe.skipIf(!projects)('the counts figure on the built page', () => {
     expect(text).toContain('Carrier');
     expect(text).toContain('Not a carrier');
     expect(text).toContain('Not tested');
-    expect(text).toContain(
+    expect(text).toContain('Illustrative surveys; 95% Jeffreys intervals.');
+    // The figure's lesson stands under the part's heading, beside the figure, so the split's text
+    // column holds more than a heading (design review, round 3).
+    const column = projects.match(
+      /<div class="layout-figure-split__text proj-counts__text">([\s\S]*?)<\/div>/,
+    )![1];
+    const words = column.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+    expect(words).toContain('Counts, not guesses.');
+    expect(words).toContain('Zero is weak evidence, not absence.');
+    expect(words).toContain(
       'Each person carries two copies of the gene; the Atlas counts copies.',
     );
-    expect(text).toContain('Zero is weak evidence, not absence.');
-    expect(text).toContain('Illustrative surveys; 95% Jeffreys intervals.');
   });
 
   it('draws one micro astronaut per person: 706 uses at most, none of them a full astronaut', () => {

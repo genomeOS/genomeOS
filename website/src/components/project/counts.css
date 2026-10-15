@@ -236,16 +236,6 @@
   height: 20px;
 }
 
-.cf-note {
-  max-width: 62ch;
-  margin: 0.6rem 0 0;
-}
-
-.cf-note strong {
-  color: var(--color-starlight);
-  font-weight: 640;
-}
-
 /* ---------- the entrance: once at 35%, under 1.6 s (FigureController) ---------- */
 
 /* Captures hold a moment of the entrance (motion hooks, `?t=`). */

@@ -1,19 +1,19 @@
 /*
- * Projects page (site redesign spec §4.2; round 2 spec §4.2; #454). Owned by the Projects task;
- * loaded after the shared CSS. The intro and its project index, the genomeOS Atlas chapter opener,
- * then the chapter's sections on alternating orbit and void bands; every concept is carried by one
- * figure. The counts figure and the application cards bring their own CSS (components/project/).
+ * Projects page (site redesign spec §4.2; round 2 spec §4.2; the owner's restructure of 2026-10-15;
+ * #454). Owned by the Projects task; loaded after the shared CSS. The intro and its project index,
+ * then the genomeOS Atlas chapter on one orbit band: its overview, and its sections as collapsed
+ * accordion rows that open onto their figures. The counts figure and the application cards bring
+ * their own CSS (components/project/).
  *
- * Motion follows one pattern for every figure here: the island adds `is-armed` (the before state,
- * screens only) and then `is-playing`, whose keyframes read `--d` (ms) for their delay and
- * `--figure-freeze` (captures, motion hooks) to hold a moment; at rest neither class is present,
+ * Motion follows one pattern for every figure here: its section's module adds `is-armed` (the
+ * before state, screens only) and then `is-playing`, whose keyframes read `--d` (ms) for their delay
+ * and `--figure-freeze` (captures, motion hooks) to hold a moment; at rest neither class is present,
  * so the server-rendered final state shows and nothing runs. Reduced motion never arms.
  */
 
 /* ---------- shared heads ---------- */
 
-.proj-h2,
-.proj-head h2 {
+.proj-h2 {
   max-width: 22ch;
   margin: 0;
   color: var(--color-starlight);
@@ -25,64 +25,25 @@
   text-wrap: balance;
 }
 
-.proj-head {
-  margin-bottom: var(--head-gap);
-}
-
-/* A section of the Atlas chapter: an h3 one step below the chapter's h2 (round 2 spec §4.2). */
-.h3-section {
-  max-width: 22ch;
-  margin: 0;
+/* A part of "How it works": an h4 under the section row's h3. */
+.h4-section {
+  max-width: 26ch;
+  margin: 0 0 clamp(1.25rem, 2.6vw, 2rem);
   color: var(--color-starlight);
   font-family: var(--font-display);
-  font-size: clamp(1.7rem, 3vw, 2.6rem);
+  font-size: clamp(1.5rem, 2.5vw, 2.15rem);
   font-weight: 400;
-  letter-spacing: -0.03em;
-  line-height: 1.06;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
   text-wrap: balance;
 }
 
-.proj-kicker {
-  margin: 0 0 0.9rem;
-  color: var(--color-ion);
-  font-size: var(--type-kicker);
-  font-weight: 640;
-}
-
-.proj-head--split {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  column-gap: var(--grid-gap);
-  align-items: end;
-}
-
-.proj-head--split > div {
-  grid-column: 1 / span 7;
-}
-
 .proj-lede {
-  grid-column: 9 / span 4;
-  max-width: 38ch;
-  margin: 0;
+  max-width: 52ch;
+  margin: 0 0 clamp(1.5rem, 3vw, 2.25rem);
   color: var(--color-text-soft);
   font-size: var(--type-lede);
   line-height: 1.5;
-}
-
-.proj-pipeline__title {
-  margin-bottom: var(--head-gap);
-}
-
-@media (max-width: 52rem) {
-  /* As specific as the wide rule for the title block, so it does not keep its 7 columns here. */
-  .proj-head--split > *,
-  .proj-head--split > div {
-    grid-column: 1 / -1;
-  }
-
-  .proj-lede {
-    margin-top: 1rem;
-  }
 }
 
 @keyframes proj-fade {
@@ -301,163 +262,516 @@
   }
 }
 
-/* ---------- the genomeOS Atlas chapter opener ---------- */
+/* ---------- the genomeOS Atlas overview ---------- */
 
-/* Two classes: the shared .band padding may load after this file. */
-.band.chapter {
-  padding-block: clamp(2.25rem, 4.5vw, 3.5rem);
-}
-
-.chapter__inner {
-  display: flex;
-  flex-wrap: wrap;
+/* Text 7/12 beside the mark 4/12; the totals run the full width under both, then the sections. */
+.atlas-ov {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: var(--grid-gap);
+  row-gap: clamp(2.25rem, 4.5vw, 3.5rem);
   align-items: center;
-  gap: 1rem 1.25rem;
 }
 
-.chapter__mark {
-  flex: none;
+.atlas-ov__text {
+  grid-column: 1 / span 7;
 }
 
-.chapter__head {
-  min-width: 0;
-}
-
-.chapter__kicker {
-  margin: 0 0 0.2rem;
+.atlas-ov__kicker {
+  margin: 0 0 0.6rem;
   color: var(--color-ion);
   font-size: var(--type-kicker);
   font-weight: 640;
 }
 
-.chapter__title {
+.atlas-ov__title {
   margin: 0;
   color: var(--color-starlight);
   font-family: var(--font-display);
-  font-size: clamp(2.2rem, 4.4vw, 3.6rem);
+  font-size: clamp(2.4rem, 5vw, 4.2rem);
   font-weight: 380;
   letter-spacing: -0.035em;
   line-height: 1.02;
 }
 
-.chapter__nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  margin-left: auto;
+.atlas-ov__lede {
+  max-width: 34ch;
+  margin: clamp(1.1rem, 2.2vw, 1.6rem) 0 0;
+  color: var(--color-starlight);
+  font-size: var(--type-lede);
+  line-height: 1.45;
+  text-wrap: pretty;
 }
 
-.chapter__nav a {
+.atlas-ov__body {
+  max-width: 44ch;
+  margin: 0.9rem 0 0;
+  color: var(--color-text-soft);
+  font-size: var(--type-body);
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.atlas-ov__text .atlas-open {
+  margin-top: clamp(1.5rem, 3vw, 2.1rem);
+}
+
+.atlas-ov__visual {
+  grid-column: 9 / span 4;
+  display: grid;
+  justify-items: center;
+  gap: 1.1rem;
+  margin: 0;
+}
+
+.atlas-ov__mark {
+  width: min(100%, 19rem);
+  height: auto;
+  aspect-ratio: 1;
+}
+
+.atlas-ov__key {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem 1.25rem;
+  margin: 0;
+  padding: 0;
+  color: var(--color-muted);
+  font-size: var(--type-legend);
+  list-style: none;
+}
+
+.atlas-ov__key li {
   display: inline-flex;
   align-items: center;
-  min-height: 2.75rem;
-  padding: 0 1rem;
-  border: 1px solid var(--color-line-strong);
+  gap: 0.45rem;
+}
+
+.atlas-ov__facts {
+  grid-column: 1 / -1;
+}
+
+/* Three totals between hairlines, each number over its label (static text, pinned revision). */
+.atlas-ov__stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  border-block: 1px solid var(--color-deep-line);
+  list-style: none;
+}
+
+.atlas-ov__stats li {
+  min-width: 0;
+  padding: clamp(1.1rem, 2.2vw, 1.6rem) var(--grid-gap)
+    clamp(1.1rem, 2.2vw, 1.6rem) 0;
+}
+
+.atlas-ov__stats li + li {
+  padding-left: var(--grid-gap);
+  border-left: 1px solid var(--color-deep-line);
+}
+
+.atlas-ov__stats data {
+  display: block;
   color: var(--color-starlight);
+  font-family: var(--font-body);
+  font-size: clamp(2rem, 3.4vw, 2.8rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.atlas-ov__stats span {
+  display: block;
+  margin-top: 0.5rem;
+  color: var(--color-muted);
   font-size: 0.95rem;
+  font-weight: 560;
+}
+
+.atlas-ov__method {
+  margin-top: 0.9rem;
+  font-size: var(--type-legend);
+}
+
+.atlas-ov__method summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--color-ion);
   font-weight: 620;
+  cursor: pointer;
+}
+
+.atlas-ov__method p {
+  max-width: var(--reading-width);
+  margin: 0.5rem 0 0;
+  color: var(--color-muted);
+  font-size: 0.92rem;
+}
+
+@media (max-width: 52rem) {
+  .atlas-ov__text,
+  .atlas-ov__visual {
+    grid-column: 1 / -1;
+  }
+
+  .atlas-ov__mark {
+    width: min(100%, 15rem);
+  }
+}
+
+@media (max-width: 40rem) {
+  .atlas-ov__stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .atlas-ov__stats li,
+  .atlas-ov__stats li + li {
+    padding: 1rem 0;
+    border-left: 0;
+  }
+
+  .atlas-ov__stats li + li {
+    border-top: 1px solid var(--color-deep-line);
+  }
+}
+
+/* Open the genomeOS Atlas: the Home preview's pill (atlas-preview.css, which this page does not
+   load), the Atlas pill's language at call-to-action size: a black pill in an aurora rim with a
+   still glow. */
+.atlas-ov .atlas-open {
+  position: relative;
+  isolation: isolate;
+  min-height: 3rem;
+  padding: 0.75rem 1.2rem 0.75rem 1.35rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  border-radius: 999px;
+  color: var(--color-starlight);
+  font-weight: 720;
+  line-height: 1.1;
   text-decoration: none;
+  white-space: nowrap;
+  box-shadow:
+    0 0 1.4rem rgb(114 231 193 / 16%),
+    0 0 2.4rem rgb(138 92 255 / 12%);
+  transition:
+    box-shadow var(--dur-ui) var(--ease-ui),
+    transform var(--dur-micro) var(--ease-ui);
+}
+
+.atlas-ov .atlas-open::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border: 1.5px solid transparent;
+  border-radius: inherit;
+  background:
+    linear-gradient(#000, #000) padding-box,
+    linear-gradient(
+        100deg,
+        rgb(114 231 193 / 85%),
+        rgb(18 255 255 / 60%),
+        rgb(138 92 255 / 85%)
+      )
+      border-box;
+  content: '';
+}
+
+.atlas-ov .atlas-open .brand-name {
+  font-weight: 400;
+}
+
+.atlas-ov .atlas-open__arrow {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: none;
+  fill: none;
+  stroke: var(--color-ion);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
+  transition: transform var(--dur-micro) var(--ease-ui);
+}
+
+.atlas-ov .atlas-open:hover,
+.atlas-ov .atlas-open:focus-visible {
+  color: var(--color-starlight);
+  box-shadow:
+    0 0 1.8rem rgb(114 231 193 / 30%),
+    0 0 3rem rgb(138 92 255 / 24%);
+  transform: translateY(-1px);
+}
+
+.atlas-ov .atlas-open:hover .atlas-open__arrow,
+.atlas-ov .atlas-open:focus-visible .atlas-open__arrow {
+  transform: translateX(3px);
+}
+
+.atlas-ov .atlas-open:focus-visible {
+  outline: 2px solid var(--color-starlight);
+  outline-offset: 4px;
+}
+
+@media (max-width: 30rem) {
+  .atlas-ov .atlas-open {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ---------- the chapter's sections: collapsed accordion rows ---------- */
+
+.acc-list {
+  margin-top: clamp(2.5rem, 5vw, 4rem);
+  border-top: 1px solid var(--color-line);
+}
+
+.acc {
+  border-bottom: 1px solid var(--color-line);
+  interpolate-size: allow-keywords;
+}
+
+/* The row: icon, title over teaser, chevron. The summary is the control; 44 px and up. */
+.acc__summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem clamp(1rem, 2vw, 1.5rem);
+  min-height: 44px;
+  padding: clamp(1.15rem, 2.2vw, 1.6rem) clamp(0.25rem, 1vw, 0.75rem);
+  color: var(--color-starlight);
+  cursor: pointer;
+  list-style: none;
+  transition: background-color var(--dur-micro) var(--ease-ui);
+}
+
+.acc__summary::-webkit-details-marker {
+  display: none;
+}
+
+.acc__summary::marker {
+  content: '';
+}
+
+.acc__summary:hover {
+  background: rgb(112 230 255 / 4%);
+}
+
+/* Inside the row, so the ring is never clipped by its neighbours. */
+.acc__summary:focus-visible {
+  outline: 2px solid var(--color-ion);
+  outline-offset: -2px;
+}
+
+.acc__icon {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 50%;
+  color: var(--color-ion);
   transition:
     border-color var(--dur-micro) var(--ease-ui),
     background-color var(--dur-micro) var(--ease-ui);
 }
 
-.chapter__nav a:hover,
-.chapter__nav a:focus-visible {
+.acc__icon svg {
+  width: 1.45rem;
+  height: 1.45rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+.acc__summary:hover .acc__icon,
+.acc[open] > .acc__summary .acc__icon {
   border-color: var(--color-ion);
   background: var(--color-plate);
 }
 
-@media (max-width: 48rem) {
-  .chapter__nav {
-    width: 100%;
-    margin-left: 0;
+.acc__words {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.acc__title {
+  margin: 0;
+  color: var(--color-starlight);
+  font-family: var(--font-display);
+  font-size: clamp(1.35rem, 2.3vw, 1.9rem);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  text-wrap: balance;
+}
+
+.acc__teaser {
+  color: var(--color-muted);
+  font-size: 1rem;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+
+.acc__chevron {
+  width: 1.6rem;
+  height: 1.6rem;
+  fill: none;
+  stroke: var(--color-ion);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  transition: transform var(--dur-ui) var(--ease-ui);
+}
+
+.acc[open] > .acc__summary .acc__chevron {
+  transform: rotate(180deg);
+}
+
+.acc__body {
+  padding: clamp(1rem, 2.5vw, 2rem) 0 clamp(3rem, 6vw, 5rem);
+}
+
+/* Opening reveals the section smoothly where the browser can size to auto (≤ 240 ms); elsewhere
+   at once. A jump to a deep link opens at once too (acc--instant). */
+@supports selector(::details-content) {
+  .acc::details-content {
+    block-size: 0;
+    overflow-y: clip;
+    transition:
+      block-size var(--dur-ui) var(--ease-ui),
+      content-visibility var(--dur-ui) allow-discrete;
+  }
+
+  .acc[open]::details-content {
+    block-size: auto;
+  }
+
+  .acc.acc--instant::details-content {
+    transition: none;
   }
 }
 
-/* Phones: the small mark leads the running head, and the title takes the full width under them at
-   2rem, so the wordmark fits at 320 px without a lone mark on a row of its own. */
-@media (max-width: 26rem) {
-  .chapter__inner {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: center;
-    gap: 0.35rem 0.7rem;
+/* A section opened by the visitor holds its figures invisible until their module has armed them
+   (accordion.ts), so the final state never flashes before the entrance. */
+.acc--pending .acc__body figure[data-graphic] {
+  visibility: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acc__summary,
+  .acc__icon,
+  .acc__chevron {
+    transition: none;
   }
 
-  .chapter__head {
-    display: contents;
-  }
-
-  .chapter__mark {
-    width: 2rem;
-    height: 2rem;
-  }
-
-  .chapter__kicker {
-    margin: 0;
-  }
-
-  .chapter__title {
-    grid-column: 1 / -1;
-    font-size: 2rem;
-  }
-
-  .chapter__nav {
-    grid-column: 1 / -1;
-    margin-top: 0.8rem;
+  .acc::details-content {
+    transition: none;
   }
 }
 
-/* The chapter opener follows straight on from the intro: one hairline between them. */
-.proj-intro + .chapter {
-  border-top: 0;
+@media (max-width: 36rem) {
+  .acc__summary {
+    gap: 0.4rem 0.85rem;
+    padding-inline: 0;
+  }
+
+  .acc__icon {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  .acc__icon svg {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  .acc__teaser {
+    font-size: 0.95rem;
+  }
 }
 
-/* ---------- purpose 2: applications ---------- */
+@media print {
+  .acc__chevron {
+    display: none;
+  }
+}
 
+/* The parts of "How it works", one under the other, each under a hairline. */
+.proj-sub + .proj-sub {
+  margin-top: clamp(3rem, 6vw, 5rem);
+  padding-top: clamp(2.5rem, 5vw, 4rem);
+  border-top: 1px solid var(--color-deep-line);
+}
+
+/* ---------- what it could be used for: applications ---------- */
+
+/* The pointer's spotlight (MotionController, data-motion-surface) over the band's own ground. */
 .proj-apps {
   --spotlight-x: 78%;
   --spotlight-y: 24rem;
 
-  background:
-    radial-gradient(
-      circle 30rem at var(--spotlight-x) var(--spotlight-y),
-      rgb(112 230 255 / 7%),
-      transparent 72%
-    ),
-    var(--color-void);
-}
-
-.proj-apps__layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 22rem);
-  column-gap: var(--grid-gap);
+  justify-items: start;
   row-gap: var(--head-gap);
-  align-items: end;
+  background: radial-gradient(
+    circle 30rem at var(--spotlight-x) var(--spotlight-y),
+    rgb(112 230 255 / 7%),
+    transparent 72%
+  );
 }
 
 .proj-apps__figure {
-  grid-column: 1 / -1;
+  justify-self: stretch;
 }
 
-@media (max-width: 52rem) {
-  .proj-apps__layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .proj-apps__cta {
-    order: 3;
-  }
+.proj-apps__cta {
+  max-width: 24rem;
 }
 
-/* ---------- process 2: counts, not guesses ---------- */
+/* ---------- how it works 2: counts, not guesses ---------- */
 
-/* The heading stays beside the tall figure while it scrolls past (wide only). */
+/* The figure's lesson stands under its heading, the two beside the tall figure, staying with it
+   while it scrolls past (wide only), so the split's text column reads as intended (design review,
+   round 3: a lone heading left a void). */
+.proj-counts__text .h4-section {
+  margin-bottom: 0;
+}
+
+.proj-counts__note {
+  max-width: 30ch;
+  margin: 1rem 0 0;
+  color: var(--color-text-soft);
+  font-size: var(--type-lede);
+  line-height: 1.5;
+}
+
+.proj-counts__note strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--color-starlight);
+  font-weight: 640;
+}
+
 @media (min-width: 52.01rem) {
   .proj-counts__text {
     position: sticky;
     top: 7rem;
+  }
+}
+
+@media (max-width: 52rem) {
+  .proj-counts__text {
+    margin-bottom: clamp(1.25rem, 3vw, 2rem);
   }
 }
 
@@ -1485,7 +1799,7 @@
   font-family: var(--font-body);
 }
 
-.sg-tile h4 {
+.sg-tile h5 {
   margin: 0;
   color: var(--color-starlight);
   font-family: var(--font-display);

@@ -1,23 +1,62 @@
 /**
- * Projects page browser checks (site redesign spec §4.2, §9.1; round 2 spec §4.2, §11.2; #454).
- * Owned by the Projects task.
+ * Projects page browser checks (site redesign spec §4.2, §9.1; round 2 spec §4.2, §11.2; rulings
+ * 35–39; the owner's restructure of 2026-10-15; #454). Owned by the Projects task.
  *
- * The project index opens above the fold and the chapter's chips jump to its parts; the roadmap's
- * three states in order, with no status tag; the HbS threshold slider, its count and spoken value,
- * the genotype triad's sickled cell, and survey readouts in people; the counts figure's slider at
- * every stop (grid, bar, output, spoken value) with its value labels inside the figure; the
- * application cards; the safeguard tiles playing once and resting; the Pipeline's 6 ↔ 3 toggle;
- * the join-up's field reasons and record replay; and the map's keyboard readout. The cross-page
- * suites (word budget, figures, motion) cover the rest.
+ * The project index opens above the fold; the Atlas chapter opens on an overview of the essentials
+ * and keeps the rest in four sections, closed by default: they open and close by click and by
+ * keyboard, a deep link opens its section on load and on hashchange, a closed section loads no
+ * script or data, opening one plays its figures' entrances once, and printing opens every one.
+ * Inside them: the roadmap's three states in order; the HbS genotype triad driving the map, the
+ * threshold slider, its count and spoken value, and survey readouts in people; the counts figure's
+ * slider at every stop with its value labels inside the figure; the application cards; the
+ * safeguard tiles playing once and resting; the Pipeline's 6 ↔ 3 toggle; the join-up's field
+ * reasons and record replay; and the map's keyboard readout. The cross-page suites (word budget,
+ * figures, motion) cover the rest.
  */
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
+import { visibleWords } from './helpers/manifest-page';
 import { useSiteFixtures } from './helpers/marketing';
 
 useSiteFixtures();
 
+type Section = 'hbs' | 'uses' | 'how' | 'status';
+const SECTIONS: readonly Section[] = ['hbs', 'uses', 'how', 'status'];
+
+const sectionRow = (page: Page, name: Section) =>
+  page.locator(`details.acc[data-acc="${name}"]`);
+
+/**
+ * Open a collapsed section of the Atlas chapter, as a visitor does: a click on its summary. Its
+ * figures load then; `data-acc-ready` says they are set up.
+ */
+async function openSection(page: Page, name: Section) {
+  const section = sectionRow(page, name);
+  if (!(await section.evaluate((details: HTMLDetailsElement) => details.open)))
+    await section.locator(':scope > summary').click();
+  await expect(section).toHaveJSProperty('open', true);
+  await expect(section).toHaveAttribute('data-acc-ready', '');
+  // The opening transition has ended: the section is as tall as its summary and body, so the page
+  // is its full height again (a jump scroll before then is clamped to the shorter page).
+  await expect
+    .poll(() =>
+      section.evaluate((details) => {
+        const height = (selector: string) =>
+          details.querySelector(selector)!.getBoundingClientRect().height;
+        return (
+          details.getBoundingClientRect().height >=
+          height(':scope > summary') + height(':scope > .acc__body') - 1
+        );
+      }),
+    )
+    .toBe(true);
+  return section;
+}
+
 /** Bring a figure into view and wait for the HbS map's data, when that is the figure. */
 async function hbsReady(page: Page) {
+  await openSection(page, 'hbs');
   const figure = page.locator('figure[data-graphic="hbs-threshold"]');
   await figure.scrollIntoViewIfNeeded();
   await expect(figure).toHaveAttribute('data-hbs-ready', '');
@@ -28,6 +67,7 @@ test('project page labels all three capability states, in order', async ({
   page,
 }) => {
   await page.goto('/projects/');
+  await openSection(page, 'status');
   const names = [
     'Available now',
     'In active development',
@@ -54,7 +94,6 @@ test('project page labels all three capability states, in order', async ({
   await expect(
     rail.getByText('Validation against published estimates'),
   ).toBeVisible();
-  await expect(rail.locator('data')).toHaveText(['4,392', '6.69M', '2']);
 });
 
 test('the threshold slider changes the count and its spoken value', async ({
@@ -91,6 +130,7 @@ test('the threshold slider changes the count and its spoken value', async ({
 
 test('selecting SS draws the sickled cell', async ({ page }) => {
   await page.goto('/projects/');
+  await openSection(page, 'hbs');
   const figure = page.locator('figure[data-graphic="hbs-threshold"]');
   const group = figure.getByRole('group', { name: 'Genotype', exact: true });
   await group.scrollIntoViewIfNeeded();
@@ -120,6 +160,7 @@ test('the cell frame names the pressed allele pair, so AS after AA changes it', 
   page,
 }) => {
   await page.goto('/projects/');
+  await openSection(page, 'hbs');
   const figure = page.locator('figure[data-graphic="hbs-threshold"]');
   const group = figure.getByRole('group', { name: 'Genotype', exact: true });
   await group.scrollIntoViewIfNeeded();
@@ -177,19 +218,15 @@ test('the HbS map describes the area under its keyboard reticle', async ({
   await expect(readout).not.toHaveText(idle!);
 });
 
-test('the HbS map plays its entrance after a jump scroll', async ({ page }) => {
+test('the HbS map loads when its section opens, plays its entrance and rests painted', async ({
+  page,
+}) => {
   await page.goto('/projects/');
   const figure = page.locator('figure[data-graphic="hbs-threshold"]');
-  // Near view but still below the fold: the data loads and the figure arms off screen.
-  await figure.evaluate((element) =>
-    window.scrollTo({
-      top: element.getBoundingClientRect().top + scrollY - innerHeight - 200,
-      behavior: 'instant',
-    }),
-  );
+  await expect(figure).not.toHaveAttribute('data-hbs-ready');
+  await openSection(page, 'hbs');
   await expect(figure).toHaveAttribute('data-hbs-ready', '');
-  await expect(figure).toHaveAttribute('data-figure-state', 'armed');
-  // One jump brings it fully into view: it must play and rest, not hold its first frame.
+  // It plays once a reader brings 35% of it into view.
   await figure.evaluate((element) =>
     element.scrollIntoView({ block: 'center', behavior: 'instant' }),
   );
@@ -212,8 +249,11 @@ test('the HbS map plays its entrance after a jump scroll', async ({ page }) => {
 
 test('the safeguard tiles play once, then rest', async ({ page }) => {
   await page.goto('/projects/');
+  await openSection(page, 'how');
   const figure = page.locator('figure[data-graphic="safeguards"]');
-  await figure.scrollIntoViewIfNeeded();
+  await figure.evaluate((element) =>
+    element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+  );
   await expect(figure.locator('li')).toHaveCount(6);
   await expect(figure).toHaveAttribute('data-figure-state', 'rest', {
     timeout: 5_000,
@@ -231,6 +271,7 @@ test('the Pipeline switches from 6 parts to 3 stages and back', async ({
   page,
 }) => {
   await page.goto('/projects/');
+  await openSection(page, 'how');
   const pipeline = page.locator('figure[data-graphic="pipeline"]');
   await pipeline.scrollIntoViewIfNeeded();
   const toggle = pipeline.getByRole('group', { name: 'Level of detail' });
@@ -242,20 +283,6 @@ test('the Pipeline switches from 6 parts to 3 stages and back', async ({
   await toggle.getByRole('button', { name: '6 parts' }).click();
   await expect(pipeline).toHaveAttribute('data-mode', '6');
   await expect(toggle.locator('[aria-pressed="true"]')).toHaveText('6 parts');
-});
-
-test('the HbS heading takes the full width on narrow screens', async ({
-  page,
-}) => {
-  await page.goto('/projects/');
-  const hbs = page.locator('#hbs-title');
-  const other = page.locator('#join-up-title');
-  // Below the split layout's breakpoint every section heading sets in the same measure (spec §2.4).
-  for (const width of [390, 640]) {
-    await page.setViewportSize({ width, height: 844 });
-    const [a, b] = await Promise.all([hbs.boundingBox(), other.boundingBox()]);
-    expect(Math.round(a!.width), `${width} px`).toBe(Math.round(b!.width));
-  }
 });
 
 test(
@@ -364,6 +391,8 @@ test(
   { tag: '@mobile-chromium' },
   async ({ page }) => {
     await page.goto('/projects/');
+    await openSection(page, 'how');
+    await openSection(page, 'status');
     const safeguards = page.locator('figure[data-graphic="safeguards"]');
     await safeguards.scrollIntoViewIfNeeded();
     await expect(safeguards).toHaveAttribute('data-figure-state', 'rest', {
@@ -394,6 +423,7 @@ test('the join-up gives each contract field its reason, and replays a record', a
   page,
 }) => {
   await page.goto('/projects/');
+  await openSection(page, 'how');
   const figure = page.locator('figure[data-graphic="join-up"]');
   const caption = figure.locator('[data-joinup-caption]');
   await expect(caption).toHaveText(
@@ -422,6 +452,7 @@ test(
   },
   async ({ page }) => {
     await page.goto('/projects/');
+    await openSection(page, 'how');
     const figure = page.locator('figure[data-graphic="join-up"]');
     const head = figure.locator('button[data-field="an"]');
     await head.scrollIntoViewIfNeeded();
@@ -590,32 +621,6 @@ test('the project index opens above the fold, and its links go where they say', 
   ).toBeInViewport();
 });
 
-test('the chapter’s chips jump to Purpose, Process and Status', async ({
-  page,
-}) => {
-  await page.goto('/projects/');
-  const nav = page.getByRole('navigation', { name: 'genomeOS Atlas sections' });
-  for (const [label, id] of [
-    ['Purpose', 'hbs'],
-    ['Process', 'join-up'],
-    ['Status', 'status'],
-  ] as const) {
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await nav.getByRole('link', { name: label, exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`#${id}$`));
-    // The section's heading lands in view, clear of the fixed header.
-    const heading = page.locator(`#${id} h3`).first();
-    await expect(heading).toBeInViewport();
-    const [headingBox, header] = await Promise.all([
-      heading.boundingBox(),
-      page.locator('[data-site-header]').boundingBox(),
-    ]);
-    expect(headingBox!.y, label).toBeGreaterThanOrEqual(
-      header!.y + header!.height - 1,
-    );
-  }
-});
-
 test('the HbS map reads a survey out in people tested, with its copies as counts', async ({
   page,
 }) => {
@@ -673,6 +678,7 @@ test('the HbS figure says plainly it is simplified, and links the live map', asy
   page,
 }) => {
   await page.goto('/projects/');
+  await openSection(page, 'hbs');
   const figure = page.locator('figure[data-graphic="hbs-threshold"]');
   await expect(figure.locator('.kit-status-tag')).toHaveCount(0);
   const note = figure.locator('.figure-note');
@@ -712,6 +718,7 @@ test('the counts slider updates survey 2’s people, bar, sentence and spoken va
   page,
 }) => {
   await page.goto('/projects/');
+  await openSection(page, 'how');
   const figure = page.locator('figure[data-graphic="counts"]');
   const slider = figure.getByRole('slider', {
     name: 'People tested in survey 2',
@@ -769,6 +776,7 @@ test('the counts figure’s value labels stay inside it, and nothing scrolls sid
   for (const width of [320, 360, 390, 768, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto('/projects/');
+    await openSection(page, 'how');
     const figure = page.locator('figure[data-graphic="counts"]');
     const slider = figure.getByRole('slider');
     await slider.scrollIntoViewIfNeeded();
@@ -804,6 +812,7 @@ test('the counts figure draws people as micro astronauts, wide and narrow, from 
   page,
 }, info) => {
   await page.goto('/projects/');
+  await openSection(page, 'how');
   const figure = page.locator('figure[data-graphic="counts"]');
   await figure.scrollIntoViewIfNeeded();
   await expect(figure).toHaveAttribute('data-figure-state', 'rest', {
@@ -847,6 +856,7 @@ test('the counts figure rests at once under reduced motion, every person drawn',
 }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/projects/');
+  await openSection(page, 'how');
   const figure = page.locator('figure[data-graphic="counts"]');
   await figure.scrollIntoViewIfNeeded();
   await expect(figure).toHaveAttribute('data-figure-state', 'rest');
@@ -872,10 +882,14 @@ test('the counts entrance is a scrubbable scene in the e2e build', async ({
   page,
 }) => {
   await page.goto('/projects/');
-  await page.waitForFunction(() => Boolean(window.__motion));
-  expect(await page.evaluate(() => window.__motion!.names())).toContain(
-    'counts',
-  );
+  // The figure registers once its section has opened and its module has loaded.
+  expect(
+    await page.evaluate(() => window.__motion?.names() ?? []),
+  ).not.toContain('counts');
+  await openSection(page, 'how');
+  await expect
+    .poll(() => page.evaluate(() => window.__motion!.names()))
+    .toContain('counts');
   const figure = page.locator('figure[data-graphic="counts"]');
   await figure.scrollIntoViewIfNeeded();
   // At 300 ms survey 1's people are still arriving and its carriers have not lit.
@@ -899,6 +913,7 @@ test('application cards reveal on scroll and respond to hover @desktop-chromium'
   page,
 }) => {
   await page.goto('/projects/');
+  await openSection(page, 'uses');
 
   const card = page.locator('.application-card').first();
   await card.scrollIntoViewIfNeeded();
@@ -926,6 +941,7 @@ test('the application glyphs read at card scale, on each card’s text edge', as
   page,
 }) => {
   await page.goto('/projects/');
+  await openSection(page, 'uses');
   const first = page.locator('.application-card').first();
   await first.scrollIntoViewIfNeeded();
   await expect(first).toHaveClass(/is-visible/);
@@ -972,3 +988,270 @@ test('the application glyphs read at card scale, on each card’s text edge', as
     expect(card.titleGap, at).toBeGreaterThanOrEqual(8);
   }
 });
+
+// ---------------------------------------------------------------------------------------------
+// The owner's restructure (2026-10-15): an overview of the essentials, then the detail in collapsed
+// sections a reader opens on demand.
+
+test('the Atlas chapter opens on an overview: the essentials in about 80 words, the pill and three facts', async ({
+  page,
+}) => {
+  await page.goto('/projects/');
+  const overview = page.locator('.atlas-ov');
+  const { count, text } = await page.evaluate(visibleWords, {
+    within: '.atlas-ov',
+  });
+  expect(count, text).toBeLessThanOrEqual(80);
+  await expect(
+    overview.getByRole('heading', { level: 2, name: 'genomeOS Atlas' }),
+  ).toBeVisible();
+  await expect(
+    overview.getByRole('link', { name: 'Open the genomeOS Atlas' }),
+  ).toHaveAttribute('href', '/app/');
+  await expect(overview.locator('data')).toHaveText(['4,392', '6.69M', '2']);
+  await expect(overview.getByText('Measured survey')).toBeVisible();
+  // "How we count" stays folded: its definition is there for whoever asks.
+  const method = overview.locator('details');
+  await expect(method).toHaveJSProperty('open', false);
+  await method.locator('summary').click();
+  await expect(method.getByText(/Recomputed \d{4}-\d{2}-\d{2}/)).toBeVisible();
+});
+
+test('every section starts closed: a summary row with an icon, a title, a teaser and a chevron that turns', async ({
+  page,
+}) => {
+  await page.goto('/projects/');
+  for (const name of SECTIONS) {
+    const section = sectionRow(page, name);
+    await expect(section).toHaveJSProperty('open', false);
+    const summary = section.locator(':scope > summary');
+    await expect(summary.locator('h3')).toBeVisible();
+    await expect(summary.locator('.acc__teaser')).toBeVisible();
+    await expect(summary.locator('.acc__icon')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    );
+    await expect(summary.locator('.acc__chevron')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    );
+    const box = (await summary.boundingBox())!;
+    expect(box.height, name).toBeGreaterThanOrEqual(44);
+    // Closed, the section's figures are not drawn at all.
+    await expect(section.locator('figure[data-graphic]').first()).toBeHidden();
+    const turn = () =>
+      summary
+        .locator('.acc__chevron')
+        .evaluate((chevron) => getComputedStyle(chevron).transform);
+    const closed = await turn();
+    await openSection(page, name);
+    await expect.poll(turn).not.toBe(closed);
+  }
+});
+
+test('a section opens and closes by click and by keyboard, with a visible focus ring', async ({
+  page,
+}) => {
+  await page.goto('/projects/');
+  const section = sectionRow(page, 'uses');
+  const summary = section.locator(':scope > summary');
+  await summary.click();
+  await expect(section).toHaveJSProperty('open', true);
+  await expect(
+    section.locator('figure[data-graphic="applications"]'),
+  ).toBeVisible();
+  await summary.click();
+  await expect(section).toHaveJSProperty('open', false);
+
+  // From the keyboard: Tab reaches the summary, Enter opens it and Space closes it.
+  await sectionRow(page, 'hbs').locator(':scope > summary').focus();
+  await page.keyboard.press('Tab');
+  await expect(summary).toBeFocused();
+  const ring = await summary.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return [style.outlineStyle, style.outlineWidth];
+  });
+  expect(ring).toEqual(['solid', '2px']);
+  await page.keyboard.press('Enter');
+  await expect(section).toHaveJSProperty('open', true);
+  await page.keyboard.press('Space');
+  await expect(section).toHaveJSProperty('open', false);
+  // Its expanded state is the summary's own: a disclosure, open or not.
+  const snapshot = await summary.ariaSnapshot();
+  expect(snapshot).toContain('What it could be used for');
+});
+
+for (const [hash, name, target] of [
+  ['#status', 'status', '#status'],
+  ['#status-title', 'status', '#status-title'],
+  ['#hbs', 'hbs', '#hbs'],
+  ['#counts', 'how', '#counts'],
+  ['#safeguards-title', 'how', '#safeguards-title'],
+  ['#applications', 'uses', '#applications'],
+] as const)
+  test(`a link to ${hash} opens its section and lands on it`, async ({
+    page,
+  }) => {
+    await page.goto(`/projects/${hash}`);
+    await expect(sectionRow(page, name)).toHaveJSProperty('open', true);
+    for (const other of SECTIONS.filter((section) => section !== name))
+      await expect(sectionRow(page, other)).toHaveJSProperty('open', false);
+    await expect(page.locator(target).first()).toBeInViewport();
+  });
+
+test('a hash change into a closed section opens it, and the old /project/#vision lands on Status', async ({
+  page,
+}) => {
+  await page.goto('/projects/');
+  await page.evaluate(() => {
+    location.hash = '#pipeline';
+  });
+  await expect(sectionRow(page, 'how')).toHaveJSProperty('open', true);
+  await expect(page.locator('#pipeline-title')).toBeInViewport();
+
+  await page.goto('/project/#vision');
+  await expect(page).toHaveURL(/\/projects\/#status$/);
+  await expect(sectionRow(page, 'status')).toHaveJSProperty('open', true);
+  await expect(page.locator('#status')).toBeInViewport();
+});
+
+test('a closed section loads no script and no data; opening one loads its own', async ({
+  page,
+}) => {
+  const requests: string[] = [];
+  page.on('request', (request) => requests.push(request.url()));
+  await page.goto('/projects/');
+  // Scroll the whole page, as a reader would, without opening anything.
+  await page.evaluate(async () => {
+    for (let y = 0; y < document.body.scrollHeight; y += 400) {
+      window.scrollTo({ top: y, behavior: 'instant' });
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    }
+  });
+  await page.waitForLoadState('networkidle');
+  const lazy =
+    /\/_astro\/(section-|pipeline\.|hbs-(region|surveys)\.|hex-kit\.)/;
+  expect(requests.filter((url) => lazy.test(url))).toEqual([]);
+
+  await openSection(page, 'hbs');
+  await expect(
+    page.locator('figure[data-graphic="hbs-threshold"]'),
+  ).toHaveAttribute('data-hbs-ready', '');
+  expect(requests.some((url) => /section-hbs\./.test(url))).toBe(true);
+  expect(
+    requests.filter((url) => /hbs-(region|surveys)\.[\w.]+\.bin/.test(url)),
+  ).toHaveLength(2);
+  expect(requests.some((url) => /section-how\./.test(url))).toBe(false);
+
+  await openSection(page, 'how');
+  await expect
+    .poll(() => requests.some((url) => /section-how\./.test(url)))
+    .toBe(true);
+  await expect(page.locator('figure[data-graphic="pipeline"]')).toHaveAttribute(
+    'data-pipeline-ready',
+    '',
+  );
+});
+
+test('opening a section plays its figures’ entrances once', async ({
+  page,
+}) => {
+  await page.goto('/projects/');
+  const figure = page.locator('figure[data-graphic="join-up"]');
+  await figure.evaluate((element) => {
+    const seen: string[] = [];
+    (window as unknown as { __states: string[] }).__states = seen;
+    new MutationObserver(() =>
+      seen.push((element as HTMLElement).dataset.figureState ?? ''),
+    ).observe(element, { attributeFilter: ['data-figure-state'] });
+  });
+  await openSection(page, 'how');
+  // Armed while below the reader's view; it plays once 35% of it is in view.
+  await expect(figure).toHaveAttribute('data-figure-state', /armed|playing/);
+  await figure.evaluate((element) =>
+    element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+  );
+  await expect(figure).toHaveAttribute('data-figure-state', 'rest', {
+    timeout: 5_000,
+  });
+  const states = await page.evaluate(
+    () => (window as unknown as { __states: string[] }).__states,
+  );
+  expect(states).toContain('playing');
+  // Closed and opened again, it stays at rest: an entrance plays once.
+  const summary = sectionRow(page, 'how').locator(':scope > summary');
+  await summary.click();
+  await summary.click();
+  await page.waitForTimeout(600);
+  await expect(figure).toHaveAttribute('data-figure-state', 'rest');
+  const after = await page.evaluate(
+    () => (window as unknown as { __states: string[] }).__states.length,
+  );
+  expect(after).toBe(states.length);
+});
+
+test('printing opens every section, and closes again the ones it opened', async ({
+  page,
+}) => {
+  await page.goto('/projects/');
+  await openSection(page, 'uses');
+  await page.evaluate(() => window.dispatchEvent(new Event('beforeprint')));
+  for (const name of SECTIONS)
+    await expect(sectionRow(page, name)).toHaveJSProperty('open', true);
+  await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
+  await expect(sectionRow(page, 'uses')).toHaveJSProperty('open', true);
+  for (const name of ['hbs', 'how', 'status'] as const)
+    await expect(sectionRow(page, name)).toHaveJSProperty('open', false);
+});
+
+test('axe finds nothing serious with the sections closed, or all open', async ({
+  page,
+}) => {
+  await page.goto('/projects/');
+  const blocking = async () =>
+    (
+      await new AxeBuilder({ page })
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+        .analyze()
+    ).violations.filter(({ impact }) =>
+      ['serious', 'critical'].includes(impact ?? ''),
+    );
+  expect(await blocking()).toEqual([]);
+  for (const name of SECTIONS) await openSection(page, name);
+  // Every entrance at rest, so no text is caught mid-fade.
+  await page.evaluate(() => window.dispatchEvent(new Event('beforeprint')));
+  await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
+  await expect(
+    page.locator('figure[data-graphic="hbs-threshold"]'),
+  ).toHaveAttribute('data-hbs-ready', '');
+  expect(await blocking()).toEqual([]);
+});
+
+test(
+  'on a phone the rows run full width, 44 px tall, and nothing scrolls sideways at 320',
+  { tag: '@mobile-chromium' },
+  async ({ page }) => {
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto('/projects/');
+      const overflow = () =>
+        page.evaluate(
+          () =>
+            document.documentElement.scrollWidth -
+            document.documentElement.clientWidth,
+        );
+      expect(await overflow(), `${width} px closed`).toBe(0);
+      const shell = (await page.locator('.acc-list').boundingBox())!;
+      for (const name of SECTIONS) {
+        const box = (await sectionRow(page, name)
+          .locator(':scope > summary')
+          .boundingBox())!;
+        expect(Math.abs(box.width - shell.width), name).toBeLessThan(1);
+        expect(box.height, name).toBeGreaterThanOrEqual(44);
+      }
+      for (const name of SECTIONS) await openSection(page, name);
+      await page.waitForTimeout(400);
+      expect(await overflow(), `${width} px open`).toBe(0);
+    }
+  },
+);

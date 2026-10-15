@@ -1,23 +1,20 @@
 ---
 /**
- * What exists, and what comes later (site redesign spec §4.2, status, §6.1 rule 7; round 2 spec
- * §4.2.9; #454): the evidence totals, then a roadmap rail in three zones. Available now is solid
- * aurora, In active development ion with gaps, Future exploration violet dashed. One node per item
- * sits on the rail; a gold gate diamond (the validation gate) stands between what is available now
- * and the rest. Round 2: no status tag on the Atlas item (R2-14; the gate and "Validation against
- * published estimates" say where validation stands), "Agentic literature search" names the owner's
- * step 1, and Home's evidence totals head the figure, with their definition behind "How we count".
+ * Where it stands (site redesign spec §4.2, status, §6.1 rule 7; round 2 spec §4.2.9; #454): a
+ * roadmap rail in three zones. Available now is solid aurora, In active development ion with gaps,
+ * Future exploration violet dashed. One node per item sits on the rail; a gold gate diamond (the
+ * validation gate) stands between what is available now and the rest. No status tag on the Atlas
+ * item (R2-14). Since the owner's restructure (2026-10-15) the evidence totals and "How we count"
+ * lead the chapter's overview (AtlasOverview.astro), and this rail is the "Where it stands"
+ * section's one figure, behind its summary row.
  *
- * The totals are static text from the pinned corpus revision (src/data/corpusMetrics.ts), so a
- * total never reads as zero on screen, in a screenshot or to a screen reader; the people total
- * keeps "not deduplicated" in sight. The lists are the content; the rail and its nodes are
- * aria-hidden. Hovering an item lights its node, and the reverse; a tap keeps the pair lit until the
- * next tap. The marker count comes from the catalog `/app/` inlines, so it is never typed by hand.
- * Horizontal on wide screens; on a phone the rail runs down the lists. The page's island
- * (projects.astro) plays the entrance and links items to nodes. The section's h3 names the figure
- * (`titleId`); the zone titles are h4s.
+ * The lists are the content; the rail and its nodes are aria-hidden. Hovering an item lights its
+ * node, and the reverse; a tap keeps the pair lit until the next tap. The marker count comes from
+ * the catalog `/app/` inlines, so it is never typed by hand. Horizontal on wide screens; on a phone
+ * the rail runs down the lists. The section's module (section-status.ts) plays the entrance and
+ * links items to nodes, once the section opens. The section's h3 names the figure (`titleId`); the
+ * zone titles are h4s, and the visually hidden caption says what the rail shows.
  */
-import { corpusMetrics, metricTotal } from '../../data/corpusMetrics';
 import { loadPageCatalog } from '../../lib/catalog-build';
 
 interface Props {
@@ -27,29 +24,6 @@ interface Props {
 const { titleId = 'status-title' } = Astro.props;
 const { catalog } = loadPageCatalog(process.env.ATLAS_CATALOG_PATH);
 const markers = catalog.artifacts.length;
-
-const int = (value: number) => value.toLocaleString('en-US');
-const millions = (value: number) => `${(value / 1e6).toFixed(2)}M`;
-const { variants, people, diseases } = corpusMetrics;
-const TOTALS = [
-  {
-    value: metricTotal(variants),
-    shown: int(metricTotal(variants)),
-    label: 'Genetic variants & alleles',
-  },
-  {
-    value: metricTotal(people),
-    shown: millions(metricTotal(people)),
-    label: people.isDeduplicated
-      ? 'People represented'
-      : 'People represented, not deduplicated',
-  },
-  {
-    value: metricTotal(diseases),
-    shown: int(metricTotal(diseases)),
-    label: 'Diseases represented',
-  },
-];
 
 const ZONES: {
   key: 'now' | 'active' | 'future';
@@ -96,40 +70,9 @@ const SEGMENT_MS = 300;
   data-rail
   aria-labelledby={titleId}
 >
-  <figcaption class="rail__totals" data-figure-chrome>
-    <ul class="rail__stats">
-      {
-        TOTALS.map((total) => (
-          <li>
-            <data value={total.value}>{total.shown}</data>
-            <span>{total.label}</span>
-          </li>
-        ))
-      }
-    </ul>
-    <details class="rail__method">
-      <summary>How we count</summary>
-      <div>
-        <p>
-          Variant total: {
-            int(variants.components.afndAlleleIdentifiersAfterCurrentFilters)
-          } identifiers from the <a href="https://www.allelefrequencies.net/"
-            >Allele Frequency Net Database (AFND)</a
-          > after the current quality filters, plus the hemoglobin S variant associated
-          with sickle-cell disease (also known as HbS or rs334). Participant total:
-          each retained database population sample counted once, plus people tested
-          in the retained hemoglobin S surveys and male participants in the retained
-          glucose-6-phosphate dehydrogenase (G6PD) deficiency surveys. Some studies
-          may include overlapping groups, so this total describes the scale of the
-          collected evidence rather than a verified census of unique individuals.
-        </p>
-        <p>
-          Recomputed {corpusMetrics.countedAt} from source snapshot {
-            corpusMetrics.sourceRevision
-          }, last updated {corpusMetrics.sourceUpdatedAt}.
-        </p>
-      </div>
-    </details>
+  <figcaption class="visually-hidden">
+    The genomeOS Atlas roadmap: what is available now, what is in active
+    development, and what is for future exploration.
   </figcaption>
   <div
     class="rail__stage"

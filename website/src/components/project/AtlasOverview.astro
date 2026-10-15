@@ -1,0 +1,123 @@
+---
+/**
+ * The genomeOS Atlas overview (owner request, 2026-10-15; round 2 spec §4.2.2): the chapter opens on
+ * the essentials for a non-expert, in about 80 visible words, and everything else waits in the
+ * collapsed sections below it (AtlasSection.astro).
+ *
+ *   text     "Project 1", the chapter's h2 in the wordmark, why it matters, what it is and what you
+ *            can do with it, and the "Open the genomeOS Atlas" pill
+ *   visual   the Atlas mark, large, with its key: a measured survey, a modeled estimate, no
+ *            estimate (the encoding every Atlas map uses; the kit's glyphs)
+ *   facts    three totals from the pinned corpus revision (src/data/corpusMetrics.ts), the people
+ *            total marked "not deduplicated", and "How we count" behind a disclosure
+ *
+ * The totals are static text, so a total never reads as zero on screen, in a screenshot or to a
+ * screen reader. The mark is decorative; its key is the figure's caption. Nothing here moves or
+ * loads data. It replaces round 2's chapter opener and its Purpose · Process · Status chips: the
+ * section rows below are the chapter's navigation now.
+ */
+import AtlasMark from '../kit/AtlasMark.astro';
+import Glyph from '../kit/Glyph.astro';
+import { corpusMetrics, metricTotal } from '../../data/corpusMetrics';
+import { sitePath } from '../../lib/paths';
+
+const int = (value: number) => value.toLocaleString('en-US');
+const millions = (value: number) => `${(value / 1e6).toFixed(2)}M`;
+const { variants, people, diseases } = corpusMetrics;
+const FACTS = [
+  {
+    value: metricTotal(variants),
+    shown: int(metricTotal(variants)),
+    label: 'Genetic variants & alleles',
+  },
+  {
+    value: metricTotal(people),
+    shown: millions(metricTotal(people)),
+    label: people.isDeduplicated
+      ? 'People represented'
+      : 'People represented, not deduplicated',
+  },
+  {
+    value: metricTotal(diseases),
+    shown: int(metricTotal(diseases)),
+    label: 'Diseases represented',
+  },
+];
+---
+
+<div class="atlas-ov">
+  <div class="atlas-ov__text">
+    <p class="atlas-ov__kicker">Project 1</p>
+    <h2 class="atlas-ov__title" id="atlas-title">
+      <span class="brand-name">genomeOS</span> Atlas
+    </h2>
+    <p class="atlas-ov__lede">
+      Where a genetic variant is common shapes who is offered screening, how a
+      test result is read and where a study can recruit.
+    </p>
+    <p class="atlas-ov__body">
+      The Atlas maps variants on an interactive globe. Pick one, inspect any
+      place and see where evidence is thin.
+    </p>
+    <a class="atlas-open" href={sitePath('/app/')}>
+      <span class="atlas-open__label"
+        >Open the <span class="brand-name">genomeOS</span> Atlas</span
+      >
+      <svg
+        class="atlas-open__arrow"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <path d="M5 12h13M13 6l6 6-6 6"></path>
+      </svg>
+    </a>
+  </div>
+
+  <figure class="atlas-ov__visual">
+    <AtlasMark size="100%" class="atlas-ov__mark" idPrefix="overview-mark" />
+    <figcaption>
+      <ul class="atlas-ov__key">
+        <li><Glyph name="stud-md" size={18} />Measured survey</li>
+        <li><Glyph name="hex" size={18} />Modeled estimate</li>
+        <li><Glyph name="hatch" size={18} />No estimate</li>
+      </ul>
+    </figcaption>
+  </figure>
+
+  <div class="atlas-ov__facts">
+    <ul class="atlas-ov__stats" aria-label="The Atlas in numbers">
+      {
+        FACTS.map((fact) => (
+          <li>
+            <data value={fact.value}>{fact.shown}</data>
+            <span>{fact.label}</span>
+          </li>
+        ))
+      }
+    </ul>
+    <details class="atlas-ov__method">
+      <summary>How we count</summary>
+      <div>
+        <p>
+          Variant total: {
+            int(variants.components.afndAlleleIdentifiersAfterCurrentFilters)
+          } identifiers from the <a href="https://www.allelefrequencies.net/"
+            >Allele Frequency Net Database (AFND)</a
+          > after the current quality filters, plus the hemoglobin S variant associated
+          with sickle-cell disease (also known as HbS or rs334). Participant total:
+          each retained database population sample counted once, plus people tested
+          in the retained hemoglobin S surveys and male participants in the retained
+          glucose-6-phosphate dehydrogenase (G6PD) deficiency surveys. Some studies
+          may include overlapping groups, so this total describes the scale of the
+          collected evidence rather than a verified census of unique individuals.
+        </p>
+        <p>
+          Recomputed {corpusMetrics.countedAt} from source snapshot {
+            corpusMetrics.sourceRevision
+          }, last updated {corpusMetrics.sourceUpdatedAt}.
+        </p>
+      </div>
+    </details>
+  </div>
+</div>

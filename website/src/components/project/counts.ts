@@ -19,7 +19,11 @@
  * wide and narrow layouts (counts.css), so the slider only swaps `href`s on nodes that exist.
  */
 
-import { FigureController, prefersReducedMotion } from '../../graphics/figure';
+import {
+  FigureController,
+  prefersReducedMotion,
+  type FigureControllerOptions,
+} from '../../graphics/figure';
 import { mulberry32, SEED } from '../../graphics/rng';
 
 /** A survey's genotype counts: people tested, and how many carry one or two copies. */
@@ -242,7 +246,10 @@ export const placeHref = (tested: boolean, skin: string) =>
  * and spoken value, and swaps the grid's `href`s; people newly tested fade in over 240 ms (at once
  * under reduced motion).
  */
-export function initCounts(figure: HTMLElement): void {
+export function initCounts(
+  figure: HTMLElement,
+  options?: FigureControllerOptions,
+): void {
   const stage = figure.querySelector<HTMLElement>('[data-counts]');
   const slider = figure.querySelector<HTMLInputElement>('input[type="range"]');
   const output = figure.querySelector<HTMLOutputElement>('output');
@@ -259,10 +266,11 @@ export function initCounts(figure: HTMLElement): void {
   ];
   let shown = stops[Number(slider.value)]?.tested ?? stops[0].tested;
 
-  const controller = new FigureController(figure, {
-    duration: 1600,
-    rest() {},
-  });
+  const controller = new FigureController(
+    figure,
+    { duration: 1600, rest() {} },
+    options,
+  );
 
   const update = () => {
     if (controller.state !== 'rest') controller.finish();

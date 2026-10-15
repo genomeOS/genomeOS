@@ -19,7 +19,11 @@
  * The pure helpers at the top have no DOM and are unit-tested; `initHbsMap` is the island.
  */
 
-import { FigureController, createAnnouncer } from '../../graphics/figure';
+import {
+  FigureController,
+  createAnnouncer,
+  type FigureControllerOptions,
+} from '../../graphics/figure';
 import {
   decodeAreas,
   decodeSurveys,
@@ -346,6 +350,7 @@ export function unitBounds(areas: readonly Area[]) {
 export async function initHbsMap(
   figure: HTMLElement,
   urls: { region: string; surveys: string },
+  options?: FigureControllerOptions,
 ): Promise<void> {
   const stage = figure.querySelector<HTMLElement>('[data-hbs-map]');
   const domain = stage ? readDomain(stage) : null;
@@ -622,25 +627,29 @@ export async function initHbsMap(
   // can start play before the controller has seen the figure come on screen, which would hold the
   // entrance at its first frame.
   let entrance: Tween | null = null;
-  const controller = new FigureController(figure, {
-    duration: ENTRANCE,
-    arm: () => reveal(0),
-    start: () => {
-      const frozen = frozenAt();
-      if (frozen !== null) reveal(Math.min(frozen, ENTRANCE));
-      else
-        entrance = tween(
-          ENTRANCE,
-          (_eased, progress) => reveal(progress * ENTRANCE),
-          linear,
-        );
+  const controller = new FigureController(
+    figure,
+    {
+      duration: ENTRANCE,
+      arm: () => reveal(0),
+      start: () => {
+        const frozen = frozenAt();
+        if (frozen !== null) reveal(Math.min(frozen, ENTRANCE));
+        else
+          entrance = tween(
+            ENTRANCE,
+            (_eased, progress) => reveal(progress * ENTRANCE),
+            linear,
+          );
+      },
+      rest: () => {
+        entrance?.cancel();
+        entrance = null;
+        reveal(ENTRANCE);
+      },
     },
-    rest: () => {
-      entrance?.cancel();
-      entrance = null;
-      reveal(ENTRANCE);
-    },
-  });
+    options,
+  );
   // The data load late (near view): a print that began before they arrived has already sent its
   // `beforeprint`, so the map shows its final state at once (spec §8, "final states print").
   if (matchMedia('print').matches) controller.finish();

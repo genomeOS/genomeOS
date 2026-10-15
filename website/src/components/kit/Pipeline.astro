@@ -11,6 +11,8 @@
  * (pipeline.ts) adds packets, focus, the 3 ↔ 6 morph and Replay; `variant="links"` ships no
  * script at all, and its caption is the page's figure legend (the `caption` slot). Replay is a
  * white glyph in SceneControls' style with a visually hidden name, never visible text (ruling 35).
+ * `island={false}` leaves the island out, for a page that imports `./pipeline` when the figure is
+ * needed (Projects, once the section holding it opens).
  *
  * Two lanes that never join: measured studs bypass every model and the gate and reach the map at
  * its upper port; on the modeled lane a stud becomes a hex only on leaving a model node. No
@@ -53,6 +55,9 @@ interface Props {
   stageBrackets?: boolean;
   /** Unique per page: prefixes every id this instance renders. */
   idPrefix: string;
+  /** Ship the island with the figure (default). False: the page imports `./pipeline` itself when
+   * the figure is needed (Projects, when the section holding it opens). */
+  island?: boolean;
   class?: string;
 }
 
@@ -62,6 +67,7 @@ const {
   modeToggle = true,
   stageBrackets = true,
   idPrefix,
+  island = true,
   class: className,
 } = Astro.props;
 
@@ -519,7 +525,7 @@ const keys = ALL_KEYS.filter((key) => inModes(key).length > 0);
   </Fragment>
 </Plate>
 
-{!links && <PipelineMotion />}
+{!links && island && <PipelineMotion />}
 
 <style is:global>
   /* The layout follows the plate's own width (PIPELINE_STAGE_WIDTH in data/pipeline.ts), so a

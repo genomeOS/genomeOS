@@ -13,8 +13,8 @@
  *   6 a pointer over a hatched cell reads "Estimate —"
  *
  * Motion is CSS only, keyed by `--d` (ms after the tile starts) and the tile's `--i` stagger; the
- * figure's island (projects.astro) plays the six once and replays one on hover. The title is an
- * h4 under the section's h3 (round 2 heading outline). At rest, and under
+ * section's module (section-how.ts) plays the six once and replays one on hover. The title is an
+ * h5 under the figure's h4, inside "How it works" (the owner's restructure). At rest, and under
  * reduced motion, each tile shows its end state. The hatch pattern `#sg-hatch` is defined once by
  * the figure.
  */
@@ -212,6 +212,6 @@ const DRAWINGS: Record<number, string> = {
     focusable="false"
     set:html={cssVarStyles(DRAWINGS[rule])}
   />
-  <h4>{title}</h4>
+  <h5>{title}</h5>
   <p>{line}</p>
 </li>
