@@ -621,7 +621,7 @@ export async function initHbsMap(
   // can start play before the controller has seen the figure come on screen, which would hold the
   // entrance at its first frame.
   let entrance: Tween | null = null;
-  new FigureController(figure, {
+  const controller = new FigureController(figure, {
     duration: ENTRANCE,
     arm: () => reveal(0),
     start: () => {
@@ -640,5 +640,8 @@ export async function initHbsMap(
       reveal(ENTRANCE);
     },
   });
+  // The data load late (near view): a print that began before they arrived has already sent its
+  // `beforeprint`, so the map shows its final state at once (spec §8, "final states print").
+  if (matchMedia('print').matches) controller.finish();
   figure.toggleAttribute('data-hbs-ready', true);
 }
