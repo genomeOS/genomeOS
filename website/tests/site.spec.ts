@@ -1616,7 +1616,7 @@ test('linked sections land below the fixed header, not under it', async ({
   // it under the compact bar.
   for (const [route, id, width, height] of [
     ['/projects/', 'safeguards-title', 1440, 900],
-    ['/', 'metrics-title', 390, 844],
+    ['/', 'join-title', 390, 844],
     ['/projects/', 'pipeline-title', 844, 390],
   ] as const) {
     await page.setViewportSize({ width, height });

@@ -440,8 +440,11 @@ test('the film’s Pause control fades with the film, and no hairline marks the 
   await recededAt(page, 0);
   await expect(toggle).toBeVisible();
   expect(await opacity()).toBeCloseTo(whole, 2);
-  // The film's foot melts into the page: the Atlas section below draws no top rule.
-  await expect(page.locator('#atlas')).toHaveCSS('border-top-width', '0px');
+  // The film's foot melts into the page: the band below it (#why, spec §4.1) draws no top rule.
+  await expect(page.locator('#hero + .band')).toHaveCSS(
+    'border-top-width',
+    '0px',
+  );
 });
 
 test('reduced motion: the film never recedes with the scroll, and nothing runs', async ({
@@ -647,7 +650,7 @@ test('the hero holds one heading, one lede, one of each call to action, then the
 });
 
 // WCAG 2.4.3: the calls to action are read and reached before any other control: the film's
-// Pause, then the Atlas preview's.
+// Pause, then the first link of the section under the film (#why, spec §4.1: its source link).
 test('the hero’s calls to action come right after its heading in the focus order', async ({
   page,
 }) => {
@@ -673,11 +676,11 @@ test('the hero’s calls to action come right after its heading in the focus ord
     await expect(filmToggle(page), `${width}`).toBeFocused();
     await page.keyboard.press('Tab');
     const next = await page.evaluate(() =>
-      document.activeElement?.closest('#atlas')
-        ? 'atlas'
+      document.activeElement?.closest('#why')
+        ? 'why'
         : document.activeElement?.outerHTML.slice(0, 80),
     );
-    expect(next, `${width}`).toBe('atlas');
+    expect(next, `${width}`).toBe('why');
   }
 });
 

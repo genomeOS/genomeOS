@@ -57,8 +57,10 @@ function median(values: number[]): number {
 
 describe('committed figure data', () => {
   it('names each file by its content and keeps no stale copy', () => {
-    const names = readdirSync(figures).filter(
-      (name) => name !== 'hbs.provenance.json',
+    // The HbS outputs only: the people figure's sidecar (gwas-ancestry.provenance.json, Home
+    // §4.1.3) sits beside them and is checked by gwas-ancestry.test.ts.
+    const names = readdirSync(figures).filter((name) =>
+      name.startsWith('hbs-'),
     );
     expect(names.sort()).toEqual(
       Object.values(provenance.files)
