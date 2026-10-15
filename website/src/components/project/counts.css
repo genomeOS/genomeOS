@@ -81,9 +81,10 @@
 
 /* ---------- interval bars on the shared 0–40% axis ---------- */
 
+/* Tall enough that the value label, centred on the bar, clears the ruler's ticks below it. */
 .cf-bar {
   position: relative;
-  height: 1.5rem;
+  height: 1.75rem;
 }
 
 /* The axis under each bar: a baseline ticked at 0, 20 and 40%, like a ruler, so both bars carry the
@@ -127,8 +128,7 @@
   position: absolute;
   top: 50%;
   translate: 0 -50%;
-  padding: 0 0.2rem;
-  background: var(--micro-band);
+  line-height: 1.1;
   color: var(--color-starlight);
   font-size: 0.95rem;
   font-weight: 640;
