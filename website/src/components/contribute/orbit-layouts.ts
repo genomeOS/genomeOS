@@ -14,7 +14,8 @@
  *
  * Layouts are chosen by the stage's width, never the viewport's, so every moon label renders at
  * 13 px or more (spec §2.3): 1 viewBox unit is about 1 CSS px at a layout's widest stage, and each
- * layout's `label` size holds 13 px at its narrowest (`minStage`).
+ * layout's `label` size holds 13 px at its narrowest drawing (`minWidth`; the desktop's narrows
+ * below its stage on a short screen, contribute.css).
  */
 import { anchors, astronaut, PROP } from '../../graphics/astro/rig';
 import type { CastId } from '../../graphics/astro/cast';

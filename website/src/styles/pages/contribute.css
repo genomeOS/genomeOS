@@ -227,6 +227,7 @@
   grid-area: caption;
   min-width: 0;
   margin: 0;
+  text-wrap: balance;
 }
 
 .orbit__bar .kit-scene-controls {
@@ -264,11 +265,14 @@
 
 /* The stage draws the layout that fits its width (orbit-layouts.ts LAYOUTS): phones below 680 px,
    tablets from 680 px, desktops from 960 px, so the moon labels stay at 13 px or more. */
+/* The stage listens for a moon's click (contribute.astro), so iOS would flash its tap highlight
+   over the whole of it on any tap, sky included. */
 .orbit__stage {
   container: orbit-stage / inline-size;
   position: relative;
   overflow: hidden;
   border-bottom: 1px solid var(--color-deep-line);
+  -webkit-tap-highlight-color: transparent;
 }
 
 .orbit-svg {
