@@ -181,6 +181,16 @@ describe('how work moves', () => {
     expect(nav.match(/aria-pressed="true"/g)).toHaveLength(1);
   });
 
+  it('lets a keyboard scroll the phone’s track by hand: a named region it can focus', () => {
+    // Without the scene (no script, reduced motion, or before it loads) the columns scroll
+    // sideways below 64rem; the page's script drops these where the track does not scroll.
+    const scroller =
+      section.match(/<div[^>]*class="gh-scroll"[^>]*>/)?.[0] ?? '';
+    expect(scroller).toMatch(/\stabindex="0"/);
+    expect(scroller).toMatch(/\srole="region"/);
+    expect(scroller).toMatch(/\saria-label="Board, scrolls sideways"/);
+  });
+
   it('wraps the storyboard’s hello onto two lines exactly where one line would leave Discussion', () => {
     const css = readFileSync(
       new URL(

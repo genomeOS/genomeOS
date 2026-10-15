@@ -150,7 +150,17 @@ const REST: ColumnKey = 'merge';
     <div class="gh-tabs">
       <span class="gh-tab">Board</span>
     </div>
-    <div class="gh-scroll">
+    {
+      /* Below 64rem the columns scroll sideways by hand until the scene drives them, so the
+        track is a region a keyboard can focus and scroll (WCAG 2.1.1). HowWorkMoves.astro's
+        script drops these attributes wherever the track does not scroll. */
+    }
+    <div
+      class="gh-scroll"
+      tabindex="0"
+      role="region"
+      aria-label="Board, scrolls sideways"
+    >
       <div class="gh-pan">
         <div class="gh-track">
           <div class="gh-cols">

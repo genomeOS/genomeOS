@@ -9,6 +9,7 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
 import { useSiteFixtures } from './helpers/marketing';
@@ -867,5 +868,176 @@ test.describe('without JavaScript', () => {
     );
     await expect(board.locator('[data-scene-toggle]')).toBeHidden();
     await expect(board.locator('.wb-colnav')).toBeHidden();
+  });
+});
+
+/* ------------------------------------- below 64rem, the track by keyboard and to axe (WCAG 2.1.1) */
+
+/** Serious or critical axe violations in How work moves, with the site's tags (site.spec.ts). */
+async function boardAxe(page: Page) {
+  const results = await new AxeBuilder({ page })
+    .include('#how-work-moves')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+    .analyze();
+  return results.violations
+    .filter(({ impact }) => ['serious', 'critical'].includes(impact ?? ''))
+    .map(
+      ({ id, nodes }) =>
+        `${id}: ${nodes.map(({ target }) => target.join(' ')).join(' | ')}`,
+    );
+}
+
+const scrollLeft = (page: Page) =>
+  page
+    .locator(`${BOARD} .gh-scroll`)
+    .evaluate((scroller) => Math.round(scroller.scrollLeft));
+
+/**
+ * Wherever the track scrolls by hand, it is a named region a keyboard reaches, shows focus on and
+ * scrolls with the arrow keys, column by column.
+ */
+async function keyboardScrolls(page: Page) {
+  const scroller = page.locator(`${BOARD} .gh-scroll`);
+  await expect(scroller).toHaveAttribute('tabindex', '0');
+  await expect(scroller).toHaveAttribute('role', 'region');
+  await expect(scroller).toHaveAccessibleName('Board, scrolls sideways');
+  // Reached by Tab (back from the next stop), as a keyboard does.
+  await scroller.focus();
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Shift+Tab');
+  await expect(scroller).toBeFocused();
+  await expect(scroller).not.toHaveCSS('outline-style', 'none');
+  const before = await scrollLeft(page);
+  if (before > 0) {
+    await page.keyboard.press('ArrowLeft');
+    await expect.poll(() => scrollLeft(page)).toBeLessThan(before);
+  } else {
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(() => scrollLeft(page)).toBeGreaterThan(before);
+  }
+}
+
+const attributes = (page: Page) =>
+  page.locator(`${BOARD} .gh-scroll`).evaluate((scroller) => ({
+    tabindex: scroller.getAttribute('tabindex'),
+    role: scroller.getAttribute('role'),
+    label: scroller.getAttribute('aria-label'),
+  }));
+
+test.describe('the phone and tablet track by keyboard @mobile-chromium', () => {
+  for (const width of [390, 900])
+    test(`under reduced motion at ${width} px a keyboard scrolls the columns, and axe finds nothing serious`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.setViewportSize({ width, height: 840 });
+      await page.goto('/contribute/');
+      await page
+        .locator(BOARD)
+        .evaluate((figure) =>
+          figure.scrollIntoView({ block: 'center', behavior: 'instant' }),
+        );
+      // It rests on Merge, where the story ends.
+      await expect.poll(() => scrollLeft(page)).toBeGreaterThan(0);
+      await keyboardScrolls(page);
+      expect(await boardAxe(page)).toEqual([]);
+    });
+
+  test('before the scene arrives a keyboard scrolls the columns, and axe finds nothing serious', async ({
+    page,
+  }) => {
+    // The board's lazy scene never arrives: the server's track stands.
+    await page.route(/\/_astro\/board\.[^/]*\.js$/, (route) => route.abort());
+    await page.goto('/contribute/');
+    // As loaded, the board below the fold (the plain load site.spec.ts checks).
+    expect(await boardAxe(page)).toEqual([]);
+    await page
+      .locator(BOARD)
+      .evaluate((figure) =>
+        figure.scrollIntoView({ block: 'center', behavior: 'instant' }),
+      );
+    await page.waitForTimeout(500);
+    await expect(page.locator(`${BOARD} .floor-svg--live`)).toHaveCount(0);
+    await keyboardScrolls(page);
+    expect(await boardAxe(page)).toEqual([]);
+  });
+
+  test('once the scene drives the camera the track is a plain box, and the column buttons take over', async ({
+    page,
+  }) => {
+    await openBoard(page);
+    expect(await attributes(page)).toEqual({
+      tabindex: null,
+      role: null,
+      label: null,
+    });
+    await expect(page.locator(`${BOARD} .wb-colnav`)).toBeVisible();
+    expect(await boardAxe(page)).toEqual([]);
+  });
+});
+
+test.describe('the phone and tablet track without JavaScript @mobile-chromium', () => {
+  test.use({ javaScriptEnabled: false });
+
+  for (const width of [390, 900])
+    test(`at ${width} px a keyboard scrolls the columns`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 840 });
+      await page.goto('/contribute/');
+      await page.locator(BOARD).scrollIntoViewIfNeeded();
+      await expect(page.locator(`${BOARD} .wb-colnav`)).toBeHidden();
+      await keyboardScrolls(page);
+    });
+});
+
+// axe runs as a script, so here the page is served without its own scripts instead.
+test.describe('the phone and tablet track with the page’s scripts removed @mobile-chromium', () => {
+  for (const width of [390, 900])
+    test(`at ${width} px axe finds nothing serious`, async ({ page }) => {
+      await page.route('**/contribute/', async (route) => {
+        const response = await route.fetch();
+        const body = (await response.text()).replace(
+          /<script\b[\s\S]*?<\/script>/g,
+          '',
+        );
+        await route.fulfill({ response, body });
+      });
+      await page.setViewportSize({ width, height: 840 });
+      await page.goto('/contribute/');
+      await page.locator(BOARD).scrollIntoViewIfNeeded();
+      await expect(page.locator(`${BOARD} .wb-colnav`)).toBeHidden();
+      await expect(page.locator(`${BOARD} .gh-scroll`)).toHaveAttribute(
+        'tabindex',
+        '0',
+      );
+      expect(await boardAxe(page)).toEqual([]);
+    });
+});
+
+test.describe('the desktop board @desktop-chromium', () => {
+  test('shows every column, so its track is no tab stop, with or without the scene', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openBoard(page);
+    expect(await attributes(page)).toEqual({
+      tabindex: null,
+      role: null,
+      label: null,
+    });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.setViewportSize({ width: 1024, height: 900 });
+    await page.goto('/contribute/');
+    await page
+      .locator(BOARD)
+      .evaluate((figure) =>
+        figure.scrollIntoView({ block: 'center', behavior: 'instant' }),
+      );
+    await expect
+      .poll(() => attributes(page))
+      .toEqual({
+        tabindex: null,
+        role: null,
+        label: null,
+      });
   });
 });

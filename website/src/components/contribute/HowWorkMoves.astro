@@ -9,6 +9,8 @@
  * chunk named "board") only when the board is within a viewport of the screen (or at once when a
  * test freezes the page with `?t=`), and never under reduced motion, where the server-drawn
  * storyboard is the picture and the script only lets the phone's column buttons scroll the track.
+ * Below 64rem, wherever the track scrolls by hand (without the scene, or before it arrives), it is a
+ * named region a keyboard can focus and scroll; elsewhere the script makes it a plain box again.
  */
 import Mark from './Mark.astro';
 import MilestoneRail from './MilestoneRail.astro';
@@ -87,7 +89,39 @@ import './how-work-moves.css';
     if (scroller.scrollWidth > scroller.clientWidth) show(columns.length - 1);
   }
 
+  /**
+   * The track is a named region in the tab order exactly while it scrolls by hand: below 64rem
+   * without the scene (reduced motion, or before it loads; without script the server's attributes
+   * stand), so a keyboard reaches every column (WCAG 2.1.1). On desktops, and once the live scene's
+   * camera drives it (`.is-live`), it is a plain box; a focused track keeps its stop until left.
+   */
+  function focusableWhileItScrolls(board: HTMLElement): void {
+    const scroller = board.querySelector<HTMLElement>('.gh-scroll');
+    if (!scroller) return;
+    const label = scroller.getAttribute('aria-label') ?? '';
+    const sync = () => {
+      const scrolls =
+        getComputedStyle(scroller).overflowX !== 'hidden' &&
+        scroller.scrollWidth > scroller.clientWidth;
+      if (scrolls) {
+        scroller.tabIndex = 0;
+        scroller.setAttribute('role', 'region');
+        scroller.setAttribute('aria-label', label);
+      } else if (document.activeElement === scroller)
+        scroller.addEventListener('blur', sync, { once: true });
+      else
+        for (const name of ['tabindex', 'role', 'aria-label'])
+          scroller.removeAttribute(name);
+    };
+    new ResizeObserver(sync).observe(scroller);
+    new MutationObserver(sync).observe(board, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+  }
+
   if (figure) {
+    focusableWhileItScrolls(figure);
     if (matchMedia('(prefers-reduced-motion: reduce)').matches)
       nativeColumns(figure);
     else {

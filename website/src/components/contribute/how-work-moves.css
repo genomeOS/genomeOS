@@ -81,6 +81,12 @@
   container: wb-track / inline-size;
 }
 
+/* Below 64rem, where the columns scroll by hand, a keyboard can focus the track (WCAG 2.1.1). */
+.gh-scroll:focus-visible {
+  outline: 2px solid var(--color-ion);
+  outline-offset: -2px;
+}
+
 .gh-pan,
 .gh-track {
   position: relative;
