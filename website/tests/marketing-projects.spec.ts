@@ -1721,3 +1721,53 @@ test(
     );
   },
 );
+
+// Design review, round 3: with keyboard focus on the counts slider, its ring cut through the "10"
+// and "500" under it and butted against "People tested" above it.
+test('the counts slider’s focus ring stays clear of its labels', async ({
+  page,
+}) => {
+  await page.goto('/projects/');
+  await openSection(page, 'how');
+  const figure = page.locator('figure[data-graphic="counts"]');
+  const slider = figure.getByRole('slider');
+  await slider.scrollIntoViewIfNeeded();
+  await slider.focus();
+  await page.keyboard.press('Shift');
+  const clash = await figure.evaluate((element) => {
+    const input = element.querySelector<HTMLInputElement>('.cf-slider input')!;
+    const style = getComputedStyle(input);
+    if (!input.matches(':focus-visible') || style.outlineStyle === 'none')
+      return ['no focus ring'];
+    // The ring's soft halo, too, stays inside the control's box.
+    if (style.boxShadow !== 'none' && !style.boxShadow.includes('inset'))
+      return ['a halo outside the control'];
+    const reach =
+      Number.parseFloat(style.outlineOffset) +
+      Number.parseFloat(style.outlineWidth);
+    const box = input.getBoundingClientRect();
+    const ring = {
+      top: box.top - reach,
+      bottom: box.bottom + reach,
+      left: box.left - reach,
+      right: box.right + reach,
+    };
+    const labels = [
+      ...element.querySelectorAll<HTMLElement>(
+        '.cf-slider label, .cf-slider__ends > span',
+      ),
+    ];
+    return labels
+      .filter((label) => {
+        const other = label.getBoundingClientRect();
+        return (
+          Math.min(ring.right, other.right) - Math.max(ring.left, other.left) >
+            0 &&
+          Math.min(ring.bottom, other.bottom) - Math.max(ring.top, other.top) >
+            0
+        );
+      })
+      .map((label) => label.textContent?.trim() ?? '');
+  });
+  expect(clash).toEqual([]);
+});

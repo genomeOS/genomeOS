@@ -190,15 +190,22 @@
   font-weight: 620;
 }
 
-/* The site's range control (.kit-range, global.css), with a phone-sized target. */
+/* The site's range control (.kit-range, global.css), with a phone-sized target. Its focus ring
+   sits inside that 44 px box, around the track and thumb, so it never cuts through the end labels
+   under it or the label over it (design review, round 3). */
 .cf-slider input {
   min-height: 44px;
+}
+
+.cf-slider input:focus-visible {
+  outline-offset: -6px;
+  box-shadow: inset 0 0 0 3px rgb(112 230 255 / 35%);
 }
 
 .cf-slider__ends {
   display: flex;
   justify-content: space-between;
-  margin-top: -0.35rem;
+  margin-top: 0;
   color: var(--color-faint);
   font-size: 0.82rem;
   font-variant-numeric: lining-nums tabular-nums;
