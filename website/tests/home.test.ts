@@ -291,6 +291,6 @@ describe('site chrome on Home', () => {
     expect(html).toContain('Skip to main content');
     expect(html).toContain('aria-label="View genomeOS on GitHub"');
     expect(html).toContain('https://github.com/genomeOS/genomeOS');
-    expect(visibleText).toMatch(/© \d{4} genomeOS/);
+    expect(visibleText).toMatch(/© \d{4} genomeOS Foundation/);
   });
 });
