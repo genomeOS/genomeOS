@@ -16,6 +16,11 @@
  * itself, inside the map only. StationNames gives the station links the names their words read
  * (WCAG 2.5.3) until the kit does. The landing has no "On this page" column (index.mdx), so the
  * map gets the docs column's full width and keeps its stage columns on laptops.
+ *
+ * Round 2 (spec §4.4, R2-9; docs-light.md §3.5): on the paper theme the map follows the paper
+ * remap of the site tokens (starlight.css): a white plate with its dot grid and ticks in ink and
+ * ion ink, paper sockets. The marks whose dark-ground forms would vanish on paper get their own
+ * values below, under :root:not([data-theme='dark']), so the dark choice keeps today's map.
  */
 import '../../styles/tokens.css';
 
@@ -323,6 +328,45 @@ const WORK: { slug: string; label: string; icon: IconName }[] = [
   .docs-map:has([href$='/scientific-safeguards/']:is(:hover, :focus-visible))
     .docs-map__bracket-text {
     text-decoration-color: currentColor;
+  }
+
+  /* ---------- on paper ----------
+     The measured lane and the stud ring take ink, the neutral that contrasts most with paper, as
+     white does with void (the lane through the kit's --lane-measured token); the modeled lane and
+     glyphs take the ramp's darkest step, which keeps their meaning at 5.1:1 on the plate where
+     step 5 would be 2.0:1; the validation gate takes signal ink on a pale signal socket; a lit
+     station a pale ion socket with an ion-ink stroke and label. */
+  :root:not([data-theme='dark']) .docs-map {
+    --lane-measured: var(--ink-soft);
+    --enc-obs: #ffffff;
+    --enc-obs-ring: var(--ink);
+    --enc-obs-radius: rgb(7 24 49 / 45%);
+    --enc-mean-5: var(--enc-mean-1);
+    --enc-gate: var(--signal-ink);
+    --docs-map-lit-socket: #e3f1f5;
+    --docs-map-lit-stroke: var(--ion-ink);
+    --docs-map-lit-label: var(--ion-ink);
+  }
+
+  :root:not([data-theme='dark']) .docs-map .kit-plate {
+    box-shadow: 0 1px 0 rgb(7 24 49 / 4%);
+  }
+
+  :root:not([data-theme='dark'])
+    .docs-map
+    .pl-node[data-kind='gate']
+    .pl-node__socket {
+    stroke: rgb(132 92 0 / 70%);
+    fill: #fbf6ea;
+  }
+
+  :root:not([data-theme='dark']) .docs-map__work {
+    background-color: var(--paper-raised);
+  }
+
+  :root:not([data-theme='dark'])
+    .docs-map__work-link:is(:hover, :focus-visible) {
+    background-color: #f0f7fa;
   }
 
   @media (prefers-reduced-motion: reduce) {
