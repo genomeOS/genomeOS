@@ -87,14 +87,17 @@ const layouts = [
   // The ledge: one row of pointy-top hex tiles under the feet, fading out at both ends.
   const R = 13;
   const W = Math.sqrt(3) * R;
-  const count = Math.ceil(layout.width / W) + 1;
+  // Whole tiles inside the drawing's width, centred (the SVG overflows upward for the hop-in,
+  // never sideways past its column).
+  const count = Math.floor(layout.width / W);
+  const left = (layout.width - count * W) / 2 + W / 2;
   const hex = (cx: number, cy: number) =>
     Array.from({ length: 6 }, (_, k) => {
       const a = (Math.PI / 3) * k - Math.PI / 2;
       return `${k ? 'L' : 'M'}${(cx + (R - 0.6) * Math.cos(a)).toFixed(1)} ${(cy + (R - 0.6) * Math.sin(a)).toFixed(1)}`;
     }).join('') + 'Z';
   const tiles = Array.from({ length: count }, (_, i) => {
-    const cx = i * W;
+    const cx = left + i * W;
     const edge = Math.min(cx, layout.width - cx) / (layout.width * 0.18);
     return {
       d: hex(cx, R + 1),
