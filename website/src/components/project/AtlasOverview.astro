@@ -5,12 +5,16 @@
  * collapsed sections below it (AtlasSection.astro).
  *
  *   text     "Project 1", the chapter's h2 in the wordmark, why it matters, what it is and what you
- *            can do with it, and the "Open the genomeOS Atlas" pill
+ *            can do with it, and the "Open the genomeOS Atlas" pill, which opens the Atlas on its
+ *            HbS map, as Home's pill does
  *   visual   the product itself: a still of the live Atlas on its HbS map (src/assets/projects/
  *            atlas-hbs.webp, captured from /app/?entity=hbs-rs334 with the published data, day/night
- *            lighting off, cropped to the globe, its color key and its provenance line), so the
- *            page's one picture is the real thing, not a second copy of the index's mark or of
- *            Home's toy globe (design critique of the integrated build)
+ *            lighting off, place labels and country outlines off, on the public-domain Natural
+ *            Earth II basemap, cropped to the globe), so the page's one picture is the real thing,
+ *            not a second copy of the index's mark or of Home's toy globe (design critique of the
+ *            integrated build). Round 2 of that critique: nothing in it looks clickable but is not.
+ *            No app controls or attribution bar are baked in, no label debris at the limb; the
+ *            picture itself links to the same map, and its key is one line of HTML under it.
  *   facts    three totals from the pinned corpus revision (src/data/corpusMetrics.ts), the people
  *            total marked "not deduplicated", and "How we count" behind a disclosure
  *
@@ -24,6 +28,9 @@ import { Picture } from 'astro:assets';
 import atlasStill from '../../assets/projects/atlas-hbs.webp';
 import { corpusMetrics, metricTotal } from '../../data/corpusMetrics';
 import { sitePath } from '../../lib/paths';
+
+/** The Atlas on its HbS map: the picture's subject, and where the pill and the picture go. */
+const HBS_MAP = sitePath('/app/?entity=hbs-rs334&palette=genome');
 
 const int = (value: number) => value.toLocaleString('en-US');
 const millions = (value: number) => `${(value / 1e6).toFixed(2)}M`;
@@ -63,7 +70,7 @@ const FACTS = [
       The Atlas maps variants on an interactive globe. Pick one, inspect any
       place and see where evidence is thin.
     </p>
-    <a class="atlas-open" href={sitePath('/app/')}>
+    <a class="atlas-open" href={HBS_MAP}>
       <span class="atlas-open__label"
         >Open the <span class="brand-name">genomeOS</span> Atlas</span
       >
@@ -79,20 +86,26 @@ const FACTS = [
   </div>
 
   <figure class="atlas-ov__visual">
-    <Picture
-      class="atlas-ov__still"
-      src={atlasStill}
-      formats={['webp']}
-      fallbackFormat="webp"
-      widths={[560, 840, 1120, 1600]}
-      sizes="(min-width: 52rem) 56vw, 100vw"
-      quality={72}
-      loading="lazy"
-      decoding="async"
-      alt="The genomeOS Atlas showing the sickle-cell variant HbS on a globe of Africa, Europe and western Asia: a teal surface, brightest across West, Central and East Africa, with its color key from 0.08% to 17.3%."
-    />
+    <a class="atlas-ov__still-link" href={HBS_MAP}>
+      <Picture
+        class="atlas-ov__still"
+        src={atlasStill}
+        formats={['webp']}
+        fallbackFormat="webp"
+        widths={[560, 840, 1120, 1600]}
+        sizes="(min-width: 52rem) 56vw, 100vw"
+        quality={72}
+        loading="lazy"
+        decoding="async"
+        alt="The genomeOS Atlas showing the sickle-cell variant HbS on a globe of Africa, Europe and western Asia: a teal surface, brightest across West, Central and East Africa."
+      />
+    </a>
     <figcaption class="atlas-ov__caption">
-      The live Atlas, on its HbS map.
+      The live Atlas: HbS frequency, <span class="atlas-ov__key"
+        >low<span class="atlas-ov__ramp"
+          ><span class="visually-hidden">{' to '}</span></span
+        >high.</span
+      >
     </figcaption>
   </figure>
 

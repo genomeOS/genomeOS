@@ -1090,7 +1090,7 @@ test('the Atlas chapter opens on an overview: the essentials in about 80 words, 
   ).toBeVisible();
   await expect(
     overview.getByRole('link', { name: 'Open the genomeOS Atlas' }),
-  ).toHaveAttribute('href', '/app/');
+  ).toHaveAttribute('href', '/app/?entity=hbs-rs334&palette=genome');
   await expect(overview.locator('data')).toHaveText(['4,392', '6.69M', '2']);
   // The one picture is the product itself, loaded and drawn (design critique of the integrated
   // build), not the index's mark again.
@@ -1106,6 +1106,12 @@ test('the Atlas chapter opens on an overview: the essentials in about 80 words, 
   await expect(still).toHaveAccessibleName(
     /^The genomeOS Atlas showing the sickle-cell variant HbS/,
   );
+  // The picture opens the map it shows (design critique of the integrated build, round 2).
+  await expect(
+    overview.getByRole('link', {
+      name: /^The genomeOS Atlas showing the sickle-cell variant HbS/,
+    }),
+  ).toHaveAttribute('href', '/app/?entity=hbs-rs334&palette=genome');
   await expect(overview.locator('.atlas-mark')).toHaveCount(0);
   // "How we count" stays folded: its definition is there for whoever asks.
   const method = overview.locator('details');

@@ -290,12 +290,44 @@
   height: auto;
   border: 1px solid var(--color-line-strong);
   background: var(--color-void);
+  transition: border-color var(--dur-micro) var(--ease-ui);
+}
+
+/* The picture opens the map it shows: the rim lights on hover, the site's ion ring on focus. */
+.atlas-ov__still-link {
+  display: block;
+}
+
+.atlas-ov__still-link:hover .atlas-ov__still {
+  border-color: var(--color-ion);
+}
+
+.atlas-ov__still-link:focus-visible {
+  outline: 2px solid var(--color-ion);
+  outline-offset: 3px;
 }
 
 .atlas-ov__caption {
   margin: 0;
   color: var(--color-muted);
   font-size: var(--type-legend);
+}
+
+/* The map's key, in one line of the caption: the Atlas's own HbS ramp (palette "genome",
+   src/atlas/encoding-tokens.ts) from low to high, in a hairline so its dark end reads on the page. */
+.atlas-ov__key {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+
+.atlas-ov__ramp {
+  display: inline-block;
+  width: 4.5rem;
+  height: 0.55rem;
+  border: 1px solid var(--color-line-strong);
+  background: linear-gradient(90deg, #10213e, #27a9d0, #72e7c1);
 }
 
 .atlas-ov__facts {

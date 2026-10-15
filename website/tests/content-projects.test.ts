@@ -225,12 +225,14 @@ describe('projects page content', () => {
       'Project 1',
       'Where a genetic variant is common shapes who is offered screening, how a test result is read and where a study can recruit.',
       'The Atlas maps variants on an interactive globe. Pick one, inspect any place and see where evidence is thin.',
-      'The live Atlas, on its HbS map.',
+      'The live Atlas: HbS frequency, low to high.',
       'How we count',
     ])
       expect(overview).toContain(line);
+    // The pill opens the Atlas on the HbS map the picture shows, as Home's pill does (design
+    // critique of the integrated build, round 2).
     expect(overviewHtml()).toMatch(
-      /<a class="atlas-open" href="\/app\/">[\s\S]*?Open the <span class="brand-name">genomeOS<\/span> Atlas/,
+      /<a class="atlas-open" href="\/app\/\?entity=hbs-rs334&amp;palette=genome">[\s\S]*?Open the <span class="brand-name">genomeOS<\/span> Atlas/,
     );
     // The one visual is the product itself (design critique of the integrated build): a still of
     // the live Atlas on its HbS map, a WebP sized to its column, loaded lazily, described in
@@ -248,6 +250,12 @@ describe('projects page content', () => {
     expect(still).toMatch(
       /alt="The genomeOS Atlas showing the sickle-cell variant HbS[^"]+"/,
     );
+    // Nothing in it looks clickable but is not: the picture opens the map it shows, and its key is
+    // a line of HTML, not app chrome baked into the image (round 2 of that critique).
+    expect(visual).toMatch(
+      /<a class="atlas-ov__still-link" href="\/app\/\?entity=hbs-rs334&amp;palette=genome">\s*<picture\b/,
+    );
+    expect(visual).toMatch(/<span class="atlas-ov__ramp">/);
     expect(overviewHtml()).not.toContain('atlas-mark');
   });
 
