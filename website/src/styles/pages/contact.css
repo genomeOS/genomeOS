@@ -23,15 +23,21 @@
   overflow: hidden;
 }
 
-/* The only one-line H1 of the split intros: beside a lede of four or five lines (52rem to 72rem)
-   it breaks evenly in two, so the kicker and the lede start level, as on /privacy/ (design
-   critique 2, m-2). */
+/* The only one-line H1 of the split intros: from 52rem to 72rem, where it may or may not fit its
+   seven columns, it always breaks evenly in two, so the intro keeps one shape across those widths
+   (design critique 2, m-2). */
 @media (width > 52rem) and (width <= 72rem) {
   .contact-page .page-intro h1 {
     /* 12ch in Raleway, in em so a fallback font breaks it where Raleway does (pages.css). */
     max-width: 7.34em;
     text-wrap: balance;
   }
+}
+
+/* The lede is one short sentence (owner, 2026-10-15): its two lines break evenly beside the H1,
+   not a full line over two words. */
+.contact-page .page-intro--split .page-intro__lede {
+  text-wrap: balance;
 }
 
 /* The template band's own hairline is the one rule under the intro, not the intro's doubling it. */
