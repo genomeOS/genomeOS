@@ -11,13 +11,13 @@
   },
   "jsKbGz": 4.0,
   "dataKbGz": 0,
-  "imagesKbGz": 33.2,
-  "transferKbGz": 172.7,
+  "imagesKbGz": 58.3,
+  "transferKbGz": 195.8,
   "lcpMs": {
     "desktop": 1000,
     "phone": 2200
   },
   "cls": 0.02,
   "leadFigure": true,
-  "budgetNote": "Round 2 integration (T7), measured with every section closed (ruling 40), plus at most 10%: first-load JS 3.7, figure data 0 (a closed section loads nothing; its modules and the HbS map's data load when it opens), transfer 157.0. Initial images 30.2: no page image (spec §7's 0), only the site chrome every route loads, the header lockup and the favicon, and on a desktop the footer logo, which the shorter closed page brings into the first view (ruling 42)."
+  "budgetNote": "Round 2 integration (T7), measured with every section closed (ruling 40), plus at most 10%: first-load JS 3.7, figure data 0 (a closed section loads nothing; its modules and the HbS map's data load when it opens). Design critique 1 (T7 fix 1): the overview's picture is now the product, a still of the live Atlas (a lazy WebP sized to its column, on a desktop's first screen), so initial images are 53.0 (desktop; 28.1 phone): the site chrome every route loads (header lockup, favicon, and on a desktop the footer logo, ruling 42) plus about 23 KB of still. Spec §7's 0 page images is exceeded by that still (an owner question in the PR body). Transfer 178.0 desktop, 153.2 phone; budget 195.8, under the 300 cap."
 }
