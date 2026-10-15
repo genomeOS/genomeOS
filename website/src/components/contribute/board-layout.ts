@@ -19,6 +19,7 @@
  * table. Everything seeded uses mulberry32(SEED = 42).
  */
 import type { CastId } from '../../graphics/astro/cast';
+import { C } from '../../graphics/astro/palette';
 import type { Geom, Point } from '../../graphics/astro/poses';
 import { bubble, confetti, moonDefs, wall } from '../../graphics/astro/props';
 import {
@@ -1358,6 +1359,113 @@ const socketBlock = () =>
 
 const bench = (g3: Geom) => stool(g3.hipY + g3.sitDrop + 1);
 
+/* -------------------------------------------------------------------------- speech bubbles */
+
+/** Room kept between a speech bubble and its column's borders (px). */
+export const BUBBLE_INSET = 8;
+/** A two-line bubble's second line sits this far below its first (px, for 14 px words). */
+const LEADING = 17;
+
+type Measure = (text: string, size: number) => number;
+/**
+ * The width of words as drawn: the kit's build-time estimate (props.ts), which the storyboard is
+ * drawn with; board.ts swaps in the canvas measure it gives the kit (`setMeasure`).
+ */
+let textWidth: Measure = (text, size) => text.length * size * 0.54;
+
+export function setBubbleMeasure(measure: Measure): void {
+  textWidth = measure;
+}
+
+/** The words on two lines, split at the space that keeps the wider line narrowest. */
+function twoLines(text: string, size: number): string[] {
+  const words = text.split(' ');
+  let best = [text];
+  let widest = Infinity;
+  for (let at = 1; at < words.length; at++) {
+    const lines = [words.slice(0, at).join(' '), words.slice(at).join(' ')];
+    const w = Math.max(...lines.map((line) => textWidth(line, size)));
+    if (w < widest) [best, widest] = [lines, w];
+  }
+  return best;
+}
+
+export interface FitOptions {
+  tail: Say['tail'];
+  /** the speaker's column, [left, right] in the same units as x */
+  within?: [number, number];
+  /** two lines whatever the room */
+  wrap?: boolean;
+  size?: number;
+  lift?: number;
+  cls?: string;
+  hidden?: boolean;
+}
+
+/**
+ * A speech bubble kept inside its speaker's column. Where the kit's bubble (props.ts `bubble`)
+ * already fits with BUBBLE_INSET to spare, it is that bubble. Otherwise it is the same bubble with
+ * its words on two balanced lines when one line is wider than the column, slid along to keep the
+ * inset, its tail's tip still at (x, y − lift) over the speaker's helmet, leaning as far as the
+ * rounded corners allow. Words stay 14 px whatever the column's width.
+ */
+export function fitBubble(
+  x: number,
+  y: number,
+  text: string,
+  o: FitOptions,
+): string {
+  const size = o.size ?? 14;
+  const lift = o.lift ?? 8;
+  const [left, right] = o.within ?? [-Infinity, Infinity];
+  const room = right - left - 2 * BUBBLE_INSET;
+  /** Where the kit puts a bubble `w` wide: to one side of the tail, or over it. */
+  const kitX = (w: number) =>
+    o.tail === 'l' ? x - 6 + w / 2 : o.tail === 'r' ? x + 6 - w / 2 : x;
+  const one = Math.ceil(textWidth(text, size) + 22);
+  if (
+    !o.wrap &&
+    kitX(one) - one / 2 >= left + BUBBLE_INSET &&
+    kitX(one) + one / 2 <= right - BUBBLE_INSET
+  )
+    return bubble(x, y, text, {
+      tail: o.tail,
+      size,
+      lift,
+      cls: o.cls,
+      hidden: o.hidden,
+    });
+  const lines = o.wrap || one > room ? twoLines(text, size) : [text];
+  const w = Math.ceil(
+    Math.max(...lines.map((line) => textWidth(line, size))) + 22,
+  );
+  const h = size + 14 + (lines.length - 1) * LEADING;
+  const lo = left + BUBBLE_INSET + w / 2;
+  const hi = right - BUBBLE_INSET - w / 2;
+  const bx = lo > hi ? (left + right) / 2 : Math.min(hi, Math.max(lo, kitX(w)));
+  const by = y - lift - 7 - h / 2;
+  const tip = x - bx;
+  const base = Math.min(w / 2 - 10, Math.max(-w / 2 + 10, tip));
+  const [l, r, t, b] = [-w / 2, w / 2, -h / 2, h / 2];
+  const d =
+    `M${f(l + 5)} ${f(t)} H${f(r - 5)} Q${f(r)} ${f(t)} ${f(r)} ${f(t + 5)} V${f(b - 5)} Q${f(r)} ${f(b)} ${f(r - 5)} ${f(b)} ` +
+    `H${f(base + 5)} L${f(tip)} ${f(b + 7)} L${f(base - 5)} ${f(b)} H${f(l + 5)}` +
+    ` Q${f(l)} ${f(b)} ${f(l)} ${f(b - 5)} V${f(t + 5)} Q${f(l)} ${f(t)} ${f(l + 5)} ${f(t)}Z`;
+  const first = size * 0.36 - ((lines.length - 1) * LEADING) / 2;
+  const words = lines
+    .map(
+      (line, i) => `<tspan x="0" y="${f(first + i * LEADING)}">${line}</tspan>`,
+    )
+    .join(' ');
+  const origin = f(Math.min(100, Math.max(0, ((tip - l) / w) * 100)));
+  return (
+    `<g class="bubble ${o.cls ?? ''}" transform="translate(${f(bx)} ${f(by)})"${o.hidden ? ' opacity="0"' : ''}>` +
+    `<g class="bubble-pop" style="transform-box:fill-box;transform-origin:${origin}% 100%">` +
+    `<path d="${d}" fill="#f4f8fd" stroke="${C.ink}" stroke-width="2" stroke-linejoin="round"/>` +
+    `<text text-anchor="middle" font-size="${size}" font-weight="600" fill="#132746">${words}</text></g></g>`
+  );
+}
+
 /**
  * The live floor (motion allowed), measured against the columns: the figures in their story-end
  * poses, the wall complete, every bubble hidden; board.ts animates it from the story's start.
@@ -1427,8 +1535,14 @@ export function renderFloor(geo: Geo, P: Plan): string {
       const a = anchors(b.id, resolveKey(b.id, { pose: b.pose }));
       const hx = b.x + b.face * a.headTop[0] * s;
       const hy = F + a.headTop[1] * s;
-      return bubble(hx, hy, SAY[b.k][1], {
+      const column = geo.cols.reduce((near, col) =>
+        Math.abs(col.x0 + col.w / 2 - hx) < Math.abs(near.x0 + near.w / 2 - hx)
+          ? col
+          : near,
+      );
+      return fitBubble(hx, hy, SAY[b.k][1], {
         tail: b.tail,
+        within: [column.x0, column.x0 + column.w],
         cls: `say say-${b.k}`,
         lift: 4,
         size: 14,
@@ -1533,12 +1647,14 @@ export function renderStoryboard(H = FLOOR_H, s = FIG_SCALE): string {
       fig('A2', 'listen', SPOTS.D2, 1) +
       fig('A3', 'chat', SPOTS.D3, 1, 'talk') +
       fig('A5', 'stand', SPOTS.D5, -1) +
+      // on one line where Discussion has the room, else on two (how-work-moves.css, `.sb-two`)
       placed(
         SPOTS.D3,
         F,
         unscaled(
           hello,
-          bubble(0, 0, SAY.hello[1], { tail: 'c', lift: 4, size: 14 }),
+          `<g class="sb-one">${bubble(0, 0, SAY.hello[1], { tail: 'c', lift: 4, size: 14 })}</g>` +
+            `<g class="sb-two">${fitBubble(0, 0, SAY.hello[1], { tail: 'c', wrap: true, lift: 4, size: 14 })}</g>`,
         ),
       ) +
       // 2 Backlog: the idea
@@ -1566,6 +1682,20 @@ export function renderStoryboard(H = FLOOR_H, s = FIG_SCALE): string {
       confettiG +
       `</svg>`,
   );
+}
+
+/**
+ * The narrowest desktop board (the `.gh-scroll` container's width, px) whose storyboard keeps the
+ * hello bubble on one line inside Discussion with BUBBLE_INSET to spare. The bubble keeps its size
+ * while the column and the speaker's offset shrink with `sceneScale`, so below this width
+ * how-work-moves.css shows its two-line form (`.sb-two`).
+ */
+export function storyboardOneLine(): number {
+  const a = anchors('A3', resolveKey('A3', { pose: 'chat' }));
+  const offset = Math.abs(a.headTop[0] * FIG_SCALE);
+  const half = Math.ceil(textWidth(SAY.hello[1], 14) + 22) / 2;
+  const column = (half + BUBBLE_INSET) / (1 / 2 - offset / COL_REF);
+  return Math.ceil(2 * PAD + 4 * GAP + 5 * column);
 }
 
 /* --------------------------------------------------------------------------- phone camera */

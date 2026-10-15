@@ -16,6 +16,8 @@
  *   resting on Merge. The column buttons say where the camera is; pressing one pauses the scene and
  *   pans there; Play hands the view back to the camera.
  * - A resize redraws the floor against the new columns and keeps the clock's time.
+ * - Speech bubbles stay inside their speaker's column, on two lines where one would not fit
+ *   (board-layout.ts `fitBubble`), measured in the board's own face.
  */
 import { setMeasure } from '../../graphics/astro/props';
 import { blinks, poseTracks } from '../../graphics/astro/tracks';
@@ -37,6 +39,7 @@ import {
   plan,
   renderFloor,
   sceneScale,
+  setBubbleMeasure,
   type Geo,
   type Plan,
 } from './board-layout';
@@ -198,11 +201,14 @@ export function initBoard(figure: HTMLElement): void {
       // Bubbles fit their words in the board's own face.
       await document.fonts.ready;
       const context = document.createElement('canvas').getContext('2d');
-      if (context)
-        setMeasure((text, size) => {
+      if (context) {
+        const measure = (text: string, size: number) => {
           context.font = `600 ${size}px "Figtree Variable"`;
           return context.measureText(text).width;
-        });
+        };
+        setMeasure(measure);
+        setBubbleMeasure(measure);
+      }
       figure.classList.add('is-live');
       // The other counts and statuses join in (the timeline sets which one shows).
       for (const element of figure.querySelectorAll<HTMLElement>(

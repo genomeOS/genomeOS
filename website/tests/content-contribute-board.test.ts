@@ -5,8 +5,11 @@
  * one plainly labelled example card, the astronaut story's storyboard as the picture without
  * motion, and the story in words for assistive tech. Owned by the board task (round 2 plan T5).
  */
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, it } from 'vitest';
 
+import { storyboardOneLine } from '../src/components/contribute/board-layout';
 import { builtHtml } from './helpers/dist';
 
 const contribute = builtHtml('contribute');
@@ -176,6 +179,28 @@ describe('how work moves', () => {
     expect(nav).toMatch(/\shidden(?:=|\s|>)/);
     expect(nav.match(/<button\b/g)).toHaveLength(5);
     expect(nav.match(/aria-pressed="true"/g)).toHaveLength(1);
+  });
+
+  it('wraps the storyboard’s hello onto two lines exactly where one line would leave Discussion', () => {
+    const css = readFileSync(
+      new URL(
+        '../src/components/contribute/how-work-moves.css',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+    expect(css).toContain(
+      `@container wb-track (width < ${storyboardOneLine()}px)`,
+    );
+    // Both forms are drawn; the stylesheet shows one.
+    const storyboard = block(
+      section,
+      /<svg[^>]*floor-svg--sb[\s\S]*?<\/svg>\s*<\/div>/,
+    );
+    expect(storyboard).toMatch(/class="sb-one"[\s\S]*Hi! I’d like to help\./);
+    expect(storyboard).toMatch(
+      /class="sb-two"[\s\S]*<tspan[^>]*>Hi! I’d like<\/tspan> <tspan[^>]*>to help\.<\/tspan>/,
+    );
   });
 
   it('ends with the milestone rail and the workflow in Docs', () => {

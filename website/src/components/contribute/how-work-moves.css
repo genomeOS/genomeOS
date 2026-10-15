@@ -78,7 +78,7 @@
 .gh-scroll {
   position: relative;
   overflow: hidden;
-  container-type: inline-size;
+  container: wb-track / inline-size;
 }
 
 .gh-pan,
@@ -377,6 +377,30 @@
 
 .floor-svg text {
   font-family: var(--font-body);
+}
+
+/* The storyboard's hello: one line where Discussion has the room, two lines on the narrowest
+   desktops (board-layout.ts storyboardOneLine; content-contribute-board.test.ts keeps them equal).
+   The phone and tablet track's 300 px columns always have the room.
+   The form not shown is also visibility: hidden, so audits that ask checkVisibility() (which
+   passes SVG under display: none) skip its words. */
+.floor-svg--sb .sb-two {
+  display: none;
+  visibility: hidden;
+}
+
+@media (min-width: 64rem) {
+  @container wb-track (width < 1086px) {
+    .floor-svg--sb .sb-one {
+      display: none;
+      visibility: hidden;
+    }
+
+    .floor-svg--sb .sb-two {
+      display: inline;
+      visibility: visible;
+    }
+  }
 }
 
 /* ---------- the figcaption ---------- */

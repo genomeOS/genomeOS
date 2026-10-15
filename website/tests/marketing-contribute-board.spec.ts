@@ -169,6 +169,89 @@ function onlyBubble(bubbles: Record<string, number>, text: string | null) {
     expect(value, said).toBe(said === text ? 1 : 0);
 }
 
+/**
+ * Every speech bubble showing in the floor at this instant: its words, and how far its body sits
+ * inside the column its tail points into, at the tighter side (px; negative when it crosses the
+ * column's border).
+ */
+const bubblesShown = (page: Page, which = '.floor-svg--live') =>
+  page.evaluate(
+    ([selector, floorSvg]) => {
+      const figure = document.querySelector<HTMLElement>(selector)!;
+      const svg = figure.querySelector(floorSvg)!;
+      const columns = [...figure.querySelectorAll('[data-col]')].map((column) =>
+        column.getBoundingClientRect(),
+      );
+      return [...svg.querySelectorAll<SVGGElement>('.bubble')]
+        .filter((bubble) =>
+          bubble.checkVisibility({
+            opacityProperty: true,
+            visibilityProperty: true,
+          }),
+        )
+        .map((bubble) => {
+          const body = bubble.querySelector<SVGPathElement>('path')!;
+          const [, tx, ty] = /L(-?[\d.]+) (-?[\d.]+)/.exec(
+            body.getAttribute('d')!,
+          )!;
+          const tip = new DOMPoint(Number(tx), Number(ty)).matrixTransform(
+            body.getScreenCTM()!,
+          );
+          const box = body.getBoundingClientRect();
+          const column = columns.find(
+            (edges) => tip.x >= edges.left && tip.x <= edges.right,
+          );
+          return {
+            text: bubble.textContent!.replace(/\s+/g, ' ').trim(),
+            inside: column
+              ? Math.round(
+                  Math.min(box.left - column.left, column.right - box.right),
+                )
+              : -999,
+          };
+        });
+    },
+    [BOARD, which] as const,
+  );
+
+/** The speech bubbles, each at an instant it fully shows: [key, speaker, ms]. */
+const SAYS: [string, string, number][] = [
+  ['hello', 'A3', 3000],
+  ['welcome', 'A2', 3950],
+  ['backlog', 'A5', 5050],
+  ['q', 'E1', 22205],
+  ['a', 'A3', 23505],
+  ['checks', 'E2', 24730],
+  ['ok', 'E1', 25880],
+];
+
+/** How far a live bubble's tail tip is from its speaker's helmet top (px). */
+const tailGap = (page: Page, key: string, who: string) =>
+  page.evaluate(
+    ([selector, k, id]) => {
+      const svg = document.querySelector<SVGSVGElement>(
+        `${selector} .floor-svg--live`,
+      )!;
+      const point = (element: SVGGraphicsElement, x: number, y: number) =>
+        new DOMPoint(x, y).matrixTransform(element.getScreenCTM()!);
+      const tail = svg.querySelector<SVGPathElement>(`.say-${k} path`)!;
+      const [, tx, ty] = /L(-?[\d.]+) (-?[\d.]+)/.exec(
+        tail.getAttribute('d')!,
+      )!;
+      const tip = point(tail, Number(tx), Number(ty));
+      const helmet = svg.querySelector<SVGCircleElement>(
+        `.who-${id} circle[fill="url(#wb-kHelm)"]`,
+      )!;
+      const top = point(
+        helmet,
+        helmet.cx.baseVal.value,
+        helmet.cy.baseVal.value - helmet.r.baseVal.value,
+      );
+      return Math.hypot(tip.x - top.x, tip.y - top.y);
+    },
+    [BOARD, key, who] as const,
+  );
+
 const LIT_BLUE = 'rgb(31, 111, 235)';
 
 test.describe('the story at the seek table @desktop-chromium', () => {
@@ -276,43 +359,13 @@ test.describe('the story at the seek table @desktop-chromium', () => {
     page,
   }) => {
     await openBoard(page);
-    const says: [string, string, number][] = [
-      ['hello', 'A3', 3000],
-      ['welcome', 'A2', 3950],
-      ['backlog', 'A5', 5050],
-      ['q', 'E1', 22205],
-      ['a', 'A3', 23505],
-      ['checks', 'E2', 24730],
-      ['ok', 'E1', 25880],
-    ];
-    for (const [key, who, mid] of says) {
+    // Floor units are CSS px on the desktop board (the floor's viewBox is its own size).
+    for (const [key, who, mid] of SAYS) {
       await seek(page, mid);
-      const gap = await page.evaluate(
-        ([selector, k, id]) => {
-          const svg = document.querySelector<SVGSVGElement>(
-            `${selector} .floor-svg--live`,
-          )!;
-          const point = (element: SVGGraphicsElement, x: number, y: number) =>
-            new DOMPoint(x, y).matrixTransform(element.getScreenCTM()!);
-          const tail = svg.querySelector<SVGPathElement>(`.say-${k} path`)!;
-          const [, tx, ty] = /L(-?[\d.]+) (-?[\d.]+)/.exec(
-            tail.getAttribute('d')!,
-          )!;
-          const tip = point(tail, Number(tx), Number(ty));
-          const helmet = svg.querySelector<SVGCircleElement>(
-            `.who-${id} circle[fill="url(#wb-kHelm)"]`,
-          )!;
-          const top = point(
-            helmet,
-            helmet.cx.baseVal.value,
-            helmet.cy.baseVal.value - helmet.r.baseVal.value,
-          );
-          // Floor units are CSS px on the desktop board (the floor's viewBox is its own size).
-          return Math.hypot(tip.x - top.x, tip.y - top.y);
-        },
-        [BOARD, key, who] as const,
-      );
-      expect(gap, `${key} (${who}) at ${mid} ms`).toBeLessThanOrEqual(6);
+      expect(
+        await tailGap(page, key, who),
+        `${key} (${who}) at ${mid} ms`,
+      ).toBeLessThanOrEqual(6);
     }
   });
 
@@ -447,6 +500,25 @@ for (const width of [1024, 1100, 1152, 1280, 1440]) {
             c.wall,
             'wall cells in view at the end',
           ).toBeGreaterThanOrEqual(11);
+      }
+    });
+
+    test('keeps every speech bubble inside its speaker’s column, its tail on the helmet', async ({
+      page,
+    }) => {
+      await openBoard(page);
+      for (const [key, who, mid] of SAYS) {
+        await seek(page, mid);
+        const shown = await bubblesShown(page);
+        expect(shown, `${key} at ${mid} ms`).toHaveLength(1);
+        expect(
+          shown[0].inside,
+          `“${shown[0].text}” inside its column`,
+        ).toBeGreaterThanOrEqual(4);
+        expect(
+          await tailGap(page, key, who),
+          `${key} (${who}) tail at ${mid} ms`,
+        ).toBeLessThanOrEqual(6);
       }
     });
   });
@@ -694,17 +766,18 @@ test.describe('reduced motion', () => {
     ).toBe(0);
     await expect(board.locator('[data-scene-toggle]')).toBeHidden();
     await expect(board.locator('[data-scene-replay]')).toBeHidden();
-    await expect(board.locator('.floor-svg--sb text')).toHaveText([
-      'Hi! I’d like to help.',
-      'Approved!',
-    ]);
+    // Every word, in the bubbles the storyboard shows (the hello is drawn on one line and on
+    // two; the stylesheet shows the one that fits).
+    await expect(
+      board.locator('.floor-svg--sb text').filter({ visible: true }),
+    ).toHaveText(['Hi! I’d like to help.', 'Approved!']);
     const s = await boardState(page);
     expect(s.counts).toEqual([1, 1, 1, 1, 2]);
     expect(s.status).toEqual(['Merged']);
     await shot(page, 'reduced');
   });
 
-  for (const width of [1024, 1440])
+  for (const width of [1024, 1100, 1152, 1280, 1440])
     test(`at ${width} px the storyboard keeps every face in view and inside its column @desktop-chromium`, async ({
       page,
     }) => {
@@ -727,6 +800,14 @@ test.describe('reduced motion', () => {
       }
       expect(c.wall, 'wall cells in view').toBeGreaterThanOrEqual(11);
       expect(c.rowFits).toBe(true);
+      // Both bubbles, whole and inside their speaker's column.
+      const shown = await bubblesShown(page, '.floor-svg--sb');
+      expect(shown.map(({ text }) => text)).toEqual([
+        'Hi! I’d like to help.',
+        'Approved!',
+      ]);
+      for (const { text, inside } of shown)
+        expect(inside, `“${text}” inside its column`).toBeGreaterThanOrEqual(4);
     });
 
   test('on a phone the track scrolls natively and the column buttons scroll it @mobile-chromium', async ({
