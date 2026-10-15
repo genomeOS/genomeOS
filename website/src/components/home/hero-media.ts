@@ -11,7 +11,7 @@
  *                  phones and small laptops, 1080p on desktops. Sources keep their given order
  *                  (AV1, then HEVC), filtered by `canPlayType`.
  *   fade           the film fades in over the poster once its first frame is presented.
- *   pause          a visible Pause/Play control (WCAG 2.2.2: the loop runs 16 s). The film also
+ *   pause          a visible Pause/Play control (WCAG 2.2.2: the loop runs about a minute). The film also
  *                  pauses while the hero is off screen or the tab is hidden, and resumes only if
  *                  the visitor has not paused it.
  *   scroll fade    CSS scroll-driven animation (home.css); where `animation-timeline` is missing, a
