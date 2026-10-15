@@ -594,6 +594,13 @@
   position: relative;
 }
 
+/* The narrow crew stops growing at 23rem, as the people grid stops at 24rem: wider, its 420-unit
+   drawing drew the astronauts about 1.5 times their desktop size (up to 156 px tall at 600–1000
+   px, against 100–107 px at 1440; review of T2). At 23rem they are 100–106 px. */
+.crew__layout[data-layout='narrow'] {
+  max-width: 23rem;
+}
+
 .crew__layout[data-layout='wide'] {
   display: none;
 }

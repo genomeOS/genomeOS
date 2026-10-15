@@ -602,6 +602,25 @@ test('the crew is named for the people drawn: four on a wide figure, three on a 
   expect(drawn).toBe(isMobile ? 3 : 4);
 });
 
+// Review of T2: between 600 and 1,000 px the narrow crew's 420-unit drawing ran at full width, so
+// its astronauts stood about 150 px tall, half as tall again as at 1440 (about 100 px).
+test('the crew stays about desktop size at every width @desktop-chromium', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  for (const width of [390, 600, 800, 1000, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    const heights = await shown(crew(page), '.crew__layout')
+      .locator('.crew__member')
+      .evaluateAll((members) =>
+        members.map((member) => member.getBoundingClientRect().height),
+      );
+    expect(heights.length, `${width}`).toBeGreaterThan(2);
+    expect(Math.max(...heights), `${width}`).toBeLessThanOrEqual(110);
+  }
+});
+
 test('focusing each card fills "Your spot", and moving on empties it', async ({
   page,
 }) => {
