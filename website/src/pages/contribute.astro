@@ -1,77 +1,26 @@
 ---
 /**
- * Contribute (site redesign spec §4.3, #454), which absorbs the Working groups page:
+ * Contribute (site redesign spec §4.3; round 2 spec §4.3, R2-5; #454), which absorbs the Working
+ * groups page:
  *
  *   intro             H1 left, lede right (PageIntro split)
- *   #working-groups   the transit line (the page's lead figure) and the three group cards
- *   #how-work-moves   the work board: one issue, five steps; milestones; the Docs workflow
- *                     (HowWorkMoves.astro, its own section, CSS and script)
- *   #start            four places to start (a link row, no figure)
+ *   #working-groups   the orbit scene: three working-group moons, crews landing, and each group's
+ *                     text typed below it (the page's lead figure; OrbitScene.astro)
+ *   #flow             how the groups fit together: the transit line
+ *   #how-work-moves   the work board (HowWorkMoves.astro, its own section, CSS and script)
+ *   #start            four places to start, and offers by email (a link row, no figure)
  *
- * /working-groups/ redirects here (#working-groups, and #data, #modeling, #ui to the cards).
+ * /working-groups/ redirects here (#working-groups, and #data, #modeling, #ui to the orbit's
+ * columns, #group-data, #group-modeling, #group-ui).
  */
-import GroupCard from '../components/contribute/GroupCard.astro';
 import HowWorkMoves from '../components/contribute/HowWorkMoves.astro';
 import Mark from '../components/contribute/Mark.astro';
+import OrbitScene from '../components/contribute/OrbitScene.astro';
 import TransitLine from '../components/contribute/TransitLine.astro';
 import PageIntro from '../components/PageIntro.astro';
 import SiteLayout from '../layouts/SiteLayout.astro';
 import { sitePath } from '../lib/paths';
 import '../styles/pages/contribute.css';
-
-const ISSUES =
-  'https://github.com/genomeOS/genomeOS/issues?q=is%3Aissue+is%3Aopen+label%3A%22skill%3A';
-
-const groups = [
-  {
-    id: 'group-data',
-    lane: 'data',
-    title: 'Data Gathering & Infrastructure',
-    scope:
-      'Find allele counts in papers, supplements and non-English literature. Place every population with a stated uncertainty, then store and serve every version.',
-    chips: [
-      'Literature review',
-      'Population genetics',
-      'Data engineering',
-      'Multilingual sources',
-    ],
-    issues: `${ISSUES}data-engineering%22`,
-  },
-  {
-    id: 'group-modeling',
-    lane: 'modeling',
-    title: 'Statistical & AI Modeling',
-    scope:
-      'The world has not been sampled evenly. Brian leads Bayesian spatial models; geometric deep learning welcome. Frequencies become disease-burden and risk estimates.',
-    chips: [
-      'Spatial statistics',
-      'Bayesian methods',
-      'Epidemiology',
-      'Model validation',
-    ],
-    issues: `${ISSUES}spatial-stats%22`,
-  },
-  {
-    id: 'group-ui',
-    lane: 'ui',
-    title: 'UI & Applications',
-    scope:
-      'Make estimates and unknowns legible to anyone. Future exploration: an agentic AI guide and people’s own genomes, gated by privacy, consent and governance.',
-    future: {
-      before: 'Make estimates and unknowns legible to anyone.',
-      lead: 'Future exploration:',
-      after:
-        'an agentic AI guide and people’s own genomes, gated by privacy, consent and governance.',
-    },
-    chips: [
-      'Interface design',
-      'Geospatial',
-      'Accessible visualisation',
-      'Governance',
-    ],
-    issues: `${ISSUES}frontend%22`,
-  },
-] as const;
 
 // Data, expertise and funding are offered by email: each link opens the Contact page's draft
 // with that offer pressed (Contact page spec §4, "Links in").
@@ -108,10 +57,13 @@ const starts = [
 >
   {
     /*
-     * Spec §2.7 rule 5, above the fold never flashes: before any of the page paints, mark the
-     * transit line armed (contribute.css draws it undrawn, its stud at the start), so it never
-     * paints drawn, undraws and redraws. Only with motion allowed and the page arriving within
-     * 1,200 ms; if the island has not taken the figure over by then, stand down to the drawn line.
+     * Spec §2.7 rule 5 (round 2 §4.3.2), above the fold never flashes: before any of the page
+     * paints, mark the orbit armed, so it paints its story's first moment (contribute.css: an
+     * empty stage, every column waiting), never its last frame emptying for the story. Only with
+     * motion allowed, colours not forced (spec §8.9: there the scene shows its end state) and the
+     * page arriving within 1,200 ms; if the scene has neither begun loading
+     * (data-orbit-loading, set by the page's script and kept until the scene has a state) nor been
+     * built (data-scene-state) by then, stand down to the last frame.
      */
   }
   <script is:inline slot="head">
@@ -119,22 +71,27 @@ const starts = [
       try {
         if (
           matchMedia('(prefers-reduced-motion: reduce)').matches ||
+          matchMedia('(forced-colors: active)').matches ||
           performance.now() > 1200
         )
           return;
-        root.setAttribute('data-arm-transit', '');
+        root.setAttribute('data-arm-orbit', '');
         setTimeout(
           function () {
-            var figure = document.querySelector(
-              '[data-graphic="transit-line"]',
-            );
-            if (!figure || !figure.hasAttribute('data-figure-state'))
-              root.removeAttribute('data-arm-transit');
+            var figure = document.querySelector('[data-graphic="orbit"]');
+            if (
+              !figure ||
+              !(
+                figure.hasAttribute('data-scene-state') ||
+                figure.hasAttribute('data-orbit-loading')
+              )
+            )
+              root.removeAttribute('data-arm-orbit');
           },
           Math.max(0, 1200 - performance.now()),
         );
       } catch (error) {
-        root.removeAttribute('data-arm-transit');
+        root.removeAttribute('data-arm-orbit');
       }
     })(document.documentElement);
   </script>
@@ -156,10 +113,21 @@ const starts = [
       <h2 class="contribute-h2" id="working-groups-title">
         Three groups are forming.
       </h2>
+      <OrbitScene labelledby="working-groups-title" />
+    </div>
+  </section>
+
+  <section
+    class="band contribute-band flow-section"
+    id="flow"
+    data-concept
+    aria-labelledby="flow-title"
+  >
+    <div class="section-shell">
+      <h2 class="contribute-h2" id="flow-title">
+        How the groups fit together.
+      </h2>
       <TransitLine />
-      <div class="wg-cards" data-graphic="group-vignettes">
-        {groups.map((group) => <GroupCard {...group} />)}
-      </div>
     </div>
   </section>
 
@@ -206,7 +174,40 @@ const starts = [
 </SiteLayout>
 
 <script>
-  // The page's island: the transit line (site redesign spec §7: ≤ 10 KB of first-party JS on
-  // Contribute). The work board's script lives with its section (HowWorkMoves.astro).
+  /*
+   * The page's island (spec §7: Contribute ≤ 10 KB of first-party JS at first load): the transit
+   * line's entrance and lane lighting, and a few lines that import the orbit scene (orbit.ts,
+   * its own lazily loaded chunk, round 2 spec §7) once the figure is within a viewport of the
+   * screen. Under reduced motion or forced colours (spec §8.9) the orbit is never imported: its
+   * server-rendered last frame is the picture, and nothing would move. The work board's script
+   * lives with its section (HowWorkMoves.astro).
+   */
   import '../components/contribute/transit';
+
+  const orbit = document.querySelector<HTMLElement>('[data-graphic="orbit"]');
+  if (
+    orbit &&
+    !matchMedia('(prefers-reduced-motion: reduce)').matches &&
+    !matchMedia('(forced-colors: active)').matches
+  ) {
+    const load = () => {
+      orbit.setAttribute('data-orbit-loading', '');
+      import('../components/contribute/orbit')
+        .then(({ initOrbit }) => initOrbit(orbit))
+        .catch(() => {
+          // Without the scene the last frame stands: never leave the stage armed and empty.
+          document.documentElement.removeAttribute('data-arm-orbit');
+          orbit.removeAttribute('data-orbit-loading');
+        });
+    };
+    const near = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return;
+        near.disconnect();
+        load();
+      },
+      { rootMargin: '100% 0px' },
+    );
+    near.observe(orbit);
+  }
 </script>

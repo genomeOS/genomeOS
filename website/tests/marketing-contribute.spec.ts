@@ -1,9 +1,11 @@
 /**
- * Contribute page browser checks (moved from site.spec.ts, #454). Owned by the Contribute task.
+ * Contribute page browser checks (moved from site.spec.ts, #454). Owned by the Contribute orbit and
+ * flow task (round 2 plan T4).
  *
- * Contribute absorbs the Working groups page (site redesign spec §4.3): the transit line opens the
- * page and the group cards light their lanes on it. The work board has its own file,
- * marketing-contribute-board.spec.ts (round 2 plan T0 step 3).
+ * Contribute absorbs the Working groups page (site redesign spec §4.3). Round 2 (spec §4.3): the
+ * orbit scene opens the page (its own file, marketing-contribute-orbit.spec.ts), the transit line
+ * follows in its own section and lights a lane from that lane's own label. The work board has its
+ * own file, marketing-contribute-board.spec.ts.
  */
 import { expect, test } from '@playwright/test';
 
@@ -12,6 +14,7 @@ import { useSiteFixtures } from './helpers/marketing';
 useSiteFixtures();
 
 const TRANSIT = '[data-graphic="transit-line"]';
+const ORBIT = '[data-graphic="orbit"]';
 
 test('the working groups link each group to issue work', async ({ page }) => {
   await page.goto('/contribute/');
@@ -71,13 +74,13 @@ for (const [tag, width, height, fold] of [
   ['@desktop-chromium', 1440, 900, 640],
   ['@mobile-chromium', 390, 844, 700],
 ] as const)
-  test(`the transit line opens above the fold at ${width}×${height} ${tag}`, async ({
+  test(`the orbit scene opens above the fold at ${width}×${height} ${tag}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height });
     await page.goto('/contribute/');
     const top = await page
-      .locator(TRANSIT)
+      .locator(ORBIT)
       .evaluate((figure) => figure.getBoundingClientRect().top);
     expect(top).toBeLessThan(fold);
     // It is the page's first figure, so nothing opens on an empty half.
@@ -87,71 +90,47 @@ for (const [tag, width, height, fold] of [
           .querySelector('main figure[data-graphic]')
           ?.getAttribute('data-graphic'),
       ),
-    ).toBe('transit-line');
+    ).toBe('orbit');
   });
 
-declare global {
-  interface Window {
-    __transitPaints?: { state: string | null; drawn: boolean }[];
-  }
-}
-
-// Spec §2.7 rule 5: above the fold never flashes. The line is server-rendered fully drawn; with
-// motion allowed it must arm before its first paint, never draw, undraw and redraw (design
-// review, round 1).
-test('the transit line never paints drawn and then undraws for its entrance', async ({
+test('the flow follows the orbit in its own section, and plays once', async ({
   page,
-  isMobile,
 }) => {
-  // Where the line plays at load: 200 px of it in the first view (1440×900; a Pixel 7).
-  if (!isMobile) await page.setViewportSize({ width: 1440, height: 900 });
-  await page.addInitScript(() => {
-    const paints: NonNullable<Window['__transitPaints']> = [];
-    window.__transitPaints = paints;
-    const sample = () => {
-      const figure = document.querySelector('[data-graphic="transit-line"]');
-      const line = [
-        ...(figure?.querySelectorAll<SVGPathElement>('.wg-line--lit') ?? []),
-      ].find((path) => path.getClientRects().length > 0);
-      if (figure && line) {
-        const style = getComputedStyle(line);
-        paints.push({
-          state: figure.getAttribute('data-figure-state'),
-          drawn:
-            style.strokeDasharray === 'none' ||
-            Number.parseFloat(style.strokeDashoffset) < 0.02,
-        });
-      }
-      if (performance.now() < 5000) requestAnimationFrame(sample);
-    };
-    requestAnimationFrame(sample);
-  });
   await page.goto('/contribute/');
-  await expect(page.locator(TRANSIT)).toHaveAttribute(
-    'data-figure-state',
-    'rest',
-    { timeout: 8_000 },
+  const flow = page.locator('#flow');
+  await expect(
+    flow.getByRole('heading', {
+      level: 2,
+      name: 'How the groups fit together.',
+    }),
+  ).toBeVisible();
+  const order = await page.evaluate(() =>
+    [...document.querySelectorAll('main section[id]')].map(
+      (section) => section.id,
+    ),
   );
-  await page.waitForTimeout(200);
-  const paints = await page.evaluate(() => window.__transitPaints ?? []);
-  expect(paints.length).toBeGreaterThan(5);
-  const drawn = paints.findIndex((paint) => paint.drawn);
-  expect(drawn).toBeGreaterThanOrEqual(0);
-  // Once the whole line has painted, it stays drawn.
-  expect(paints.slice(drawn).every((paint) => paint.drawn)).toBe(true);
+  expect(order.indexOf('flow')).toBe(order.indexOf('working-groups') + 1);
+  // Below the fold now: it waits armed, then plays when scrolled to and rests.
+  const figure = page.locator(TRANSIT);
+  await expect(figure).toHaveAttribute('data-figure-state', 'armed');
+  await figure.scrollIntoViewIfNeeded();
+  await expect(figure).toHaveAttribute('data-figure-state', 'rest', {
+    timeout: 8_000,
+  });
 });
 
-test('a group card lights its own lane on the transit line', async ({
+test('a lane label lights its own lane on the transit line', async ({
   page,
   isMobile,
 }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/contribute/');
   const figure = page.locator(TRANSIT);
+  await figure.scrollIntoViewIfNeeded();
   for (const lane of ['data', 'modeling', 'ui']) {
-    const card = page.locator(`[data-wg-card="${lane}"]`);
-    if (isMobile) await card.locator('h3').tap();
-    else await card.hover();
+    const hit = figure.locator(`[data-lane-button="${lane}"]:visible`).first();
+    if (isMobile) await hit.tap();
+    else await hit.hover();
     await expect(figure).toHaveAttribute('data-active', lane);
     // Only art dims: every label in the figure keeps its full opacity.
     const dimmedText = await figure.evaluate((element) =>
@@ -169,16 +148,69 @@ test('a group card lights its own lane on the transit line', async ({
     );
     expect(dimmedText, lane).toEqual([]);
   }
-  if (!isMobile) {
+  if (isMobile) {
+    // A second tap on the pinned lane lets it go.
+    await figure.locator('[data-lane-button="ui"]:visible').first().tap();
+    await expect(figure).not.toHaveAttribute('data-active');
+  } else {
     await page.mouse.move(2, 2);
     await expect(figure).not.toHaveAttribute('data-active');
   }
-  // Keyboard: the card's only tab stop, its issue link, lights the lane too.
+});
+
+test('the lanes light from the keyboard too: focus shows one, Enter pins it', async ({
+  page,
+}) => {
+  // Spec §4.3.3 "hover, focus, tap" (review of T4, finding 3): each lane label is a real button
+  // over the drawing, in the tab order right after the orbit's links.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/contribute/');
+  const figure = page.locator(TRANSIT);
+  const lane = (name: string) => page.getByRole('button', { name });
   await page
-    .locator('[data-wg-card="modeling"]')
+    .locator('#group-ui')
     .getByRole('link', { name: 'Browse matching issues' })
     .focus();
+  await page.keyboard.press('Tab');
+  await expect(lane('Data & Infrastructure')).toBeFocused();
+  await expect(figure).toHaveAttribute('data-active', 'data');
+  await expect(lane('Data & Infrastructure')).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  await page.keyboard.press('Enter');
+  await expect(lane('Data & Infrastructure')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await page.keyboard.press('Tab');
+  await expect(lane('Statistical & AI Modeling')).toBeFocused();
   await expect(figure).toHaveAttribute('data-active', 'modeling');
+  await page.keyboard.press('Tab');
+  await expect(lane('UI & Applications')).toBeFocused();
+  await expect(figure).toHaveAttribute('data-active', 'ui');
+  // Leaving the lanes, the pinned one stays lit; Space on it lets it go.
+  await page.keyboard.press('Tab');
+  await expect(figure).toHaveAttribute('data-active', 'data');
+  await lane('Data & Infrastructure').focus();
+  await page.keyboard.press('Space');
+  await expect(lane('Data & Infrastructure')).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  await expect(figure).not.toHaveAttribute('data-active');
+  // The lanes are one labelled group, and no tab stop sits inside the drawing.
+  await expect(
+    page.getByRole('group', { name: 'Light a group’s lane on the line' }),
+  ).toBeVisible();
+  expect(
+    await figure.evaluate(
+      (element) =>
+        element.querySelectorAll(
+          'svg a, svg [tabindex], svg button, svg [focusable="true"]',
+        ).length,
+    ),
+  ).toBe(0);
 });
 
 test('both tokens reach the map: the hex joins the stud, never replaces it', async ({
