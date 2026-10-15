@@ -488,6 +488,91 @@ test('the steps play once at 35% visible, rest, and Replay plays them again', as
   await expect(figure.getByRole('button', { name: /^Pause\b/ })).toHaveCount(0);
 });
 
+// Design critique 4 (ruling 59): the plate's top bar was an empty 58 px strip with a rule under it,
+// holding only the Replay glyph. Now the glyph sits in the drawing's top-right corner, in a row no
+// taller than its target, off the stage and clear of everything drawn.
+test('the steps plate has no top bar: Replay sits in the drawing’s top-right corner', async ({
+  page,
+  isMobile,
+}) => {
+  const widths = isMobile ? [390, 320] : [1440, 1024, 800];
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    const figure = steps(page);
+    const replay = figure.getByRole('button', {
+      name: 'Replay the three steps',
+    });
+    await figure.evaluate((element) =>
+      element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+    );
+    await expect(figure).toHaveAttribute('data-scene-state', 'rest', {
+      timeout: 8000,
+    });
+    await expect(replay).toBeVisible();
+    const geometry = await figure.evaluate((element) => {
+      const box = (node: Element) => node.getBoundingClientRect();
+      const plate = box(element);
+      const row = element.querySelector('.kit-plate__bar--top')!;
+      const stage = box(element.querySelector('[data-figure-stage]')!);
+      const control = box(element.querySelector('[data-scene-replay]')!);
+      const svg = [...element.querySelectorAll('.hiw-svg')].find(
+        (drawing) => getComputedStyle(drawing).display !== 'none',
+      )!;
+      const drawn = [
+        ...svg.querySelectorAll(
+          '.hiw-socket, .hiw-icon, .hiw-label, .hiw-gate, .hiw-nodes circle, .atlas-mark, .hiw-cursor',
+        ),
+      ].filter((part) => {
+        const b = box(part);
+        return (
+          b.right > control.left &&
+          b.left < control.right &&
+          b.bottom > control.top &&
+          b.top < control.bottom
+        );
+      }).length;
+      // The wires, sampled along their length.
+      let wired = 0;
+      for (const wire of svg.querySelectorAll<SVGPathElement>('.hiw-wire')) {
+        const length = wire.getTotalLength();
+        const matrix = wire.getScreenCTM()!;
+        for (let step = 0; step <= 200; step += 1) {
+          const point = wire
+            .getPointAtLength((length * step) / 200)
+            .matrixTransform(matrix);
+          if (
+            point.x > control.left &&
+            point.x < control.right &&
+            point.y > control.top &&
+            point.y < control.bottom
+          )
+            wired += 1;
+        }
+      }
+      return {
+        rule: getComputedStyle(row).borderBottomWidth,
+        fromTop: control.top - plate.top,
+        stageRight: stage.right - control.right,
+        offStage: stage.top - control.bottom,
+        drawingTop: box(svg).top - plate.top,
+        drawn,
+        wired,
+      };
+    });
+    expect(geometry.rule, `${width}`).toBe('0px');
+    // In the corner: within 12 px of the plate's top and of the stage's right edge.
+    expect(geometry.fromTop, `${width}`).toBeLessThanOrEqual(12);
+    expect(geometry.stageRight, `${width}`).toBeGreaterThanOrEqual(0);
+    expect(geometry.stageRight, `${width}`).toBeLessThanOrEqual(12);
+    // Off the stage (round 2 spec §3.5), and the drawing starts right under it.
+    expect(geometry.offStage, `${width}`).toBeGreaterThanOrEqual(-0.5);
+    expect(geometry.drawingTop, `${width}`).toBeLessThanOrEqual(56);
+    expect(geometry.drawn, `${width}: drawn parts under Replay`).toBe(0);
+    expect(geometry.wired, `${width}: wire points under Replay`).toBe(0);
+  }
+});
+
 test('each step’s number sits level with the first line of its title, also when a title wraps @desktop-chromium', async ({
   page,
 }) => {

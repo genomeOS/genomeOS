@@ -273,13 +273,26 @@
   initial-value: 1;
 }
 
+/* No top bar (design critique 4, ruling 59: a 58 px strip with a rule under it, holding only the
+   glyph, looked unfinished). Replay, the plate's one control, sits in the drawing's top-right
+   corner: a row of its own 44 px target, with no rule and no words, the drawing starting right
+   under it. The row stays off the stage, as every scene control does (round 2 spec §3.5), so the
+   glyph is never over the diagram. It keeps its room before the scene adopts the control (no
+   JavaScript, or before the module loads), so adopting it shifts nothing. */
 .hiw .kit-plate__bar--top {
   justify-content: flex-end;
-  padding-block: 0.2rem;
+  min-height: calc(44px + 0.3rem);
+  padding: 0.3rem 0.3rem 0;
+  border-bottom: 0;
 }
 
 .hiw .kit-plate__stage {
   padding-inline: clamp(0.75rem, 1.6vw, 1.75rem);
+}
+
+/* The corner row above it is the drawing's top margin. */
+.hiw .kit-plate__bar--top + .kit-plate__stage {
+  padding-top: 0;
 }
 
 .hiw-svg {
@@ -479,15 +492,18 @@
     grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
   }
 
+  /* Replay in the stage column's top-right corner; the steps take the full height beside both. */
   .hiw .kit-plate__bar--top {
-    grid-column: 1 / -1;
+    grid-area: 1 / 1;
   }
 
   .hiw .kit-plate__stage {
+    grid-area: 2 / 1;
     padding: 1.25rem 1rem;
   }
 
   .hiw .kit-plate__bar--bottom {
+    grid-area: 1 / 2 / span 2;
     border-top: 0;
     border-left: 1px solid var(--color-deep-line);
   }
@@ -516,18 +532,16 @@
   }
 }
 
-/* Under reduced motion there is nothing to replay, so the plate shows no empty top bar. */
+/* Under reduced motion there is nothing to replay: no corner row, and the drawing takes its own
+   top margin back. */
 @media (prefers-reduced-motion: reduce) {
   .hiw .kit-plate__bar--top {
     display: none;
   }
-}
 
-/* Until the scene adopts its Replay (without JavaScript, or before the module loads), the bar
-   draws no rule: an empty strip with a rule under it read as a missing toolbar (review of T2).
-   Its room stays, so adopting the control shifts nothing. */
-.hiw .kit-plate__bar--top:not(:has(.kit-scene-control:not([hidden]))) {
-  border-bottom-color: transparent;
+  .hiw .kit-plate__bar--top + .kit-plate__stage {
+    padding-top: clamp(0.75rem, 3vw, 2.2rem);
+  }
 }
 
 /* The open-source row, under the plate. */
@@ -705,9 +719,13 @@
     fill: CanvasText;
   }
 
-  /* No scene, so nothing to replay. */
+  /* No scene, so nothing to replay: no corner row either. */
   .hiw .kit-plate__bar--top {
     display: none;
+  }
+
+  .hiw .kit-plate__bar--top + .kit-plate__stage {
+    padding-top: clamp(0.75rem, 3vw, 2.2rem);
   }
 }
 
