@@ -461,6 +461,7 @@ test('on a phone nothing over the hero overlaps its headline or calls to action 
   page,
 }) => {
   for (const [width, height] of [
+    [320, 568],
     [320, 640],
     [360, 740],
     [390, 844],

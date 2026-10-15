@@ -176,6 +176,19 @@
     padding-block: min(5rem, 12svh) 4.5rem;
   }
 
+  /* A short phone (320 × 568): the text runs taller than the frame, so it starts near the top and
+     still ends clear of the cookie control's corner; the film's control then sits at the end of
+     the kicker's row, level with it. */
+  @media (max-height: 38rem) {
+    .hero-media__content {
+      padding-top: 1rem;
+    }
+
+    .hero-media .hero-media__toggle {
+      top: 0.45rem;
+    }
+  }
+
   .home-hero__text::before {
     inset: -7rem -100vw -4.5rem;
     background: linear-gradient(
