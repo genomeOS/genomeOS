@@ -7,12 +7,17 @@
  * - The server renders every part a draft can have: each purpose's opening and subject, About me,
  *   the four offer sections and the three purposes' sections. The composer's `data-topic` and
  *   `data-offers` decide which show (styles/pages/contact.css): a section for a newly pressed offer
- *   grows in and a released one collapses, in --dur-ui, or at once under reduced motion.
+ *   opens, and a released one's words leave at once as it closes, in --dur-ui, or at once under
+ *   reduced motion.
  * - Only a contribution's opening and subject change words, for its offers; the island and the
  *   pre-paint script write those two spans (`data-offer-list`, `data-offer-subject`).
  * - To is the address, which the pre-paint script writes before the first paint (contact-paint.ts);
  *   "genomeOS Foundation" stands in only until it has.
  * - The stage is a labelled region, read as text and never announced on a change.
+ * - It types itself out the first time it is in view, and retypes only what a choice changes
+ *   (letter-typing.ts). That is display only, and only while it types: at rest the letter is this
+ *   markup as rendered, and without JavaScript, under reduced motion, in forced colours and in
+ *   print it is whole at once.
  *
  * Offer sections carry their offer's icon, the one on its toggle (contact-icons.ts). Each field is
  * its dash, then its label with the dotted leader that ends the label's last line (contact.css),
