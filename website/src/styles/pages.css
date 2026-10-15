@@ -53,6 +53,10 @@
 }
 
 .page-intro--split h1 {
+  /* 16ch in Raleway at 370 (its figures are 0.6116em), set in em: a ch follows the font that
+     renders it, and a fallback's narrower figures broke Contact's one-line H1 in two until Raleway
+     arrived (tokens.css). */
+  max-width: 9.79em;
   font-size: var(--type-h1);
   font-weight: 370;
   letter-spacing: -0.045em;
@@ -60,7 +64,8 @@
 
 .page-intro--split .page-intro__lede {
   grid-column: 9 / span 4;
-  max-width: 38ch;
+  /* 38ch in Figtree (0.6406em figures), in em for the same reason. */
+  max-width: 24.35em;
   margin: 0;
   color: var(--color-text-soft);
   font-size: var(--type-lede);
