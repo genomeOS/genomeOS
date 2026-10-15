@@ -528,8 +528,16 @@ export const isConstant = (frames: [number, number][]): boolean =>
 
 /* -------------------------------------------------------------------------------- the copy */
 
-const ISSUES =
-  'https://github.com/genomeOS/genomeOS/issues?q=is%3Aissue+is%3Aopen+label%3A%22skill%3A';
+/**
+ * A group's open issues on GitHub, as a search link. Comma-separated labels are "any of" in GitHub's
+ * search, so a group's work is every open issue of its type or its skill (owner, 2026-10-15: a moon
+ * opens "the Issues page on GH with working-group-specific filters applied"). The moon and its
+ * column's "Browse matching issues" share this one URL.
+ */
+export function issuesLink(labels: readonly string[]): string {
+  const query = `is:issue is:open label:${labels.map((label) => `"${label}"`).join(',')}`;
+  return `https://github.com/genomeOS/genomeOS/issues?q=${encodeURIComponent(query).replace(/%20/g, '+')}`;
+}
 
 export interface Group {
   kind: MoonKind;
@@ -544,6 +552,7 @@ export interface Group {
   what: string;
   /** typed second: who might join (examples, not requirements) */
   who: string;
+  /** the group's open issues on GitHub (issuesLink): its column's link and its moon go there */
   issues: string;
 }
 
@@ -557,7 +566,7 @@ export const GROUPS: Group[] = [
     short: 'Data',
     what: 'Find allele counts in papers, supplements and non-English literature. Place every population with a stated uncertainty, then store and serve every version.',
     who: 'For example: literature sleuths, data engineers, multilingual readers.',
-    issues: `${ISSUES}data-engineering%22`,
+    issues: issuesLink(['type:data', 'type:infra', 'skill:data-engineering']),
   },
   {
     kind: 'model',
@@ -567,7 +576,7 @@ export const GROUPS: Group[] = [
     short: 'Modeling',
     what: 'The world has not been sampled evenly. Brian leads Bayesian spatial models; geometric deep learning welcome. Frequencies become disease-burden and risk estimates.',
     who: 'For example: statisticians, machine-learning engineers, epidemiologists.',
-    issues: `${ISSUES}spatial-stats%22`,
+    issues: issuesLink(['type:science', 'skill:spatial-stats']),
   },
   {
     kind: 'ui',
@@ -577,7 +586,7 @@ export const GROUPS: Group[] = [
     short: 'UI',
     what: 'Make estimates and unknowns legible to anyone. Future exploration: an agentic AI guide and people’s own genomes, gated by privacy, consent and governance.',
     who: 'For example: designers, front-end developers, map makers.',
-    issues: `${ISSUES}frontend%22`,
+    issues: issuesLink(['type:ui', 'skill:frontend']),
   },
 ];
 
@@ -744,9 +753,11 @@ export function renderOrbit(L: OrbitLayout, opt: RenderOptions): string {
       `<g class="bubbles">${bubbles}</g>` +
       `<g class="ship-g" opacity="0"><g class="j ship-path"><g class="j ship-body" style="transform-box:fill-box;transform-origin:50% 100%"><g transform="scale(${f(L.cs * 0.95)})">${spaceship(SHIP_CREW[kind], { id: `orbit-${L.id}-ship-${kind}` })}</g></g></g></g>` +
       `<g class="dust-g" transform="translate(0 ${-r + 2})" opacity="0">${dust(70 * L.cs)}</g>`;
+    // The ring a pointer lights round the moon (contribute.css, the moon's hover), under its crew.
+    const ring = `<circle class="moon-ring" r="${f(r + 9)}" opacity="0" fill="none" stroke="#70e6ff" stroke-width="1.6" stroke-dasharray="1.2 7" stroke-linecap="round"/>`;
     return carrier(
       kind,
-      `<g class="j moon-pop"><g class="ring-flash" opacity="0"><circle r="${r}" fill="none" stroke="#70e6ff" stroke-width="2"/></g>${moon(r, kind)}${props}${crew}${extra}</g>`,
+      `<g class="j moon-pop"><g class="ring-flash" opacity="0"><circle r="${r}" fill="none" stroke="#70e6ff" stroke-width="2"/></g>${moon(r, kind)}${ring}${props}${crew}${extra}</g>`,
       'orbiter orbiter--moon',
     );
   }).join('');

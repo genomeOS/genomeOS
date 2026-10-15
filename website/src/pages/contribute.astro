@@ -185,15 +185,33 @@ const starts = [
 <script>
   /*
    * The page's island (spec §7: Contribute ≤ 10 KB of first-party JS at first load): the transit
-   * line's entrance and lane lighting, and a few lines that import the orbit scene (orbit.ts,
-   * its own lazily loaded chunk, round 2 spec §7) once the figure is within a viewport of the
-   * screen. Under reduced motion or forced colours (spec §8.9) the orbit is never imported: its
+   * line's entrance and lane lighting, the orbit's moons as links, and a few lines that import the
+   * orbit scene (orbit.ts, its own lazily loaded chunk, round 2 spec §7) once the figure is within a
+   * viewport of the screen. Under reduced motion or forced colours (spec §8.9) the orbit is never imported: its
    * server-rendered last frame is the picture, and nothing would move. The work board's script
    * lives with its section (HowWorkMoves.astro).
    */
   import '../components/contribute/transit';
 
   const orbit = document.querySelector<HTMLElement>('[data-graphic="orbit"]');
+  // A moon, its crew or its label opens its group's issues on GitHub in a new tab, the URL its
+  // column's "Browse matching issues" holds (owner, 2026-10-15). The pointer's shortcut only: the
+  // stage is one image to assistive tech and holds no tab stop, and keyboards and screen readers
+  // reach the same pages by the column links. Here, not in orbit.ts, so it works under reduced
+  // motion too, where the scene never loads.
+  orbit
+    ?.querySelector('[data-figure-stage]')
+    ?.addEventListener('click', (event) => {
+      const kind = (event.target as Element | null)
+        ?.closest('[data-moon]')
+        ?.getAttribute('data-moon');
+      const link = kind
+        ? orbit.querySelector<HTMLAnchorElement>(
+            `.orbit-col[data-group="${kind}"] .orbit-col__link`,
+          )
+        : null;
+      if (link) window.open(link.href, '_blank', 'noopener,noreferrer');
+    });
   if (
     orbit &&
     !matchMedia('(prefers-reduced-motion: reduce)').matches &&

@@ -302,6 +302,120 @@
   }
 }
 
+/*
+ * A moon is a link to its group's open issues (owner, 2026-10-15: "hovering over each moon should
+ * make elements on it light up. clicking it brings you to the Issues page on GH with
+ * working-group-specific filters applied"). The page's island opens the URL its column's link holds
+ * (contribute.astro); keyboards and screen readers have the column links, as the stage is one image
+ * with no tab stop. Only the moon's own art takes the pointer: its disc and engraving, its crew and
+ * props, and its label while it shows (orbit.ts hides a faded one); the sky, the orbit, the globe,
+ * and a pod or a bubble passing over, let it through.
+ *
+ * Hovered, the moon wakes: its engraving lights to full ion with a faint glow, its rim brightens, a
+ * dotted ring like the orbit's own draws round it, the crew's suits and visors catch the light,
+ * the props glow, and the label turns ion. Whichever part of it the pointer is on, moon or label,
+ * the whole moon lights, and only it. The idle orbit carries on: at 240 s a revolution a moon
+ * drifts about 10 px a second, so it stays under a resting pointer for seconds, and holding it
+ * would stop the one clock the labels, the crews and the camera keep to. A pointer's hover only
+ * (touch screens just open the link), over the motion tokens; under reduced motion it lights at
+ * once (no transition, below).
+ */
+.orbit-svg {
+  pointer-events: none;
+}
+
+.orbit-svg :is(.moon, .on-moon, .moon-label) {
+  pointer-events: visiblePainted;
+  cursor: pointer;
+}
+
+.orbit-svg .moon-icon,
+.orbit-svg .on-moon {
+  transition: filter var(--dur-ui) var(--ease-ui);
+}
+
+.orbit-svg .moon-icon {
+  transition-property: opacity, filter;
+}
+
+.orbit-svg .moon > circle:last-of-type {
+  transition: stroke var(--dur-ui) var(--ease-ui);
+}
+
+.orbit-svg .moon-label {
+  transition: fill var(--dur-ui) var(--ease-ui);
+}
+
+.moon-ring {
+  opacity: 0;
+  transform: scale(0.94);
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  transition:
+    opacity var(--dur-ui) var(--ease-ui),
+    transform var(--dur-ui) var(--ease-ui);
+}
+
+/* Whichever part of a moon the pointer is on, moon or label: that moon. */
+@media (hover: hover) {
+  :is(
+      .orbit-svg:has([data-moon='data']:hover) [data-moon='data'],
+      .orbit-svg:has([data-moon='model']:hover) [data-moon='model'],
+      .orbit-svg:has([data-moon='ui']:hover) [data-moon='ui']
+    )
+    .moon-icon {
+    opacity: 1;
+    filter: drop-shadow(0 0 2.5px rgb(112 230 255 / 85%));
+  }
+
+  :is(
+      .orbit-svg:has([data-moon='data']:hover) [data-moon='data'],
+      .orbit-svg:has([data-moon='model']:hover) [data-moon='model'],
+      .orbit-svg:has([data-moon='ui']:hover) [data-moon='ui']
+    )
+    .moon
+    > circle:last-of-type {
+    stroke: var(--color-ion);
+  }
+
+  :is(
+      .orbit-svg:has([data-moon='data']:hover) [data-moon='data'],
+      .orbit-svg:has([data-moon='model']:hover) [data-moon='model'],
+      .orbit-svg:has([data-moon='ui']:hover) [data-moon='ui']
+    )
+    .moon-ring {
+    opacity: 0.75;
+    transform: scale(1);
+  }
+
+  :is(
+      .orbit-svg:has([data-moon='data']:hover) [data-moon='data'],
+      .orbit-svg:has([data-moon='model']:hover) [data-moon='model'],
+      .orbit-svg:has([data-moon='ui']:hover) [data-moon='ui']
+    )
+    .crew {
+    filter: brightness(1.15) drop-shadow(0 0 2.5px rgb(112 230 255 / 40%));
+  }
+
+  :is(
+      .orbit-svg:has([data-moon='data']:hover) [data-moon='data'],
+      .orbit-svg:has([data-moon='model']:hover) [data-moon='model'],
+      .orbit-svg:has([data-moon='ui']:hover) [data-moon='ui']
+    )
+    .on-moon:not(.crew) {
+    filter: brightness(1.2) drop-shadow(0 0 3px rgb(112 230 255 / 55%));
+  }
+
+  :is(
+      .orbit-svg:has([data-moon='data']:hover) [data-moon='data'],
+      .orbit-svg:has([data-moon='model']:hover) [data-moon='model'],
+      .orbit-svg:has([data-moon='ui']:hover) [data-moon='ui']
+    )
+    .moon-label {
+    fill: var(--color-ion);
+  }
+}
+
 /* The columns: stacked on narrow plates, three abreast from 860 px, split by hairlines. Space for
    every typed character is reserved (the twin's characters are only transparent), so typing
    never shifts the layout. */
@@ -1129,6 +1243,20 @@
 
   .orbit-col__rule {
     background: Highlight;
+  }
+
+  /* A hovered moon's ring and label in the system's highlight colour. */
+  .orbit-svg .moon-ring {
+    stroke: Highlight;
+  }
+
+  :is(
+      .orbit-svg:has([data-moon='data']:hover) [data-moon='data'],
+      .orbit-svg:has([data-moon='model']:hover) [data-moon='model'],
+      .orbit-svg:has([data-moon='ui']:hover) [data-moon='ui']
+    )
+    .moon-label {
+    fill: Highlight;
   }
 
   .orbit-col__status::before {
