@@ -19,8 +19,9 @@
  * same instant, which is what the motion hooks (motion-hooks.ts) scrub in tests.
  *
  * `sceneController` runs a scene's life (spec §3.2 items 4–7): build when near the viewport, start
- * the story at 35% visible, pause off screen or in a hidden tab, a sticky Pause, Replay, the end
- * state for print (and back to where it was after printing), and under
+ * the story at 35% visible, pause off screen or in a hidden tab, a sticky Pause, Replay (both shown
+ * once the story starts: until then nothing moves), the end state for print (and back to where it
+ * was after printing), and under
  * `prefers-reduced-motion: reduce` nothing at all (zero Animations: the server-rendered end state
  * stays and the controls stay hidden).
  */
@@ -392,6 +393,16 @@ export function sceneController(
     return rest;
   }
 
+  /**
+   * Pause and Replay wait unseen (`data-waiting`, scenes.css) until the story starts, or a seek or
+   * Replay decides it: until then the scene holds still, and live controls over a still picture
+   * read as broken (design critique 3: the orbit waits on a laptop's first screen for its
+   * columns). They keep their boxes, so nothing shifts when they appear.
+   */
+  const waiting = (on: boolean) => {
+    toggle?.toggleAttribute('data-waiting', on);
+    replayButton?.toggleAttribute('data-waiting', on);
+  };
   const label = () => {
     if (!toggle) return;
     toggle.setAttribute('aria-pressed', String(userPaused));
@@ -428,6 +439,7 @@ export function sceneController(
   const start = () => {
     if (started) return;
     started = true;
+    waiting(false);
     const { begin } = options;
     if (!begin) {
       void ensure().then(sync);
@@ -504,6 +516,7 @@ export function sceneController(
     label();
     void ensure().then((timeline) => {
       started = true;
+      waiting(false);
       deciding = false;
       timeline.seek(0);
       sync();
@@ -511,6 +524,7 @@ export function sceneController(
   });
   toggle?.removeAttribute('hidden');
   replayButton?.removeAttribute('hidden');
+  waiting(true);
   label();
 
   const controller: SceneController = {
@@ -538,6 +552,7 @@ export function sceneController(
     async seek(ms) {
       const timeline = await ensure();
       started = true;
+      waiting(false);
       deciding = false;
       userPaused = true;
       label();

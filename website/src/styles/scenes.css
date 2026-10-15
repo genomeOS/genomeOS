@@ -89,6 +89,12 @@
   display: none;
 }
 
+/* Until its story starts (timeline.ts sceneController), a scene holds still: its Pause and Replay
+   wait unseen, keeping their boxes (design critique 3). */
+.kit-scene-control[data-waiting] {
+  visibility: hidden;
+}
+
 .kit-scene-control:hover {
   opacity: 1;
   filter: drop-shadow(0 0 1.5px rgb(2 7 18 / 90%))

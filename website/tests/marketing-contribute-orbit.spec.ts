@@ -749,6 +749,9 @@ test.describe('the orbit scene @desktop-chromium', () => {
       expect(
         armed.filter((paint) => paint.globe !== 1 || paint.moons > 0),
       ).toEqual([]);
+      // Nothing moves yet, so Pause and Replay wait unseen (design critique 3).
+      await expect(figure.locator('[data-scene-toggle]')).toBeHidden();
+      await expect(figure.locator('[data-scene-replay]')).toBeHidden();
       /** Where the plate stands on screen, below the site's header. */
       const where = () =>
         page.evaluate(() => {
@@ -776,6 +779,8 @@ test.describe('the orbit scene @desktop-chromium', () => {
         at = await where();
       }
       expect(at.state).toBe('playing');
+      await expect(figure.locator('[data-scene-toggle]')).toBeVisible();
+      await expect(figure.locator('[data-scene-replay]')).toBeVisible();
       expect(at.head).toBeLessThanOrEqual(height);
       expect(at.stage.top).toBeGreaterThanOrEqual(at.header - 1);
       expect(at.stage.bottom).toBeLessThanOrEqual(height);
