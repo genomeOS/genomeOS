@@ -36,7 +36,7 @@ describe('how work moves', () => {
   it('opens with its heading and the one-line legend', () => {
     expect(section).not.toBe('');
     expect(section).toMatch(
-      /<h2[^>]*id="how-work-moves-title"[^>]*>How work moves</,
+      /<h2[^>]*id="how-work-moves-title"[^>]*>How work moves\.</,
     );
     expect(textOf(section)).toContain('One issue, from hello to merge.');
     expect(textOf(section)).not.toContain('Experts review every change');

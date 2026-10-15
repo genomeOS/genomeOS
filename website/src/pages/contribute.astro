@@ -5,7 +5,8 @@
  *
  *   intro             H1 left, lede right (PageIntro split)
  *   #working-groups   the orbit scene: three working-group moons, crews landing, and each group's
- *                     text typed below it (the page's lead figure; OrbitScene.astro)
+ *                     text typed below it (the page's lead figure; OrbitScene.astro), the section's
+ *                     kicker and heading leading its top bar
  *   #flow             how the groups fit together: the transit line
  *   #how-work-moves   the work board (HowWorkMoves.astro, its own section, CSS and script)
  *   #start            four places to start, and offers by email (a link row, no figure)
@@ -98,12 +99,14 @@ const starts = [
       }
     })(document.documentElement);
   </script>
-  <PageIntro
-    layout="split"
-    note="Open collaboration"
-    title="Find work that fits how you think."
-    lede="Literature, statistics, engineering, design, clinical and community knowledge all move the atlas. Every contribution starts with a conversation."
-  />
+  <div class="contribute-intro">
+    <PageIntro
+      layout="split"
+      note="Open collaboration"
+      title="Find work that fits how you think."
+      lede="Literature, statistics, engineering, design, clinical and community knowledge all move the Atlas. Every contribution starts with a conversation."
+    />
+  </div>
 
   <section
     class="band contribute-band wg-section"
@@ -112,11 +115,14 @@ const starts = [
     aria-labelledby="working-groups-title"
   >
     <div class="section-shell">
-      <p class="section-kicker">Working groups</p>
-      <h2 class="contribute-h2" id="working-groups-title">
-        Three groups are forming.
-      </h2>
-      <OrbitScene labelledby="working-groups-title" />
+      <OrbitScene labelledby="working-groups-title">
+        <Fragment slot="head">
+          <p class="section-kicker orbit__kicker">Working groups</p>
+          <h2 class="orbit__title" id="working-groups-title">
+            Three groups are forming.
+          </h2>
+        </Fragment>
+      </OrbitScene>
     </div>
   </section>
 

@@ -51,8 +51,6 @@ export const T = {
   loop: 8000,
   /** One revolution = 30 idle loops, so the orbit and the loops never drift apart. */
   orbit: 240000,
-  globe: [0, 800],
-  arcs: [200, 1400],
   /** Moon pops; each group's text types after its moon arrives (62 characters a second). */
   moon: { data: 800, model: 7200, ui: 14000 },
   /** Pod approaches; touchdown 2000 ms later. */

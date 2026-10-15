@@ -79,14 +79,40 @@
 
 /* ---------- working groups: the orbit scene ---------- */
 
-/* The intro hands straight over to the orbit: the band opens tight, so the plate's top is the
-   first thing below the lede, above the fold on desktops and phones (round 2 spec §4.3.1). Two
-   classes: the built stylesheet may order the shared .band rule after this one. */
-.band.wg-section {
-  padding-top: clamp(1.75rem, 3.2vw, 2.5rem);
+/* The intro hands straight over to the orbit: a tighter intro and a band that opens tight, so the
+   plate's top is the first thing below the lede, and the globe and the first moon are on the first
+   screen of a laptop (round 2 spec §4.3.1; design critique of the integrated build: at 1440 × 900
+   the first screen showed 217 px of an empty stage). Two classes: the built stylesheet may order
+   the shared .band and .page-intro rules after these. */
+.contribute-intro .page-intro--split .page-intro__inner {
+  padding-block: clamp(2.25rem, 4vw, 3rem) clamp(1.5rem, 2.5vw, 2rem);
 }
 
-:is(.wg-section, .flow-section) .contribute-h2 {
+.band.wg-section {
+  padding-top: clamp(1.25rem, 2.2vw, 1.75rem);
+}
+
+/* A short laptop screen (1366 × 768, 1280 × 800): the intro steps down further, so the globe and
+   the first moon still show on the first screen. */
+@media (min-width: 52rem) and (max-height: 52rem) {
+  .contribute-intro .page-intro--split .page-intro__inner {
+    padding-block: 1.6rem 1.25rem;
+  }
+
+  .contribute-intro .page-intro--split h1 {
+    font-size: clamp(2.4rem, 7.6vh, 4.8rem);
+  }
+
+  .contribute-intro .page-intro--split .page-intro__lede {
+    font-size: 1.1rem;
+  }
+
+  .band.wg-section {
+    padding-top: 1rem;
+  }
+}
+
+.flow-section .contribute-h2 {
   margin-bottom: clamp(1.1rem, 2vw, 1.5rem);
 }
 
@@ -115,28 +141,74 @@
   container: orbit / inline-size;
 }
 
-/* The controls' room is reserved before the scene takes them over (they are `hidden` until then),
-   so the bar never grows under the visitor's eyes; under reduced motion they never come
-   (scenes.css hides their row) and the caption has the bar to itself. */
+/* The top bar: the section's kicker and heading, the caption line, then the scene's controls,
+   whose room is reserved before the scene takes them over (they are `hidden` until then), so the
+   bar never grows under the visitor's eyes; under reduced motion they never come (scenes.css hides
+   their row). The heading and the caption share a baseline on wide plates; on narrow ones the
+   caption goes under the heading and the controls stay at the bar's top right. */
 .orbit__bar {
-  flex-wrap: nowrap;
-  justify-content: space-between;
-  padding-block: 0.375rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'head controls'
+    'caption caption';
+  align-items: start;
+  gap: 0.35rem 1rem;
+  padding-block: 0.6rem 0.7rem;
   padding-right: 0.45rem;
   border-bottom: 1px solid var(--color-deep-line);
 }
 
+.orbit__head {
+  grid-area: head;
+  min-width: 0;
+  padding-top: 0.25rem;
+}
+
+.orbit__kicker {
+  margin: 0 0 0.3rem;
+  font-size: 0.9rem;
+}
+
+.orbit__title {
+  margin: 0;
+  color: var(--color-starlight);
+  font-family: var(--font-display);
+  font-size: clamp(1.55rem, 2.6vw, 2.15rem);
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+  text-wrap: balance;
+}
+
 .orbit__caption {
-  flex: 1 1 auto;
+  grid-area: caption;
   min-width: 0;
   margin: 0;
 }
 
 .orbit__bar .kit-scene-controls {
-  flex: none;
+  grid-area: controls;
   justify-content: flex-end;
   min-width: calc(2 * 44px + 0.25rem);
   min-height: 44px;
+}
+
+@container orbit (min-width: 860px) {
+  .orbit__bar {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: 'head caption controls';
+    align-items: end;
+    column-gap: 2rem;
+  }
+
+  .orbit__caption {
+    padding-bottom: 0.2rem;
+  }
+
+  .orbit__bar .kit-scene-controls {
+    align-self: center;
+  }
 }
 
 /* The stage draws the layout that fits its width (orbit-layouts.ts LAYOUTS): phones below 680 px,
@@ -508,6 +580,68 @@
   text-decoration: underline;
 }
 
+/* A link to a group's column (#group-ui; /working-groups/#ui redirects there) marks the column the
+   visitor asked for with the ion rule a column shows while it types (design critique of the
+   integrated build). A shadow, so the rule's own tracks (orbit.ts) never override it. */
+.orbit-col:target {
+  box-shadow: inset 0 2px 0 var(--color-ion);
+}
+
+/*
+ * One panel under the stage while the story plays on a narrow plate (design critique of the
+ * integrated build: on a phone, groups 2 and 3 typed 400–900 px below the stage, out of sight). The
+ * stacked columns share one grid cell, so the panel is as tall as the tallest and switching moves
+ * nothing, and only the group being introduced shows: its moon's arrival, then each landing in step
+ * with the phone's close-ups (--orbit-panel, 1–3 on the scene timeline, orbit.ts). The others stay
+ * in the DOM, read by assistive tech; a column that takes keyboard focus shows instead. At the
+ * story's end (--orbit-panel 0), under reduced motion, without JavaScript or style queries, all
+ * three stack as before. The switch is instant: an opacity cross-fade would put text below 4.5:1
+ * mid-fade (rulings, item 25).
+ */
+@property --orbit-panel {
+  syntax: '<integer>';
+  inherits: true;
+  initial-value: 0;
+}
+
+@container orbit (max-width: 859.98px) and (not style(--orbit-panel: 0)) {
+  .orbit-col {
+    grid-area: 1 / 1;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .orbit-col + .orbit-col {
+    border-top: 0;
+  }
+
+  .orbit-col:focus-within {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@container orbit (max-width: 859.98px) and style(--orbit-panel: 1) {
+  .orbit__cols:not(:focus-within) > .orbit-col:nth-child(1) {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@container orbit (max-width: 859.98px) and style(--orbit-panel: 2) {
+  .orbit__cols:not(:focus-within) > .orbit-col:nth-child(2) {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@container orbit (max-width: 859.98px) and style(--orbit-panel: 3) {
+  .orbit__cols:not(:focus-within) > .orbit-col:nth-child(3) {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 /* Phones, under reduced motion, in forced colours or without JavaScript: a close-up of each moon
    above its text, the story's last frame through a viewBox on the one phone scene (round 2 spec
    §4.3.2). */
@@ -540,12 +674,16 @@
 }
 
 /* Armed before the first paint, until the scene is built (the head script in contribute.astro,
-   spec §2.7 rule 5): the story's first moment, drawn in CSS: an empty stage (no globe, orbit,
-   moons or labels yet), every column waiting, nothing typed. orbit.ts seeks the same moment. */
+   spec §2.7 rule 5): the story's first moment, drawn in CSS: the globe, its halo and the dotted
+   orbit, no moons or labels yet (so the stage is never an empty box before the story starts;
+   design critique of the integrated build), every column waiting, nothing typed, and on a narrow
+   plate only the first group's panel. orbit.ts seeks the same moment. */
 @media screen {
-  :root[data-arm-orbit]
-    .orbit:not([data-scene-state])
-    :is(.globe, .arcs, .orb-label) {
+  :root[data-arm-orbit] .orbit:not([data-scene-state]) {
+    --orbit-panel: 1;
+  }
+
+  :root[data-arm-orbit] .orbit:not([data-scene-state]) .orb-label {
     opacity: 0;
   }
 

@@ -5,8 +5,8 @@
  * its own lazily loaded chunk (spec §7: ≤ 40 KB gzip), imported by the page once the figure is
  * within a viewport of the screen; never under reduced motion.
  *
- * Story (32 s, then 8 s loops on the same clock): the globe and the dotted orbit; the Data moon
- * pops and column 1 types; the Modeling moon and column 2; the UI moon and column 3; three pods
+ * Story (32 s, then 8 s loops on the same clock): from its first moment the globe, its halo and the
+ * dotted orbit are there (the stage is never an empty box); the Data moon pops and column 1 types; the Modeling moon and column 2; the UI moon and column 3; three pods
  * land (2, 1 and 3 astronauts), the crews leap out in low gravity, set up shop and start work;
  * then each moon's 8 s work loop: mining ore and carting a data block; probing soil and reading a
  * chart whose interval narrows as data arrive; fitting a tile, painting, and a discussion circle.
@@ -14,9 +14,10 @@
  *
  * The server markup is the story's last frame (orbit-layouts.ts `renderOrbit`); the timeline
  * seeks to 0 once built, which the page's head script has already painted (contribute.css, the
- * armed state). `sceneController` (src/graphics/timeline.ts) owns the rest: the start at 35%
- * visible, pausing off screen and in a hidden tab, the sticky Pause, Replay, print, and the motion
- * hooks (`orbit`). Columns dim by colour, never by opacity, so their text holds 4.5:1 at every
+ * armed state). `sceneController` (src/graphics/timeline.ts) owns the rest: the start once 150 px
+ * of the stage show, pausing off screen and in a hidden tab, the sticky Pause, Replay, print, and
+ * the motion hooks (`orbit`). On a narrow plate the text under the stage is one panel, the group
+ * being introduced (`--orbit-panel`, contribute.css), until the story ends. Columns dim by colour, never by opacity, so their text holds 4.5:1 at every
  * instant (rulings item 25).
  */
 import { anchors } from '../../graphics/astro/rig';
@@ -143,31 +144,13 @@ function sky(
       if (track.loop) tl.loop(el, keys(track.loop), T.orbit);
     });
 
-  // The globe, its halo and the dotted orbit.
-  tl.story(S('.globe-in'), [
-    [0, 'scale(.86)', EASE.out],
-    [T.globe[1], 'scale(1)'],
-  ]);
-  tl.story(S('.globe'), [
-    [0, { opacity: 0 }, EASE.out],
-    [T.globe[1], { opacity: 1 }],
-  ]);
-  tl.story(S('.globe-halo'), [
-    [0, { opacity: 0 }],
-    [300, { opacity: 0 }, EASE.out],
-    [1100, { opacity: 1 }],
-  ]);
+  // The globe, its halo and the dotted orbit stand from the story's first moment (the armed
+  // stage draws them too); in the loops the halo breathes.
   tl.loop(S('.globe-halo'), [
     [0, { transform: 'scale(1)', opacity: 1 }, EASE.sine],
     [4000, { transform: 'scale(1.035)', opacity: 0.6 }, EASE.sine],
     [8000, { transform: 'scale(1)', opacity: 1 }],
   ]);
-  svg.querySelectorAll('.arcs').forEach((arc) =>
-    tl.story(arc, [
-      [T.arcs[0], { opacity: 0 }, EASE.out],
-      [T.arcs[1], { opacity: 1 }],
-    ]),
-  );
   svg.querySelectorAll('.twinkle').forEach((star, i) => {
     const o = Number(star.getAttribute('opacity'));
     const at = (i * 1370) % 8000;
@@ -902,6 +885,14 @@ const camAt = (tx: number, ty: number, z: number) =>
  * crews read at about 75 px), then a slow tour that holds each moon for one 8 s loop. The tour is
  * 24 s and the orbit 240 s, so one 240 s camera loop tracks the moving moons exactly, forever.
  */
+/** The phone's close-ups on each landing: [moon, arrive, leave]; each glide starts where the last
+ * shot left (the first CAM.glide before it arrives). */
+const SHOTS: readonly [MoonKind, number, number][] = [
+  ['data', 19800, 23200],
+  ['model', 23850, 25600],
+  ['ui', 26250, 30600],
+];
+
 function cameraTracks(tl: Timeline, svg: SVGSVGElement, L: OrbitLayout): void {
   const cam = svg.querySelector('.cam');
   const z = CAM.zoom;
@@ -911,14 +902,8 @@ function cameraTracks(tl: Timeline, svg: SVGSVGElement, L: OrbitLayout): void {
       frames.push([t, camAt(...focus(L, kind, t, z), z)]);
     frames.push([t1, camAt(...focus(L, kind, t1, z), z)]);
   };
-  // Close-ups on each landing: [moon, arrive, leave]; each glide starts where the last shot left.
-  const shots: [MoonKind, number, number][] = [
-    ['data', 19800, 23200],
-    ['model', 23850, 25600],
-    ['ui', 26250, 30600],
-  ];
   let prev = 0;
-  for (const [kind, arrive, leave] of shots) {
+  for (const [kind, arrive, leave] of SHOTS) {
     frames.push([
       prev || arrive - CAM.glide,
       frames[frames.length - 1][1],
@@ -1023,6 +1008,27 @@ function columnTracks(tl: Timeline, figure: HTMLElement): void {
       [end + 200, { '--orbit-link-wait': 0 }],
     ]);
   });
+  // On a narrow plate the text under the stage is one panel: the group being introduced, from its
+  // moon's arrival; then each landing's group as the phone's camera glides to it; at the story's
+  // end every column again (contribute.css, --orbit-panel; design critique of the integrated build).
+  const panel = (kind: MoonKind) =>
+    columns.findIndex((column) => column.dataset.group === kind) + 1;
+  const switches: [number, MoonKind][] = [
+    ...KINDS.map((kind): [number, MoonKind] => [T.moon[kind], kind]),
+    ...SHOTS.map(([kind, arrive], i): [number, MoonKind] => [
+      i === 0 ? arrive - CAM.glide : SHOTS[i - 1][2],
+      kind,
+    ]),
+  ];
+  tl.story(figure, [
+    [0, { '--orbit-panel': panel(KINDS[0]) }, EASE.step],
+    ...switches.map(([t, kind]): Frame => [
+      t,
+      { '--orbit-panel': panel(kind) },
+      EASE.step,
+    ]),
+    [T.story, { '--orbit-panel': 0 }],
+  ]);
 }
 
 /* ------------------------------------------------------------------------------------ init */
@@ -1116,23 +1122,19 @@ function scrollSettled(): Promise<void> {
   });
 }
 
-/** Resolves once `share` of the figure shows, or it fills that share of the viewport. */
-function shows(figure: HTMLElement, share: number): Promise<void> {
+/** Resolves once `px` of `element` show above the viewport's bottom edge (sceneController's
+ * startOn). */
+function shows(element: Element, px: number): Promise<void> {
   return new Promise((resolve) => {
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (
-          !entry.isIntersecting ||
-          (entry.intersectionRatio < share &&
-            entry.intersectionRect.height < share * innerHeight)
-        )
-          return;
+        if (!entry.isIntersecting) return;
         observer.disconnect();
         resolve();
       },
-      { threshold: [0, 0.1, 0.2, share, 0.5] },
+      { rootMargin: `0px 0px -${px}px 0px` },
     );
-    observer.observe(figure);
+    observer.observe(element);
   });
 }
 
@@ -1193,21 +1195,25 @@ export function initOrbit(figure: HTMLElement): SceneController {
     if (rest) tl.seek(T.story);
     build(tl)(tl);
   };
-  // The story starts once 35% of the figure shows (sceneController). If at that moment only the
-  // columns show, rest instead: the story's end, then the idle loops. While the browser is still
-  // carrying the page to a fragment or a restored scroll, wait until it lands (and, landed
-  // elsewhere, until the figure shows again) before deciding.
-  const START = 0.35;
+  // The story starts once 150 px of the stage show (sceneController's startOn), not a share of the
+  // whole figure, whose text columns make it tall: the stage would long be on screen and empty
+  // (design critique of the integrated build). If at that moment only the columns show, rest
+  // instead: the story's end, then the idle loops. While the browser is still carrying the page to
+  // a fragment or a restored scroll, wait until it lands (and, landed elsewhere, until the stage or
+  // the columns show again) before deciding.
+  const stage = figure.querySelector('[data-figure-stage]') ?? figure;
+  const columns = figure.querySelector('.orbit__cols') ?? figure;
+  const START_PX = 150;
   const begin = async (): Promise<SceneBegin> => {
     if (carried()) {
       await scrollSettled();
-      await shows(figure, START);
+      await Promise.race([shows(stage, START_PX), shows(columns, 0)]);
     }
     return columnsWithoutStage(figure) ? 'rest' : 'story';
   };
   const controller = sceneController(figure, first, {
     name: 'orbit',
-    threshold: START,
+    startOn: { element: stage, px: START_PX },
     begin,
     timeline: { story: T.story, loop: T.loop },
     controls: {
@@ -1274,8 +1280,7 @@ export function initOrbit(figure: HTMLElement): SceneController {
     }
     void relayout();
   };
-  const stage = figure.querySelector('[data-figure-stage]');
-  if (stage) new ResizeObserver(() => void relayout()).observe(stage);
+  new ResizeObserver(() => void relayout()).observe(stage);
 
   // Colours forced mid-visit (spec §8.9): rest on the story's last frame.
   matchMedia('(forced-colors: active)').addEventListener('change', (event) => {

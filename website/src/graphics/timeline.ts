@@ -313,6 +313,12 @@ export interface SceneOptions {
   timeline: TimelineOptions;
   /** The story starts at this share visible (default 0.35). */
   threshold?: number;
+  /**
+   * Start instead once `px` of `element` show, above the viewport's bottom edge: for a figure much
+   * taller than its stage (the orbit's text columns under it), whose share would come only once
+   * the stage had long been in view.
+   */
+  startOn?: { element: Element; px: number };
   /** Import and build within this margin of the viewport (default '100%': one viewport). */
   nearMargin?: string;
   /** SceneControls' buttons: the Pause/Play toggle and Replay. */
@@ -448,11 +454,13 @@ export function sceneController(
     },
     { rootMargin: `${options.nearMargin ?? '100%'} 0px` },
   );
+  const { startOn } = options;
   const seen = new IntersectionObserver(
     ([entry]) => {
       onScreen = entry.isIntersecting;
       const fills = entry.intersectionRect.height >= threshold * innerHeight;
       if (
+        !startOn &&
         entry.isIntersecting &&
         (entry.intersectionRatio >= threshold || fills)
       )
@@ -463,6 +471,20 @@ export function sceneController(
   );
   near.observe(figure);
   seen.observe(figure);
+  // The viewport, less its bottom `px`: `element` meets it once that much of it shows (or, reached
+  // from below, once any of it does).
+  if (startOn) {
+    const shows = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return;
+        shows.disconnect();
+        onScreen = true;
+        start();
+      },
+      { rootMargin: `0px 0px -${startOn.px}px 0px` },
+    );
+    shows.observe(startOn.element);
+  }
   document.addEventListener('visibilitychange', sync);
   // Printing shows the story's end (spec §8). Afterwards every track goes back to where it was and
   // the scene carries on: a playing scene resumes, a paused one stays paused, and one the visitor

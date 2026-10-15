@@ -52,6 +52,29 @@ describe('contribute page content', () => {
     expect(contribute).toContain('Three groups are forming');
   });
 
+  // Design critique of the integrated build: the product's name is capitalized as on every other
+  // page, and the page's sentence-style headings end with a period (rulings, item 27).
+  it('names the Atlas with a capital and ends its headings with a period', () => {
+    expect(contribute).toContain(
+      'Literature, statistics, engineering, design, clinical and community knowledge all move the Atlas. Every contribution starts with a conversation.',
+    );
+    const headings = [
+      ...main.matchAll(/<h[12]\b[^>]*>([\s\S]*?)<\/h[12]>/g),
+    ].map(([, inner]) =>
+      inner
+        .replace(/<[^>]+>/g, '')
+        .replace(/\s+/g, ' ')
+        .trim(),
+    );
+    expect(headings).toEqual([
+      'Find work that fits how you think.',
+      'Three groups are forming.',
+      'How the groups fit together.',
+      'How work moves.',
+      'Start here.',
+    ]);
+  });
+
   it('opens on the orbit, then the flow, then how work moves, then the start links', () => {
     const order = [...main.matchAll(/<section[^>]*\bid="([\w-]+)"[^>]*>/g)].map(
       ([, id]) => id,

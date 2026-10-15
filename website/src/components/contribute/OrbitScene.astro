@@ -10,6 +10,10 @@
  * show; phones add a close-up of each moon above its text there. orbit.ts (imported by the page
  * once the figure is near) plays the story on the scene timeline and takes the controls over.
  *
+ * The section's kicker and heading come in through the `head` slot and lead the top bar, so the
+ * stage starts high enough that the globe and the first moon are on the first screen of a laptop
+ * (design critique of the integrated build: the stage arrived as an empty box below the fold).
+ *
  * Accessibility: the figure is a group named by the section heading and described by the caption;
  * the stage is one image whose name is the scene in a sentence, actions only; every typed sentence
  * is real text, visually hidden, beside an aria-hidden twin that types; the only tab stops are the
@@ -77,6 +81,13 @@ const icon = (kind: keyof typeof ICON) =>
   aria-describedby="orbit-caption"
 >
   <figcaption class="kit-plate__bar orbit__bar" data-figure-chrome>
+    {
+      Astro.slots.has('head') && (
+        <div class="orbit__head">
+          <slot name="head" />
+        </div>
+      )
+    }
     <p class="orbit__caption" id="orbit-caption">
       Examples, not requirements: curiosity counts.
     </p>
