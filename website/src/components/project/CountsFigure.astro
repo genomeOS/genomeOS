@@ -13,8 +13,9 @@
  * fitted in the browser. Server-rendered at the default stop (10), the final state, so the figure is
  * complete without JavaScript; counts.ts adds the slider and the entrance. Each grid is one `<use>`
  * per person of the kit's 13 face symbols (≤ 706 nodes), placed by counts.css for the wide and the
- * narrow layout from the same nodes; survey 2 keeps room for 500, its untested places a faint dot,
- * so sample size reads at rest and the tested block visibly grows.
+ * narrow layout from the same nodes; survey 2 draws its people tested and, as faint dots, the
+ * people the next stop would add (counts.ts `roomAt`: 20 at the default stop), so sample size reads
+ * at rest and the tested block visibly grows, without ten people over a void of 490 dots.
  */
 import Figure from '../kit/Figure.astro';
 import StatusTag from '../kit/StatusTag.astro';
@@ -29,6 +30,8 @@ import {
   GLYPH,
   ROW_2_ROOM,
   SURVEY_1,
+  roomAt,
+  roomStyle,
   VIEW_WIDTH,
   buildCountsTable,
   carrierPositions,
@@ -67,11 +70,13 @@ const grid1 = Array.from({ length: SURVEY_1.tested }, (_, index) =>
       )
     : person(index, `#micro-face-tested-${skins[index]}`),
 ).join('');
+// Survey 2's places: all 500 exist; those past the next stop's room are not drawn.
+const room = roomAt(0);
 const grid2 = Array.from({ length: ROW_2_ROOM }, (_, index) =>
   person(
     index,
     placeHref(index < first.tested, skins[index]),
-    ` data-s="${skins[index]}"`,
+    ` data-s="${skins[index]}"${index < room ? '' : ' data-off'}`,
   ),
 ).join('');
 
@@ -83,6 +88,9 @@ const units =
   `--nx:${layoutUnits.narrow.pitchX}px;--ny:${layoutUnits.narrow.pitchY}px;--ns:${layoutUnits.narrow.scale}`;
 const gridStyle = (box: ReturnType<typeof gridBox>) =>
   `${units};--wide-h:${box.height.wide};--narrow-h:${box.height.narrow};--wide-rows:${box.rows.wide};--narrow-rows:${box.rows.narrow}`;
+const roomCss = Object.entries(roomStyle(room))
+  .map(([name, value]) => `${name}:${value}`)
+  .join(';');
 
 // Bar 1 grows out from its mean.
 const origin = ((one.mean - one.lo) / (one.hi - one.lo)) * 100;
@@ -150,7 +158,7 @@ const tick = (value: number) => `${Math.round(value * 100)}%`;
         data-grid="2"
         viewBox={`0 0 ${VIEW_WIDTH} ${box2.height.narrow}`}
         preserveAspectRatio="xMinYMin slice"
-        style={gridStyle(box2)}
+        style={`${units};${roomCss}`}
         aria-hidden="true"
         focusable="false"
         set:html={grid2}
