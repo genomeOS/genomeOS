@@ -152,8 +152,8 @@ const CAPTION = {
     'Every estimate carries a 95% range. Too little evidence means no number, only a hatch.',
   burden:
     'Frequency, inheritance, penetrance and population become expected cases, with a range.',
-  // R2-14: the gate is described, never quoted as a scare label.
-  gate: 'Results are checked against published HbS, G6PD and carrier-screening estimates before they are called validated.',
+  // R2-14 and ruling 37: the gate is described plainly, never as a caveat or a scare label.
+  gate: 'Results are checked against published HbS, G6PD and carrier-screening estimates.',
   service: 'Serves versioned results fast. No model runs on this path.',
   map: 'Measured and modeled arrive as separate layers you can switch on and off.',
   registry:

@@ -223,8 +223,10 @@ describe('projects page content', () => {
       /Frequency modeling\s+Machine learning/,
     );
     expect(project).toContain(
-      'Results are checked against published HbS, G6PD and carrier-screening estimates before they are called validated.',
+      'Results are checked against published HbS, G6PD and carrier-screening estimates.',
     );
+    // No limitation announcements on a marketing page (ruling 37): no validation caveat anywhere.
+    expect(text(project)).not.toMatch(/validated/i);
     expect(project).toContain(
       'Bayesian spatial models, a kind of machine learning, are fitted ahead of time and published as versioned results.',
     );

@@ -477,12 +477,12 @@ describe('the Pipeline copy', () => {
       ]);
   });
 
-  it('describes the validation gate without quoting a scare label (R2-14)', () => {
+  it('describes the gate plainly, with no validation caveat (R2-14, ruling 37)', () => {
     const gate = PIPELINE[6].nodes.find((node) => node.kind === 'gate')!;
     expect(gate.caption).toBe(
-      'Results are checked against published HbS, G6PD and carrier-screening estimates before they are called validated.',
+      'Results are checked against published HbS, G6PD and carrier-screening estimates.',
     );
-    expect(JSON.stringify(PIPELINE)).not.toMatch(/not yet validated/i);
+    expect(JSON.stringify(PIPELINE)).not.toMatch(/validated/i);
     expect(gate.caption).not.toMatch(/nothing ships/i);
   });
 
