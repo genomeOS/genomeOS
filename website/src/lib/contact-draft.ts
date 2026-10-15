@@ -6,10 +6,10 @@
  *
  *   buildDraft({ topic, offers })  → { subject, body }   the letter, lines joined with \n
  *   mailtoUrl(address, draft?)     → mailto:…            RFC 6068, CRLF line breaks
- *   draftText(address, draft)      → To / Subject / body as plain text (Copy draft)
+ *   draftText(address, draft)      → To / Subject / body as plain text (a copy of the letter)
  *   parseQuery(search) / toQuery(state)                  ?topic=contribute&offer=data,funding
  *
- * The address is never passed in here at build time: the page joins it only on a visitor's action
+ * The address is never passed in here at build time: only the browser joins it
  * (src/lib/contact-address.ts).
  */
 
