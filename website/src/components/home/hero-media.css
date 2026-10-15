@@ -240,10 +240,13 @@
   }
 }
 
-/* The scroll fade: as the page scrolls into the content, the film recedes (it fades and settles a
-   little smaller), from when the hero's top reaches the top of the screen until three quarters of
-   it has passed. A scroll-driven animation, so it moves only when the visitor scrolls; where that
-   is missing, hero-media.ts sets --hero-recede instead. Neither under reduced motion. */
+/* The scroll fade: as the page scrolls into the content, the film recedes (it fades as it drifts a
+   little nearer), from when the hero's top reaches the top of the screen until three quarters of
+   it has passed. It only ever grows: shrunk, its edges came inside the frame mid-fade and drew a
+   darker band down its left side and along its foot (design critique of the integrated build,
+   round 2); grown, they stay outside the hero's clip. A scroll-driven animation, so it moves only
+   when the visitor scrolls; where that is missing, hero-media.ts sets --hero-recede instead.
+   Neither under reduced motion. */
 @media (prefers-reduced-motion: no-preference) {
   @supports (animation-timeline: view()) {
     .home-hero {
@@ -276,7 +279,7 @@
 
   .hero-media[data-recede='script'] .hero-media__backdrop {
     opacity: calc(1 - var(--hero-recede, 0));
-    scale: calc(1 - 0.06 * var(--hero-recede, 0));
+    scale: calc(1 + 0.04 * var(--hero-recede, 0));
   }
 
   .hero-media[data-recede='script'] .hero-media__toggle {
@@ -293,7 +296,7 @@
 @keyframes hero-recede {
   to {
     opacity: 0;
-    scale: 0.94;
+    scale: 1.04;
   }
 }
 

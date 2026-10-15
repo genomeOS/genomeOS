@@ -415,6 +415,24 @@ test('the film recedes as the page scrolls into the content', async ({
   const middle = await recededAt(page, 0.375);
   expect(middle).toBeGreaterThan(0.35);
   expect(middle).toBeLessThan(0.65);
+  // Mid-fade the film still covers its whole frame: shrunk, its edges came inside it and drew a
+  // darker band down the left and along the foot (design critique of the integrated build, round 2).
+  const cover = await page.evaluate(() => {
+    const frame = document
+      .querySelector('.hero-media')!
+      .getBoundingClientRect();
+    const film = document
+      .querySelector('[data-hero-backdrop]')!
+      .getBoundingClientRect();
+    return {
+      left: film.left - frame.left,
+      top: film.top - frame.top,
+      right: frame.right - film.right,
+      bottom: frame.bottom - film.bottom,
+    };
+  });
+  for (const [edge, inset] of Object.entries(cover))
+    expect(inset, edge).toBeLessThanOrEqual(0.5);
   expect(await recededAt(page, 0.75)).toBeLessThan(0.02);
   // Linked to the scroll only: back at the top it is whole again.
   expect(await recededAt(page, 0)).toBeCloseTo(1, 2);
