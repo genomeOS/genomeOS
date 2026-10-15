@@ -256,6 +256,12 @@ describe('the Atlas preview, as built', () => {
     );
     expect(measured).toContain('Surveys, sized by people tested');
     expect(measured).toContain('Model grid, no values drawn');
+    // The hatch is drawn on both layers, so both keys explain it (design critique of the
+    // integrated build).
+    expect(measured).toContain('No estimate');
+    expect(legend.slice(legend.indexOf('data-legend="measured"'))).toContain(
+      '#glyph-hatch',
+    );
     for (const size of ['sm', 'md', 'lg'])
       expect(legend).toContain(`#glyph-stud-${size}`);
   });

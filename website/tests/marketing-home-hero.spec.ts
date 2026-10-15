@@ -1497,6 +1497,9 @@ test('the layer control has one pressed layer, swaps the legend and the labels',
   await expect(figure.locator('[data-legend="measured"]')).toContainText(
     'Model grid, no values drawn',
   );
+  await expect(figure.locator('[data-legend="measured"]')).toContainText(
+    'No estimate',
+  );
   await expect(figure.locator('[data-legend="modeled"]')).toBeHidden();
   // The Measured layer draws no estimates, so the Modeled label names nothing on it; the hatch
   // for areas with no estimate is drawn on both layers, so its label stays (review of T1).
