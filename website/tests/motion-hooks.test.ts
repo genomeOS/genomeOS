@@ -15,14 +15,22 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 
 import {
   E2E_CATALOG_PATH,
   assertMotionHooks,
 } from '../integrations/dev-kit.mjs';
 import { E2E_ATLAS_CATALOG_PATH } from '../src/lib/catalog-build';
-import { frozenAt } from '../src/graphics/motion-hooks';
+import { frozenAt, type Scrubbable } from '../src/graphics/motion-hooks';
 import { dist } from './helpers/dist';
 
 const website = path.resolve(import.meta.dirname, '..');
@@ -100,6 +108,68 @@ describe('MOTION_HOOKS', () => {
     expect(frozenAt('?t=-4', 'orbit')).toBeNull();
     expect(frozenAt('?t=soon', 'orbit')).toBeNull();
     expect(frozenAt('', 'orbit')).toBeNull();
+  });
+});
+
+describe('registerScene', () => {
+  const scene = (name: string): Scrubbable => ({
+    name,
+    story: 1000,
+    seek() {},
+    pause() {},
+    play() {},
+    time: 0,
+  });
+  /** A fresh hooks module under `env`, in a page with no `?t=`. */
+  const hooks = async (env: { DEV: boolean; PUBLIC_MOTION_HOOKS: string }) => {
+    vi.stubEnv('DEV', env.DEV);
+    vi.stubEnv('PUBLIC_MOTION_HOOKS', env.PUBLIC_MOTION_HOOKS);
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('location', { search: '' });
+    vi.resetModules();
+    return import('../src/graphics/motion-hooks');
+  };
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  for (const env of [
+    { build: 'dev', DEV: true, PUBLIC_MOTION_HOOKS: '' },
+    { build: 'the e2e build', DEV: false, PUBLIC_MOTION_HOOKS: '1' },
+  ])
+    it(`warns once per name two scenes share, in ${env.build}`, async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { registerScene } = await hooks(env);
+      const orbit = scene('orbit');
+      registerScene(orbit);
+      registerScene(orbit); // the same scene again is not a second one
+      registerScene(scene('board'));
+      expect(warn).not.toHaveBeenCalled();
+      registerScene(scene('orbit'));
+      registerScene(scene('orbit'));
+      registerScene(scene('board'));
+      expect(warn).toHaveBeenCalledTimes(2);
+      expect(warn.mock.calls.map(([message]) => String(message))).toEqual([
+        expect.stringContaining('"orbit"'),
+        expect.stringContaining('"board"'),
+      ]);
+      // The last one registered is the one the hooks reach, as before.
+      expect(window.__motion!.names()).toEqual(['orbit', 'board']);
+    });
+
+  it('stays silent in the deployed build, where it does nothing', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { registerScene } = await hooks({
+      DEV: false,
+      PUBLIC_MOTION_HOOKS: '',
+    });
+    registerScene(scene('orbit'));
+    registerScene(scene('orbit'));
+    expect(warn).not.toHaveBeenCalled();
+    expect(window.__motion).toBeUndefined();
   });
 });
 

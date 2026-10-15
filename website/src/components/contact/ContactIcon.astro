@@ -1,0 +1,50 @@
+---
+/**
+ * The Contact page's line icons (contact-icons.ts): one inline sprite per page, referenced by
+ * `<use>`, as the kit's Icon does, but local to this page.
+ *
+ *   <ContactIcon sprite />            once, before the first icon
+ *   <ContactIcon name="mail" />       a 20 px line icon in currentColor, aria-hidden
+ */
+import { CONTACT_ICON_PATHS, type ContactIconName } from './contact-icons';
+
+interface Props {
+  name?: ContactIconName;
+  sprite?: boolean;
+  class?: string;
+}
+
+const { name, sprite = false, class: className } = Astro.props;
+---
+
+{
+  sprite ? (
+    <svg class="contact-icon-sprite" aria-hidden="true" focusable="false">
+      {(Object.keys(CONTACT_ICON_PATHS) as ContactIconName[]).map((icon) => (
+        <symbol id={`contact-icon-${icon}`} viewBox="0 0 24 24">
+          <path
+            d={CONTACT_ICON_PATHS[icon]}
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </symbol>
+      ))}
+    </svg>
+  ) : (
+    name && (
+      <svg
+        class:list={['contact-icon', className]}
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <use href={`#contact-icon-${name}`} />
+      </svg>
+    )
+  )
+}

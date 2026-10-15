@@ -1,7 +1,9 @@
 /* The docs are dark only, like the site (#454): ThemeProvider.astro pins data-theme="dark". */
 :root,
 :root[data-theme='dark'] {
-  --sl-font: 'Figtree Variable', 'Avenir Next', sans-serif;
+  /* The site's stacks and their metric-matched fallbacks (tokens.css, which the docs header
+     loads). */
+  --sl-font: var(--font-body);
   --sl-font-system-mono: ui-monospace, 'SFMono-Regular', Consolas, monospace;
   --sl-color-accent-low: #102b52;
   --sl-color-accent: #70e6ff;
@@ -39,7 +41,7 @@ body {
 }
 
 .brand-name {
-  font-family: 'Raleway Variable', 'Avenir Next', sans-serif;
+  font-family: var(--font-display);
   font-weight: 380;
   letter-spacing: 0.08em;
   white-space: nowrap;
@@ -49,7 +51,7 @@ h1,
 h2,
 h3,
 h4 {
-  font-family: 'Raleway Variable', 'Avenir Next', sans-serif;
+  font-family: var(--font-display);
   letter-spacing: -0.025em;
 }
 
