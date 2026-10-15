@@ -1,3 +1,62 @@
+/*
+ * Metric-matched fallbacks for the web fonts (#454): Arial, or its metric twin Liberation Sans,
+ * sized to Figtree's and Raleway's widths, with their vertical metrics, so text set before the
+ * fonts arrive (font-display: swap) takes the lines it takes after. Without Avenir Next (Linux,
+ * Windows) the generic sans-serif was far wider: on CI's Ubuntu runner it broke Contact's H1 in
+ * two, and the swap lifted the composer 73 px, a layout shift of 0.033 at 1440 px. Widths measured
+ * in Chromium on the site's own text: Figtree 400 runs 0.8% wider than Arial, 620 to 720 3.8%
+ * narrower than Arial Bold; Raleway 370 3.2% wider than Arial, 620 to 720 0.4% narrower than
+ * Arial Bold. The metric overrides are the fonts' own (Figtree 950/250/0, Raleway 940/234/0 per
+ * 1000), over the size adjustment. Avenir Next, where it is installed, still comes first.
+ */
+@font-face {
+  font-family: 'Figtree Fallback';
+  font-weight: 100 549;
+  src:
+    local('Arial'), local('ArialMT'), local('Liberation Sans'),
+    local('LiberationSans'), local('Arimo');
+  size-adjust: 100.8%;
+  ascent-override: 94.2%;
+  descent-override: 24.8%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'Figtree Fallback';
+  font-weight: 550 1000;
+  src:
+    local('Arial Bold'), local('Arial-BoldMT'), local('Liberation Sans Bold'),
+    local('LiberationSans-Bold'), local('Arimo Bold');
+  size-adjust: 96.2%;
+  ascent-override: 98.8%;
+  descent-override: 26%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'Raleway Fallback';
+  font-weight: 100 549;
+  src:
+    local('Arial'), local('ArialMT'), local('Liberation Sans'),
+    local('LiberationSans'), local('Arimo');
+  size-adjust: 103.2%;
+  ascent-override: 91.1%;
+  descent-override: 22.7%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'Raleway Fallback';
+  font-weight: 550 1000;
+  src:
+    local('Arial Bold'), local('Arial-BoldMT'), local('Liberation Sans Bold'),
+    local('LiberationSans-Bold'), local('Arimo Bold');
+  size-adjust: 99.6%;
+  ascent-override: 94.4%;
+  descent-override: 23.5%;
+  line-gap-override: 0%;
+}
+
 :root {
   color-scheme: dark;
   --color-void: #020712;
@@ -10,8 +69,12 @@
   --color-muted: #a5b9d3;
   --color-line: rgb(112 230 255 / 18%);
   --color-deep-line: rgb(165 185 211 / 14%);
-  --font-display: 'Raleway Variable', 'Avenir Next', sans-serif;
-  --font-body: 'Figtree Variable', 'Avenir Next', sans-serif;
+  --font-display:
+    'Raleway Variable', 'Avenir Next', 'Raleway Fallback', 'Liberation Sans',
+    sans-serif;
+  --font-body:
+    'Figtree Variable', 'Avenir Next', 'Figtree Fallback', 'Liberation Sans',
+    sans-serif;
   --content-width: 76rem;
   --reading-width: 47.5rem;
   --space-page: clamp(1.2rem, 4vw, 3.5rem);

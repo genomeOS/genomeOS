@@ -18,7 +18,8 @@
    critique 2, m-2). */
 @media (width > 52rem) and (width <= 72rem) {
   .contact-page .page-intro h1 {
-    max-width: 12ch;
+    /* 12ch in Raleway, in em so a fallback font breaks it where Raleway does (pages.css). */
+    max-width: 7.34em;
     text-wrap: balance;
   }
 }

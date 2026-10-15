@@ -1238,6 +1238,72 @@ test.describe('on a phone @mobile-chromium', () => {
   });
 });
 
+// CI's performance job measured CLS 0.033 at 1440 px on an Ubuntu runner, which has no Avenir
+// Next: until the web fonts arrived, the generic sans-serif (DejaVu Sans, much wider) broke the
+// H1 in two, and the swap lifted the whole composer 73 px.
+test('set in the fallback fonts, the intro takes the lines the web fonts give it, so their arrival moves nothing below @desktop-chromium', async ({
+  browser,
+}) => {
+  const VIEWPORTS = [
+    [1440, 900],
+    [412, 839],
+  ] as const;
+  const layout = (page: Page) =>
+    page.evaluate(() => {
+      const box = (selector: string) =>
+        document.querySelector(selector)!.getBoundingClientRect();
+      return {
+        h1: Math.round(box('.page-intro h1').height),
+        lede: Math.round(box('.page-intro__lede').height),
+        composer: box('.page-intro__figure').top + window.scrollY,
+      };
+    });
+  const loaded: Awaited<ReturnType<typeof layout>>[] = [];
+  const settled = await (browser as Browser).newContext();
+  const page = await settled.newPage();
+  for (const [width, height] of VIEWPORTS) {
+    await page.setViewportSize({ width, height });
+    await page.goto('/contact/');
+    await page.evaluate(() => document.fonts.ready);
+    loaded.push(await layout(page));
+  }
+  await settled.close();
+
+  // A machine with no Avenir Next and a wide sans-serif, before the web fonts arrive: here they
+  // never do.
+  const context = await (browser as Browser).newContext();
+  const waiting = await context.newPage();
+  const session = await context.newCDPSession(waiting);
+  await session.send('Page.setFontFamilies', {
+    fontFamilies: { sansSerif: 'Verdana' },
+  });
+  await waiting.route(/\.woff2(\?|$)/, (route) => route.abort());
+  await waiting.route(/\/contact\/$|\.css(\?|$)/, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.text()).replaceAll(
+      'Avenir Next',
+      'No Such Font',
+    );
+    await route.fulfill({ response, body });
+  });
+  for (const [index, [width, height]] of VIEWPORTS.entries()) {
+    await waiting.setViewportSize({ width, height });
+    await waiting.goto('/contact/');
+    await waiting.evaluate(() => document.fonts.ready);
+    const fallback = await layout(waiting);
+    const label = `${width} px`;
+    expect(fallback.h1, `${label}: the H1's height`).toBe(loaded[index].h1);
+    expect(fallback.lede, `${label}: the lede's height`).toBe(
+      loaded[index].lede,
+    );
+    expect(
+      Math.abs(fallback.composer - loaded[index].composer),
+      `${label}: the composer's top`,
+    ).toBeLessThan(1);
+  }
+  await context.close();
+});
+
 test('no sideways scroll at 320, 390, 640, 1024 or 1440 px', async ({
   page,
 }) => {
