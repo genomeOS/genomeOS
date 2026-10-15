@@ -18,6 +18,8 @@
  *   another moon, its crew and props, another label), fading out before and in after, over a full
  *   revolution; every label shows in the story's last frame.
  */
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -44,6 +46,7 @@ import {
   MOON_ORDER,
   PROPS,
   T,
+  THETA0,
   TOUCHDOWN_MS,
   depth,
   discAt,
@@ -223,19 +226,40 @@ describe.each(layouts.map((layout) => [layout.id, layout] as const))(
 describe('orbit scene', () => {
   const layouts = Object.values(LAYOUTS);
 
-  it('keeps every moon label at 13 px or more on the narrowest stage of its layout', () => {
-    for (const L of layouts)
+  it('keeps every moon label at 13 px or more on the narrowest drawing of its layout', () => {
+    for (const L of layouts) {
       expect(
-        (L.label * L.minStage) / L.w,
-        `${L.id} at ${L.minStage} px`,
+        (L.label * L.minWidth) / L.w,
+        `${L.id} at ${L.minWidth} px`,
       ).toBeGreaterThanOrEqual(13);
+      // Only the desktop's drawing narrows under its stage (sized to a short screen's height).
+      expect(L.minWidth, L.id).toBeLessThanOrEqual(L.minStage);
+    }
+    expect(LAYOUTS.desktop.minWidth).toBeLessThan(LAYOUTS.desktop.minStage);
     // The phone layout reaches down to the 320 px viewport's stage (16 px gutters each side and
     // the site's 1.2rem page margin: 320 − 2 × 21.6 − 2 px of frame).
     expect(LAYOUTS.phone.minStage).toBeLessThanOrEqual(274.8);
   });
 
-  it('keeps each moon label one size at every depth, countering its moon’s depth scale', () => {
-    // Moons shrink to 0.8 at the back of the orbit; their labels must not (13 px floor).
+  it('sizes each wide drawing in contribute.css by its own viewBox and narrowest width', () => {
+    // contribute.css holds the numbers as literals: they must be these layouts'.
+    const css = readFileSync(
+      new URL('../src/styles/pages/contribute.css', import.meta.url),
+      'utf8',
+    ).replace(/\s+/g, ' ');
+    for (const L of [LAYOUTS.desktop, LAYOUTS.tablet]) {
+      const rule = css.match(
+        new RegExp(`\\.orbit-svg--${L.id} \\{ width: ([^;]+);`),
+      )?.[1];
+      expect(rule, L.id).toBeDefined();
+      expect(rule).toContain(`max(${L.minWidth}px,`);
+      expect(rule).toContain(`* ${L.w} / ${L.h})`);
+    }
+  });
+
+  it('keeps each moon label one size and one gap under its moon at every depth', () => {
+    // Moons shrink to 0.8 at the back of the orbit; their labels must not (13 px floor), nor the
+    // gap between a moon's rim and its name, `drop`, set inside the counter-scale.
     for (const L of layouts) {
       const svg = renderOrbit(L, { globeHref: '/favicon.svg' });
       for (const kind of KINDS) {
@@ -244,16 +268,22 @@ describe('orbit scene', () => {
             `<g class="orbiter orbiter--label" data-moon="${kind}"[\\s\\S]*?</text>`,
           ),
         )![0];
+        expect(label).toMatch(
+          new RegExp(
+            `orb-label-k" style="transform:scale\\([\\d.]+\\)"><g transform="translate\\(0 ${L.drop}\\)">`,
+          ),
+        );
         const scale = (cls: string) =>
           Number(
             label.match(
               new RegExp(`${cls}" style="transform:scale\\(([\\d.]+)\\)`),
             )![1],
           );
+        // To three decimals: a label 0.4% small is a 13 px label at 12.99 px.
         expect(
           scale('orb-depth') * scale('orb-label-k'),
           `${L.id} ${kind}`,
-        ).toBeCloseTo(1, 2);
+        ).toBeCloseTo(1, 3);
       }
     }
   });
@@ -447,20 +477,81 @@ describe('orbit scene', () => {
       }
   });
 
-  it('keeps every moon and its label inside the stage all the way round', () => {
-    for (const L of layouts)
-      for (const kind of KINDS)
-        for (let t = 0; t < T.orbit; t += 2000) {
-          const [x, y, d] = moonCenter(L, kind, t);
-          const r = L.r[kind] * d;
-          expect(x - r, `${L.id} ${kind}`).toBeGreaterThanOrEqual(0);
-          expect(x + r, `${L.id} ${kind}`).toBeLessThanOrEqual(L.w);
-          // The label's baseline sits r + size + 14 below the centre.
-          expect(
-            y + (L.r[kind] + L.label + 14) * d,
-            `${L.id} ${kind}`,
-          ).toBeLessThanOrEqual(L.h);
+  // Nothing clips (owner, 2026-10-15, with the shorter stage): every moon, its crew mid-hop and
+  // its label while it shows stay inside the stage at every moment of the story and a revolution,
+  // and so does each pod from touchdown until it leaves.
+  const inside = (L: (typeof layouts)[number], [x0, y0, x1, y1]: Box) =>
+    x0 >= 0 && y0 >= 0 && x1 <= L.w && y1 <= L.h;
+  /** The pod's top above its pads at full scale: the beacon (props.ts spaceship). */
+  const POD_TOP = 144;
+
+  it('keeps every moon, crew, pod and showing label inside the stage all the way round', () => {
+    for (const L of layouts) {
+      const tracks = Object.fromEntries(
+        KINDS.map((kind) => [kind, labelTrack(L, kind)]),
+      );
+      for (const t of moments)
+        for (const kind of KINDS) {
+          if (t < T.moon[kind]) continue;
+          const where = `${L.id} ${kind} at ${t} ms`;
+          const [x, y, r] = discAt(L, kind, t);
+          expect(inside(L, [x - r, y - r, x + r, y + r]), where).toBe(true);
+          // Crews keep to the stage's height; on the phone a bubble may pass its side edge while
+          // the camera, in the idle loops, holds a close-up elsewhere.
+          for (const part of partsAt(L, kind, t))
+            expect(
+              L.id === 'phone'
+                ? part[1] >= 0 && part[3] <= L.h
+                : inside(L, part),
+              `${where}: crew`,
+            ).toBe(true);
+          if (labelOpacity(tracks[kind], t) > 0)
+            expect(inside(L, labelBox(L, kind, t)), `${where}: label`).toBe(
+              true,
+            );
         }
+      for (const kind of KINDS)
+        for (
+          let t = T.ship[kind] + TOUCHDOWN_MS;
+          t <= T.ship[kind] + TOUCHDOWN_MS + 1300;
+          t += 100
+        ) {
+          const [, y, d] = moonCenter(L, kind, t);
+          const top = y + d * (1 - L.r[kind] - POD_TOP * L.cs * 0.95);
+          expect(top, `${L.id} ${kind} pod at ${t} ms`).toBeGreaterThanOrEqual(
+            0,
+          );
+        }
+    }
+  });
+
+  it('makes the desktop and tablet stages as tall as their orbits need and no taller', () => {
+    for (const L of [LAYOUTS.desktop, LAYOUTS.tablet]) {
+      const tracks = Object.fromEntries(
+        KINDS.map((kind) => [kind, labelTrack(L, kind)]),
+      );
+      let top = Infinity;
+      let bottom = -Infinity;
+      for (const t of moments)
+        for (const kind of KINDS) {
+          if (t < T.moon[kind]) continue;
+          for (const part of partsAt(L, kind, t)) top = Math.min(top, part[1]);
+          const [, y, r] = discAt(L, kind, t);
+          bottom = Math.max(bottom, y + r);
+          if (labelOpacity(tracks[kind], t) > 0)
+            bottom = Math.max(bottom, labelBox(L, kind, t)[3]);
+        }
+      // The top moon's crew, mid-hop, a few units under the top edge; the lowest thing that shows
+      // a few units over the bottom edge.
+      expect(top, L.id).toBeLessThanOrEqual(6);
+      expect(L.h - bottom, L.id).toBeLessThanOrEqual(6);
+    }
+    // On the desktop the front moon's label fades out before the bottom edge (labelCover), so the
+    // stage ends near the front moon itself.
+    const desktop = LAYOUTS.desktop;
+    const front = (T.orbit * (THETA0.ui - 90 + 360)) / 360;
+    expect(theta('ui', front) % 360).toBeCloseTo(-270, 6);
+    expect(labelCover(desktop, 'ui', front)).toBe('edge');
   });
 
   it('brings the moons in column order and types each group’s text before the next moon comes', () => {

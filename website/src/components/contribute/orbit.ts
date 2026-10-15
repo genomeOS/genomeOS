@@ -128,10 +128,11 @@ function sky(
       const t = (T.orbit * i) / 30;
       const d = depth(theta(kind, t));
       frames.push([t, `scale(${f(d)})`]);
-      counter.push([t, `scale(${f(1 / d)})`]);
+      counter.push([t, `scale(${+(1 / f(d)).toFixed(4)})`]);
     }
     tl.ambient(g.querySelector('.orb-depth'), frames, T.orbit);
-    // A label keeps one size at every depth (orbit-layouts.ts renderOrbit).
+    // A label keeps one size at every depth (orbit-layouts.ts renderOrbit): its counter-scale
+    // undoes the depth scale as written, to four decimals.
     tl.ambient(g.querySelector('.orb-label-k'), counter, T.orbit);
   });
 

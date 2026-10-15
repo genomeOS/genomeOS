@@ -25,6 +25,9 @@
  * - All the way round the endless idle orbit (review of T4, finding 1), on the drawn art: a moon
  *   label that shows is never covered by the globe, another moon, its crew or props, or another
  *   label; and every crew and prop stays inside the footprint the label model reckons with.
+ * - The plate on one screen (owner, 2026-10-15): under the compact header, the bar, the stage and
+ *   the columns down to their links at 1440 × 900 and up; the bar, the stage and every typed line
+ *   at 1366 × 768 and 1280 × 800; the moon labels at 13 px or more at each.
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -1160,6 +1163,83 @@ for (const { width, height, layout } of [
       ).toEqual([]);
     });
   });
+
+/**
+ * The plate on one screen (owner, 2026-10-15: "maybe 20% less tall so we can fit both the graphics
+ * and text panels on the screen at once"): scrolled to the plate, under the site's compact header,
+ * its bar, its whole stage and its three columns down to their links show on a laptop screen; on a
+ * short one (1366 × 768, 1280 × 800) the bar, the stage and every line the columns type. The moon
+ * labels stay 13 px or more at every size.
+ */
+test.describe('the orbit plate on one screen @desktop-chromium', () => {
+  for (const [width, height, last] of [
+    [1440, 900, 'link'],
+    [1920, 1080, 'link'],
+    [1512, 982, 'link'],
+    [1728, 1117, 'link'],
+    [1366, 768, 'typed line'],
+    [1280, 800, 'typed line'],
+  ] as const)
+    test(`shows the bar to the last ${last} under the compact header at ${width}×${height}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height });
+      await page.goto('/contribute/');
+      await page.evaluate(() => document.fonts.ready);
+      await page.evaluate(() =>
+        window.scrollTo({ top: 200, behavior: 'instant' }),
+      );
+      await expect(page.locator('[data-site-header]')).toHaveClass(
+        /site-header--compact/,
+      );
+      // The header's resize settles.
+      await page.waitForTimeout(500);
+      const fit = await page.locator(FIGURE).evaluate(
+        (figure, selector) => {
+          const header = document
+            .querySelector('[data-site-header]')!
+            .getBoundingClientRect().bottom;
+          window.scrollTo({
+            top: figure.getBoundingClientRect().top + scrollY - header,
+            behavior: 'instant',
+          });
+          const bar = figure
+            .querySelector('.orbit__bar')!
+            .getBoundingClientRect();
+          const bottom = Math.max(
+            ...[...figure.querySelectorAll(selector)].map(
+              (element) => element.getBoundingClientRect().bottom,
+            ),
+          );
+          const svg = [
+            ...figure.querySelectorAll<SVGSVGElement>('.orbit-svg'),
+          ].find((item) => item.getClientRects().length > 0)!;
+          return {
+            layout: svg.dataset.layout,
+            top: bar.top - header,
+            height: bottom - bar.top,
+            room: innerHeight - header,
+            labels: [
+              ...svg.querySelectorAll<SVGTextElement>('.moon-label'),
+            ].map((label) => {
+              const matrix = label.getScreenCTM()!;
+              return (
+                Number.parseFloat(getComputedStyle(label).fontSize) *
+                Math.hypot(matrix.a, matrix.b)
+              );
+            }),
+          };
+        },
+        last === 'link' ? '.orbit-col__link' : '.orbit-col__who',
+      );
+      expect(fit.layout).toBe('desktop');
+      // The plate's top meets the header (the bar starts under its 1 px frame; scrolling rounds).
+      expect(Math.abs(fit.top)).toBeLessThan(2);
+      expect(fit.height).toBeLessThanOrEqual(fit.room);
+      expect(fit.labels).toHaveLength(3);
+      for (const size of fit.labels) expect(size).toBeGreaterThanOrEqual(13);
+    });
+});
 
 test.describe('the orbit scene under reduced motion', () => {
   test.beforeEach(async ({ page }) => {
