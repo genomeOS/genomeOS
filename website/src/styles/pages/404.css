@@ -35,7 +35,7 @@
   text-wrap: pretty;
 }
 
-/* Three routes back: a link row of cards (spec §2.4), navigation only. */
+/* Four routes back: a link row of cards (spec §2.4), navigation only. */
 .notfound-routes {
   padding-block: clamp(2.5rem, 5vw, 4rem) clamp(4rem, 8vw, 6rem);
 }

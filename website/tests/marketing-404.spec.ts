@@ -52,7 +52,7 @@ test('the routes back are three cards, to Home, Contribute and Docs', async ({
   const cards = page
     .getByRole('navigation', { name: 'Ways back' })
     .getByRole('link');
-  await expect(cards).toHaveCount(3);
+  await expect(cards).toHaveCount(4);
   expect(
     await cards.evaluateAll((links) =>
       links.map((link) => [
@@ -61,19 +61,23 @@ test('the routes back are three cards, to Home, Contribute and Docs', async ({
       ]),
     ),
   ).toEqual([
-    ['/', 'Home The globe.'],
-    ['/contribute/', 'Contribute Find a group and a scoped task.'],
-    ['/docs/', 'Docs Science and engineering guides.'],
+    ['/', 'Home Who we are and how it works.'],
+    ['/projects/', 'Projects What we’re building.'],
+    ['/contribute/', 'Contribute Find your group.'],
+    ['/docs/', 'Docs Science and engineering.'],
   ]);
-  await expect(cards.first()).toHaveAccessibleName('Home The globe.');
+  await expect(cards.first()).toHaveAccessibleName(
+    'Home Who we are and how it works.',
+  );
 });
 
-// Design review, round 3: from 700 to 900 px the three cards broke 2 + 1, with one card alone in
-// a second row. They are one column, then one row of three from 56rem.
-test('the three routes back are one column, then one row, never 2 + 1 @desktop-chromium', async ({
+// Design review, round 3: cards never leave one alone in a row. Four routes back (Projects joined
+// them, design critique of the integrated build): one column, 2 × 2 from 38rem, then one row of four
+// from 80rem, as the site's other rows of four.
+test('the four routes back are one column, then 2 × 2, then one row, never 3 + 1 @desktop-chromium', async ({
   page,
 }) => {
-  for (const width of [390, 640, 700, 800, 895, 896, 900, 1000, 1440]) {
+  for (const width of [390, 600, 608, 700, 900, 1000, 1279, 1280, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto('/404.html');
     const rows = await page
@@ -87,8 +91,10 @@ test('the three routes back are one column, then one row, never 2 + 1 @desktop-c
           (top) => tops.filter((other) => other === top).length,
         );
       });
-    // An em in a media query is the 16 px initial size, so 56rem is 896 px.
-    expect(rows, `${width} px`).toEqual(width >= 896 ? [3] : [1, 1, 1]);
+    // An em in a media query is the 16 px initial size, so 38rem is 608 px and 80rem 1280 px.
+    expect(rows, `${width} px`).toEqual(
+      width >= 1280 ? [4] : width >= 608 ? [2, 2] : [1, 1, 1, 1],
+    );
   }
 });
 
