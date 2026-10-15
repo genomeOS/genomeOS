@@ -162,7 +162,8 @@
 }
 
 /* The address and its copy glyph: never apart. The glyph's target reaches 0.5rem back into the
-   address's box, so the glyph starts less than half an em after its last letter. Its "Copied" is
+   address's box, so the glyph starts about a third of an em after its last letter (a little more
+   where the renderer rounds each glyph to whole pixels, as Linux's does). Its "Copied" is
    the row's, beside the glyph (under it on a narrow phone), so the button keeps its own box. */
 .contact-address {
   position: relative;

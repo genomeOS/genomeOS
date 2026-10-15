@@ -2652,7 +2652,10 @@ test('set in the fallback fonts, the intro takes the lines the web fonts give it
 // address is joined: wherever the three fit on one line (1440, 1024, 768 px) they share one row
 // with their centres level; on a phone the pill keeps its own line and the address and its glyph
 // share the row below. Centres are of border boxes, and of the address's own line box (the
-// element that holds its text, no wrapper's padding); the glyph sits just after the address.
+// element that holds its text, no wrapper's padding); the glyph sits just after the address, within
+// 0.6em of its last letter. An em, not a pixel count: Linux's renderer (CI) rounds each glyph's
+// advance to a whole pixel, so the address and the box its spelled-out form keeps round apart, and
+// the space left in the box varies by a few pixels with the font size (11.2 px at 1024, 0.56em).
 test('in the web font and the fallbacks, Email us, the address and its copy glyph line up, before and after it is joined @desktop-chromium', async ({
   browser,
 }) => {
@@ -2690,6 +2693,11 @@ test('in the web font and the fallbacks, Email us, the address and its copy glyp
             copy: box('.contact-copy'),
             glyph: box('.contact-copy .contact-glyph__idle'),
             text: text.getBoundingClientRect().toJSON(),
+            em: parseFloat(
+              getComputedStyle(
+                document.querySelector('.contact-address__value')!,
+              ).fontSize,
+            ),
           };
         });
       const centre = ({ top, height }: { top: number; height: number }) =>
@@ -2706,7 +2714,14 @@ test('in the web font and the fallbacks, Email us, the address and its copy glyp
         ).toBeLessThanOrEqual(1);
         expect(at.copy.top, where).toBeLessThan(at.line.bottom);
         expect(at.glyph.left, where).toBeGreaterThanOrEqual(at.text.right);
-        expect(at.glyph.left - at.text.right, where).toBeLessThanOrEqual(10);
+        // Soft, so one run reports every font and width that strays, each with its measure.
+        const gap = at.glyph.left - at.text.right;
+        expect
+          .soft(
+            gap,
+            `${where}: gap ${(gap / at.em).toFixed(3)}em at ${at.em} px`,
+          )
+          .toBeLessThanOrEqual(0.6 * at.em);
         if (phone) {
           // The pill on its own line above them.
           expect(at.pill.bottom, where).toBeLessThanOrEqual(at.copy.top);
@@ -2733,7 +2748,9 @@ test('in the web font and the fallbacks, Email us, the address and its copy glyp
       // The swap moves nothing: the address fits the box its spelled-out form keeps.
       for (const part of ['pill', 'slot', 'line', 'copy'] as const)
         expect(after[part], `${label}: ${part}`).toEqual(before[part]);
-      expect(after.text.width, label).toBeLessThanOrEqual(after.slot.width);
+      expect
+        .soft(after.text.width, `${label}: the address within its box`)
+        .toBeLessThanOrEqual(after.slot.width);
     }
     await context.close();
   }
