@@ -120,7 +120,7 @@ describe('home page content', () => {
     expect(text).toContain('Join us');
     expect(text).toContain('You don’t need a PhD to help.');
     expect(text).toContain(
-      'We’re a hacker collective doing open-source citizen science. Bring skills from any field: coding, writing, healthcare, graphic design, fundraising, business strategy, or just a strong curiosity and desire to do good for the world. We’ll find a place to fit your expertise and interests.',
+      'We’re a hacker collective doing open-source citizen science. All skillsets and backgrounds are welcome: coding, writing, healthcare, graphic design, fundraising, business strategy, or just a strong curiosity and desire to do good for the world. We’ll find a place to fit your expertise and interests.',
     );
     expect(text).toContain('Your spot');
     const ways = [
