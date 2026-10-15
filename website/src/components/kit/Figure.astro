@@ -53,6 +53,27 @@ const render = async (name: string) =>
 const [toolbar, readout, footnote, table] = await Promise.all(
   ['toolbar', 'readout', 'footnote', 'table'].map(render),
 );
+// The table's box scrolls on its own where the table is wider than its column (a phone), so it is
+// a named, focusable region a keyboard can scroll (WCAG 2.1.1): named by its one caption, or by
+// the summary when the slot holds several tables (one per genotype or layer).
+const captions = [...table.matchAll(/<caption\b[^>]*>([\s\S]*?)<\/caption>/g)];
+const decode = (text: string) =>
+  text
+    .replace(/<[^>]+>/g, '')
+    .replace(/&#(\d+);/g, (_, code: string) =>
+      String.fromCodePoint(Number(code)),
+    )
+    .replace(/&#x([\da-f]+);/gi, (_, code: string) =>
+      String.fromCodePoint(parseInt(code, 16)),
+    )
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
+const tableName =
+  captions.length === 1 ? decode(captions[0][1]!) : tableSummary;
 ---
 
 <figure
@@ -95,7 +116,14 @@ const [toolbar, readout, footnote, table] = await Promise.all(
     table && (
       <details class="kit-figure__table" data-figure-chrome>
         <summary>{tableSummary}</summary>
-        <Fragment set:html={table} />
+        <div
+          class="kit-figure__table-box"
+          role="region"
+          tabindex="0"
+          aria-label={tableName}
+        >
+          <Fragment set:html={table} />
+        </div>
       </details>
     )
   }
@@ -160,6 +188,13 @@ const [toolbar, readout, footnote, table] = await Promise.all(
     color: var(--color-ion);
     font-weight: 600;
     cursor: pointer;
+  }
+
+  /* A table wider than its column scrolls in this box, never the page: at 320 px the counts
+     figure's five columns ran 73 px past the screen (T7's site-wide overflow check). */
+  .kit-figure__table-box {
+    max-width: 100%;
+    overflow-x: auto;
   }
 
   .kit-figure__table table {

@@ -413,6 +413,12 @@
   font-size: 0.92rem;
 }
 
+/* The source snapshot's 40-character hash has no break in it: on a 320 px phone it ran 61 px past
+   the screen and scrolled the whole page sideways (T7's site-wide overflow check). */
+.atlas-ov__revision {
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 52rem) {
   .atlas-ov__text,
   .atlas-ov__visual {
