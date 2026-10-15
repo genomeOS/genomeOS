@@ -247,6 +247,91 @@ test(
   },
 );
 
+// Design critique of the integrated build, round 2: at 1,024 px the docs bar had no primary nav and
+// no "Menu +" where site pages show it, and its Atlas pill wore a line globe and dropped the arrow
+// at 1,440 px. The pill is the site's at every width (the favicon's colour globe, the arrow
+// wherever the site's pill shows one), and from 50em to 72em the bar shows the site's Menu.
+test(
+  'the docs Atlas pill is the site pill: its colour globe, and its arrow where the site shows one',
+  { tag: '@desktop-chromium' },
+  async ({ page }) => {
+    // (The docs nav takes the row from 72em, so the compact pill starts there, a pixel before the
+    // site's 72.01rem; 1,152 px itself is left out.)
+    for (const width of [800, 1024, 1151, 1153, 1300, 1392, 1393, 1440, 1920]) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto('/contribute/');
+      const site = await page
+        .locator('.launch-atlas-cta__arrow')
+        .evaluate((arrow) => arrow.checkVisibility());
+      await page.goto('/docs/');
+      const docs = await page
+        .locator('.docs-header__atlas')
+        .evaluate((pill) => ({
+          arrow: pill
+            .querySelector('.docs-header__atlas-arrow')!
+            .checkVisibility(),
+          stops: [...pill.querySelectorAll('stop')].map((stop) =>
+            stop.getAttribute('stop-color'),
+          ),
+          mark: pill
+            .querySelector('.docs-header__atlas-mark')!
+            .getBoundingClientRect().width,
+        }));
+      expect(docs.arrow, `${width} px arrow`).toBe(site);
+      // The favicon's gradient, from ion to violet, on the favicon's globe.
+      expect(docs.stops[0], `${width} px`).toBe('#12ffff');
+      expect(docs.stops.at(-1), `${width} px`).toBe('#9d11fc');
+      expect(docs.mark, `${width} px`).toBeGreaterThanOrEqual(20);
+    }
+  },
+);
+
+test(
+  'the docs bar shows the site’s "Menu +" from 50em to 72em, and it opens on the page links',
+  { tag: '@desktop-chromium' },
+  async ({ page }) => {
+    for (const width of [800, 1024, 1151, 1152, 1440]) {
+      await page.setViewportSize({ width, height: 800 });
+      await page.goto('/docs/');
+      const menu = page.locator('header details.docs-menu');
+      const summary = menu.locator('summary');
+      await expect(summary, `${width} px`).toBeVisible({
+        visible: width < 1152,
+      });
+      if (width >= 1152) continue;
+      await expect(summary).toHaveText('Menu');
+      const target = (await summary.boundingBox())!;
+      expect(target.height, `${width} px`).toBeGreaterThanOrEqual(44);
+      await summary.click();
+      const nav = page.getByRole('navigation', { name: 'Site navigation' });
+      await expect(nav).toBeVisible();
+      expect(await linkNames(nav)).toEqual(
+        NAV_NAMES.filter((name) => name !== 'View genomeOS on GitHub'),
+      );
+      await expect(nav.getByRole('link', { name: 'Docs' })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+      // It stays inside the screen, and Escape closes it, focus back on its summary.
+      const panel = (await nav.boundingBox())!;
+      expect(panel.x, `${width} px`).toBeGreaterThanOrEqual(0);
+      expect(panel.x + panel.width, `${width} px`).toBeLessThanOrEqual(width);
+      await nav.getByRole('link', { name: 'Projects' }).focus();
+      await page.keyboard.press('Escape');
+      await expect(nav).toBeHidden();
+      await expect(summary).toBeFocused();
+      // A press outside closes it too.
+      await summary.click();
+      await expect(nav).toBeVisible();
+      await page
+        .locator('main p')
+        .first()
+        .click({ position: { x: 2, y: 2 } });
+      await expect(nav).toBeHidden();
+    }
+  },
+);
+
 // Design review, round 2: the docs header set its nav right-aligned after Search, at weight 560 in
 // a lighter grey, with GitHub 2 px above the others, so from Home to Docs the primary nav jumped
 // about 440 px and changed weight. It reads as the site's: lockup, nav, then Search and the Atlas
@@ -431,14 +516,16 @@ for (const [platform, hint] of [
           );
         }
         // Search narrows first (round 2 spec §1.1), now that the Docs theme toggle sits beside it
-        // (§4.4): the label and its key hint where there is room (900 px to 72em, where the nav is
-        // only GitHub, and from 1,440 px); the label alone at 800 and 1,392 px; and the bare
-        // magnifier where the whole nav first shows (1,152 to 1,300 px).
-        if ((width >= 900 && width < 1152) || width >= 1440) {
+        // (§4.4), and the bar carries the site's "Menu +" up to 72em and the pill's arrow wherever
+        // the site's pill has it (design critique of the integrated build, round 2): the label and
+        // its key hint where there is room (about 1,000 px to 72em, and from 1,472 px); the label
+        // alone at 1,392 and 1,440 px; and the bare magnifier at 800 px and where the whole nav
+        // first shows (1,152 to 1,300 px).
+        if ((width >= 1000 && width < 1152) || width >= 1472) {
           expect(parts.label, `${at}: label`).toBe(true);
           expect(parts.kbd?.text, `${at}: key hint`).toBe(hint);
         }
-        if (width === 800 || width === 1392) {
+        if (width === 1392 || width === 1440) {
           expect(parts.label, `${at}: label`).toBe(true);
           expect(parts.kbd, `${at}: no key hint`).toBeNull();
         }
@@ -448,7 +535,7 @@ for (const [platform, hint] of [
             at,
           ).toEqual(
             width === 800
-              ? ['svg', 'SPAN']
+              ? ['svg']
               : width < 1152
                 ? ['svg', 'SPAN', 'KBD']
                 : ['svg'],

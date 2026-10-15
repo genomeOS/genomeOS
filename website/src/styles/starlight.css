@@ -343,7 +343,9 @@ select:focus-visible {
 /* The bar keeps the site's ion ring; the search dialog it opens is paper, so ion ink again. The
    phone's menu button sits on the bar but outside header.header (in nav.sidebar), so it is named
    here too (review of T6: ion ink on the void bar was 3.25:1, its halo invisible). */
-:root:not([data-theme='dark']) header.header :is(a, button):focus-visible,
+:root:not([data-theme='dark'])
+  header.header
+  :is(a, button, summary):focus-visible,
 :root:not([data-theme='dark']) .sl-menu-button:focus-visible {
   outline-color: #70e6ff;
   box-shadow: 0 0 0 3px rgb(112 230 255 / 28%);
