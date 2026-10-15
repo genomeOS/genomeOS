@@ -171,7 +171,7 @@ describe.skipIf(!projects)('the counts figure on the built page', () => {
       /<div class="layout-figure-split__text proj-counts__text">([\s\S]*?)<\/div>/,
     )![1];
     const words = column.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
-    expect(words).toContain('Counts, not guesses.');
+    expect(words).toContain('Counts, not guesses');
     expect(words).toContain('Zero is weak evidence, not absence.');
     expect(words).toContain(
       'Each person carries two copies of the gene; the Atlas counts copies.',

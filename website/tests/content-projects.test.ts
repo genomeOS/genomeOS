@@ -155,7 +155,7 @@ describe('projects page content', () => {
     ].map(([, inner]) => text(inner).trim());
     expect(parts).toEqual([
       'From scattered tables to placed evidence',
-      'Counts, not guesses.',
+      'Counts, not guesses',
       'From evidence to an explorable map',
       'Six rules the interface cannot hide',
     ]);
