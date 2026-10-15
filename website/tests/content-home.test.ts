@@ -47,7 +47,7 @@ describe('home page content', () => {
       'Of every 100 participants in genome-wide studies, up to 2021',
     );
     expect(text).toContain(
-      'Populations with the greatest genetic diversity to learn from are the least represented in research.',
+      'Populations with the greatest genetic diversity are the least represented in research.',
     );
     expect(text).toMatch(
       /86 European ancestry 13 All other ancestries, or not recorded 1 African ancestry/,
