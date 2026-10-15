@@ -27,7 +27,10 @@
  *   label; and every crew and prop stays inside the footprint the label model reckons with.
  * - The plate on one screen (owner, 2026-10-15): under the compact header, the bar, the stage and
  *   the columns down to their links at 1440 × 900 and up; the bar, the stage and every typed line
- *   at 1366 × 768 and 1280 × 800; the moon labels at 13 px or more at each. * - A moon under the pointer (owner, 2026-10-15) lights alone, from its disc or its label, and a
+ *   at 1366 × 768 and 1280 × 800; the moon labels at 13 px or more at each, and the moons and crews
+ *   within a tenth of their size before. Every landing stays inside the stage, on the desktop and
+ *   the tablet: each pod from its hover, each crew through its leap.
+ * - A moon under the pointer (owner, 2026-10-15) lights alone, from its disc or its label, and a
  *   click (a tap on a phone) opens its group's issues on GitHub in a new tab, its column link's
  *   URL; only its art that shows takes the pointer (a faded label, a crew yet to land and the
  *   moon's glow let it through); under reduced motion the same, at once.
@@ -1273,16 +1276,18 @@ for (const { width, height, layout } of [
  * and text panels on the screen at once"): scrolled to the plate, under the site's compact header,
  * its bar, its whole stage and its three columns down to their links show on a laptop screen; on a
  * short one (1366 × 768, 1280 × 800) the bar, the stage and every line the columns type. The moon
- * labels stay 13 px or more at every size.
+ * labels stay 13 px or more at every size, and the moons and crews within a tenth of the size they
+ * were drawn at before the plate got shorter (`before`, CSS px a viewBox unit; brief: they "don't
+ * shrink by more than about 10% on screen").
  */
 test.describe('the orbit plate on one screen @desktop-chromium', () => {
-  for (const [width, height, last] of [
-    [1440, 900, 'link'],
-    [1920, 1080, 'link'],
-    [1512, 982, 'link'],
-    [1728, 1117, 'link'],
-    [1366, 768, 'typed line'],
-    [1280, 800, 'typed line'],
+  for (const [width, height, last, before] of [
+    [1440, 900, 'link', 0.794],
+    [1920, 1080, 'link', 1],
+    [1512, 982, 'link', 0.915],
+    [1728, 1117, 'link', 1],
+    [1366, 768, 'typed line', 0.727],
+    [1280, 800, 'typed line', 0.727],
   ] as const)
     test(`shows the bar to the last ${last} under the compact header at ${width}×${height}`, async ({
       page,
@@ -1320,6 +1325,8 @@ test.describe('the orbit plate on one screen @desktop-chromium', () => {
           ].find((item) => item.getClientRects().length > 0)!;
           return {
             layout: svg.dataset.layout,
+            scale:
+              svg.getBoundingClientRect().width / svg.viewBox.baseVal.width,
             top: bar.top - header,
             height: bottom - bar.top,
             room: innerHeight - header,
@@ -1340,6 +1347,7 @@ test.describe('the orbit plate on one screen @desktop-chromium', () => {
       // The plate's top meets the header (the bar starts under its 1 px frame; scrolling rounds).
       expect(Math.abs(fit.top)).toBeLessThan(2);
       expect(fit.height).toBeLessThanOrEqual(fit.room);
+      expect(fit.scale).toBeGreaterThanOrEqual(0.9 * before);
       expect(fit.labels).toHaveLength(3);
       for (const size of fit.labels) expect(size).toBeGreaterThanOrEqual(13);
     });

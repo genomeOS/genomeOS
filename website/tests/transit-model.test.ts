@@ -250,12 +250,18 @@ describe('orbit scene', () => {
       'utf8',
     ).replace(/\s+/g, ' ');
     for (const L of [LAYOUTS.desktop, LAYOUTS.tablet]) {
-      const rule = css.match(
-        new RegExp(`\\.orbit-svg--${L.id} \\{ width: ([^;]+);`),
-      )?.[1];
-      expect(rule, L.id).toBeDefined();
-      expect(rule).toContain(`max(${L.minWidth}px,`);
-      expect(rule).toContain(`* ${L.w} / ${L.h})`);
+      const rules = [
+        ...css.matchAll(
+          new RegExp(`\\.orbit-svg--${L.id} \\{ width: ([^;]+);`, 'g'),
+        ),
+      ].map(([, rule]) => rule);
+      // The desktop's drawing has a second rule on a short screen (sized to the columns' typed
+      // lines there, not their links).
+      expect(rules, L.id).toHaveLength(L.id === 'desktop' ? 2 : 1);
+      for (const rule of rules) {
+        expect(rule).toContain(`max(${L.minWidth}px,`);
+        expect(rule).toContain(`* ${L.w} / ${L.h})`);
+      }
     }
   });
 
