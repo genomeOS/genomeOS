@@ -312,7 +312,8 @@ const ways = [
         ([entry]) => {
           if (!entry.isIntersecting) return;
           observer.disconnect();
-          void load(figure);
+          // A module that fails to load leaves its figure as served: whole, at rest.
+          load(figure).catch(() => undefined);
         },
         { rootMargin: '600px 0px' },
       );
