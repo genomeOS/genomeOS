@@ -96,6 +96,10 @@ describe('the people figure draws the sidecar', () => {
     expect(text).toContain(
       'Populations with the greatest genetic diversity are the least represented in research.',
     );
+    // The owner breaks the note after "diversity" (2026-10-15).
+    expect(figure).toMatch(
+      /genetic diversity<\/span>\s*<span[^>]*>are the least/,
+    );
     expect(text).toMatch(/86 European ancestry/);
     expect(text).toMatch(/13 All other ancestries, or not recorded/);
     expect(text).toMatch(/1 African ancestry/);
