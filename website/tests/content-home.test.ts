@@ -48,10 +48,12 @@ describe('home page content', () => {
     );
     // (The link's closing tag becomes a space here, before the full stop.)
     expect(text).toMatch(
-      /Source: GWAS Catalog, July 2021, in Fatumo et al\., Nature Medicine, 2022 ?\. A person in several studies is counted in each\./,
+      /Source: GWAS Catalog, July 2021, in Fatumo et al\., Nature Medicine, 2022 ↗ ?\. A person in several studies is counted in each\./,
     );
+    // It opens in a new tab, so it carries the site's ↗ like Code ↗ (review of T2), hidden from
+    // assistive tech.
     expect(main).toMatch(
-      /<a href="https:\/\/doi\.org\/10\.1038\/s41591-021-01672-4" target="_blank" rel="noopener noreferrer">Fatumo et al\., Nature Medicine, 2022<\/a>/,
+      /<a href="https:\/\/doi\.org\/10\.1038\/s41591-021-01672-4" target="_blank" rel="noopener noreferrer">Fatumo et al\., Nature Medicine, 2022 <span aria-hidden="true">↗<\/span><\/a>/,
     );
   });
 

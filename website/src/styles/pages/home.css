@@ -509,6 +509,13 @@
   }
 }
 
+/* Until the scene adopts its Replay (without JavaScript, or before the module loads), the bar
+   draws no rule: an empty strip with a rule under it read as a missing toolbar (review of T2).
+   Its room stays, so adopting the control shifts nothing. */
+.hiw .kit-plate__bar--top:not(:has(.kit-scene-control:not([hidden]))) {
+  border-bottom-color: transparent;
+}
+
 /* The open-source row, under the plate. */
 .home-open {
   grid-column: 1 / -1;
