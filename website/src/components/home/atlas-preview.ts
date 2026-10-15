@@ -22,7 +22,8 @@
  *              (placeLabels flips the side it sits on). They are drawn in an aria-hidden SVG, so no
  *              fading text is ever read as text (ruling 25); a visually hidden list always holds
  *              their words. On the Measured layer only the Measured label shows: the others name
- *              marks that layer does not draw.
+ *              marks that layer does not draw. On a figure narrower than 30rem the turning globe
+ *              shows one label at a time, its point's the nearest the centre (soloLead).
  *   layers     Measured / Modeled, a 240 ms cross-fade (a new switch cancels the last)
  *   drag/keys  drag turns (pointer capture, inertia ≤ 1 s, latitude −60…70°); arrow keys turn 8°;
  *              Home returns to the starting view.
@@ -265,6 +266,47 @@ export const LABEL_FACING_DEG = [60, 72] as const;
 const FACING_COSC = LABEL_FACING_DEG.map((degrees) =>
   Math.cos(degrees / DEG),
 ) as [number, number];
+
+/**
+ * Below this figure width (rem) the live, turning globe shows one label at a time: the one whose
+ * point is nearest the view centre (design critique 3: at 390 px the three plates covered about 40%
+ * of the disc, over the densest West African surveys). The others fade in as their points come to
+ * the front. Static states (reduced motion, poster, print, no script) keep every facing label, since
+ * nothing turns the others into view there; the visually hidden list always holds all three.
+ */
+export const SOLO_BELOW_REM = 30;
+/**
+ * Another point takes the one label over only once it is this much nearer the centre (in the
+ * cosine of its angle, about 1.5° at the rest view's distances), so two points about as far out do
+ * not trade the label back and forth.
+ */
+export const SOLO_SWITCH_COSC = 0.01;
+
+/**
+ * The one label a narrow, turning globe shows: the facing, shown label nearest the view centre,
+ * keeping `current` until another is SOLO_SWITCH_COSC nearer. Null when none faces the viewer.
+ */
+export function soloLead(
+  labels: readonly { cosc: number; shown: boolean }[],
+  current: number | null,
+): number | null {
+  const facing = (index: number) =>
+    labels[index]?.shown === true && labelAlpha(labels[index].cosc) > 0;
+  let best: number | null = null;
+  labels.forEach((label, index) => {
+    if (facing(index) && (best === null || label.cosc > labels[best].cosc))
+      best = index;
+  });
+  if (best === null) return null;
+  if (
+    current !== null &&
+    current !== best &&
+    facing(current) &&
+    labels[best].cosc - labels[current].cosc < SOLO_SWITCH_COSC
+  )
+    return current;
+  return best;
+}
 
 /**
  * The smallest disc a label must fit at rest: the compact form at a 320 px screen (a 288 px globe
@@ -913,6 +955,14 @@ export function initAtlasPreview(figure: HTMLElement): void {
   }));
   /** Labels lit by the entrance (all of them at rest). */
   let lit = 3;
+  /** On a narrow figure, the one label shown (soloLead), by index; null while none faces. */
+  let lead: number | null = null;
+  /** A narrow figure (below SOLO_BELOW_REM), read from the root's font size. */
+  const narrow = () => {
+    const rem =
+      parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    return figure.clientWidth < SOLO_BELOW_REM * rem;
+  };
 
   /** Set a label's text and plate for its side and width. */
   const layout = (label: Label) => {
@@ -979,9 +1029,26 @@ export function initAtlasPreview(figure: HTMLElement): void {
             !(entering && label.order > lit)),
       };
     });
+    // A narrow, live globe shows only the label nearest the centre; the others leave the layout
+    // and their bodies fade out where they are, riding with their points (SOLO_BELOW_REM).
+    const solo = !allShown && !reduced && narrow();
+    lead = solo
+      ? soloLead(
+          inputs.map((input) => ({
+            cosc: input.cosc,
+            shown: input.shown !== false,
+          })),
+          lead,
+        )
+      : null;
+    if (solo)
+      inputs.forEach((input, index) => {
+        if (index !== lead) input.shown = false;
+      });
     placeLabels(inputs, radius).forEach((placement, index) => {
       const label = labels[index];
       const input = inputs[index];
+      const quiet = solo && index !== lead;
       if (placement.side) setSide(label, placement.side);
       label.group.style.setProperty(
         '--lx',
@@ -991,10 +1058,13 @@ export function initAtlasPreview(figure: HTMLElement): void {
         '--ly',
         `${(input.y + height / 2).toFixed(1)}px`,
       );
-      label.group.style.opacity = placement.alpha.toFixed(3);
+      // A quiet label keeps its facing opacity, so its body fades out (is-off) rather than vanish.
+      label.group.style.opacity = (
+        quiet ? labelAlpha(input.cosc) : placement.alpha
+      ).toFixed(3);
       label.body.classList.toggle(
         'is-off',
-        !placement.fits || (!allShown && label.order > lit),
+        quiet || !placement.fits || (!allShown && label.order > lit),
       );
     });
   };

@@ -1065,6 +1065,17 @@ async function seekPreview(page: Page, ms: number): Promise<void> {
   await page.evaluate((t) => window.__motion!.seek('atlas-preview', t), ms);
 }
 
+/**
+ * A narrow preview (below 30rem): the live, turning globe shows one label at a time, its point's
+ * the nearest the centre (design critique 3; atlas-preview.ts SOLO_BELOW_REM).
+ */
+const narrowPreview = (page: Page) =>
+  preview(page).evaluate(
+    (figure) =>
+      figure.clientWidth <
+      30 * parseFloat(getComputedStyle(document.documentElement).fontSize),
+  );
+
 /** A hash of the canvas's pixels: it changes when the globe turns. */
 const canvasPixels = (page: Page) =>
   page.locator('#atlas-preview .hg-canvas').evaluate((canvas) => {
@@ -1522,13 +1533,20 @@ test('the layer control has one pressed layer, swaps the legend and the labels',
   // for areas with no estimate is drawn on both layers, so its label stays (review of T1).
   const body = (kind: string) =>
     figure.locator(`.hg-label[data-label="${kind}"] .hg-label__body`);
-  await expect(body('survey')).not.toHaveClass(/is-off/);
-  await expect(body('modeled')).toHaveClass(/is-off/);
-  await expect(body('unknown')).not.toHaveClass(/is-off/);
+  // A narrow globe shows one label, the survey's (the nearest the centre), on either layer.
+  const narrow = await narrowPreview(page);
+  const off = async (kind: string, isOff: boolean) =>
+    isOff
+      ? expect(body(kind)).toHaveClass(/is-off/)
+      : expect(body(kind)).not.toHaveClass(/is-off/);
+  await off('survey', false);
+  await off('modeled', true);
+  await off('unknown', narrow);
   // Screen readers keep all three.
   await expect(figure.locator('#atlas-preview-labels li')).toHaveCount(3);
   await layers.getByRole('button', { name: 'Modeled' }).click();
-  await expect(body('modeled')).not.toHaveClass(/is-off/);
+  await off('modeled', narrow);
+  await off('survey', false);
 });
 
 // Ruling 23: at the starting view every label shows beside its own point (G-3), and as the globe
@@ -1539,12 +1557,14 @@ test('the labels sit beside their points at rest and keep to the rules as the gl
 }) => {
   await page.goto('/');
   await livePreview(page);
+  const narrow = await narrowPreview(page);
   await seekPreview(page, 2800);
   const rest = await labelGeometry(page);
+  // A narrow globe shows only the label nearest the centre at rest: the survey's (14° out).
   expect(rest.labels.map((label) => [label.kind, label.shown])).toEqual([
     ['survey', true],
-    ['modeled', true],
-    ['unknown', true],
+    ['modeled', !narrow],
+    ['unknown', !narrow],
   ]);
   for (const label of rest.labels) expect(label.opacity).toBe(1);
   expect(labelRules('rest', rest.disc, rest.labels)).toEqual([]);
@@ -1560,10 +1580,14 @@ test('the labels sit beside their points at rest and keep to the rules as the gl
   const failures: string[] = [];
   const seen = new Set<string>();
   const gone = new Set<string>();
-  for (let ms = 7800; ms <= 60_000; ms += 2000) {
+  // A narrow globe shows the others as their points come round to the front, so it turns once.
+  const end = narrow ? 7800 + 90_000 : 60_000;
+  for (let ms = 7800; ms <= end; ms += 2000) {
     await seekPreview(page, ms);
     const { disc, labels } = await labelGeometry(page);
     failures.push(...labelRules(`${ms} ms`, disc, labels));
+    if (narrow && labels.filter((label) => label.shown).length > 1)
+      failures.push(`${ms} ms: more than one label on a narrow globe`);
     for (const label of labels) (label.shown ? seen : gone).add(label.kind);
   }
   expect(failures).toEqual([]);
@@ -1641,7 +1665,11 @@ test('arrow keys turn the focused globe, the labels following, and Home returns 
   await page.keyboard.press('Home');
   await expect(figure).toHaveAttribute('data-view', 'rest');
   const home = await labelGeometry(page);
-  expect(home.labels.every((label) => label.shown)).toBe(true);
+  // Back at rest: every label, or on a narrow globe the survey's alone (the nearest the centre).
+  const narrow = await narrowPreview(page);
+  expect(home.labels.map((label) => label.shown)).toEqual(
+    narrow ? [true, false, false] : [true, true, true],
+  );
 });
 
 // Ruling 25: the labels fade by design, so axe must pass at any instant, mid-fade included.
@@ -1766,10 +1794,22 @@ test('at 320 px the layer segments and the Pause glyph stay inside their row @mo
     );
     expect(clipped, `${name} label fits`).toBe(false);
   }
-  // And the labels fit the smallest disc.
+  // The turning globe shows one label at a time here, beside its point.
   const { disc, labels } = await labelGeometry(page);
-  expect(labels.every((label) => label.shown)).toBe(true);
+  expect(labels.map((label) => label.shown)).toEqual([true, false, false]);
   expect(labelRules('320 px', disc, labels)).toEqual([]);
+  // Where nothing turns them into view (reduced motion), all three show, and fit the smallest disc.
+  const still = await page.context().newPage();
+  await still.setViewportSize({ width: 320, height: 640 });
+  await still.emulateMedia({ reducedMotion: 'reduce' });
+  await still.goto('/');
+  await livePreview(still);
+  const rest = await labelGeometry(still);
+  expect(rest.labels.every((label) => label.shown)).toBe(true);
+  expect(labelRules('320 px, reduced motion', rest.disc, rest.labels)).toEqual(
+    [],
+  );
+  await still.close();
 });
 
 // Forced colours hide the canvas and show the poster, the Modeled starting view (spec §2.2), so

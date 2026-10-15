@@ -21,6 +21,8 @@ import {
   SPIN_EASE_OUT_MS,
   SPIN_IDLE_MS,
   SPIN_RAMP_MS,
+  SOLO_BELOW_REM,
+  SOLO_SWITCH_COSC,
   STUD_REFERENCE_RADIUS,
   TURN_DEG,
   entranceAt,
@@ -34,6 +36,7 @@ import {
   layerFader,
   placeLabels,
   previewStudScale,
+  soloLead,
   spinAngleAt,
   type LabelBox,
   type LabelInput,
@@ -565,6 +568,36 @@ describe('the on-globe labels (ruling 23)', () => {
       expect(labelAlpha(deg(angle))).toBeLessThanOrEqual(previous);
       previous = labelAlpha(deg(angle));
     }
+  });
+
+  // Design critique 3: at 390 px three plates covered about 40% of the disc. A narrow, turning
+  // globe shows one label at a time, its point's the nearest the centre.
+  it('on a narrow turning globe, show only the label nearest the centre, without flicker', () => {
+    expect(SOLO_BELOW_REM).toBe(30);
+    const at = (...coscs: number[]) =>
+      coscs.map((cosc) => ({ cosc, shown: true }));
+    // The rest view's three points (survey 14°, modeled 15°, no estimate 55° out): the survey's.
+    const rest = at(deg(14), deg(15.4), deg(55));
+    expect(soloLead(rest, null)).toBe(0);
+    // The one shown keeps the label until another point is clearly nearer.
+    const close = at(0.95, 0.95 + SOLO_SWITCH_COSC / 2, 0.2);
+    expect(soloLead(close, 0)).toBe(0);
+    expect(soloLead(close, null)).toBe(1);
+    expect(soloLead(at(0.95, 0.95 + SOLO_SWITCH_COSC * 2, 0.2), 0)).toBe(1);
+    // A label its layer hides, or whose point faces away, never takes it.
+    expect(
+      soloLead(
+        [
+          { cosc: 0.5, shown: true },
+          { cosc: 0.99, shown: false },
+          { cosc: 0.6, shown: true },
+        ],
+        1,
+      ),
+    ).toBe(2);
+    expect(soloLead(at(deg(80), deg(85), -0.3), 0)).toBeNull();
+    // Turned away, the one shown gives way at once.
+    expect(soloLead(at(deg(75), 0.9, 0.2), 0)).toBe(1);
   });
 
   it('set their text beside the point’s ring, on any of four sides', () => {
