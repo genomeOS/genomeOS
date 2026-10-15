@@ -290,7 +290,9 @@ describe('the webmail compose links', () => {
     expect(url).toBe(
       `https://mail.google.com/mail/?view=cm&fs=1&to=team%40example.org&su=${encodeURIComponent(draft.subject)}&body=${encodeURIComponent(draft.body)}`,
     );
-    expect(url).toContain('&su=Contributing%20to%20genomeOS%3A%20code%2C%20data');
+    expect(url).toContain(
+      '&su=Contributing%20to%20genomeOS%3A%20code%2C%20data',
+    );
     expect(url).toContain('Dear%20genomeOS%20Foundation%20team%2C%0A%0A');
     expect(url).not.toMatch(/[\s"<>]|%0D/);
     const query = new URL(url).searchParams;

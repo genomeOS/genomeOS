@@ -456,7 +456,8 @@ test.describe('the address waits for a person', () => {
       expect(await boxes(), label).toEqual(before);
       // A frame for any shift to be reported.
       await page.evaluate(
-        () => new Promise((done) => requestAnimationFrame(() => setTimeout(done))),
+        () =>
+          new Promise((done) => requestAnimationFrame(() => setTimeout(done))),
       );
       expect(await shifts(), label).toBe(shifted);
     }
@@ -530,7 +531,10 @@ test.describe('Gmail and Outlook on the web', () => {
     await context.route(
       /^https:\/\/(mail\.google\.com|outlook\.live\.com)\//,
       (route) =>
-        route.fulfill({ contentType: 'text/html', body: '<title>Compose</title>' }),
+        route.fulfill({
+          contentType: 'text/html',
+          body: '<title>Compose</title>',
+        }),
     );
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/contact/');
@@ -543,7 +547,10 @@ test.describe('Gmail and Outlook on the web', () => {
     }
     await offer(page, 'funding').click();
     await offer(page, 'data').click();
-    const draft = buildDraft({ topic: 'contribute', offers: ['data', 'funding'] });
+    const draft = buildDraft({
+      topic: 'contribute',
+      offers: ['data', 'funding'],
+    });
     await gmail.hover();
     expectCompose(
       await gmail.getAttribute('href'),
@@ -1085,9 +1092,13 @@ test.describe('the letter’s copy button', () => {
     expect(box.width).toBeGreaterThanOrEqual(44);
     expect(box.height).toBeGreaterThanOrEqual(44);
     // In the corner: the stage's top right, above the Subject line.
-    const stage = await pageBox(page.locator('.contact-letter .kit-plate__stage'));
+    const stage = await pageBox(
+      page.locator('.contact-letter .kit-plate__stage'),
+    );
     expect(stage.x + stage.width - (box.x + box.width)).toBeLessThan(28);
-    expect(stage.x + stage.width - (box.x + box.width)).toBeGreaterThanOrEqual(0);
+    expect(stage.x + stage.width - (box.x + box.width)).toBeGreaterThanOrEqual(
+      0,
+    );
     expect(box.y - stage.y).toBeLessThan(28);
     expect(box.y).toBeGreaterThanOrEqual(stage.y);
     expect(box.y + box.height).toBeLessThanOrEqual(
@@ -1139,16 +1150,31 @@ test.describe('the letter’s copy button', () => {
     );
   });
 
-  test('where the screen is wide enough, "Copied" shows beside its check', async ({
+  test('"Copied" shows beside its check, inside the plate, at 1440 and 320 px', async ({
     page,
   }) => {
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('/contact/');
     await grantClipboard(page);
-    const word = copyLetter(page).getByText('Copied', { exact: true });
-    await expect(word).toBeHidden();
-    await copyLetter(page).click();
-    await expect(word).toBeVisible();
+    for (const [width, height] of [
+      [1440, 900],
+      [320, 640],
+    ] as const) {
+      await page.setViewportSize({ width, height });
+      await page.goto('/contact/');
+      const word = copyLetter(page).getByText('Copied', { exact: true });
+      await expect(word).toBeHidden();
+      await copyLetter(page).click();
+      await expect(word, `${width} px`).toBeVisible();
+      const [box, check, stage] = await Promise.all(
+        [
+          word,
+          copyLetter(page).locator('.letter-copy__check'),
+          page.locator('.contact-letter .kit-plate__stage'),
+        ].map(pageBox),
+      );
+      expect(box.x + box.width, `${width} px`).toBeLessThanOrEqual(check.x);
+      expect(check.x - (box.x + box.width), `${width} px`).toBeLessThan(16);
+      expect(box.x, `${width} px`).toBeGreaterThan(stage.x);
+    }
   });
 
   test('where the clipboard is blocked, the letter is selected instead, and the page says which keys copy it', async ({
@@ -1181,7 +1207,9 @@ test.describe('the letter’s copy button', () => {
     );
     // Its line sits beside the button, at the letter's top.
     const line = await pageBox(hint(page, 'letter'));
-    const stage = await pageBox(page.locator('.contact-letter .kit-plate__stage'));
+    const stage = await pageBox(
+      page.locator('.contact-letter .kit-plate__stage'),
+    );
     expect(line.y).toBeGreaterThanOrEqual(stage.y);
     expect(line.y + line.height).toBeLessThanOrEqual(
       (await pageBox(page.locator('.letter__head'))).y + 1,
@@ -1672,7 +1700,10 @@ test.describe('the letter types itself out', () => {
     for (const ms of [300, 900, 1600]) {
       await typeAt(page, ms);
       const lines = await linesOnScreen(page);
-      expect(lines[0], `${ms} ms`).toMatchObject({ text: ADDRESS, shown: null });
+      expect(lines[0], `${ms} ms`).toMatchObject({
+        text: ADDRESS,
+        shown: null,
+      });
       const shown = lines
         .slice(1)
         .reduce((sum, { shown, length }) => sum + (shown ?? length), 0);
@@ -1715,7 +1746,9 @@ test.describe('the letter types itself out', () => {
           });
           const button = document.querySelector('.letter-copy')!;
           const shown = [button, ...button.querySelectorAll('*')]
-            .filter((part) => part.checkVisibility({ visibilityProperty: true }))
+            .filter((part) =>
+              part.checkVisibility({ visibilityProperty: true }),
+            )
             .map((part) => plain(part.getBoundingClientRect()));
           const to = document.createRange();
           to.selectNodeContents(document.querySelector('.letter__row dd')!);
@@ -2814,24 +2847,31 @@ test('axe finds nothing serious with each hint showing and a copy confirmed', as
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.clock.install();
   await page.goto('/contact/?topic=contribute&offer=data');
+  const blocking = async (where: string) =>
+    expect(
+      (
+        await new AxeBuilder({ page })
+          .include('main')
+          .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+          .analyze()
+      ).violations.filter(({ impact }) =>
+        ['serious', 'critical'].includes(impact ?? ''),
+      ),
+      where,
+    ).toEqual([]);
+  // Each click is watched until the next: Email us's hint, then Open draft's beside it.
   await mailtoFrom(page, () => emailUs(page).click());
+  await page.clock.runFor(1600);
+  await expectShown(hint(page, 'address'));
+  await blocking('Email us’s hint');
   await mailtoFrom(page, () =>
     action(page, 'Open draft in your email app').click(),
   );
   await page.clock.runFor(1600);
-  await expectShown(hint(page, 'address'));
   await expectShown(hint(page, 'draft'));
   await copyLetter(page).click();
   await expect(copyLetter(page)).toHaveAttribute('data-confirmed', '');
-  const { violations } = await new AxeBuilder({ page })
-    .include('main')
-    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
-    .analyze();
-  expect(
-    violations.filter(({ impact }) =>
-      ['serious', 'critical'].includes(impact ?? ''),
-    ),
-  ).toEqual([]);
+  await blocking('Open draft’s hint, the letter copied');
 });
 
 // Ruling 35: no visible "Pause", "Play", "Replay" or "Resume" anywhere on the site. The letter's
