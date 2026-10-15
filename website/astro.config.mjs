@@ -144,9 +144,12 @@ export default defineConfig({
               // the motion kit every figure page uses, and the hex-map kit the globe and the HbS
               // map share. src/graphics/encoding.ts imports nothing from the Atlas at run time
               // (tests/encoding-tokens.test.ts), so neither group pulls Atlas code in.
+              // The seeded random numbers (rng.ts, a few lines) sit here too: every figure page
+              // has this group from its first load, and the orbit and the board, which need only
+              // mulberry32, would otherwise pull the whole hex kit with them (5 KB gz).
               {
                 name: 'figure-kit',
-                test: /[\\/]src[\\/]graphics[\\/](?:figure|tween|tabs)\.ts$/,
+                test: /[\\/]src[\\/]graphics[\\/](?:figure|tween|tabs|rng)\.ts$/,
               },
               // The scene kit (round 2 spec §3.1): the timeline, typing, the motion hooks and the
               // astronauts' pose tracks, one cached file for every scene module (orbit, board, crew,
@@ -157,7 +160,7 @@ export default defineConfig({
               },
               {
                 name: 'hex-kit',
-                test: /[\\/]src[\\/]graphics[\\/](?:hexfield|projection|figure-data|encoding|rng)\.ts$|[\\/]src[\\/]data[\\/]figures[\\/]hbs-surveys\.\w+\.bin\?url$/,
+                test: /[\\/]src[\\/]graphics[\\/](?:hexfield|projection|figure-data|encoding)\.ts$|[\\/]src[\\/]data[\\/]figures[\\/]hbs-surveys\.\w+\.bin\?url$/,
               },
             ],
           },
