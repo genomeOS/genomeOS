@@ -899,6 +899,10 @@ export function plan(geo: Geo): Plan {
   };
   const e1BlockX = anchors('E1', resolveKey('E1', e1Give)).block![0];
   const HE1 = handX + e1BlockX * s; // E1 faces left: its block sits to its left
+  // E1 steps in about where E2 stands, so E2 hops back to make room, still watching: both
+  // experts stay in view as they take the block.
+  const HE2 = HE1 + 52 * s;
+  hop('E2', tH + 50, RE2, HE2, { dur: 360, h: -14, face: -1 });
   key('A3', tH, { ...giveA3, x: u(R3), face: 1, expr: 'happy' }, EASE.inOut);
   key('E1', tH, { pose: 'stand', x: u(RE1), face: -1 }, EASE.inOut);
   key(
@@ -941,7 +945,8 @@ export function plan(geo: Geo): Plan {
   // bounces over and they all celebrate
   const tM = tSwap + 450;
   const e1m = walk('E1', tM, HE1, ME1, { ...carry, blockLit: true }, 300, 8);
-  const e2m = walk('E2', tM + 200, RE2, ME2, {}, 320, 10);
+  // E2 leads the way (and clears E1's path); E1 follows with the block.
+  const e2m = walk('E2', tM - 200, HE2, ME2, {}, 320, 10);
   key('E2', e2m + 100, { pose: 'think', x: u(ME2), face: -1 }, EASE.inOut);
   cardMoves.push([tM + 200, 4]);
   const tMerged = tM + 600;
