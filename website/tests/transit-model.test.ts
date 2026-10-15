@@ -443,6 +443,18 @@ describe('orbit scene', () => {
       }
   });
 
+  it('shows each desktop and tablet label from its moon’s arrival to the story’s end', () => {
+    // The story is when a visitor reads the moons' names with the columns' text (review of the
+    // orbit's hover, finding 2: a label set deeper under its moon hid the Modeling one for four
+    // seconds while the pods landed).
+    for (const L of [LAYOUTS.desktop, LAYOUTS.tablet])
+      for (const kind of KINDS) {
+        const track = labelTrack(L, kind);
+        for (let t = T.moon[kind]; t <= T.story; t += 250)
+          expect(labelOpacity(track, t), `${L.id} ${kind} at ${t} ms`).toBe(1);
+      }
+  });
+
   it('fades a label out before anything reaches it and back in after, never blinking', () => {
     for (const L of layouts)
       for (const kind of KINDS) {

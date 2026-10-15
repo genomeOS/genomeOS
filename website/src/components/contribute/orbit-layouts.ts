@@ -87,7 +87,10 @@ export interface OrbitLayout {
   /**
    * A moon label's baseline below the moon's rim, units. It stays put while the moon shrinks to
    * the back of the orbit, as the label keeps its size there (renderOrbit), so the gap between a
-   * moon and its name is one gap all the way round.
+   * moon and its name is one gap all the way round. The desktop's is as deep as it can be with the
+   * Modeling label still clear of the globe's art as it passes over it while the pods land: any
+   * deeper and the label hid for four seconds of the story (labelTrack; review of the orbit's
+   * hover, finding 2).
    */
   drop: number;
   r: Record<MoonKind, number>;
@@ -129,7 +132,7 @@ export const LAYOUTS: Record<LayoutId, OrbitLayout> = {
     Ry: 172,
     cs: 0.9,
     label: 21,
-    drop: 27,
+    drop: 24,
     r: { data: 104, model: 90, ui: 118 },
     lod: 'full',
     short: false,
