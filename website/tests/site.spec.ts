@@ -2297,6 +2297,48 @@ test('mobile navigation is a keyboard-operable disclosure', async ({
   ]);
 });
 
+// WCAG 2.5.8 asks 24 px, and the site's touch targets are 44 px; the Menu's links were 23 px
+// tall (design critique 3). Padding makes the target, so the Menu looks as it did.
+test('every Menu link is a 44 px target on a phone, at 390 and 320 px', async ({
+  page,
+}) => {
+  for (const [width, height] of [
+    [390, 844],
+    [320, 640],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    // /contact/ marks its own link as the current page.
+    for (const route of ['/', '/contact/']) {
+      await page.goto(route);
+      await page.locator('.mobile-nav summary').click();
+      const links = page
+        .getByRole('navigation', { name: 'Mobile navigation' })
+        .getByRole('link');
+      // Project, Contribute, Docs, Contact and GitHub.
+      await expect(links).toHaveCount(5);
+      const boxes = await links.evaluateAll((all) =>
+        all.map((link) => {
+          const box = link.getBoundingClientRect();
+          return {
+            name: link.textContent!.trim(),
+            top: box.top,
+            bottom: box.bottom,
+          };
+        }),
+      );
+      boxes.forEach(({ name, top, bottom }, index) => {
+        const label = `${name} at ${width} px on ${route}`;
+        expect(bottom - top, label).toBeGreaterThanOrEqual(44);
+        // Side by side in the list, never overlapping.
+        if (index > 0)
+          expect(top, label).toBeGreaterThanOrEqual(
+            boxes[index - 1].bottom - 0.5,
+          );
+      });
+    }
+  }
+});
+
 test('the Menu panel scrolls inside short viewports and closes on Escape or when focus leaves it', async ({
   page,
 }) => {
