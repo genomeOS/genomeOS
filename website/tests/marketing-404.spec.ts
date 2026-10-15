@@ -61,13 +61,13 @@ test('the routes back are three cards, to Home, Contribute and Docs', async ({
       ]),
     ),
   ).toEqual([
-    ['/', 'Home Who we are and how it works.'],
+    ['/', 'Home Who we are, how it works.'],
     ['/projects/', 'Projects What we’re building.'],
     ['/contribute/', 'Contribute Find your group.'],
     ['/docs/', 'Docs Science and engineering.'],
   ]);
   await expect(cards.first()).toHaveAccessibleName(
-    'Home Who we are and how it works.',
+    'Home Who we are, how it works.',
   );
 });
 
