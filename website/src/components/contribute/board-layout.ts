@@ -1170,6 +1170,18 @@ export function plan(geo: Geo): Plan {
     K[id].push([end - 400, finals[id], EASE.inOut], [end, finals[id]]);
     K[id].sort((a, b) => a[0] - b[0]);
   }
+  // A speaker holds the pose they speak in until their bubble starts to fade, so the bubble's tail
+  // stays on their helmet (keys interpolate, so the head would otherwise drift toward the next pose
+  // while the bubble still shows).
+  for (const said of says) {
+    const keys = K[said.id as BoardCast];
+    const at = keys.findLastIndex(([t]) => t <= said.t0 + 60);
+    const hold = said.t1 - 220;
+    const next = keys[at + 1];
+    if (at >= 0 && next && next[0] > hold && hold > keys[at][0]) {
+      keys.splice(at + 1, 0, [hold, keys[at][1], EASE.inOut]);
+    }
+  }
 
   // ---- idle loop (8 s): the Discussion pair keeps talking; the Merge crew admires the wall
   const loopK: Record<BoardCast, PoseKey[]> = {

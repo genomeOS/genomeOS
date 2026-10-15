@@ -67,8 +67,10 @@ const boardState = (page: Page) =>
       ].filter((number) => !number.hidden && opacity(number) > 0.5);
       return shown.length === 1 ? Number(shown[0].textContent) : NaN;
     });
-    const status = [...figure.querySelectorAll('[data-example="home"] .st')]
-      .filter((word) => opacity(word) > 0.5)
+    const status = [
+      ...figure.querySelectorAll<HTMLElement>('[data-example="home"] .st'),
+    ]
+      .filter((word) => !word.hidden && opacity(word) > 0.5)
       .map((word) => word.textContent!.trim());
     const cells = [...(live?.querySelectorAll('.wall-cell') ?? [])];
     const lit = cells.filter(
@@ -286,6 +288,7 @@ test.describe('the story at the seek table @desktop-chromium', () => {
     // Off screen, every animation in the board pauses.
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
     await expect(board).toHaveAttribute('data-scene-state', 'paused');
+    // The scene's own tracks (a hovered button's CSS transition is not the scene).
     const running = () =>
       page.evaluate(
         (selector) =>
@@ -294,6 +297,7 @@ test.describe('the story at the seek table @desktop-chromium', () => {
             .filter(
               (animation) =>
                 animation.playState === 'running' &&
+                !(animation instanceof CSSTransition) &&
                 (
                   (animation.effect as KeyframeEffect).target as Element
                 )?.closest(selector),
