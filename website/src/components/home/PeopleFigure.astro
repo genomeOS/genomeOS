@@ -11,8 +11,12 @@
  * tested grey, 13 in muted, and the one African-ancestry person last, in starlight, inside a square
  * ring whose leader drops to the note.
  *
- *   wide    (figure ≥ 33rem, a container query) 20 × 5 on a 34 × 42 pitch, glyphs 24 × 30
- *   narrow  10 × 10, the same pitch, at most 24rem wide (the people's size at 1440 px)
+ *   wide    (figure ≥ 31.25rem, a container query) 20 × 5 on a 28 × 34 pitch, glyphs 24 × 30
+ *   narrow  10 × 10, the same pitch
+ *
+ * Both draw a unit as at most a pixel, each person 24 × 30 px: the owner (2026-10-15) asked for
+ * smaller astronauts in a tighter block, so the grid stops growing at that size (home.css) instead
+ * of filling the figure's width (it drew them 31 × 39 px at 1440).
  *
  * Both layouts are server-rendered at rest; the 13 and the 1 sit over a tested-grey copy of
  * themselves, which people.ts uses to settle them into their tones during the entrance. Labels are
@@ -45,7 +49,7 @@ const STATE = {
   other: 'other',
   african: 'carrier',
 } as const;
-const PITCH = { x: 34, y: 42 };
+const PITCH = { x: 28, y: 34 };
 const GLYPH = { w: 24, h: 30 };
 const RING = 4;
 const LEADER = 24;
@@ -154,7 +158,8 @@ const label = `Of every ${PEOPLE_TOTAL} participants in genome-wide studies up t
   }
 
   <p slot="readout" class="people__note" data-figure-chrome>
-    People of African ancestry carry the most human genetic diversity.
+    People with the greatest genetic diversity to learn from are the least
+    represented in research.
   </p>
 
   <Fragment slot="legend">

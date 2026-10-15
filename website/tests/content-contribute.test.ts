@@ -194,18 +194,39 @@ describe('contribute page content', () => {
     expect(labels('phone')).toEqual(['Data', 'Modeling', 'UI']);
   });
 
-  it('gives each group a column: title, Group forming, typed text, examples and its skill filter', () => {
+  it('gives each group a column: title, Group forming, typed text, examples and its issues', () => {
+    // A group's open issues are those of its type or its skill: GitHub reads comma-separated labels
+    // as "any of" (owner, 2026-10-15). Its moon opens the same URL (contribute.astro).
     const issues =
-      'https://github.com/genomeOS/genomeOS/issues?q=is%3Aissue+is%3Aopen+label%3A%22skill%3A';
-    for (const [id, skill, title] of [
-      ['group-data', 'data-engineering', 'Data & Infrastructure'],
-      ['group-modeling', 'spatial-stats', 'Statistical & AI Modeling'],
-      ['group-ui', 'frontend', 'UI & Applications'],
+      'https://github.com/genomeOS/genomeOS/issues?q=is%3Aissue+is%3Aopen+label%3A';
+    for (const [id, labels, query, title] of [
+      [
+        'group-data',
+        '%22type%3Adata%22%2C%22type%3Ainfra%22%2C%22skill%3Adata-engineering%22',
+        'is:issue is:open label:"type:data","type:infra","skill:data-engineering"',
+        'Data & Infrastructure',
+      ],
+      [
+        'group-modeling',
+        '%22type%3Ascience%22%2C%22skill%3Aspatial-stats%22',
+        'is:issue is:open label:"type:science","skill:spatial-stats"',
+        'Statistical & AI Modeling',
+      ],
+      [
+        'group-ui',
+        '%22type%3Aui%22%2C%22skill%3Afrontend%22',
+        'is:issue is:open label:"type:ui","skill:frontend"',
+        'UI & Applications',
+      ],
     ]) {
       const card = column(id);
       expect(card, id).toBeDefined();
       expect(textOf(card!.match(/<h3\b[\s\S]*?<\/h3>/)![0])).toBe(title);
-      expect(card).toContain(`href="${issues}${skill}%22"`);
+      expect(card).toContain(`href="${issues}${labels}"`);
+      const href = card!.match(/class="orbit-col__link" href="([^"]+)"/)![1];
+      expect(
+        decodeURIComponent(new URL(href).search.slice(3).replace(/\+/g, ' ')),
+      ).toBe(query);
       expect(card).toMatch(/target="_blank" rel="noopener noreferrer"/);
       expect(card).toContain('Group forming');
       expect(textOf(card!)).toContain('Browse matching issues');

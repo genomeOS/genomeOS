@@ -84,52 +84,75 @@ export interface OrbitLayout {
   cs: number;
   /** moon label size, units */
   label: number;
+  /**
+   * A moon label's baseline below the moon's rim, units. It stays put while the moon shrinks to
+   * the back of the orbit, as the label keeps its size there (renderOrbit), so the gap between a
+   * moon and its name is one gap all the way round.
+   */
+  drop: number;
   r: Record<MoonKind, number>;
   lod: 'full' | 'lite';
   /** short moon labels ("Data", "Modeling", "UI") */
   short: boolean;
   /** the narrowest stage this layout is drawn at, CSS px (OrbitScene's container query) */
   minStage: number;
+  /**
+   * The narrowest the drawing gets, CSS px: the desktop's is sized to the screen's height and may
+   * be narrower than its stage on a short laptop screen (contribute.css), its labels at 13 px still.
+   */
+  minWidth: number;
 }
 
 /**
- * Desktop from a 960 px stage (18-unit labels at 13 px or more); tablets from 680 px (round 2 spec
- * §4.3.2: the layout the prototype left unbuilt); phones below, at 274 px and up (the 320 px
- * viewport). Labels are larger than the prototype's where the site's wider page gutters make the
- * stage narrower than the prototype measured.
+ * Desktop from a 960 px stage; tablets from 680 px (round 2 spec §4.3.2: the layout the prototype
+ * left unbuilt); phones below, at 274 px and up (the 320 px viewport). Labels are larger than the
+ * prototype's where the site's wider page gutters make the stage narrower than the prototype
+ * measured.
+ *
+ * The desktop and tablet stages are as tall as the orbit needs and no taller (owner, 2026-10-15:
+ * the section "just needs to be maybe 20% less tall so we can fit both the graphics and text panels
+ * on the screen at once"): the top moon's crew, mid-hop, reaches 3 units under the top edge, and on
+ * the desktop the front moon's label fades out as it would cross the bottom edge (labelCover), so
+ * the stage ends just under the front moon. The desktop's 21-unit labels let its drawing narrow to
+ * 818 px on a short laptop screen (1366 × 768), labels still 13 px, so the plate's text shows under
+ * it; the moons and crews keep their sizes in units.
  */
 export const LAYOUTS: Record<LayoutId, OrbitLayout> = {
   desktop: {
     id: 'desktop',
     w: 1320,
-    h: 680,
+    h: 665,
     cx: 660,
-    cy: 340,
+    cy: 358,
     globe: 64,
     Rx: 460,
     Ry: 172,
     cs: 0.9,
-    label: 18,
+    label: 21,
+    drop: 27,
     r: { data: 104, model: 90, ui: 118 },
     lod: 'full',
     short: false,
     minStage: 960,
+    minWidth: 818,
   },
   tablet: {
     id: 'tablet',
     w: 900,
-    h: 560,
+    h: 503,
     cx: 450,
-    cy: 280,
+    cy: 261,
     globe: 44,
     Rx: 330,
     Ry: 130,
     cs: 0.62,
     label: 17.5,
+    drop: 28,
     r: { data: 64, model: 56, ui: 72 },
     lod: 'lite',
     short: false,
     minStage: 680,
+    minWidth: 680,
   },
   phone: {
     id: 'phone',
@@ -142,10 +165,12 @@ export const LAYOUTS: Record<LayoutId, OrbitLayout> = {
     Ry: 124,
     cs: 0.36,
     label: 17.5,
+    drop: 31.5,
     r: { data: 42, model: 38, ui: 46 },
     lod: 'lite',
     short: true,
     minStage: 274,
+    minWidth: 274,
   },
 };
 
@@ -311,10 +336,10 @@ export function discAt(
   return [x, y, L.r[kind] * d];
 }
 
-/** A moon label's box at time t (it rides under its moon at one size; renderOrbit). */
+/** A moon label's box at time t (it rides `drop` under its moon's rim at one size; renderOrbit). */
 export function labelBox(L: OrbitLayout, kind: MoonKind, t: number): Box {
   const [x, y, d] = moonCenter(L, kind, t);
-  const base = y + (L.r[kind] + L.label + 14) * d;
+  const base = y + L.r[kind] * d + L.drop;
   const half = (LABEL_EM[L.short ? 'short' : 'long'][kind] * L.label) / 2;
   return [
     x - half - LABEL_HALO,
@@ -351,16 +376,19 @@ const overlapsDisc = (box: Box, [x, y, r]: [number, number, number]) =>
   ) < r;
 
 /**
- * What covers a moon label at time t, if anything: the globe's art, or another moon, its crew or
- * its props (labels are drawn over the globe and under the moons). `margin` units of clearance.
+ * What covers a moon label at time t, if anything: the stage's edge (the desktop's front moon
+ * passes so low that its label would cross the bottom edge, and the stage ends there; LAYOUTS), the
+ * globe's art, or another moon, its crew or its props (labels are drawn over the globe and under
+ * the moons). `margin` units of clearance.
  */
 export function labelCover(
   L: OrbitLayout,
   kind: MoonKind,
   t: number,
   margin = 0,
-): MoonKind | 'globe' | null {
+): MoonKind | 'globe' | 'edge' | null {
   const box = grow(labelBox(L, kind, t), margin);
+  if (box[0] < 0 || box[1] < 0 || box[2] > L.w || box[3] > L.h) return 'edge';
   if (overlapsDisc(box, [L.cx, L.cy, L.globe * GLOBE_ART])) return 'globe';
   for (const other of KINDS) {
     if (other === kind || t < T.moon[other]) continue;
@@ -500,8 +528,16 @@ export const isConstant = (frames: [number, number][]): boolean =>
 
 /* -------------------------------------------------------------------------------- the copy */
 
-const ISSUES =
-  'https://github.com/genomeOS/genomeOS/issues?q=is%3Aissue+is%3Aopen+label%3A%22skill%3A';
+/**
+ * A group's open issues on GitHub, as a search link. Comma-separated labels are "any of" in GitHub's
+ * search, so a group's work is every open issue of its type or its skill (owner, 2026-10-15: a moon
+ * opens "the Issues page on GH with working-group-specific filters applied"). The moon and its
+ * column's "Browse matching issues" share this one URL.
+ */
+export function issuesLink(labels: readonly string[]): string {
+  const query = `is:issue is:open label:${labels.map((label) => `"${label}"`).join(',')}`;
+  return `https://github.com/genomeOS/genomeOS/issues?q=${encodeURIComponent(query).replace(/%20/g, '+')}`;
+}
 
 export interface Group {
   kind: MoonKind;
@@ -516,6 +552,7 @@ export interface Group {
   what: string;
   /** typed second: who might join (examples, not requirements) */
   who: string;
+  /** the group's open issues on GitHub (issuesLink): its column's link and its moon go there */
   issues: string;
 }
 
@@ -529,7 +566,7 @@ export const GROUPS: Group[] = [
     short: 'Data',
     what: 'Find allele counts in papers, supplements and non-English literature. Place every population with a stated uncertainty, then store and serve every version.',
     who: 'For example: literature sleuths, data engineers, multilingual readers.',
-    issues: `${ISSUES}data-engineering%22`,
+    issues: issuesLink(['type:data', 'type:infra', 'skill:data-engineering']),
   },
   {
     kind: 'model',
@@ -539,7 +576,7 @@ export const GROUPS: Group[] = [
     short: 'Modeling',
     what: 'The world has not been sampled evenly. Brian leads Bayesian spatial models; geometric deep learning welcome. Frequencies become disease-burden and risk estimates.',
     who: 'For example: statisticians, machine-learning engineers, epidemiologists.',
-    issues: `${ISSUES}spatial-stats%22`,
+    issues: issuesLink(['type:science', 'skill:spatial-stats']),
   },
   {
     kind: 'ui',
@@ -549,7 +586,7 @@ export const GROUPS: Group[] = [
     short: 'UI',
     what: 'Make estimates and unknowns legible to anyone. Future exploration: an agentic AI guide and people’s own genomes, gated by privacy, consent and governance.',
     who: 'For example: designers, front-end developers, map makers.',
-    issues: `${ISSUES}frontend%22`,
+    issues: issuesLink(['type:ui', 'skill:frontend']),
   },
 ];
 
@@ -633,10 +670,16 @@ export function renderOrbit(L: OrbitLayout, opt: RenderOptions): string {
     );
   };
   const groups = Object.fromEntries(GROUPS.map((g) => [g.kind, g]));
+  // A label's counter-scale undoes its moon's depth scale as written (two decimals), to four, so
+  // the label is its own size, not 0.4% under it: at the desktop's narrowest drawing that is the
+  // difference between 13 px and 12.99.
+  const counter = (kind: MoonKind) =>
+    +(1 / f(depth(theta(kind, T.story)))).toFixed(4);
   // Labels sit in a layer over the globe and under the moons; each fades out before anything would
   // cover it, and back in once clear (labelTrack; orbit.ts plays it on `.orb-label-vis`). Each
-  // label rides under its moon's edge (depth-scaled) but counters the depth scale itself, so it
-  // keeps one size, 13 px or more, all the way round (orbit.ts runs the matching ambient track).
+  // label rides under its moon's rim (depth-scaled) but counters the depth scale itself, so it keeps
+  // one size, 13 px or more, and one gap under the rim, `drop`, all the way round (orbit.ts runs
+  // the matching ambient track).
   const labels =
     `<g class="j orb-labels">` +
     KINDS.map((kind) => {
@@ -655,7 +698,7 @@ export function renderOrbit(L: OrbitLayout, opt: RenderOptions): string {
         : '';
       return carrier(
         kind,
-        `<g class="orb-label"><g class="orb-label-vis"${data} transform="translate(0 ${f(L.r[kind] + L.label + 14)})"><g class="j orb-label-k" style="transform:scale(${f(1 / depth(theta(kind, T.story)))})">${label}</g></g></g>`,
+        `<g class="orb-label"><g class="orb-label-vis"${data} transform="translate(0 ${L.r[kind]})"><g class="j orb-label-k" style="transform:scale(${counter(kind)})"><g transform="translate(0 ${L.drop})">${label}</g></g></g></g>`,
         'orbiter orbiter--label',
       );
     }).join('') +
@@ -710,9 +753,11 @@ export function renderOrbit(L: OrbitLayout, opt: RenderOptions): string {
       `<g class="bubbles">${bubbles}</g>` +
       `<g class="ship-g" opacity="0"><g class="j ship-path"><g class="j ship-body" style="transform-box:fill-box;transform-origin:50% 100%"><g transform="scale(${f(L.cs * 0.95)})">${spaceship(SHIP_CREW[kind], { id: `orbit-${L.id}-ship-${kind}` })}</g></g></g></g>` +
       `<g class="dust-g" transform="translate(0 ${-r + 2})" opacity="0">${dust(70 * L.cs)}</g>`;
+    // The ring a pointer lights round the moon (contribute.css, the moon's hover), under its crew.
+    const ring = `<circle class="moon-ring" r="${f(r + 9)}" opacity="0" fill="none" stroke="#70e6ff" stroke-width="1.6" stroke-dasharray="1.2 7" stroke-linecap="round"/>`;
     return carrier(
       kind,
-      `<g class="j moon-pop"><g class="ring-flash" opacity="0"><circle r="${r}" fill="none" stroke="#70e6ff" stroke-width="2"/></g>${moon(r, kind)}${props}${crew}${extra}</g>`,
+      `<g class="j moon-pop"><g class="ring-flash" opacity="0"><circle r="${r}" fill="none" stroke="#70e6ff" stroke-width="2"/></g>${moon(r, kind)}${ring}${props}${crew}${extra}</g>`,
       'orbiter orbiter--moon',
     );
   }).join('');

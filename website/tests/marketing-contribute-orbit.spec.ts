@@ -25,6 +25,11 @@
  * - All the way round the endless idle orbit (review of T4, finding 1), on the drawn art: a moon
  *   label that shows is never covered by the globe, another moon, its crew or props, or another
  *   label; and every crew and prop stays inside the footprint the label model reckons with.
+ * - The plate on one screen (owner, 2026-10-15): under the compact header, the bar, the stage and
+ *   the columns down to their links at 1440 × 900 and up; the bar, the stage and every typed line
+ *   at 1366 × 768 and 1280 × 800; the moon labels at 13 px or more at each. * - A moon under the pointer (owner, 2026-10-15) lights alone, from its disc or its label, and a
+ *   click (a tap on a phone) opens its group's issues on GitHub in a new tab, its column link's
+ *   URL; a faded label lets the pointer through; under reduced motion the same, at once.
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -1161,6 +1166,304 @@ for (const { width, height, layout } of [
     });
   });
 
+/**
+ * The plate on one screen (owner, 2026-10-15: "maybe 20% less tall so we can fit both the graphics
+ * and text panels on the screen at once"): scrolled to the plate, under the site's compact header,
+ * its bar, its whole stage and its three columns down to their links show on a laptop screen; on a
+ * short one (1366 × 768, 1280 × 800) the bar, the stage and every line the columns type. The moon
+ * labels stay 13 px or more at every size.
+ */
+test.describe('the orbit plate on one screen @desktop-chromium', () => {
+  for (const [width, height, last] of [
+    [1440, 900, 'link'],
+    [1920, 1080, 'link'],
+    [1512, 982, 'link'],
+    [1728, 1117, 'link'],
+    [1366, 768, 'typed line'],
+    [1280, 800, 'typed line'],
+  ] as const)
+    test(`shows the bar to the last ${last} under the compact header at ${width}×${height}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height });
+      await page.goto('/contribute/');
+      await page.evaluate(() => document.fonts.ready);
+      await page.evaluate(() =>
+        window.scrollTo({ top: 200, behavior: 'instant' }),
+      );
+      await expect(page.locator('[data-site-header]')).toHaveClass(
+        /site-header--compact/,
+      );
+      // The header's resize settles.
+      await page.waitForTimeout(500);
+      const fit = await page.locator(FIGURE).evaluate(
+        (figure, selector) => {
+          const header = document
+            .querySelector('[data-site-header]')!
+            .getBoundingClientRect().bottom;
+          window.scrollTo({
+            top: figure.getBoundingClientRect().top + scrollY - header,
+            behavior: 'instant',
+          });
+          const bar = figure
+            .querySelector('.orbit__bar')!
+            .getBoundingClientRect();
+          const bottom = Math.max(
+            ...[...figure.querySelectorAll(selector)].map(
+              (element) => element.getBoundingClientRect().bottom,
+            ),
+          );
+          const svg = [
+            ...figure.querySelectorAll<SVGSVGElement>('.orbit-svg'),
+          ].find((item) => item.getClientRects().length > 0)!;
+          return {
+            layout: svg.dataset.layout,
+            top: bar.top - header,
+            height: bottom - bar.top,
+            room: innerHeight - header,
+            labels: [
+              ...svg.querySelectorAll<SVGTextElement>('.moon-label'),
+            ].map((label) => {
+              const matrix = label.getScreenCTM()!;
+              return (
+                Number.parseFloat(getComputedStyle(label).fontSize) *
+                Math.hypot(matrix.a, matrix.b)
+              );
+            }),
+          };
+        },
+        last === 'link' ? '.orbit-col__link' : '.orbit-col__who',
+      );
+      expect(fit.layout).toBe('desktop');
+      // The plate's top meets the header (the bar starts under its 1 px frame; scrolling rounds).
+      expect(Math.abs(fit.top)).toBeLessThan(2);
+      expect(fit.height).toBeLessThanOrEqual(fit.room);
+      expect(fit.labels).toHaveLength(3);
+      for (const size of fit.labels) expect(size).toBeGreaterThanOrEqual(13);
+    });
+});
+
+/** How each moon looks in the drawn layout: what a pointer over it lights. */
+function moonLooks() {
+  const svg = [
+    ...document.querySelectorAll<SVGSVGElement>(
+      '[data-graphic="orbit"] .orbit-svg',
+    ),
+  ].find((item) => item.getClientRects().length > 0)!;
+  return Object.fromEntries(
+    ['data', 'model', 'ui'].map((kind) => {
+      const moon = svg.querySelector(`.orbiter--moon[data-moon="${kind}"]`)!;
+      const style = (selector: string) =>
+        getComputedStyle(moon.querySelector(selector)!);
+      const label = svg.querySelector(
+        `.orbiter--label[data-moon="${kind}"] .moon-label`,
+      )!;
+      return [
+        kind,
+        {
+          engraving: Number(style('.moon-icon').opacity),
+          glow: style('.moon-icon').filter,
+          rim: style('.moon > circle:last-of-type').stroke,
+          ring: Number(style('.moon-ring').opacity),
+          crew: style('.crew').filter,
+          props: style('.on-moon:not(.crew)').filter,
+          label: getComputedStyle(label).fill,
+        },
+      ];
+    }),
+  ) as Record<
+    (typeof KINDS)[number],
+    {
+      engraving: number;
+      glow: string;
+      rim: string;
+      ring: number;
+      crew: string;
+      props: string;
+      label: string;
+    }
+  >;
+}
+
+/** A point on a moon in the drawn layout: low on its face (clear of its crew), or on its label. */
+function pointOn({ kind, part }: { kind: string; part: 'moon' | 'label' }) {
+  const svg = [
+    ...document.querySelectorAll<SVGSVGElement>(
+      '[data-graphic="orbit"] .orbit-svg',
+    ),
+  ].find((item) => item.getClientRects().length > 0)!;
+  const box = svg
+    .querySelector(
+      part === 'moon'
+        ? `.orbiter--moon[data-moon="${kind}"] .moon > circle:nth-of-type(2)`
+        : `.orbiter--label[data-moon="${kind}"] .moon-label`,
+    )!
+    .getBoundingClientRect();
+  return {
+    x: box.x + box.width / 2,
+    y: box.y + box.height * (part === 'moon' ? 0.78 : 0.5),
+  };
+}
+
+/** Stand in for GitHub: the tests never load it. */
+async function stubGitHub(page: Page) {
+  await page.context().route('https://github.com/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: '<!doctype html><title>Issues</title>',
+    }),
+  );
+}
+
+/** The URL a group's column link holds, which its moon opens too. */
+const issuesOf = (page: Page, id: (typeof COLUMNS)[number]) =>
+  page.locator(`#${id} .orbit-col__link`).getAttribute('href');
+
+/**
+ * A moon is a link to its group's open issues (owner, 2026-10-15: "hovering over each moon should
+ * make elements on it light up. clicking it brings you to the Issues page on GH with
+ * working-group-specific filters applied"): over the moon or its label, the pointer lights that
+ * moon alone (its engraving, rim, a ring, its crew and props, its label); a click opens its
+ * column's issues link in a new tab; the sky lets the pointer through; nothing takes focus.
+ */
+test.describe('a moon under the pointer @desktop-chromium', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test('lights that moon alone, from its disc or its label', async ({
+    page,
+  }) => {
+    await openOrbit(page);
+    await page
+      .locator(FIGURE)
+      .evaluate((element) =>
+        element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+      );
+    await seek(page, T.story);
+    await page.mouse.move(5, 5);
+    const rest = await page.evaluate(moonLooks);
+    for (const kind of KINDS) {
+      expect(rest[kind].engraving, kind).toBeCloseTo(0.62, 2);
+      expect(rest[kind].glow, kind).toBe('none');
+      expect(rest[kind].ring, kind).toBe(0);
+      expect(rest[kind].crew, kind).toBe('none');
+      expect(rest[kind].props, kind).toBe('none');
+      expect(rest[kind].label, kind).toBe(STARLIGHT);
+    }
+    for (const [kind, part] of [
+      ['data', 'moon'],
+      ['model', 'label'],
+      ['ui', 'moon'],
+    ] as const) {
+      const at = await page.evaluate(pointOn, { kind, part });
+      await page.mouse.move(at.x, at.y);
+      expect(
+        await page.evaluate(
+          ({ x, y }) =>
+            getComputedStyle(document.elementFromPoint(x, y)!).cursor,
+          at,
+        ),
+      ).toBe('pointer');
+      // Lit, once the 240 ms transition has run.
+      await expect
+        .poll(async () => (await page.evaluate(moonLooks))[kind].ring)
+        .toBeCloseTo(0.75, 2);
+      const lit = await page.evaluate(moonLooks);
+      expect(lit[kind].engraving, kind).toBe(1);
+      expect(lit[kind].glow, kind).toContain('drop-shadow');
+      expect(lit[kind].rim, kind).toBe(ION);
+      expect(lit[kind].crew, kind).toContain('brightness');
+      expect(lit[kind].props, kind).toContain('brightness');
+      expect(lit[kind].label, kind).toBe(ION);
+      // The other two stay as they were.
+      for (const other of KINDS.filter((item) => item !== kind))
+        expect(lit[other], `${other} while ${kind} is lit`).toEqual(
+          rest[other],
+        );
+    }
+    // The sky, the orbit and the globe let the pointer through: nothing lights.
+    const globe = await page.evaluate(() => {
+      const svg = [
+        ...document.querySelectorAll<SVGSVGElement>(
+          '[data-graphic="orbit"] .orbit-svg',
+        ),
+      ].find((item) => item.getClientRects().length > 0)!;
+      const box = svg.querySelector('.globe-in image')!.getBoundingClientRect();
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    });
+    await page.mouse.move(globe.x, globe.y);
+    await expect
+      .poll(async () =>
+        Object.values(await page.evaluate(moonLooks)).map((look) => look.ring),
+      )
+      .toEqual([0, 0, 0]);
+  });
+
+  test('lets a faded label pass the pointer through', async ({ page }) => {
+    await openOrbit(page);
+    // The UI moon at the front of its orbit: its label has faded out at the stage's bottom edge.
+    await seek(page, (T.orbit * (74 - 90 + 360)) / 360);
+    const label = await page.evaluate(() => {
+      const svg = [
+        ...document.querySelectorAll<SVGSVGElement>(
+          '[data-graphic="orbit"] .orbit-svg',
+        ),
+      ].find((item) => item.getClientRects().length > 0)!;
+      const text = svg.querySelector(
+        '.orbiter--label[data-moon="ui"] .moon-label',
+      )!;
+      return getComputedStyle(text).visibility;
+    });
+    expect(label).toBe('hidden');
+  });
+
+  test('opens the group’s issues on GitHub in a new tab, and takes no focus', async ({
+    page,
+  }) => {
+    await stubGitHub(page);
+    await openOrbit(page);
+    await page
+      .locator(FIGURE)
+      .evaluate((element) =>
+        element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+      );
+    await seek(page, T.story);
+    for (const [kind, part, id] of [
+      ['data', 'moon', 'group-data'],
+      ['model', 'label', 'group-modeling'],
+      ['ui', 'moon', 'group-ui'],
+    ] as const) {
+      const at = await page.evaluate(pointOn, { kind, part });
+      const opened = page.waitForEvent('popup');
+      await page.mouse.click(at.x, at.y);
+      const popup = await opened;
+      expect(popup.url(), kind).toBe(await issuesOf(page, id));
+      await popup.close();
+      expect(
+        await page.evaluate(
+          () => !!document.activeElement?.closest('[data-graphic="orbit"] svg'),
+        ),
+      ).toBe(false);
+    }
+    expect(await issuesOf(page, 'group-data')).toBe(
+      'https://github.com/genomeOS/genomeOS/issues?q=is%3Aissue+is%3Aopen+label%3A%22type%3Adata%22%2C%22type%3Ainfra%22%2C%22skill%3Adata-engineering%22',
+    );
+    // A click on the sky opens nothing.
+    const sky = await page.evaluate(() => {
+      const box = document
+        .querySelector('[data-graphic="orbit"] [data-figure-stage]')!
+        .getBoundingClientRect();
+      return { x: box.x + 30, y: box.y + 30 };
+    });
+    const none = page
+      .waitForEvent('popup', { timeout: 800 })
+      .then(() => 'opened')
+      .catch(() => 'none');
+    await page.mouse.click(sky.x, sky.y);
+    expect(await none).toBe('none');
+  });
+});
+
 test.describe('the orbit scene under reduced motion', () => {
   test.beforeEach(async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -1223,6 +1526,40 @@ test.describe('the orbit scene under reduced motion', () => {
       body: await figure.screenshot(),
       contentType: 'image/png',
     });
+  });
+});
+
+test.describe('a moon under the pointer, under reduced motion @desktop-chromium', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test('lights at once and opens its issues, with no scene loaded', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await stubGitHub(page);
+    await page.goto('/contribute/');
+    await page.evaluate(() => document.fonts.ready);
+    await page
+      .locator(FIGURE)
+      .evaluate((element) =>
+        element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+      );
+    const at = await page.evaluate(pointOn, {
+      kind: 'model',
+      part: 'moon' as const,
+    });
+    await page.mouse.move(at.x, at.y);
+    // No transition: lit on the next frame.
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(resolve)),
+    );
+    const lit = await page.evaluate(moonLooks);
+    expect(lit.model.ring).toBe(0.75);
+    expect(lit.model.engraving).toBe(1);
+    expect(lit.data.ring).toBe(0);
+    const opened = page.waitForEvent('popup');
+    await page.mouse.click(at.x, at.y);
+    expect((await opened).url()).toBe(await issuesOf(page, 'group-modeling'));
   });
 });
 
@@ -1305,6 +1642,25 @@ test.describe('the orbit scene on a phone @mobile-chromium', () => {
     expect(pod.x).toBeGreaterThan(shot.svg.left);
     expect(pod.x).toBeLessThan(shot.svg.right);
     expect(pod.top).toBeGreaterThan(shot.svg.top);
+  });
+
+  test('opens a moon’s issues on a tap', async ({ page }) => {
+    await stubGitHub(page);
+    await openOrbit(page);
+    await page
+      .locator(FIGURE)
+      .evaluate((element) =>
+        element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+      );
+    // The story's end: the camera back on the whole orbit.
+    await seek(page, T.story);
+    const at = await page.evaluate(pointOn, {
+      kind: 'ui',
+      part: 'moon' as const,
+    });
+    const opened = page.waitForEvent('popup');
+    await page.touchscreen.tap(at.x, at.y);
+    expect((await opened).url()).toBe(await issuesOf(page, 'group-ui'));
   });
 
   // Design critique of the integrated build: on a phone the camera showed the Modeling and the UI

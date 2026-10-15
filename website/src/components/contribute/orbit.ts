@@ -63,6 +63,17 @@ import {
 
 const f = (n: number) => +(+n).toFixed(2);
 
+/**
+ * A label's keyframe at this opacity. At 0 a label is `hidden` as well, so the pointer passes
+ * through it (a label lights its moon on hover and opens its issues, contribute.css); otherwise it
+ * inherits, so a label hidden by any of its three tracks (its moon's arrival, its cover, the phone's
+ * camera) stays hidden, and one fading shows, as `visibility` interpolates.
+ */
+const shown = (opacity: number): Keyframe => ({
+  opacity,
+  visibility: opacity > 0 ? 'inherit' : 'hidden',
+});
+
 /** Per-build state: each astronaut's story keys and surface travel, gathered across the beats. */
 interface Beats {
   story: Map<CastId, PoseKey[]>;
@@ -128,21 +139,23 @@ function sky(
       const t = (T.orbit * i) / 30;
       const d = depth(theta(kind, t));
       frames.push([t, `scale(${f(d)})`]);
-      counter.push([t, `scale(${f(1 / d)})`]);
+      counter.push([t, `scale(${+(1 / f(d)).toFixed(4)})`]);
     }
     tl.ambient(g.querySelector('.orb-depth'), frames, T.orbit);
-    // A label keeps one size at every depth (orbit-layouts.ts renderOrbit).
+    // A label keeps one size at every depth (orbit-layouts.ts renderOrbit): its counter-scale
+    // undoes the depth scale as written, to four decimals.
     tl.ambient(g.querySelector('.orb-label-k'), counter, T.orbit);
   });
 
   // Each label hides while the globe, another moon or its crew would cover it, and fades back
   // once clear (orbit-layouts.ts labelTrack; the server wrote the keys, the client plays them).
+  // Hidden, it is out of the pointer's way too (`shown`): it lights its moon on hover.
   svg
     .querySelectorAll<SVGGElement>('.orb-label-vis[data-track]')
     .forEach((el) => {
       const track = JSON.parse(el.dataset.track!) as Partial<LabelTrack>;
       const keys = (frames: [number, number][]) =>
-        frames.map(([t, opacity]): Frame => [t, { opacity }]);
+        frames.map(([t, opacity]): Frame => [t, shown(opacity)]);
       if (track.story) tl.story(el, keys(track.story));
       if (track.loop) tl.loop(el, keys(track.loop), T.orbit);
     });
@@ -185,8 +198,8 @@ function sky(
       [t0 + 1300, { transform: 'scale(1.5)', opacity: 0 }],
     ]);
     tl.story(label, [
-      [t0 + 400, { opacity: 0 }, EASE.out],
-      [t0 + 900, { opacity: 1 }],
+      [t0 + 400, shown(0), EASE.out],
+      [t0 + 900, shown(1)],
     ]);
     iconMotion(tl, m, kind, t0 + 600);
     landing(tl, m, kind, r, L, beats);
@@ -928,12 +941,11 @@ function cameraTracks(tl: Timeline, svg: SVGSVGElement, L: OrbitLayout): void {
     labels,
     frames.map(([t, v], i) => [
       t,
-      {
-        opacity:
-          zoomed(v) || (i > 0 && zoomed(frames[i - 1][1]) && v !== overview)
-            ? 0
-            : 1,
-      },
+      shown(
+        zoomed(v) || (i > 0 && zoomed(frames[i - 1][1]) && v !== overview)
+          ? 0
+          : 1,
+      ),
       EASE.step,
     ]),
   );
@@ -962,9 +974,9 @@ function cameraTracks(tl: Timeline, svg: SVGSVGElement, L: OrbitLayout): void {
   tl.loop(
     labels,
     [
-      [0, { opacity: 1 }],
-      [400, { opacity: 0 }],
-      [T.orbit, { opacity: 0 }],
+      [0, shown(1)],
+      [400, shown(0)],
+      [T.orbit, shown(0)],
     ],
     T.orbit,
   );

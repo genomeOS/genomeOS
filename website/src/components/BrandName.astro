@@ -1,1 +1,13 @@
-<span class="brand-name">genomeOS</span>
+---
+/**
+ * The brand's name in its display face. `foundation` adds "Foundation" in the same face, as the
+ * footer's copyright names it (the owner, 2026-10-15).
+ */
+interface Props {
+  foundation?: boolean;
+}
+
+const { foundation = false } = Astro.props;
+---
+
+<span class="brand-name">genomeOS{foundation && ' Foundation'}</span>

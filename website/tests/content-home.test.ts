@@ -47,7 +47,7 @@ describe('home page content', () => {
       'Of every 100 participants in genome-wide studies, up to 2021',
     );
     expect(text).toContain(
-      'People of African ancestry carry the most human genetic diversity.',
+      'People with the greatest genetic diversity to learn from are the least represented in research.',
     );
     expect(text).toMatch(
       /86 European ancestry 13 All other ancestries, or not recorded 1 African ancestry/,
@@ -120,7 +120,7 @@ describe('home page content', () => {
     expect(text).toContain('Join us');
     expect(text).toContain('You don’t need a PhD to help.');
     expect(text).toContain(
-      'We’re a hacker collective doing open-source citizen science. Bring skills from any field: code, design, writing, data, medicine and more. Work alongside domain experts on something that does real good.',
+      'We’re a hacker collective doing open-source citizen science. All skillsets and backgrounds are welcome: coding, writing, healthcare, graphic design, fundraising, business strategy, or just a strong curiosity and desire to do good for the world. We’ll find a place to fit your expertise and interests.',
     );
     expect(text).toContain('Your spot');
     const ways = [
