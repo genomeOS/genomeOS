@@ -16,7 +16,8 @@
  *   nothing in <main> is set in a monospace face;
  * - no wordmark inside a call to action (the Atlas pills, .launch-atlas-cta and .atlas-open, are
  *   the wordmark's own); one selected tab and one pressed segment per group (a group of
- *   independent toggles, marked data-select="multiple", may press any number);
+ *   independent toggles, marked data-select="multiple", may press any number, and one marked
+ *   data-select="optional" none or one);
  * - a scene's controls ([data-scene-toggle], [data-scene-replay]) sit off the stage they act on
  *   and clear of the cookie control's corner (round 2 spec §3.5);
  * - chip and step rows keep inside the 16 px phone gutters, and control labels never overflow;
@@ -162,20 +163,26 @@ function typeAndControls(): string[] {
     }
   }
   // A segmented control is single-choice: exactly one pressed. A group of independent toggles,
-  // such as Contact's "What you'd offer", says so with data-select="multiple" and may press any.
+  // such as Contact's "What you'd offer" or a scene's Pause (SceneControls), says so with
+  // data-select="multiple" and may press any; one where at most one is pressed and none is the
+  // resting state, such as the transit line's lanes, says data-select="optional". A button's group
+  // is its nearest element that says so, or its nearest role="group".
   const pressedGroups = new Set(
     [...main.querySelectorAll('[aria-pressed]')]
       .map(
-        (button) => button.closest('[role="group"]') ?? button.parentElement!,
+        (button) =>
+          button.closest('[data-select], [role="group"]') ??
+          button.parentElement!,
       )
       .filter((group) => group.getAttribute('data-select') !== 'multiple'),
   );
   for (const group of pressedGroups) {
     if (!visible(group)) continue;
-    const pressed = group.querySelectorAll('[aria-pressed="true"]');
-    if (pressed.length !== 1)
+    const pressed = group.querySelectorAll('[aria-pressed="true"]').length;
+    const optional = group.getAttribute('data-select') === 'optional';
+    if (optional ? pressed > 1 : pressed !== 1)
       failures.push(
-        `group "${group.getAttribute('aria-label')}" has ${pressed.length} pressed`,
+        `group "${group.getAttribute('aria-label')}" has ${pressed} pressed`,
       );
   }
   for (const label of main.querySelectorAll<HTMLElement>(

@@ -62,9 +62,9 @@ const icon = (kind: keyof typeof ICON) =>
 
 {
   /*
-   * role="group" (spec §8.4) makes the figure the controls' group too; data-select="multiple" tells
-   * the figure contract (tests/figures.spec.ts) that its one toggle is independent, not a
-   * single-choice segmented control.
+   * role="group" (spec §8.4). Its Pause toggle is an independent control, not a single-choice
+   * segment: SceneControls' own data-select="multiple" tells the figure contract
+   * (tests/figures.spec.ts) so.
    */
 }
 <figure
@@ -72,7 +72,6 @@ const icon = (kind: keyof typeof ICON) =>
   data-graphic="orbit"
   data-kind="mechanism"
   data-motion-exception="orbit"
-  data-select="multiple"
   role="group"
   aria-labelledby={labelledby}
   aria-describedby="orbit-caption"
