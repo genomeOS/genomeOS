@@ -525,6 +525,14 @@
   }
 }
 
+/* The narrowest phones: the label keeps inside the rim. */
+@media (max-width: 22rem) {
+  .atlas-ov .atlas-open {
+    padding-inline: 0.85rem;
+    font-size: 0.94rem;
+  }
+}
+
 /* ---------- the chapter's sections: collapsed accordion rows ---------- */
 
 .acc-list {
@@ -679,24 +687,37 @@
   }
 }
 
+/* Phones: the row's title and teaser take the width; the icon and chevron sit level with the
+   title's first line, so a title on two lines still reads as one row. */
 @media (max-width: 36rem) {
   .acc__summary {
-    gap: 0.4rem 0.85rem;
+    align-items: start;
+    gap: 0.4rem 0.8rem;
     padding-inline: 0;
   }
 
   .acc__icon {
-    width: 2.5rem;
-    height: 2.5rem;
+    width: 2.4rem;
+    height: 2.4rem;
   }
 
   .acc__icon svg {
-    width: 1.25rem;
-    height: 1.25rem;
+    width: 1.2rem;
+    height: 1.2rem;
+  }
+
+  .acc__title {
+    padding-top: 0.35rem;
+    font-size: 1.3rem;
+    text-wrap: pretty;
   }
 
   .acc__teaser {
     font-size: 0.95rem;
+  }
+
+  .acc__chevron {
+    margin-top: 0.45rem;
   }
 }
 

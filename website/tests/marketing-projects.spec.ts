@@ -1266,6 +1266,13 @@ test(
             document.documentElement.clientWidth,
         );
       expect(await overflow(), `${width} px closed`).toBe(0);
+      // The Atlas pill's label keeps inside its rim.
+      expect(
+        await page
+          .locator('.atlas-ov .atlas-open')
+          .evaluate((pill) => pill.scrollWidth - pill.clientWidth),
+        `${width} px pill`,
+      ).toBeLessThanOrEqual(0);
       const shell = (await page.locator('.acc-list').boundingBox())!;
       for (const name of SECTIONS) {
         const box = (await sectionRow(page, name)
