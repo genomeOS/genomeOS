@@ -461,9 +461,12 @@
     transition: transform 700ms var(--ease-camera);
   }
 
+  /* The five column buttons fill their rows (design critique 3: wrapped 3 + 2 to the left, the
+     second row looked unfinished): on a phone, three a row and then two, each row edge to edge (a
+     six-track grid, spans of 2 and 3); from 45rem, five equal columns in one row. */
   .wb-colnav:not([hidden]) {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 6px;
     padding: 10px 12px 12px;
     border-top: 1px solid var(--gh-border);
@@ -471,15 +474,33 @@
   }
 
   .wb-colnav button {
+    grid-column: span 2;
+    min-width: 0;
     min-height: 44px;
     margin: 0;
-    padding: 0 12px;
+    padding: 0.3rem 0.4rem;
     border: 1px solid var(--gh-border);
     border-radius: 0;
     background: transparent;
     color: var(--color-muted);
-    font: 600 0.8rem/1 var(--font-body);
+    font: 600 0.8rem/1.15 var(--font-body);
+    text-wrap: balance;
     cursor: pointer;
+  }
+
+  .wb-colnav button:nth-child(n + 4) {
+    grid-column: span 3;
+  }
+
+  @media (min-width: 45rem) {
+    .wb-colnav:not([hidden]) {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+
+    .wb-colnav button,
+    .wb-colnav button:nth-child(n + 4) {
+      grid-column: auto;
+    }
   }
 
   .wb-colnav button:hover {
