@@ -781,6 +781,32 @@ test('the crew stays about desktop size at every width @desktop-chromium', async
   }
 });
 
+// Design critique 4: top-aligned, the crew and its cards ended about 420 px into the section at
+// 1440 and left some 240 px empty under them beside the two-paragraph lede. From 60rem the figure
+// stands level with the text's middle; where it is the taller of the two, it starts with the text.
+test('beside the lede the crew and its cards stand level with the text’s middle @desktop-chromium', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  for (const width of [1024, 1280, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    const [text, figure] = await Promise.all(
+      ['#join .layout-figure-split__text', '#join .home-join__figure'].map(
+        async (selector) => (await page.locator(selector).boundingBox())!,
+      ),
+    );
+    const middle = (box: { y: number; height: number }) =>
+      box.y + box.height / 2;
+    if (figure.height < text.height)
+      expect(
+        Math.abs(middle(figure) - middle(text)),
+        `${width} centred`,
+      ).toBeLessThan(1.5);
+    else expect(Math.abs(figure.y - text.y), `${width} top`).toBeLessThan(1.5);
+  }
+});
+
 test('focusing each card fills "Your spot", and moving on empties it', async ({
   page,
 }) => {

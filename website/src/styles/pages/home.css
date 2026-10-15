@@ -608,6 +608,15 @@
   container: join-ways / inline-size;
 }
 
+/* Beside the two-paragraph lede, the crew and its cards stand level with the text's middle
+   (design critique 4: top-aligned, they ended about 420 px into the section and left some 240 px
+   empty beside the lede at 1440). Where the figure is the taller of the two, nothing moves. */
+@media (min-width: 60rem) {
+  .home-join__figure {
+    align-self: center;
+  }
+}
+
 /* Three cards in one row where each keeps its longest word whole; one column below that, never
    two and one. */
 .home-join__ways {
