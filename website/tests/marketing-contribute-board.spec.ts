@@ -452,6 +452,35 @@ for (const width of [1024, 1100, 1152, 1440]) {
   });
 }
 
+test.describe('the example card @desktop-chromium', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test('closes its pull-request row entirely until review, like the cards beside it', async ({
+    page,
+  }) => {
+    await openBoard(page);
+    // A card's padding under its labels: the example card in Backlog and #63 beside it.
+    const tail = (card: string) =>
+      page.locator(`${BOARD} ${card}`).evaluate((article) => {
+        const labels = article
+          .querySelector('.gh-card__labels')!
+          .getBoundingClientRect();
+        return Math.round(
+          article.getBoundingClientRect().bottom - labels.bottom,
+        );
+      });
+    for (const t of [10640, 13620]) {
+      await seek(page, t);
+      expect(await tail('[data-example="home"]')).toBe(
+        await tail('[data-col="backlog"] .gh-card:not(.gh-card--example)'),
+      );
+    }
+    // In review its row is open.
+    await seek(page, 21880);
+    expect(await tail('[data-example="home"]')).toBeGreaterThan(30);
+  });
+});
+
 test.describe('the phone camera @mobile-chromium', () => {
   /** The column centred in the board's window, and the pressed column button. */
   const camera = (page: Page) =>

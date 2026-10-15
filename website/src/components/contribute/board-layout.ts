@@ -772,13 +772,29 @@ export function plan(geo: Geo): Plan {
     P: carry,
   });
   cardMoves.push([tUp + 600, 3]);
+  // The pull-request row opens: closed, it takes no room at all (its rule and spacing too), so
+  // the card ends under its labels like the cards beside it.
+  const prShut = {
+    opacity: 0,
+    maxHeight: '0px',
+    marginTop: '0px',
+    paddingTop: '0px',
+    borderTopWidth: '0px',
+  };
+  const prOpen = {
+    opacity: 1,
+    maxHeight: '40px',
+    marginTop: '8px',
+    paddingTop: '8px',
+    borderTopWidth: '1px',
+  };
   props.push([
     'story',
     '.ex-pr',
     [
-      [0, { opacity: 0, maxHeight: '0px' }],
-      [tUp + 900, { opacity: 0, maxHeight: '0px' }, EASE.out],
-      [tUp + 1300, { opacity: 1, maxHeight: '40px' }],
+      [0, prShut],
+      [tUp + 900, prShut, EASE.out],
+      [tUp + 1300, prOpen],
     ],
   ]);
   const tPres = t + 50;
