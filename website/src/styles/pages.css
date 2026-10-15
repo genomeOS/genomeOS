@@ -65,6 +65,8 @@
   color: var(--color-text-soft);
   font-size: var(--type-lede);
   line-height: 1.5;
+  /* No lede ends on one word alone (Contact's "site.", design critique 2, m-1). */
+  text-wrap: pretty;
 }
 
 .page-intro__figure {

@@ -48,7 +48,9 @@ a:hover {
 }
 
 :focus-visible {
-  border-radius: 2px;
+  /* Square, as every control (spec §2.4): a rounded corner here also rounds the ring's (design
+     critique 2, m-3). */
+  border-radius: 0;
   outline: 2px solid var(--color-ion);
   outline-offset: 4px;
   box-shadow: var(--focus-ring);

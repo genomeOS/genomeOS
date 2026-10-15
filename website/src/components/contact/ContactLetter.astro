@@ -15,7 +15,10 @@
  *
  * Offer sections carry the kit's hex, the mark the offer buttons fill when pressed. Each field is
  * its dash, then its label with the dotted leader that ends the label's last line (contact.css),
- * written as one expression so no space falls between the last word and the leader.
+ * written as one expression so no space falls between the last word and the leader. The greeting
+ * and the opening, short lines that may wrap once or twice, break evenly (`letter__para--balanced`),
+ * so neither ends on one word. The caption says what the letter leaves implicit: its blanks are the
+ * visitor's to fill (design critique 2, m-7).
  *
  * Test hooks: each block of the letter is `[data-letter-block]` and each of its lines
  * `[data-letter-line]`; the subject is `[data-letter-subject]`; `[data-letter]` is the generated
@@ -98,7 +101,7 @@ const sections: { id: SectionId; offer: boolean }[] = [
     </dl>
 
     <div class="letter__body">
-      <p class="letter__para" data-letter-block>
+      <p class="letter__para letter__para--balanced" data-letter-block>
         <span class="letter__line" data-letter-line
           >{
             brand(GREETING).map((part) =>
@@ -107,7 +110,7 @@ const sections: { id: SectionId; offer: boolean }[] = [
           }</span
         >
       </p>
-      <p class="letter__para" data-letter-block>
+      <p class="letter__para letter__para--balanced" data-letter-block>
         {
           TOPICS.map((topic) => (
             <span class="letter__line" data-letter-line data-for-topic={topic}>
@@ -187,7 +190,7 @@ const sections: { id: SectionId; offer: boolean }[] = [
   </div>
 
   <span slot="caption"
-    ><strong id="contact-letter-title">Your draft.</strong> It follows your choices;
-    finish it in your email app.</span
+    ><strong id="contact-letter-title">Your draft.</strong> Fill in the blanks before
+    you send it.</span
   >
 </Plate>

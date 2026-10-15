@@ -13,6 +13,16 @@
 
 /* ---------- layout ---------- */
 
+/* The only one-line H1 of the split intros: beside a lede of four or five lines (52rem to 72rem)
+   it breaks evenly in two, so the kicker and the lede start level, as on /privacy/ (design
+   critique 2, m-2). */
+@media (width > 52rem) and (width <= 72rem) {
+  .contact-page .page-intro h1 {
+    max-width: 12ch;
+    text-wrap: balance;
+  }
+}
+
 .contact-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -65,6 +75,19 @@
   .contact-layout > :is(noscript, [data-contact-fallback]) {
     grid-column: 1 / span 7;
     grid-row: 1;
+  }
+}
+
+/* Up to 72rem five columns are narrower than the two-by-two Purpose needs (400 px), which would
+   stack it and push the primary action below a 1024 × 768 screen: the split is even there
+   (design critique 2, m-6). */
+@media (width > 60rem) and (width <= 72rem) {
+  .contact-layout :is(.contact__controls, .contact__actions, .contact-problem) {
+    grid-column: 1 / span 6;
+  }
+
+  .contact-layout .contact-letter {
+    grid-column: 7 / -1;
   }
 }
 
@@ -276,26 +299,36 @@
   gap: 0.75rem;
 }
 
+/* Copy draft and Blank email share a row wherever each keeps its label on one line (8rem), and
+   stack as two full-width buttons below that (a 320 px phone), never as a ragged pair; as Home's
+   two calls to action do. */
 .contact__pair {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
   gap: 0.75rem;
 }
 
+.contact__pair .contact-button {
+  white-space: nowrap;
+}
+
+/* Home's button metrics (its .button-link and .button-link--quiet; design critique 2, m-4): the
+   same type, padding and 3.25rem height, so the site has one button size. The line height is
+   tighter than Home's, for the label that takes two lines on the narrowest phones. */
 .contact-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.6rem;
-  min-height: 3rem;
+  min-height: 3.25rem;
   margin: 0;
-  padding: 0.6rem 1rem;
+  padding: 0.68rem 1.1rem;
   border: 1px solid rgb(242 248 255 / 42%);
   background: rgb(2 7 18 / 52%);
   color: var(--color-starlight);
   font: inherit;
-  font-size: 0.95rem;
-  font-weight: 650;
+  font-size: 1.08rem;
+  font-weight: 720;
   line-height: 1.25;
   cursor: pointer;
   transition:
@@ -311,15 +344,12 @@
 
 .contact-button--primary {
   justify-content: space-between;
-  padding-inline: 1.15rem;
   /* On the narrowest phones the label takes two even lines, beside its arrow. */
   text-align: left;
   text-wrap: balance;
   border-color: var(--color-ion);
   background: var(--color-ion);
   color: var(--color-void);
-  font-size: 1rem;
-  font-weight: 720;
 }
 
 .contact-button--primary:hover {
@@ -344,9 +374,10 @@
   translate: 0.15rem 0;
 }
 
-/* The phone dock (contact.ts; design critique 1, m-5): the primary action at the foot of the
-   screen while the letter is read and the actions are still below it. It stands on the cookie
-   control's bottom line, clear of its 4.5rem corner (spec §2.4), under the header and its Menu.
+/* The phone dock (contact.ts; design critiques 1, m-5, and 2, I-1): the primary action at the foot
+   of the screen while the letter is read and the button in the page is still well below; it goes
+   before that button comes into view. It stands on the cookie control's bottom line, clear of its
+   4.5rem corner (spec §2.4), under the header and its Menu, with the short label on one line.
    After its first state (`data-motion`) it rises in and fades out in --dur-ui; beside the letter,
    above 60rem, it never shows. */
 .contact-dock {
@@ -481,6 +512,11 @@
   padding-inline: var(--letter-inset);
 }
 
+/* A caption that wraps on a phone keeps two words on its last line. */
+.contact-letter > figcaption {
+  text-wrap: pretty;
+}
+
 .letter {
   container: letter / inline-size;
   color: var(--color-text-soft);
@@ -514,12 +550,15 @@
   font-weight: 600;
 }
 
+/* A value that wraps (the subject on a phone, every offer at 1024) breaks evenly, never leaving
+   "genomeOS" or an offer alone on its last line (design critique 2, m-1). */
 .letter__row dd {
   min-width: 0;
   margin: 0;
   color: var(--color-starlight);
   font-weight: 600;
   overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 
 /* A narrow letter (a 320 px phone) sets each label above its value, so "genomeOS Foundation" and
@@ -544,14 +583,15 @@
   padding-top: 0;
 }
 
-/* No line of the letter ends on one word alone (design critique 1, m-4); the greeting, a short
-   line that wraps only on the narrowest phones, splits evenly. */
+/* No line of the letter ends on one word alone (design critique 1, m-4). The greeting and the
+   opening, a line or two that wrap on a phone, split evenly, as `pretty` leaves "genomeOS." alone
+   on some (design critique 2, m-1). */
 .letter__line {
   display: block;
   text-wrap: pretty;
 }
 
-.letter__body > .letter__para:first-child .letter__line {
+.letter__para--balanced .letter__line {
   text-wrap: balance;
 }
 

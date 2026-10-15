@@ -806,51 +806,95 @@ test.describe('the letter is set like a letter', () => {
     }
   });
 
-  test('no paragraph of the letter ends on one word alone', async ({
+  // Design critiques 1 (m-4) and 2 (m-1): the letter's lines, its head and the intro's lede.
+  /** The tokens on the last line of an element's text, found by their boxes' centres. */
+  const lastLine = (page: Page, selector: string) =>
+    page.locator(selector).evaluate((line) => {
+      const words: { text: string; y: number }[] = [];
+      const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode as Text;
+        for (const match of node.data.matchAll(/\S+/g)) {
+          const range = document.createRange();
+          range.setStart(node, match.index);
+          range.setEnd(node, match.index + match[0].length);
+          const box = range.getBoundingClientRect();
+          // A purpose not chosen is not laid out.
+          if (box.width === 0) continue;
+          words.push({ text: match[0], y: (box.top + box.bottom) / 2 });
+        }
+      }
+      const bottom = Math.max(...words.map(({ y }) => y));
+      return words.filter(({ y }) => bottom - y < 8).map(({ text }) => text);
+    });
+  /** Words, not the "/" between offers or the full stop after the list (a text of its own). */
+  const expectNoLoneWord = (tokens: string[], where: string) => {
+    expect(
+      tokens.filter((token) => /\p{L}/u.test(token)).length,
+      `${where}: ${tokens.join(' ')}`,
+    ).toBeGreaterThan(1);
+    // No line of the placeholder starts with its slash.
+    expect(tokens[0], `${where}: ${tokens.join(' ')}`).not.toBe('/');
+  };
+  const opening = (topic: Topic) => `.letter__line[data-for-topic="${topic}"]`;
+  const greeting = '.letter__body > .letter__para:first-child .letter__line';
+
+  test('no paragraph of the letter ends on one word alone at 1440 px', async ({
     page,
   }) => {
-    /** The tokens on the last line of a letter paragraph, found by their boxes' centres. */
-    const lastLine = (selector: string) =>
-      page.locator(selector).evaluate((line) => {
-        const words: { text: string; y: number }[] = [];
-        const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
-        while (walker.nextNode()) {
-          const node = walker.currentNode as Text;
-          for (const match of node.data.matchAll(/\S+/g)) {
-            const range = document.createRange();
-            range.setStart(node, match.index);
-            range.setEnd(node, match.index + match[0].length);
-            const box = range.getBoundingClientRect();
-            words.push({ text: match[0], y: (box.top + box.bottom) / 2 });
-          }
-        }
-        const bottom = Math.max(...words.map(({ y }) => y));
-        return words.filter(({ y }) => bottom - y < 8).map(({ text }) => text);
-      });
-    const opening = '.letter__line[data-for-topic="contribute"]';
-    const greeting = '.letter__body > .letter__para:first-child .letter__line';
-    for (const [width, query, selector] of [
-      [1440, ALL_OFFERS, opening],
-      [1024, '?topic=contribute&offer=code,data', opening],
-      [390, '', opening],
-      [320, '', opening],
-      [320, ALL_OFFERS, opening],
-      [320, '', greeting],
-    ] as const) {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto(`/contact/${query}`);
-      await page.evaluate(() => document.fonts.ready);
-      const tokens = await lastLine(selector);
-      const where = `${width} px ${query || 'default'} ${selector}: ${tokens.join(' ')}`;
-      // Words, not the "/" between offers or the full stop after the list (a text of its own).
-      expect(
-        tokens.filter((token) => /\p{L}/u.test(token)).length,
-        where,
-      ).toBeGreaterThan(1);
-      // No line of the placeholder starts with its slash.
-      expect(tokens[0], where).not.toBe('/');
-    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/contact/${ALL_OFFERS}`);
+    await page.evaluate(() => document.fonts.ready);
+    expectNoLoneWord(
+      await lastLine(page, opening('contribute')),
+      `1440 px ${ALL_OFFERS}`,
+    );
   });
+
+  const STATES = [
+    '',
+    '?topic=contribute&offer=code',
+    '?topic=contribute&offer=funding',
+    '?topic=contribute&offer=code,data',
+    '?topic=contribute&offer=data,expertise',
+    '?topic=contribute&offer=code,data,funding',
+    ALL_OFFERS,
+    '?topic=question',
+    '?topic=partner',
+    '?topic=press',
+  ];
+  for (const width of [320, 360, 375, 390, 414, 430, 1024])
+    test(`no line of the subject, the greeting, the opening, the caption or the lede ends on one word alone at ${width} px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      for (const query of STATES) {
+        await page.goto(`/contact/${query}`);
+        await page.evaluate(() => document.fonts.ready);
+        const topic = (new URLSearchParams(query).get('topic') ??
+          'contribute') as Topic;
+        const where = `${width} px ${query || 'default'}`;
+        expectNoLoneWord(
+          await lastLine(page, '[data-letter-subject]'),
+          `${where} subject`,
+        );
+        expectNoLoneWord(
+          await lastLine(page, opening(topic)),
+          `${where} opening`,
+        );
+        if (query) continue;
+        // The same on every state: read once per width.
+        expectNoLoneWord(await lastLine(page, greeting), `${where} greeting`);
+        expectNoLoneWord(
+          await lastLine(page, '.contact-letter > figcaption'),
+          `${where} caption`,
+        );
+        expectNoLoneWord(
+          await lastLine(page, '.page-intro__lede'),
+          `${where} lede`,
+        );
+      }
+    });
 
   test('the caption starts on the letter’s own left edge, and one hairline rules the actions', async ({
     page,
@@ -980,7 +1024,9 @@ test.describe('the phone dock @mobile-chromium', () => {
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto('/contact/');
+    await page.goto(
+      '/contact/?topic=contribute&offer=code,data,expertise,funding',
+    );
     await page
       .locator('.letter__head')
       .evaluate((head) => head.scrollIntoView({ block: 'center' }));
@@ -998,12 +1044,14 @@ test.describe('the phone dock @mobile-chromium', () => {
     ).toBeFocused();
   });
 
-  test('a dock in view from the start lands without moving', async ({
+  test('a dock in view from the start lands without moving; none comes in over a button just below the fold', async ({
     page,
   }) => {
-    // A tablet's first view holds the letter, with the actions just below it.
+    // A tablet's first view holds the letter. With every offer the button in the page is far below.
     await page.setViewportSize({ width: 768, height: 1024 });
-    await page.goto('/contact/');
+    await page.goto(
+      '/contact/?topic=contribute&offer=code,data,expertise,funding',
+    );
     await expect(dock(page)).toHaveAttribute('data-motion', '');
     await expect(dock(page)).toBeVisible();
     expect(
@@ -1011,6 +1059,102 @@ test.describe('the phone dock @mobile-chromium', () => {
         (element) => element.getAnimations({ subtree: true }).length,
       ),
     ).toBe(0);
+    // With none, it is within a quarter of a screen below the fold: no dock over the letter.
+    await page.goto('/contact/');
+    await expect(dock(page)).toHaveAttribute('data-motion', '');
+    await expect(dock(page)).toBeHidden();
+  });
+
+  // Design critique 2, I-1: the dock and the button in the page are never on screen together, and
+  // the dock never covers the letter's subject, however the head wraps.
+  for (const [width, height] of [
+    [320, 640],
+    [375, 667],
+    [390, 844],
+    [768, 1024],
+  ] as const)
+    for (const query of [
+      '',
+      '?topic=contribute&offer=code,data,expertise,funding',
+    ])
+      test(`hands over before the button in the page comes into view, clear of the subject, at ${width} × ${height} ${query ? 'with every offer' : 'by default'}`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width, height });
+        await page.goto(`/contact/${query}`);
+        await page.evaluate(() => document.fonts.ready);
+        const scan = await page.evaluate(async () => {
+          const frames = (count: number) =>
+            new Promise<void>((resolve) => {
+              const step = () =>
+                count-- <= 0 ? resolve() : requestAnimationFrame(step);
+              step();
+            });
+          const dockElement = document.querySelector('[data-dock]')!;
+          const docked = dockElement.querySelector('button')!;
+          const inPage = document.querySelector(
+            '.contact__actions [data-action="open"]',
+          )!;
+          const subject = document.querySelector('[data-letter-subject]')!;
+          const failures: string[] = [];
+          let shownAt = 0;
+          const end =
+            document.documentElement.scrollHeight - window.innerHeight;
+          // Down the page in 10 px steps, then back up in 20 px steps.
+          const steps = [
+            ...Array.from(
+              { length: Math.ceil(end / 10) + 1 },
+              (_, i) => i * 10,
+            ),
+            ...Array.from(
+              { length: Math.ceil(end / 20) + 1 },
+              (_, i) => end - i * 20,
+            ),
+          ];
+          for (const y of steps) {
+            // Instant: the page scrolls smoothly, which would lag behind the steps.
+            window.scrollTo({ top: Math.max(0, y), behavior: 'instant' });
+            // The observers report after the frame that moved the page.
+            await frames(2);
+            if (!dockElement.hasAttribute('data-shown')) continue;
+            shownAt += 1;
+            const button = inPage.getBoundingClientRect();
+            const box = docked.getBoundingClientRect();
+            const head = subject.getBoundingClientRect();
+            if (button.top < window.innerHeight)
+              failures.push(
+                `at ${window.scrollY}: the button in the page at ${button.top}`,
+              );
+            if (box.top < head.bottom && box.bottom > head.top)
+              failures.push(`at ${window.scrollY}: over the subject`);
+          }
+          return { failures, shownAt };
+        });
+        expect(scan.failures).toEqual([]);
+        // It does its job: a phone, or a tablet with a long letter, gets the dock.
+        if (width < 768 || query) expect(scan.shownAt).toBeGreaterThan(0);
+        else expect(scan.shownAt).toBe(0);
+      });
+
+  test('the dock’s label is short, on one line', async ({ page }) => {
+    for (const [width, height] of [
+      [320, 640],
+      [390, 844],
+    ] as const) {
+      await page.setViewportSize({ width, height });
+      await page.goto(
+        '/contact/?topic=contribute&offer=code,data,expertise,funding',
+      );
+      await page
+        .locator('.letter__head')
+        .evaluate((head) => head.scrollIntoView({ block: 'center' }));
+      await expect(dock(page)).toBeVisible();
+      const button = dock(page).locator('button');
+      await expect(button).toHaveText('Open draft');
+      expect((await button.boundingBox())!.height, `${width} px`).toBeLessThan(
+        60,
+      );
+    }
   });
 });
 

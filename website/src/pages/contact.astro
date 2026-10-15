@@ -180,8 +180,9 @@ const SPELLED_OUT = 'info [at] genome-os [dot] org';
           {
             /*
              * The phone dock (contact.ts): the primary action at the foot of the screen while the
-             * letter is in view and the actions are still below it. A pointer shortcut to the
-             * button above, so keyboards and screen readers keep to that one.
+             * letter is read and the button above is still well below it. A pointer shortcut to
+             * that button, so keyboards and screen readers keep to that one, and it can take the
+             * short label, one line on every phone (design critique 2, I-1).
              */
           }
           <div class="contact-dock" data-dock aria-hidden="true">
@@ -191,7 +192,7 @@ const SPELLED_OUT = 'info [at] genome-os [dot] org';
               data-action="open"
               tabindex="-1"
             >
-              Open draft in your email app
+              Open draft
               <svg
                 class="contact-button__arrow"
                 viewBox="0 0 24 24"

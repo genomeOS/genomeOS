@@ -20,9 +20,10 @@
  *   lines), so while that selection stands a copy carries `draftText`, exactly what Copy draft
  *   would have copied.
  * - On a phone the letter runs on below the controls and the actions below the letter, so while
- *   the letter is in view and the actions are still below it, a dock at the foot of the screen
- *   holds the primary action (design critique 1, m-5; contact.css). It is a pointer shortcut to
- *   the button in the page, which keyboards and screen readers use: hidden from both.
+ *   the letter is read and the button in the page is still well below it, a dock at the foot of
+ *   the screen holds the primary action (design critiques 1, m-5, and 2, I-1; contact.css). It is
+ *   a pointer shortcut to that button, which keyboards and screen readers use: hidden from both.
+ *   It hands over before the button comes into view, so the action never shows twice.
  * - The composer is marked `data-ready` once this has run; the pre-paint script falls back to the
  *   spelled-out address if it never does.
  * - Nothing is sent or stored: no request, no storage, no analytics event. (A browser test reads
@@ -47,8 +48,10 @@ import { TOPIC_INPUT } from './contact-paint';
 /** How long a status message stays up. */
 const STATUS_MS = 6000;
 
-/** How much of the letter shows above the phone dock before it comes in: its To and Subject. */
-const LETTER_HEAD_PX = 108;
+/** The phone dock goes this far before the button in the page would come into view... */
+const DOCK_HANDOFF_PX = 24;
+/** ...and comes back only once that button is this share of a screen below the fold. */
+const DOCK_RETURN_SHARE = 0.25;
 
 export function initContact(root: HTMLElement): void {
   root.hidden = false;
@@ -238,53 +241,58 @@ export function initContact(root: HTMLElement): void {
     if (action) action();
   });
 
-  // The phone dock (contact.css): shown once the letter's head is in view above it, until the
-  // actions reach it from below and take over. Its first state lands at once, so nothing moves on
-  // load; later changes move. Above 60rem contact.css never shows it.
-  const letterPlate = find('.contact-letter');
-  const actionBlock = find('.contact__actions');
-  if (dock && letterPlate && actionBlock && 'IntersectionObserver' in window) {
-    let letterInView = false;
-    let actionsBelow = false;
-    let reports = 0;
-    const update = () => {
-      reports += 1;
-      dock.toggleAttribute('data-shown', letterInView && actionsBelow);
-      if (reports < 2 || dock.hasAttribute('data-motion')) return;
-      // Both watchers have reported: commit that state as it stands, then let changes move.
+  // The phone dock (contact.css; design critiques 1, m-5, and 2, I-1): the primary action at the
+  // foot of the screen while the letter is read.
+  // - It comes in once the letter's whole head (To and Subject, however they wrap) has risen above
+  //   it, which the letter's body reaching the dock's top marks, while the button in the page is
+  //   more than a quarter of a screen below the fold.
+  // - It goes DOCK_HANDOFF_PX before that button would come into view, so the two are never on
+  //   screen together, and stays away until the button is a quarter of a screen below again.
+  // - The observers only say when to look: each report decides from where the letter and the
+  //   button are now, with the observers' own edges (an edge touched counts as reached), so a jump
+  //   (End, a link) past an observer's line leaves no stale state.
+  // - Its first state lands at once, so nothing moves on load; later changes move. Above 60rem
+  //   contact.css never shows it.
+  const letterBody = find('.letter__body');
+  const inPage = find('.contact__actions [data-action="open"]');
+  if (dock && letterBody && inPage && 'IntersectionObserver' in window) {
+    let reach = -1;
+    let shown = false;
+    let watchers: IntersectionObserver[] = [];
+    const reported = new Set<IntersectionObserver>();
+    const update = (watcher: IntersectionObserver) => {
+      const fold = window.innerHeight;
+      const button = inPage.getBoundingClientRect().top;
+      const headClear = letterBody.getBoundingClientRect().top <= fold - reach;
+      if (!headClear || button <= fold + DOCK_HANDOFF_PX) shown = false;
+      else if (button > fold * (1 + DOCK_RETURN_SHARE)) shown = true;
+      dock.toggleAttribute('data-shown', shown);
+      reported.add(watcher);
+      if (reported.size < watchers.length || dock.hasAttribute('data-motion'))
+        return;
+      // Every watcher has reported: commit that state as it stands, then let changes move.
       void getComputedStyle(dock).opacity;
       dock.toggleAttribute('data-motion', true);
     };
-    let reach = -1;
-    let watchers: IntersectionObserver[] = [];
+    const observe = (target: Element, bottom: string) => {
+      const watcher = new IntersectionObserver(() => update(watcher), {
+        rootMargin: `0px 0px ${bottom} 0px`,
+      });
+      watcher.observe(target);
+      return watcher;
+    };
     const watch = () => {
       // How far up from the foot of the screen the dock reaches (offsetTop leaves out its rise).
       const next = Math.max(0, Math.round(window.innerHeight - dock.offsetTop));
       if (next === reach) return;
       reach = next;
       for (const watcher of watchers) watcher.disconnect();
+      reported.clear();
       watchers = [
-        new IntersectionObserver(
-          (entries) => {
-            letterInView = entries[entries.length - 1].isIntersecting;
-            update();
-          },
-          { rootMargin: `0px 0px -${reach + LETTER_HEAD_PX}px 0px` },
-        ),
-        new IntersectionObserver(
-          (entries) => {
-            const entry = entries[entries.length - 1];
-            actionsBelow =
-              !entry.isIntersecting &&
-              entry.boundingClientRect.top >=
-                (entry.rootBounds?.bottom ?? window.innerHeight - reach);
-            update();
-          },
-          { rootMargin: `0px 0px -${reach}px 0px` },
-        ),
+        observe(letterBody, `-${reach}px`),
+        observe(inPage, `${DOCK_HANDOFF_PX}px`),
+        observe(inPage, `${DOCK_RETURN_SHARE * 100}%`),
       ];
-      watchers[0].observe(letterPlate);
-      watchers[1].observe(actionBlock);
     };
     watch();
     window.addEventListener('resize', watch, { passive: true });

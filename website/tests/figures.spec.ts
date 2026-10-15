@@ -304,7 +304,10 @@ async function fold(
   viewport: (typeof VIEWPORTS)[number],
 ) {
   await page.evaluate(() => window.scrollTo(0, 0));
-  if (manifest.leadFigure) {
+  if (
+    manifest.leadFigure === true ||
+    (manifest.leadFigure === 'desktop' && viewport.name === 'desktop')
+  ) {
     const top = await page.evaluate(
       () =>
         document
