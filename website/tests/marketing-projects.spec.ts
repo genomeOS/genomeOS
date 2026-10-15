@@ -19,6 +19,8 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
+import sharp from 'sharp';
+
 import {
   DEFAULT_STOP,
   THRESHOLD_STOPS,
@@ -891,6 +893,49 @@ test('the counts figure’s value labels stay inside it, and nothing scrolls sid
   }
 });
 
+/**
+ * The painted size of one placed glyph, in CSS px: a screenshot of the `<use>`'s own 16 × 20 box
+ * (its viewport, which clips the symbol), and the extent of the pixels that stand out from the
+ * box's empty corner.
+ */
+async function paintedExtent(
+  page: Page,
+  use: Locator,
+): Promise<{ width: number; height: number }> {
+  const box = await use.evaluate((element) => {
+    const matrix = (element as SVGUseElement).getScreenCTM()!;
+    return {
+      x: matrix.e,
+      y: matrix.f,
+      width: 16 * matrix.a,
+      height: 20 * matrix.d,
+    };
+  });
+  const { data, info } = await sharp(await page.screenshot({ clip: box }))
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const luminance = (x: number, y: number) => {
+    const at = (y * info.width + x) * info.channels;
+    return 0.2126 * data[at] + 0.7152 * data[at + 1] + 0.0722 * data[at + 2];
+  };
+  const empty = luminance(0, 0);
+  let [left, top, right, bottom] = [info.width, info.height, -1, -1];
+  for (let y = 0; y < info.height; y += 1)
+    for (let x = 0; x < info.width; x += 1)
+      if (luminance(x, y) - empty > 40) {
+        left = Math.min(left, x);
+        right = Math.max(right, x);
+        top = Math.min(top, y);
+        bottom = Math.max(bottom, y);
+      }
+  const scale = info.width / box.width;
+  return {
+    width: (right - left + 1) / scale,
+    height: (bottom - top + 1) / scale,
+  };
+}
+
 test('the counts figure draws people as micro astronauts, wide and narrow, from the same nodes', async ({
   page,
 }, info) => {
@@ -912,7 +957,6 @@ test('the counts figure draws people as micro astronauts, wide and narrow, from 
       perRow: boxes.filter((box) => Math.abs(box.top - boxes[0].top) < 1)
         .length,
       rows,
-      glyph: { width: boxes[0].width, height: boxes[0].height },
       gridBottom: grid.getBoundingClientRect().bottom,
       lastBottom: Math.max(
         ...uses.map((use) => use.getBoundingClientRect().bottom),
@@ -923,9 +967,15 @@ test('the counts figure draws people as micro astronauts, wide and narrow, from 
   expect(layout.perRow).toBe(narrow ? 25 : 40);
   expect(layout.rows).toBe(narrow ? 9 : 6);
   // Big enough to read as a person (the drawn figure, helmet to boots, inside its 16 × 20 glyph):
-  // about 14 px tall on a phone, 19 at desktop widths.
-  expect(layout.glyph.height).toBeGreaterThanOrEqual(narrow ? 13 : 18);
-  expect(layout.glyph.width).toBeGreaterThanOrEqual(narrow ? 8.5 : 12);
+  // about 14 px tall on a phone, 19 at desktop widths. Measured as painted: since ruling 49 the
+  // arms and legs are round-capped strokes, which the use's geometry box leaves out (it read
+  // 11.4 × 18.5 of the 16 × 20 units, where the figure paints about 13.9 × 20).
+  const painted = await paintedExtent(
+    page,
+    figure.locator('[data-grid="1"] use').first(),
+  );
+  expect(painted.height).toBeGreaterThanOrEqual(narrow ? 13 : 18);
+  expect(painted.width).toBeGreaterThanOrEqual(narrow ? 8.5 : 12);
   // Every person sits inside the grid's box: none is cut off by the layout switch.
   expect(layout.lastBottom).toBeLessThanOrEqual(layout.gridBottom + 0.5);
   await info.attach(`counts-${info.project.name}`, {
