@@ -4,9 +4,9 @@
  * out), on the CI-style build (rulings item 20). Prints every count for the PR.
  *
  * - Per-section budgets (a manifest's `sections`) hold for every section a page has, so parallel
- *   tasks on one page cannot overrun each other; a section still holding round-1 copy
- *   (`sectionsPending`) is reported, and enforced only with FORCE_WORDS=1 or once the page total is.
- * - Page totals are enforced where the manifest says so (`wordsEnforced`), or with FORCE_WORDS=1.
+ *   tasks on one page cannot overrun each other.
+ * - Page totals are enforced where the manifest says so (`wordsEnforced`, on for every page since
+ *   the round-2 integration), or with FORCE_WORDS=1.
  */
 import { expect, test } from '@playwright/test';
 
@@ -43,18 +43,14 @@ test.describe('visible words stay within each page budget @desktop-chromium', ()
           );
           continue;
         }
-        const pending =
-          !enforcedTotal && (manifest.sectionsPending ?? []).includes(selector);
-        const note = pending ? ' (round-1 copy, not enforced yet)' : '';
         info.annotations.push({
           type: 'words',
-          description: `${manifest.route} ${selector}: ${count} / ${budget}${note}`,
+          description: `${manifest.route} ${selector}: ${count} / ${budget}`,
         });
         console.log(
-          `word budget ${manifest.route} ${selector}: ${count} / ${budget}${note}`,
+          `word budget ${manifest.route} ${selector}: ${count} / ${budget}`,
         );
-        if (!pending)
-          expect(count, `${selector}: ${text}`).toBeLessThanOrEqual(budget);
+        expect(count, `${selector}: ${text}`).toBeLessThanOrEqual(budget);
       }
 
       const { count, text } = await page.evaluate(visibleWords, { exclude });

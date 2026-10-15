@@ -2,7 +2,8 @@
  * Per-page manifests (site redesign spec §9.3, #454): one `tests/pages/<page>.json` per page,
  * owned by that page's task, so six page tasks can tighten their own budgets without touching the
  * same file. The cross-page suites (word-budget, figures, motion, copy-spacing, performance) read
- * the enforced ones; the integration task fails the build if any flag is still false.
+ * the enforced ones. Since the round-2 integration every page is enforced, and
+ * tests/page-manifests.test.ts fails the build if a flag is turned off again.
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
@@ -21,14 +22,9 @@ export interface PageManifest {
   /**
    * Round 2 (spec §10): per-section word budgets, keyed by a CSS selector in <main> ("#why",
    * ".page-intro"), so parallel tasks on one page cannot overrun each other. Enforced for every
-   * section the page has, unless it is listed in `sectionsPending`.
+   * section the page has.
    */
   sections?: Record<string, number>;
-  /**
-   * Sections that still hold their round-1 copy (the task that rewrites them has not landed):
-   * their counts are reported, and enforced only with FORCE_WORDS=1 or once `wordsEnforced`.
-   */
-  sectionsPending?: string[];
   /** Every [data-concept] holds one figure, and the figure contract holds (spec §9.2). */
   conceptsEnforced: boolean;
   /** How many [data-concept] sections the page has (spec §10: Home 7, Project 6, Contribute 2,
@@ -84,7 +80,6 @@ const KEYS = new Set([
   'imagesKbGz',
   'deferredMediaKb',
   'sections',
-  'sectionsPending',
   'lcpMs',
   'cls',
   'budgetNote',
@@ -116,9 +111,6 @@ function load(file: string): PageManifest {
       throw new Error(
         `${file}: section "${selector}" needs a whole-number budget`,
       );
-  for (const pending of (raw.sectionsPending as string[] | undefined) ?? [])
-    if (!sections || !(pending in sections))
-      throw new Error(`${file}: pending section "${pending}" has no budget`);
   const media = raw.deferredMediaKb as Record<string, unknown> | undefined;
   if (
     media &&

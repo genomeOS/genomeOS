@@ -1,8 +1,8 @@
 {
   "route": "/contribute/",
   "words": 380,
-  "wordsEnforced": false,
-  "conceptsEnforced": false,
+  "wordsEnforced": true,
+  "conceptsEnforced": true,
   "concepts": 3,
   "sections": {
     ".page-intro": 30,
@@ -11,7 +11,6 @@
     "#how-work-moves": 142,
     "#start": 34
   },
-  "sectionsPending": ["#working-groups"],
   "jsKbGz": 10,
   "lazyJsKbGz": {
     "orbit": 40,
