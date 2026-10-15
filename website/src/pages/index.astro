@@ -24,8 +24,8 @@ import '../styles/pages/home.css';
 import heroPoster from '../assets/hero/hero-poster.webp';
 
 /*
- * The hero film (round 2, ruling R2-1): the owner's render, a seamless 16 s ping-pong loop without
- * audio. To swap the clip, replace these files (and the poster, its first frame, above) and keep
+ * The hero film (round 2, ruling R2-1): the owner's render, played whole at a quarter speed
+ * (motion-interpolated to 24 fps) as a seamless loop of about a minute, without audio. To swap the clip, replace these files (and the poster, its first frame, above) and keep
  * each codecs string true to its encode (`ffprobe`; AV1 first, then HEVC, within a width).
  */
 const heroFilm: HeroVideoSource[] = [
