@@ -15,7 +15,8 @@
  *   that fits it);
  *   nothing in <main> is set in a monospace face;
  * - no wordmark inside a call to action (the Atlas pills, .launch-atlas-cta and .atlas-open, are
- *   the wordmark's own); one selected tab and one pressed segment per group;
+ *   the wordmark's own); one selected tab and one pressed segment per group (a group of
+ *   independent toggles, marked data-select="multiple", may press any number);
  * - a scene's controls ([data-scene-toggle], [data-scene-replay]) sit off the stage they act on
  *   and clear of the cookie control's corner (round 2 spec §3.5);
  * - chip and step rows keep inside the 16 px phone gutters, and control labels never overflow;
@@ -160,10 +161,14 @@ function typeAndControls(): string[] {
         );
     }
   }
+  // A segmented control is single-choice: exactly one pressed. A group of independent toggles,
+  // such as Contact's "What you'd offer", says so with data-select="multiple" and may press any.
   const pressedGroups = new Set(
-    [...main.querySelectorAll('[aria-pressed]')].map(
-      (button) => button.closest('[role="group"]') ?? button.parentElement!,
-    ),
+    [...main.querySelectorAll('[aria-pressed]')]
+      .map(
+        (button) => button.closest('[role="group"]') ?? button.parentElement!,
+      )
+      .filter((group) => group.getAttribute('data-select') !== 'multiple'),
   );
   for (const group of pressedGroups) {
     if (!visible(group)) continue;
@@ -383,7 +388,10 @@ async function fold(
   viewport: (typeof VIEWPORTS)[number],
 ) {
   await page.evaluate(() => window.scrollTo(0, 0));
-  if (manifest.leadFigure) {
+  if (
+    manifest.leadFigure === true ||
+    (manifest.leadFigure === 'desktop' && viewport.name === 'desktop')
+  ) {
     const top = await page.evaluate(
       () =>
         document

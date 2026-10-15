@@ -98,6 +98,7 @@ export default defineConfig({
             { label: 'Atlas', link: '/app/' },
             { label: 'Projects', link: '/projects/' },
             { label: 'Contribute', link: '/contribute/' },
+            { label: 'Contact', link: '/contact/' },
           ],
         },
         {

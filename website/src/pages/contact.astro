@@ -1,0 +1,227 @@
+---
+/**
+ * Contact (Contact page spec; part of the site redesign, #454): write to the genomeOS Foundation
+ * without the site ever holding or sending a message.
+ *
+ *   intro      the shared PageIntro, split: note, H1, lede
+ *   composer   purpose (radios) and, for a contribution, what you'd offer (toggle buttons);
+ *              the live letter (the lead figure, ContactLetter); the actions: open the draft in
+ *              the visitor's email app, copy it, or start a blank email; show and copy the address;
+ *              on a phone, a dock that holds the primary action while the letter is read
+ *   problem    a secondary link: problems go to GitHub Issues, not email
+ *
+ * The address is in no served file (src/lib/contact-address.ts): it is joined only on a visitor's
+ * action, and every draft is built then (src/lib/contact-draft.ts) and handed to the visitor's own
+ * email app through `mailto:`. Nothing is sent, stored or tracked. Without JavaScript the composer
+ * stays hidden and a `<noscript>` line spells the address out for a person to type; if JavaScript
+ * runs but the island never does, the pre-paint script puts the page back that way at `load`.
+ *
+ * `?topic=contribute&offer=data,funding` (or `?topic=question|partner|press`) preselects, before the
+ * first paint (contact-paint.ts); choosing in the page keeps the query in step for sharing.
+ */
+import ContactLetter from '../components/contact/ContactLetter.astro';
+import {
+  contactPaintScript,
+  TOPIC_INPUT,
+} from '../components/contact/contact-paint';
+import PageIntro from '../components/PageIntro.astro';
+import { GITHUB_REPOSITORY } from '../data/nav';
+import SiteLayout from '../layouts/SiteLayout.astro';
+import {
+  OFFERS,
+  OFFER_LABELS,
+  TOPICS,
+  TOPIC_LABELS,
+} from '../lib/contact-draft';
+import '../styles/pages/contact.css';
+
+const ROOT = 'contact-composer';
+const ISSUES = `${GITHUB_REPOSITORY}/issues/new/choose`;
+/** The address as a person reads it, for a page whose composer cannot run. */
+const SPELLED_OUT = 'info [at] genome-os [dot] org';
+---
+
+<SiteLayout
+  title="Contact"
+  description="Write to the genomeOS Foundation: offer code, data, expertise or funding, ask a question, propose a partnership or make a press inquiry."
+>
+  <div class="contact-page" data-concept>
+    <PageIntro
+      layout="split"
+      note="Contact"
+      title="Start the conversation."
+      lede="Choose what you’re writing about and this page drafts the email. Your own email app sends it, so nothing passes through this site."
+    >
+      <div slot="figure" class="contact-layout">
+        <noscript>
+          <p class="contact-noscript">
+            Email us at <strong>{SPELLED_OUT}</strong>.
+          </p>
+        </noscript>
+        <p class="contact-noscript" data-contact-fallback hidden>
+          Email us at <strong>{SPELLED_OUT}</strong>.
+        </p>
+
+        <div
+          class="contact"
+          id={ROOT}
+          data-topic="contribute"
+          data-offers=""
+          hidden
+        >
+          <div class="contact__controls">
+            <fieldset class="contact-field">
+              <legend class="contact-field__label">Purpose</legend>
+              <div class="contact-choices">
+                {
+                  TOPICS.map((topic) => (
+                    <label class="contact-choice">
+                      <input
+                        type="radio"
+                        name={TOPIC_INPUT}
+                        value={topic}
+                        checked={topic === 'contribute'}
+                      />
+                      <span>{TOPIC_LABELS[topic]}</span>
+                    </label>
+                  ))
+                }
+              </div>
+            </fieldset>
+
+            <div class="contact-offers" data-offers-field>
+              <div class="contact-offers__clip">
+                <div
+                  class="contact-field"
+                  role="group"
+                  aria-labelledby="contact-offers-label"
+                  data-select="multiple"
+                >
+                  <p class="contact-field__label" id="contact-offers-label">
+                    What you’d offer
+                  </p>
+                  <div class="contact-toggles">
+                    {
+                      OFFERS.map((offer) => (
+                        <button
+                          type="button"
+                          class="contact-toggle"
+                          aria-pressed="false"
+                          data-offer={offer}
+                        >
+                          <svg
+                            class="contact-toggle__hex"
+                            viewBox="0 0 16 16"
+                            aria-hidden="true"
+                            focusable="false"
+                          >
+                            <path d="M15 8 11.5 14.06h-7L1 8l3.5-6.06h7z" />
+                          </svg>
+                          {OFFER_LABELS[offer]}
+                        </button>
+                      ))
+                    }
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <ContactLetter />
+
+          <div class="contact__actions">
+            <button
+              type="button"
+              class="contact-button contact-button--primary"
+              data-action="open"
+            >
+              Open draft in your email app
+              <svg
+                class="contact-button__arrow"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path d="M4.5 12h14M13.5 6.5 19 12l-5.5 5.5"></path>
+              </svg>
+            </button>
+            <div class="contact__pair">
+              <button
+                type="button"
+                class="contact-button"
+                data-action="copy-draft">Copy draft</button
+              >
+              <button type="button" class="contact-button" data-action="blank"
+                >Blank email</button
+              >
+            </div>
+            <div class="contact-address">
+              <button
+                type="button"
+                class="contact-text-button"
+                data-action="reveal">Show email address</button
+              >
+              <span class="contact-address__shown" data-address-shown hidden>
+                <span
+                  class="contact-address__value"
+                  id="contact-address"
+                  data-address></span>
+                <button
+                  type="button"
+                  class="contact-text-button"
+                  data-action="copy-address"
+                  aria-describedby="contact-address">Copy</button
+                >
+              </span>
+            </div>
+            <p class="contact-status" role="status" data-status></p>
+          </div>
+
+          {
+            /*
+             * The phone dock (contact.ts): the primary action at the foot of the screen while the
+             * letter is read and the button above is still well below it. A pointer shortcut to
+             * that button, so keyboards and screen readers keep to that one, and it can take the
+             * short label, one line on every phone (design critique 2, I-1).
+             */
+          }
+          <div class="contact-dock" data-dock aria-hidden="true">
+            <button
+              type="button"
+              class="contact-button contact-button--primary"
+              data-action="open"
+              tabindex="-1"
+            >
+              Open draft
+              <svg
+                class="contact-button__arrow"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path d="M4.5 12h14M13.5 6.5 19 12l-5.5 5.5"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <script is:inline set:html={contactPaintScript(ROOT)} />
+
+        <p class="contact-problem">
+          Found a problem? <a
+            href={ISSUES}
+            target="_blank"
+            rel="noopener noreferrer"
+            >Open a GitHub issue <span aria-hidden="true">↗</span></a
+          >
+        </p>
+      </div>
+    </PageIntro>
+  </div>
+</SiteLayout>
+
+<script>
+  import { initContact } from '../components/contact/contact';
+
+  const root = document.getElementById('contact-composer');
+  if (root) initContact(root);
+</script>

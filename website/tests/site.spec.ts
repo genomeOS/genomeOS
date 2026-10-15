@@ -128,8 +128,8 @@ test('primary navigation reaches Contribute and exposes GitHub access', async ({
       .getByRole('link', { name: 'Contribute' })
       .click();
   } else {
-    // GitHub is the nav's last link, right after Docs; genomeOS Atlas stands
-    // outside the nav.
+    // GitHub is the nav's last link, right after Contact; genomeOS Atlas
+    // stands outside the nav.
     const primary = page.getByRole('navigation', {
       name: 'Primary navigation',
     });
@@ -142,7 +142,13 @@ test('primary navigation reaches Contribute and exposes GitHub access', async ({
               link.getAttribute('aria-label') ?? link.textContent!.trim(),
           ),
         ),
-    ).toEqual(['Projects', 'Contribute', 'Docs', 'View genomeOS on GitHub']);
+    ).toEqual([
+      'Projects',
+      'Contribute',
+      'Docs',
+      'Contact',
+      'View genomeOS on GitHub',
+    ]);
     await expect(
       primary.getByRole('link', { name: 'genomeOS Atlas' }),
     ).toHaveCount(0);
@@ -157,7 +163,13 @@ test('primary navigation reaches Contribute and exposes GitHub access', async ({
 
 // Round 2 (spec §1.1, R2-4): one nav list everywhere. The site header, its Menu, the docs header
 // and the 404 read PRIMARY_NAV, so they name the same links in the same order.
-const NAV_NAMES = ['Projects', 'Contribute', 'Docs', 'View genomeOS on GitHub'];
+const NAV_NAMES = [
+  'Projects',
+  'Contribute',
+  'Docs',
+  'Contact',
+  'View genomeOS on GitHub',
+];
 const linkNames = (scope: Locator) =>
   scope
     .getByRole('link')
@@ -216,12 +228,21 @@ test(
       );
       // The page links join it once there is room for the whole nav: from 72em, and an em in a
       // media query is the 16 px initial size, not the 18 px root, so from 1,152 px.
-      await expect(
-        page
-          .getByRole('navigation', { name: 'Primary navigation' })
-          .getByRole('link', { name: 'Contribute' }),
+      for (const name of ['Contribute', 'Contact'])
+        await expect(
+          page
+            .getByRole('navigation', { name: 'Primary navigation' })
+            .getByRole('link', { name }),
+          `${name} at ${width} px`,
+        ).toBeVisible({ visible: width >= 1152 });
+      // The docs header holds one row: nothing overflows it.
+      expect(
+        await page.evaluate(() => {
+          const row = document.querySelector('.docs-header')!;
+          return row.scrollWidth - row.clientWidth;
+        }),
         `${width} px`,
-      ).toBeVisible({ visible: width >= 1152 });
+      ).toBeLessThanOrEqual(0);
     }
   },
 );
@@ -336,6 +357,107 @@ test(
     }
   },
 );
+
+// Contact page spec §1 (review 3, I-1): with Contact in the nav, Search had 75 px at 1,152 px. Its
+// magnifier shrank to nothing and its key hint ran 50 px onto the Atlas link, while the header's
+// row still fit and the boxes still lined up, so this looks inside the button. Search sheds its
+// key hint, then its label, where its room is too small. "Ctrl K" is the wider hint and shows on
+// Linux and Windows, "⌘ K" on a Mac, so both are checked whatever the host.
+for (const [platform, hint] of [
+  ['MacIntel', '⌘K'],
+  ['Linux x86_64', 'CtrlK'],
+] as const) {
+  test(
+    `the docs Search keeps its magnifier whole and its key hint clear of the Atlas link (${hint})`,
+    { tag: '@desktop-chromium' },
+    async ({ page }) => {
+      await page.addInitScript((value) => {
+        Object.defineProperty(Navigator.prototype, 'platform', {
+          get: () => value,
+        });
+      }, platform);
+      const widths = [
+        800, 1100, 1151, 1152, 1153, 1180, 1200, 1240, 1280, 1300, 1392, 1440,
+        1920,
+      ];
+      for (const width of widths) {
+        await page.setViewportSize({ width, height: 800 });
+        await page.goto('/docs/');
+        await page.evaluate(() => document.fonts.ready);
+        const search = page.locator('header button[data-open-modal]');
+        await expect(search).toBeEnabled();
+        await expect(search).toHaveAccessibleName('Search');
+        const at = `${width} px`;
+        const parts = await search.evaluate((button) => {
+          const box = (element: Element) =>
+            element.getBoundingClientRect().toJSON() as DOMRect;
+          const [icon, label, kbd] = [...button.children];
+          return {
+            overflow: button.scrollWidth - button.clientWidth,
+            button: box(button),
+            icon: box(icon),
+            iconEm: parseFloat(getComputedStyle(icon).fontSize),
+            shown: [...button.children]
+              .filter((part) => part.checkVisibility())
+              .map((part) => ({ tag: part.tagName, ...box(part) })),
+            label: label.checkVisibility(),
+            kbd: kbd.checkVisibility()
+              ? { text: kbd.textContent, right: box(kbd).right }
+              : null,
+            atlas: box(document.querySelector('.docs-header__atlas')!),
+          };
+        });
+        expect(parts.overflow, `${at}: overflow`).toBeLessThanOrEqual(0);
+        // The magnifier is whole: 1em across, as Starlight draws it.
+        expect(parts.icon.width, `${at}: magnifier`).toBeCloseTo(
+          parts.iconEm,
+          0,
+        );
+        for (const part of parts.shown) {
+          expect(part.left, `${at}: ${part.tag}`).toBeGreaterThanOrEqual(
+            parts.button.left,
+          );
+          expect(part.right, `${at}: ${part.tag}`).toBeLessThanOrEqual(
+            parts.button.right,
+          );
+        }
+        expect(parts.button.right, at).toBeLessThanOrEqual(parts.atlas.left);
+        expect(parts.button.width, `${at}: target`).toBeGreaterThanOrEqual(44);
+        expect(parts.button.height, `${at}: target`).toBeGreaterThanOrEqual(44);
+        if (parts.kbd) {
+          expect(parts.kbd.text, at).toBe(hint);
+          expect(parts.kbd.right, `${at}: key hint`).toBeLessThan(
+            parts.atlas.left,
+          );
+        }
+        // Nothing is shed where there is room: below 72em, where the nav is only GitHub, and from
+        // 1,392 px. Where the nav first shows, Search is the bare magnifier.
+        if (width < 1152 || width >= 1392) {
+          expect(parts.label, `${at}: label`).toBe(true);
+          expect(parts.kbd?.text, `${at}: key hint`).toBe(hint);
+        }
+        if (width <= 1153) {
+          expect(
+            parts.shown.map(({ tag }) => tag),
+            at,
+          ).toEqual(width < 1152 ? ['svg', 'SPAN', 'KBD'] : ['svg']);
+        }
+      }
+      // The bare magnifier still opens Search, by pointer and by the shortcut it no longer shows.
+      await page.setViewportSize({ width: 1153, height: 800 });
+      await page.goto('/docs/');
+      const search = page.locator('header button[data-open-modal]');
+      await expect(search).toBeEnabled();
+      const dialog = page.getByRole('dialog', { name: 'Search' });
+      await search.click();
+      await expect(dialog).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+      await page.keyboard.press('ControlOrMeta+k');
+      await expect(dialog).toBeVisible();
+    },
+  );
+}
 
 // The docs shell speaks the site's visual language, not stock Starlight (design review, round 1):
 // Raleway at the site's weights and tracking, square controls, a square ion-ruled current item, and
@@ -763,14 +885,16 @@ test(
 );
 
 test(
-  'GitHub sits in the primary nav right after Docs, set exactly like it',
+  'GitHub sits in the primary nav right after Contact, set exactly like it',
   { tag: '@desktop-chromium' },
   async ({ page }) => {
     const compare = () =>
       page.evaluate(() => {
         const nav = document.querySelector('nav.desktop-nav')!;
         const links = [...nav.querySelectorAll('a')];
-        const docs = links.find((link) => link.textContent!.trim() === 'Docs')!;
+        const contact = links.find(
+          (link) => link.textContent!.trim() === 'Contact',
+        )!;
         const github = nav.querySelector<HTMLAnchorElement>('.github-link')!;
         const githubText = github.querySelector('span')!;
         const type = (element: Element) => {
@@ -790,8 +914,8 @@ test(
           return { top, bottom };
         };
         return {
-          after: links.indexOf(github) - links.indexOf(docs),
-          docs: { text: text(docs), type: type(docs) },
+          after: links.indexOf(github) - links.indexOf(contact),
+          contact: { text: text(contact), type: type(contact) },
           github: { text: text(githubText), type: type(githubText) },
           last: links[links.length - 1] === github,
         };
@@ -800,10 +924,10 @@ test(
       const measured = await compare();
       expect(measured.after, label).toBe(1);
       expect(measured.last, label).toBe(true);
-      expect(measured.github.type, label).toEqual(measured.docs.type);
+      expect(measured.github.type, label).toEqual(measured.contact.type);
       for (const edge of ['top', 'bottom'] as const)
         expect(
-          Math.abs(measured.github.text[edge] - measured.docs.text[edge]),
+          Math.abs(measured.github.text[edge] - measured.contact.text[edge]),
           `${label}: text ${edge}`,
         ).toBeLessThanOrEqual(0.5);
     };
@@ -1648,7 +1772,7 @@ test(
 );
 
 test(
-  'the Atlas nav keeps its labels on one line, GitHub on Docs, while the status chip loads',
+  'the Atlas nav keeps its labels on one line, GitHub level with them, while the status chip loads',
   { tag: '@desktop-chromium' },
   async ({ page }) => {
     // Hold the default map's surface, so the chip keeps its loading copy, a
@@ -1692,10 +1816,13 @@ test(
           return { bottom, lines: lines.size, top };
         };
         const links = [...nav.querySelectorAll('a')];
-        const docs = links.find((link) => link.textContent!.trim() === 'Docs')!;
+        // GitHub's text sits level with the link before it, Contact.
+        const contact = links.find(
+          (link) => link.textContent!.trim() === 'Contact',
+        )!;
         const inner = document.querySelector('.site-header__inner')!;
         return {
-          docs: textBox(docs),
+          contact: textBox(contact),
           github: textBox(nav.querySelector('.github-link span')!),
           // GitHub's text is its <span>, beside the icon.
           lines: links.map(
@@ -1704,10 +1831,10 @@ test(
           overflow: inner.scrollWidth - inner.clientWidth,
         };
       });
-      expect(row.lines, label).toEqual([1, 1, 1, 1]);
+      expect(row.lines, label).toEqual([1, 1, 1, 1, 1]);
       for (const edge of ['top', 'bottom'] as const)
         expect(
-          Math.abs(row.github[edge] - row.docs[edge]),
+          Math.abs(row.github[edge] - row.contact[edge]),
           `${label}: text ${edge}`,
         ).toBeLessThanOrEqual(0.5);
       expect(row.overflow, label).toBeLessThanOrEqual(0);
@@ -2144,11 +2271,24 @@ test('mobile navigation is a keyboard-operable disclosure', async ({
   await expect(
     page.getByRole('navigation', { name: 'Mobile navigation' }),
   ).toBeVisible();
-  await expect(
-    page
-      .getByRole('navigation', { name: 'Mobile navigation' })
-      .getByRole('link', { name: 'Docs' }),
-  ).toBeVisible();
+  const mobile = page.getByRole('navigation', { name: 'Mobile navigation' });
+  await expect(mobile.getByRole('link', { name: 'Docs' })).toBeVisible();
+  await expect(mobile.getByRole('link', { name: 'Contact' })).toBeVisible();
+  expect(
+    await mobile
+      .getByRole('link')
+      .evaluateAll((links) =>
+        links.map(
+          (link) => link.getAttribute('aria-label') ?? link.textContent!.trim(),
+        ),
+      ),
+  ).toEqual([
+    'Projects',
+    'Contribute',
+    'Docs',
+    'Contact',
+    'View genomeOS on GitHub',
+  ]);
 });
 
 test('the Menu panel scrolls inside short viewports and closes on Escape or when focus leaves it', async ({
@@ -2173,7 +2313,8 @@ test('the Menu panel scrolls inside short viewports and closes on Escape or when
     await page.goto('/');
     await summary.click();
     await expect(menu).toHaveAttribute('open', '');
-    await expect(links).toHaveCount(4);
+    // Project, Contribute, Docs, Contact and GitHub.
+    await expect(links).toHaveCount(5);
     for (const link of await links.all()) {
       const reachable = await link.evaluate((element) => {
         element.scrollIntoView({ block: 'nearest' });

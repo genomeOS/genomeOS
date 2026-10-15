@@ -1,6 +1,7 @@
 /**
  * The primary navigation (round 2 spec §1.1, R2-4; #454): one list for the site header, the docs
  * header and the 404. "Project" became "Projects" at /projects/; /project/ only redirects there.
+ * Contact follows Docs (Contact page spec §1).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -8,11 +9,12 @@ import { PRIMARY_NAV } from '../src/data/nav';
 import { builtHtml } from './helpers/dist';
 
 describe('PRIMARY_NAV', () => {
-  it('lists Projects, Contribute and Docs, in that order', () => {
+  it('lists Projects, Contribute, Docs and Contact, in that order', () => {
     expect(PRIMARY_NAV.map(({ label, href }) => [label, href])).toEqual([
       ['Projects', '/projects/'],
       ['Contribute', '/contribute/'],
       ['Docs', '/docs/'],
+      ['Contact', '/contact/'],
     ]);
   });
 
@@ -44,12 +46,26 @@ describe('the built nav', () => {
       expect(attributes).not.toContain('aria-current');
   });
 
-  it('labels the docs sidebar group "Explore the site" and links Projects there', () => {
+  it('labels the docs sidebar group "Explore the site": Home, Atlas, Projects, Contribute, Contact', () => {
     const docs = builtHtml('docs');
     expect(docs).toContain('Explore the site');
     expect(docs).not.toContain('Explore the project');
-    expect(docs).toMatch(
-      /<a href="\/projects\/"[^>]*>\s*<span[^>]*>Projects<\/span>/,
+    const group = docs.slice(
+      docs.indexOf('Explore the site'),
+      docs.indexOf('</ul>', docs.indexOf('Explore the site')),
     );
+    expect(
+      [
+        ...group.matchAll(
+          /<a href="([^"]+)"[^>]*>\s*<span[^>]*>([^<]+)<\/span>/g,
+        ),
+      ].map(([, href, label]) => [label, href]),
+    ).toEqual([
+      ['Home', '/'],
+      ['Atlas', '/app/'],
+      ['Projects', '/projects/'],
+      ['Contribute', '/contribute/'],
+      ['Contact', '/contact/'],
+    ]);
   });
 });

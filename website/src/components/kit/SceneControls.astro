@@ -19,7 +19,12 @@ interface Props {
 const { object, replay = false, id } = Astro.props;
 ---
 
-<div class="kit-scene-controls" id={id} data-scene-controls>
+<div
+  class="kit-scene-controls"
+  id={id}
+  data-scene-controls
+  data-select="multiple"
+>
   <button
     type="button"
     class="kit-scene-control"

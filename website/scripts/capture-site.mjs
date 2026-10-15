@@ -29,7 +29,7 @@ const { values: args } = parseArgs({
     out: { type: 'string' },
     routes: {
       type: 'string',
-      default: '/,/projects/,/contribute/,/docs/,/privacy/,/404.html',
+      default: '/,/projects/,/contribute/,/contact/,/docs/,/privacy/,/404.html',
     },
     profiles: { type: 'string', default: 'desktop,phone' },
     frames: { type: 'string', default: '' },
