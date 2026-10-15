@@ -1181,15 +1181,19 @@
   }
 }
 
+/* The narrowest phones (320 px): the names' column takes the room the six fields can spare, and the
+   names set a step smaller, so "Continental", the longest word, keeps inside its box with padding
+   to spare (design critique 4: it ran about 11 px past the box onto the connector). */
 @container joinup (max-width: 300px) {
   .joinup__grid {
-    --socket: 1.1rem;
+    --socket: 1rem;
 
-    grid-template-columns: minmax(0, 1fr) repeat(6, 1.45rem);
+    grid-template-columns: minmax(0, 1fr) repeat(6, 1.3rem);
   }
 
   .joinup__record {
-    padding-inline: 0.45rem;
+    padding-inline: 0.35rem;
+    font-size: 0.8rem;
   }
 
   /* The corner is narrowest here: the reason sets tighter to stay level with the names. */

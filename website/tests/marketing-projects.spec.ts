@@ -520,6 +520,54 @@ test(
   },
 );
 
+// Design critique 4: at 320 px "Continental" ran about 11 px past its box onto the connector.
+test(
+  'on a phone every record’s name keeps inside its box, with padding to spare',
+  { tag: '@mobile-chromium' },
+  async ({ page }) => {
+    for (const width of [320, 360, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto('/projects/');
+      await openSection(page, 'how');
+      const figure = page.locator('figure[data-graphic="join-up"]');
+      await figure.scrollIntoViewIfNeeded();
+      const records = await figure
+        .locator('.joinup__record')
+        .evaluateAll((buttons) =>
+          buttons.map((button) => {
+            const style = getComputedStyle(button);
+            const box = button.getBoundingClientRect();
+            // The name is the button's own text; its visually hidden ": replay its route" is not.
+            const words = [...button.childNodes].find(
+              (node) =>
+                node.nodeType === Node.TEXT_NODE && node.textContent!.trim(),
+            )!;
+            const range = document.createRange();
+            range.selectNodeContents(words);
+            const lines = [...range.getClientRects()];
+            const em = parseFloat(style.fontSize);
+            return {
+              name: words.textContent!.trim(),
+              // How far the words stay inside the box's border, at the tighter side, in em.
+              inside:
+                Math.min(
+                  ...lines.map((line) =>
+                    Math.min(line.left - box.left, box.right - line.right),
+                  ),
+                ) / em,
+              size: em,
+            };
+          }),
+        );
+      expect(records).toHaveLength(5);
+      for (const { name, inside, size } of records) {
+        expect(inside, `${width} px: ${name}`).toBeGreaterThanOrEqual(0.3);
+        expect(size, `${width} px: ${name}`).toBeGreaterThanOrEqual(13);
+      }
+    }
+  },
+);
+
 test('the HbS map lets go of its readout when focus leaves it', async ({
   page,
 }) => {
