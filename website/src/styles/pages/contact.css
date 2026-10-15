@@ -322,6 +322,11 @@
   text-wrap: balance;
 }
 
+/* Until Raleway has loaded, the heading waits unseen (contact-paint.ts), never jumping as it swaps. */
+.contact-templates__title[data-font-pending] {
+  visibility: hidden;
+}
+
 /* The steps, then the letter; from 60rem the steps left and the letter right, level at the top. */
 .contact:not([hidden]) {
   display: grid;

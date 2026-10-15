@@ -277,6 +277,50 @@ describe('the pre-paint composer script', () => {
     ]);
   });
 
+  // Design critique 3 set the composer's heading at the site's H2 size, where Raleway's swap moves
+  // its glyphs about 4 px: until the face has loaded, the heading waits unseen.
+  it('holds the composer’s heading unseen until the display face loads, then shows it', async () => {
+    const run = async (loaded: boolean) => {
+      const attributes = new Set<string>();
+      const heading = {
+        setAttribute: (name: string) => attributes.add(name),
+        removeAttribute: (name: string) => attributes.delete(name),
+      };
+      const asked: string[] = [];
+      let finish: () => void = () => {};
+      const loading = new Promise<void>((resolve) => (finish = resolve));
+      runInNewContext(contactPaintScript('contact-composer'), {
+        document: {
+          getElementById: () => ({
+            set hidden(_value: boolean) {},
+            querySelector: (selector: string) =>
+              selector === '[data-font-wait]' ? heading : null,
+          }),
+          fonts: {
+            check: (face: string) => (asked.push(face), loaded),
+            load: () => loading,
+          },
+        },
+        window: { addEventListener: () => {} },
+        location: { search: '' },
+        URLSearchParams,
+        setTimeout: () => 0,
+      });
+      const pending = attributes.has('data-font-pending');
+      finish();
+      await loading;
+      await Promise.resolve();
+      return { asked, pending, after: attributes.has('data-font-pending') };
+    };
+    expect(await run(false)).toEqual({
+      asked: ['400 1em "Raleway Variable"'],
+      pending: true,
+      after: false,
+    });
+    // Already loaded (a second page view): it never waits.
+    expect(await run(true)).toMatchObject({ pending: false, after: false });
+  });
+
   it('is plain ES5 with no address in it, nor its stored parts', () => {
     expect(SCRIPT).not.toMatch(/=>|\blet\b|\bconst\b|`/);
     expect(SCRIPT).not.toContain('@');

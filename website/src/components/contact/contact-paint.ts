@@ -13,7 +13,11 @@
  *   (a module script runs too late for that). Where the
  *   letter will type itself out (letter-typing.ts: no reduced motion, no forced colours, and
  *   `@property` for its characters to step), it sets it waiting, its words hidden
- *   (`data-typing="pending"`, contact.css), so it never shows whole and then empties.
+ *   (`data-typing="pending"`, contact.css), so it never shows whole and then empties. Until the
+ *   display face has loaded, the composer's heading (`[data-font-wait]`, set at the site's H2
+ *   size since design critique 3) waits unseen (`data-font-pending`, at most 1.5 s), so it never
+ *   paints in a fallback face and then jumps as Raleway swaps in: at that size the swap moves its
+ *   glyphs about 4 px, which a visitor sees and the browser counts as a layout shift.
  *
  * It repeats `parseQuery`'s rule in plain ES5, with the purposes and offers from contact-draft.ts,
  * and carries the offer wording for every set of offers as a table built here from `letterList`
@@ -77,6 +81,18 @@ export function contactPaintScript(rootId: string): string {
       window.CSS.registerProperty
     )
       letter.setAttribute('data-typing', 'pending');
+  } catch (error) {}
+  try {
+    var heading = root.querySelector('[data-font-wait]');
+    var face = '400 1em "Raleway Variable"';
+    if (heading && document.fonts && !document.fonts.check(face)) {
+      heading.setAttribute('data-font-pending', '');
+      var show = function () {
+        heading.removeAttribute('data-font-pending');
+      };
+      document.fonts.load(face).then(show, show);
+      setTimeout(show, 1500);
+    }
   } catch (error) {}
   try {
     var topics = ${json(TOPICS)};
