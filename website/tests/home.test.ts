@@ -68,6 +68,10 @@ describe('homepage contract', () => {
     expect(html).toMatch(
       /<h1[^>]*>Open science <br\s*\/?>\s*for the benefit of all\.<\/h1>/,
     );
+    // The owner (2026-10-15): the line above the headline was noise. The heading opens the hero.
+    expect(html).not.toContain('Genomics, AI and public health');
+    expect(html).not.toContain('home-hero__kicker');
+    expect(html).toMatch(/<div class="home-hero__text"[^>]*>\s*<h1/);
     expect(html).toMatch(/open source/i);
     expect(html).toMatch(/global community/i);
     expect(html).toMatch(/public good/i);
