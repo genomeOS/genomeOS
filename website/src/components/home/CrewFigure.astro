@@ -25,7 +25,6 @@ import type { CastId } from '../../graphics/astro/cast';
 import type { PoseName } from '../../graphics/astro/poses';
 import type { AstronautOptions } from '../../graphics/astro/rig';
 import { astronaut, ghost } from '../../graphics/astro/rig';
-import { C } from '../../graphics/astro/palette';
 import { chartCard } from '../../graphics/astro/props';
 
 interface Member {
@@ -47,17 +46,9 @@ const coder: Omit<Member, 'x'> = {
 };
 const builder: Omit<Member, 'x'> = { cast: 'A6', pose: 'hammerUp' };
 
-/*
- * The coder's tablet shows "</>". The kit sets that glyph as SVG text (rig.ts tabletArt), about 9 px
- * on screen here, under the figures' 13 px floor for text (round 1 §2.3); on a decorative drawing
- * it is a picture of code, so it is drawn as strokes instead, at the kit's size and colour.
- */
-const CODE_GLYPH = `<path d="M-4 -2.4 L-7 0.3 L-4 3 M4 -2.4 L7 0.3 L4 3 M1.3 -3.6 L-1.3 4.2" fill="none" stroke="${C.rim}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>`;
+/* The coder's tablet shows "</>", which the kit draws as strokes (rig.ts tabletArt). */
 const drawn = (member: Omit<Member, 'x'>) =>
-  astronaut(member.cast, member.pose, member.options).replace(
-    /<text\b[^>]*>&lt;\/&gt;<\/text>/,
-    CODE_GLYPH,
-  );
+  astronaut(member.cast, member.pose, member.options);
 const expert: Omit<Member, 'x'> = { cast: 'E3', pose: 'think' };
 const data: Omit<Member, 'x'> = {
   cast: 'A4',

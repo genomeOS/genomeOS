@@ -322,11 +322,19 @@ describe('colour', () => {
 
 describe('props new in the build', () => {
   it('puts a glyph on the coder’s tablet, escaped, and keeps the list rows by default', () => {
-    expect(tablet('</>')).toContain('&lt;/&gt;');
+    expect(tablet('Hi')).toContain('>Hi</text>');
+    expect(tablet('<b>')).toContain('&lt;b&gt;');
     expect(tablet()).toContain('tablet-rows');
-    expect(astronaut('A2', 'scroll', { tabletGlyph: '</>' })).toContain(
-      '&lt;/&gt;',
-    );
+  });
+
+  it('draws the coder’s "</>" as strokes, never as text under 13 px (T2’s request)', () => {
+    for (const markup of [
+      tablet('</>'),
+      astronaut('A2', 'scroll', { tabletGlyph: '</>' }),
+    ]) {
+      expect(markup).not.toContain('<text');
+      expect(markup).toContain('M-4 -2.4 L-7 0.3 L-4 3');
+    }
   });
 
   it('holds a chart card in place of the block when asked', () => {

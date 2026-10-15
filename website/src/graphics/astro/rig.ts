@@ -389,10 +389,20 @@ function head(
  * The tablet's screen: four rows of a list, or (`glyph`) a short label such as `</>` for the coder
  * (round 2 spec §3.1, Home's crew).
  */
+/**
+ * "</>" on a tablet is a picture of code, drawn as strokes: as SVG text at 9.5 units it set about
+ * 9 px on screen, under the figures' 13 px floor for text (round 1 §2.3; T2's request). Any other
+ * glyph is set as text.
+ */
+const CODE_GLYPH = `<path d="M-4 -2.4 L-7 0.3 L-4 3 M4 -2.4 L7 0.3 L4 3 M1.3 -3.6 L-1.3 4.2" fill="none" stroke="${C.rim}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>`;
+
 function tabletArt(glyph?: string): string {
-  const screen = glyph
-    ? `<text x="0" y="3.6" text-anchor="middle" font-size="9.5" font-weight="700" fill="${C.rim}">${escapeText(glyph)}</text>`
-    : `<g class="tablet-rows" fill="#cfe9ff"><rect x="-6" y="-7.5" width="12" height="2.2" rx="1.1"/><rect x="-6" y="-3.3" width="9" height="2.2" rx="1.1" fill="${C.rim}"/><rect x="-6" y="0.9" width="10.5" height="2.2" rx="1.1"/><rect x="-6" y="5.1" width="7" height="2.2" rx="1.1"/></g>`;
+  const screen =
+    glyph === '</>'
+      ? CODE_GLYPH
+      : glyph
+        ? `<text x="0" y="3.6" text-anchor="middle" font-size="9.5" font-weight="700" fill="${C.rim}">${escapeText(glyph)}</text>`
+        : `<g class="tablet-rows" fill="#cfe9ff"><rect x="-6" y="-7.5" width="12" height="2.2" rx="1.1"/><rect x="-6" y="-3.3" width="9" height="2.2" rx="1.1" fill="${C.rim}"/><rect x="-6" y="0.9" width="10.5" height="2.2" rx="1.1"/><rect x="-6" y="5.1" width="7" height="2.2" rx="1.1"/></g>`;
   return `<g class="prop-tablet"><rect x="-9" y="-11" width="18" height="22" rx="2.5" fill="#1d3354" stroke="${C.ink}" stroke-width="2"/>${screen}</g>`;
 }
 
