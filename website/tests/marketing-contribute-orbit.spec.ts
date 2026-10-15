@@ -27,9 +27,13 @@
  *   label; and every crew and prop stays inside the footprint the label model reckons with.
  * - The plate on one screen (owner, 2026-10-15): under the compact header, the bar, the stage and
  *   the columns down to their links at 1440 × 900 and up; the bar, the stage and every typed line
- *   at 1366 × 768 and 1280 × 800; the moon labels at 13 px or more at each. * - A moon under the pointer (owner, 2026-10-15) lights alone, from its disc or its label, and a
+ *   at 1366 × 768 and 1280 × 800; the moon labels at 13 px or more at each, and the moons and crews
+ *   within a tenth of their size before. Every landing stays inside the stage, on the desktop and
+ *   the tablet: each pod from its hover, each crew through its leap.
+ * - A moon under the pointer (owner, 2026-10-15) lights alone, from its disc or its label, and a
  *   click (a tap on a phone) opens its group's issues on GitHub in a new tab, its column link's
- *   URL; a faded label lets the pointer through; under reduced motion the same, at once.
+ *   URL; only its art that shows takes the pointer (a faded label, a crew yet to land and the
+ *   moon's glow let it through); under reduced motion the same, at once.
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -44,8 +48,17 @@ useSiteFixtures();
 
 const FIGURE = '[data-graphic="orbit"]';
 const KINDS = ['data', 'model', 'ui'] as const;
-/** orbit-layouts.ts T: the story, one revolution of the idle orbit and Data's moon pop, ms. */
-const T = { story: 32000, orbit: 240000, dataMoon: 800 } as const;
+/**
+ * orbit-layouts.ts T: the story, one revolution of the idle orbit, Data's moon pop and each pod's
+ * approach (touchdown 2 s later, TOUCHDOWN_MS), ms.
+ */
+const T = {
+  story: 32000,
+  orbit: 240000,
+  dataMoon: 800,
+  ship: { data: 19400, model: 21600, ui: 23800 },
+  touchdown: 2000,
+} as const;
 const COLUMNS = ['group-data', 'group-modeling', 'group-ui'] as const;
 /** --color-faint, --color-starlight and --color-ion, as painted (snapshot's `rgb`). */
 const FAINT = 'rgb(127, 147, 174)';
@@ -1172,20 +1185,114 @@ for (const { width, height, layout } of [
   });
 
 /**
+ * The landings inside the stage (brief: "nothing clips: the top moon's crew and a landing ship stay
+ * inside the stage"): every `step` ms from Data's pod slowing to its hover to the story's end, the
+ * drawn art of each pod, from its hover until it lifts off, and of each crew once it shows, inside
+ * the stage's box (which clips). One evaluate for the whole sweep.
+ */
+async function landings({
+  ship,
+  touchdown,
+  story,
+  step,
+}: {
+  ship: Record<string, number>;
+  touchdown: number;
+  story: number;
+  step: number;
+}) {
+  const found: string[] = [];
+  const stage = document
+    .querySelector('[data-graphic="orbit"] [data-figure-stage]')!
+    .getBoundingClientRect();
+  for (let t = ship.data + 1300; t <= story; t += step) {
+    await window.__motion!.seek('orbit', t);
+    const svg = [
+      ...document.querySelectorAll<SVGSVGElement>(
+        '[data-graphic="orbit"] .orbit-svg',
+      ),
+    ].find((item) => item.getClientRects().length > 0)!;
+    for (const kind of ['data', 'model', 'ui']) {
+      const moon = svg.querySelector(`.orbiter--moon[data-moon="${kind}"]`)!;
+      const flying =
+        t >= ship[kind] + 1300 && t <= ship[kind] + touchdown + 1300;
+      for (const part of [
+        ...moon.querySelectorAll('.crew'),
+        ...(flying ? [moon.querySelector('.ship-g')!] : []),
+      ])
+        for (const art of part.querySelectorAll(
+          'path, circle, ellipse, rect, line, use',
+        )) {
+          if (
+            !art.checkVisibility({
+              opacityProperty: true,
+              visibilityProperty: true,
+            })
+          )
+            continue;
+          const box = art.getBoundingClientRect();
+          if (!box.width && !box.height) continue;
+          const out = Math.max(
+            stage.top - box.top,
+            box.bottom - stage.bottom,
+            stage.left - box.left,
+            box.right - stage.right,
+          );
+          if (out > 0.5)
+            found.push(
+              `${t} ms: the ${kind} ${part.matches('.crew') ? 'crew' : 'pod'} ${Math.round(out)} px out`,
+            );
+        }
+    }
+  }
+  return [...new Set(found)];
+}
+
+for (const { width, height, layout } of [
+  { width: 1440, height: 900, layout: 'desktop' },
+  { width: 1024, height: 768, layout: 'tablet' },
+])
+  test.describe(`the landings at ${width} px @desktop-chromium`, () => {
+    test.use({ viewport: { width, height } });
+
+    test('keep every pod and crew inside the stage, the top moon’s too', async ({
+      page,
+    }) => {
+      await openOrbit(page);
+      expect(await page.evaluate(snapshot)).toMatchObject({ layout });
+      await page
+        .locator(FIGURE)
+        .evaluate((element) =>
+          element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+        );
+      expect(
+        await page.evaluate(landings, {
+          ship: T.ship,
+          touchdown: T.touchdown,
+          story: T.story,
+          step: 125,
+        }),
+      ).toEqual([]);
+    });
+  });
+
+/**
  * The plate on one screen (owner, 2026-10-15: "maybe 20% less tall so we can fit both the graphics
  * and text panels on the screen at once"): scrolled to the plate, under the site's compact header,
  * its bar, its whole stage and its three columns down to their links show on a laptop screen; on a
  * short one (1366 × 768, 1280 × 800) the bar, the stage and every line the columns type. The moon
- * labels stay 13 px or more at every size.
+ * labels stay 13 px or more at every size, and the moons and crews within a tenth of the size they
+ * were drawn at before the plate got shorter (`before`, CSS px a viewBox unit; brief: they "don't
+ * shrink by more than about 10% on screen").
  */
 test.describe('the orbit plate on one screen @desktop-chromium', () => {
-  for (const [width, height, last] of [
-    [1440, 900, 'link'],
-    [1920, 1080, 'link'],
-    [1512, 982, 'link'],
-    [1728, 1117, 'link'],
-    [1366, 768, 'typed line'],
-    [1280, 800, 'typed line'],
+  for (const [width, height, last, before] of [
+    [1440, 900, 'link', 0.794],
+    [1920, 1080, 'link', 1],
+    [1512, 982, 'link', 0.915],
+    [1728, 1117, 'link', 1],
+    [1366, 768, 'typed line', 0.727],
+    [1280, 800, 'typed line', 0.727],
   ] as const)
     test(`shows the bar to the last ${last} under the compact header at ${width}×${height}`, async ({
       page,
@@ -1223,6 +1330,8 @@ test.describe('the orbit plate on one screen @desktop-chromium', () => {
           ].find((item) => item.getClientRects().length > 0)!;
           return {
             layout: svg.dataset.layout,
+            scale:
+              svg.getBoundingClientRect().width / svg.viewBox.baseVal.width,
             top: bar.top - header,
             height: bottom - bar.top,
             room: innerHeight - header,
@@ -1243,6 +1352,7 @@ test.describe('the orbit plate on one screen @desktop-chromium', () => {
       // The plate's top meets the header (the bar starts under its 1 px frame; scrolling rounds).
       expect(Math.abs(fit.top)).toBeLessThan(2);
       expect(fit.height).toBeLessThanOrEqual(fit.room);
+      expect(fit.scale).toBeGreaterThanOrEqual(0.9 * before);
       expect(fit.labels).toHaveLength(3);
       for (const size of fit.labels) expect(size).toBeGreaterThanOrEqual(13);
     });
@@ -1406,20 +1516,113 @@ test.describe('a moon under the pointer @desktop-chromium', () => {
 
   test('lets a faded label pass the pointer through', async ({ page }) => {
     await openOrbit(page);
-    // The UI moon at the front of its orbit: its label has faded out at the stage's bottom edge.
-    await seek(page, (T.orbit * (74 - 90 + 360)) / 360);
-    const label = await page.evaluate(() => {
+    await page
+      .locator(FIGURE)
+      .evaluate((element) =>
+        element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+      );
+    // The UI moon nears the front of its orbit: its label has faded out at the stage's bottom
+    // edge. Back from the front, the earliest moment it is hidden, its middle still well inside
+    // the stage, where a label that took the pointer would be hit.
+    const faded = await page.evaluate(
+      async (front) => {
+        const look = () => {
+          const svg = [
+            ...document.querySelectorAll<SVGSVGElement>(
+              '[data-graphic="orbit"] .orbit-svg',
+            ),
+          ].find((item) => item.getClientRects().length > 0)!;
+          const text = svg.querySelector(
+            '.orbiter--label[data-moon="ui"] .moon-label',
+          )!;
+          const box = text.getBoundingClientRect();
+          const stage = document
+            .querySelector('[data-graphic="orbit"] [data-figure-stage]')!
+            .getBoundingClientRect();
+          const x = box.x + box.width / 2;
+          const y = box.y + box.height / 2;
+          return {
+            visibility: getComputedStyle(text).visibility,
+            inside: stage.bottom - y,
+            hit: !!document.elementFromPoint(x, y)?.closest('.orbiter--label'),
+          };
+        };
+        let earliest = null;
+        for (let t = front; t > front - 40000; t -= 1000) {
+          await window.__motion!.seek('orbit', t);
+          const seen = look();
+          if (seen.visibility !== 'hidden') break;
+          earliest = seen;
+        }
+        return earliest;
+      },
+      (T.orbit * (74 - 90 + 360)) / 360,
+    );
+    expect(faded).toMatchObject({ visibility: 'hidden', hit: false });
+    expect(faded!.inside).toBeGreaterThan(5);
+  });
+
+  test('takes the pointer only where a moon’s art shows', async ({ page }) => {
+    await openOrbit(page);
+    await page
+      .locator(FIGURE)
+      .evaluate((element) =>
+        element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+      );
+    // Which moon, if any, takes a point of the drawn layout.
+    const at = (where: {
+      kind: string;
+      part: 'label' | 'disc';
+      x: number;
+      y: number;
+    }) =>
+      page.evaluate(({ kind, part, x, y }) => {
+        const svg = [
+          ...document.querySelectorAll<SVGSVGElement>(
+            '[data-graphic="orbit"] .orbit-svg',
+          ),
+        ].find((item) => item.getClientRects().length > 0)!;
+        const box = svg
+          .querySelector(
+            part === 'label'
+              ? `.orbiter--label[data-moon="${kind}"] .moon-label`
+              : `.orbiter--moon[data-moon="${kind}"] .moon > circle:nth-of-type(2)`,
+          )!
+          .getBoundingClientRect();
+        return (
+          document
+            .elementFromPoint(box.x + box.width * x, box.y + y)
+            ?.closest('[data-moon]')
+            ?.getAttribute('data-moon') ?? null
+        );
+      }, where);
+    // 15 s in, the UI moon has arrived: its crew, yet to land, would sit over the right half of
+    // the Modeling label, and take it to the UI group's issues.
+    await seek(page, 15000);
+    const middle = await page.evaluate(() => {
       const svg = [
         ...document.querySelectorAll<SVGSVGElement>(
           '[data-graphic="orbit"] .orbit-svg',
         ),
       ].find((item) => item.getClientRects().length > 0)!;
-      const text = svg.querySelector(
-        '.orbiter--label[data-moon="ui"] .moon-label',
-      )!;
-      return getComputedStyle(text).visibility;
+      return (
+        svg
+          .querySelector('.orbiter--label[data-moon="model"] .moon-label')!
+          .getBoundingClientRect().height / 2
+      );
     });
-    expect(label).toBe('hidden');
+    for (const x of [0.7, 0.92])
+      expect(
+        await at({ kind: 'model', part: 'label', x, y: middle }),
+        `${x} along the Modeling label`,
+      ).toBe('model');
+    // 10 s in, Data's crew is yet to land: the sky over its moon, and its glow, take nothing.
+    await seek(page, 10000);
+    for (const y of [-30, -8])
+      expect(
+        await at({ kind: 'data', part: 'disc', x: 0.5, y }),
+        `${-y} px over Data's disc`,
+      ).toBeNull();
   });
 
   test('opens the group’s issues on GitHub in a new tab, and takes no focus', async ({

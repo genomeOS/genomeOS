@@ -48,10 +48,12 @@ import {
   CREW,
   KINDS,
   LAYOUTS,
+  LEAP,
   SAY,
   T,
   TOUCHDOWN_MS,
   depth,
+  landingReach,
   moonCenter,
   surf,
   theta,
@@ -64,10 +66,12 @@ import {
 const f = (n: number) => +(+n).toFixed(2);
 
 /**
- * A label's keyframe at this opacity. At 0 a label is `hidden` as well, so the pointer passes
- * through it (a label lights its moon on hover and opens its issues, contribute.css); otherwise it
- * inherits, so a label hidden by any of its three tracks (its moon's arrival, its cover, the phone's
- * camera) stays hidden, and one fading shows, as `visibility` interpolates.
+ * A keyframe at this opacity for a label, a crew or a prop. At 0 it is `hidden` as well, so the
+ * pointer passes through it (the moon's art lights its moon on hover and opens its issues,
+ * contribute.css; the pointer ignores opacity): a faded label, a crew before it lands, a prop
+ * before it is set up. Otherwise it inherits, so a label hidden by any of its three tracks (its
+ * moon's arrival, its cover, the phone's camera) stays hidden, and one fading shows, as
+ * `visibility` interpolates.
  */
 const shown = (opacity: number): Keyframe => ({
   opacity,
@@ -277,6 +281,8 @@ function landing(
   const td = ta + TOUCHDOWN_MS;
   const cs = L.cs;
   const top = -r + 1;
+  // How high the pod hovers and the crew leap: lower on the top moon, under the stage's top edge.
+  const reach = landingReach(L, kind);
   // The pod comes in from the moon's outer side, never across the globe, swings upright,
   // settles, then leaves.
   const [mx] = moonCenter(L, kind, td);
@@ -285,7 +291,7 @@ function landing(
       ? 0.4 * Math.sign(mx - L.cx || 1)
       : Math.sign(mx - L.cx);
   const from = [side * 300, -360];
-  const mid = [from[0] * 0.25, top - 120];
+  const mid = [from[0] * 0.25, top - reach.hover];
   const tiltIn = from[0] < 0 ? 34 : -34;
   tl.story(m.querySelector('.ship-g'), [
     [ta, { opacity: 0 }],
@@ -343,7 +349,8 @@ function landing(
     ],
   ]);
   // The crew pop out of the hatch: the window helmets duck as the full figures leap clear, in a
-  // low-gravity arc to their work spots, landing with a squash.
+  // low-gravity arc to their work spots, landing with a squash. Until then a figure is hidden, out
+  // of the pointer's way too (`shown`).
   const crew = CREW[kind];
   crew.forEach((c, i) => {
     const te = td + 420 + i * 260;
@@ -354,9 +361,9 @@ function landing(
     const astro = m.querySelector(`.crew-${c.id} .astro`);
     const startDeg = (i - (crew.length - 1) / 2) * 6;
     tl.story(astro, [
-      [te, { opacity: 0, transform: 'scale(.6)' }],
-      [te + 1, { opacity: 1, transform: 'scale(.6)' }, EASE.out],
-      [te + 260, { opacity: 1, transform: 'scale(1)' }],
+      [te, { ...shown(0), transform: 'scale(.6)' }],
+      [te + 1, { ...shown(1), transform: 'scale(.6)' }, EASE.out],
+      [te + 260, { ...shown(1), transform: 'scale(1)' }],
     ]);
     beats.travel.set(c.id, [
       [0, startDeg],
@@ -366,8 +373,8 @@ function landing(
     ]);
     const face = c.deg >= startDeg ? 1 : -1;
     addStory(beats, c.id, [
-      [te, { pose: 'hop', y: -70, face }, EASE.up],
-      [te + 640, { pose: 'hop', y: -118, face }, EASE.down],
+      [te, { pose: 'hop', y: LEAP.out * reach.leap, face }, EASE.up],
+      [te + 640, { pose: 'hop', y: LEAP.apex * reach.leap, face }, EASE.down],
       [te + 1220, { pose: 'hop', y: 0, sq: 0 }, EASE.out],
       [te + 1320, { pose: 'crouch', y: 3, sq: -0.07 }, EASE.back],
       [te + 1560, { pose: 'stand' }],
@@ -556,8 +563,8 @@ function activity(
       'story',
       m.querySelector('.setup-cart'),
       [
-        [td + 1499, { opacity: 0 }],
-        [td + 1500, { opacity: 1 }],
+        [td + 1499, shown(0)],
+        [td + 1500, shown(1)],
       ],
     ]);
   }
@@ -640,8 +647,8 @@ function activity(
       'story',
       m.querySelector('.setup-probe'),
       [
-        [td + 1700, { transform: 'translateY(-40px)', opacity: 0 }, EASE.down],
-        [td + 2100, { transform: 'translateY(0px)', opacity: 1 }],
+        [td + 1700, { transform: 'translateY(-40px)', ...shown(0) }, EASE.down],
+        [td + 2100, { transform: 'translateY(0px)', ...shown(1) }],
       ],
     ]);
     extras.push([

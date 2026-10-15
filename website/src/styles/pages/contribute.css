@@ -94,10 +94,14 @@
 
 /* A short laptop screen (1366 × 768, 1280 × 800): the intro's padding and lede step down further
    (the H1 keeps the site's size), so the globe and the first moon still show on the first screen.
-   The plate tightens too: its bar and heading, and its columns' spacing and type, a step smaller,
-   so that the bar, the whole stage and every line the columns type show on one screen under the
-   site's header (owner, 2026-10-15), where the story starts with the bar's Pause in view (orbit.ts
-   startWhen; design critique of the integrated build, round 2). */
+   The plate tightens too: its bar (no taller than its Pause and Replay) and heading, and its
+   columns' spacing and type, a step smaller, so that the bar, the whole stage and every line the
+   columns type show on one screen under the site's header (owner, 2026-10-15), where the story
+   starts with the bar's Pause in view (orbit.ts startWhen; design critique of the integrated build,
+   round 2). The drawing is sized to those typed lines, not to the links under them, so the moons and
+   crews stay within a tenth of their size before the plate got shorter (brief: "don't shrink by more
+   than about 10%"; 0.66 px a unit at 1366 × 768, was 0.73; review of the orbit's hover, finding 4).
+   */
 @media (min-width: 52rem) and (max-height: 52rem) {
   .contribute-intro .page-intro--split .page-intro__inner {
     padding-block: 1.6rem 1.25rem;
@@ -112,7 +116,8 @@
   }
 
   .wg-section .orbit__bar {
-    padding-block: 0.3rem;
+    min-height: 2.75rem;
+    padding-block: 0.1rem;
   }
 
   .wg-section .orbit__title {
@@ -120,16 +125,30 @@
   }
 
   .wg-section .orbit-col {
-    gap: 0.25rem;
-    padding-top: 0.65rem;
+    gap: 0.15rem;
+    padding-top: 0.45rem;
+  }
+
+  .wg-section .orbit-col__icon {
+    width: 26px;
+    height: 26px;
+  }
+
+  .wg-section .orbit-col__status {
+    line-height: 1.1;
   }
 
   .wg-section .orbit-col__what {
     font-size: 0.95rem;
+    line-height: 1.45;
   }
 
   .wg-section .orbit-col__who {
     font-size: 0.9rem;
+  }
+
+  .wg-section .orbit-svg--desktop {
+    width: min(100%, max(818px, min(1320px, (100svh - 18.4rem) * 1320 / 665)));
   }
 }
 
@@ -208,6 +227,7 @@
   grid-area: caption;
   min-width: 0;
   margin: 0;
+  text-wrap: balance;
 }
 
 .orbit__bar .kit-scene-controls {
@@ -245,11 +265,14 @@
 
 /* The stage draws the layout that fits its width (orbit-layouts.ts LAYOUTS): phones below 680 px,
    tablets from 680 px, desktops from 960 px, so the moon labels stay at 13 px or more. */
+/* The stage listens for a moon's click (contribute.astro), so iOS would flash its tap highlight
+   over the whole of it on any tap, sky included. */
 .orbit__stage {
   container: orbit-stage / inline-size;
   position: relative;
   overflow: hidden;
   border-bottom: 1px solid var(--color-deep-line);
+  -webkit-tap-highlight-color: transparent;
 }
 
 .orbit-svg {
@@ -307,9 +330,11 @@
  * make elements on it light up. clicking it brings you to the Issues page on GH with
  * working-group-specific filters applied"). The page's island opens the URL its column's link holds
  * (contribute.astro); keyboards and screen readers have the column links, as the stage is one image
- * with no tab stop. Only the moon's own art takes the pointer: its disc and engraving, its crew and
- * props, and its label while it shows (orbit.ts hides a faded one); the sky, the orbit, the globe,
- * and a pod or a bubble passing over, let it through.
+ * with no tab stop. Only the moon's own art takes the pointer, and only while it shows: its disc
+ * and engraving (not the glow round it), its crew once landed and its props once set up, and its
+ * label while it shows. orbit.ts hides each of those with `visibility` as well as opacity until
+ * then, as the pointer ignores opacity (review of the orbit's hover, finding 9). The sky, the
+ * orbit, the globe, and a pod or a bubble passing over, let it through.
  *
  * Hovered, the moon wakes: its engraving lights to full ion with a faint glow, its rim brightens, a
  * dotted ring like the orbit's own draws round it, the crew's suits and visors catch the light,
@@ -327,6 +352,10 @@
 .orbit-svg :is(.moon, .on-moon, .moon-label) {
   pointer-events: visiblePainted;
   cursor: pointer;
+}
+
+.orbit-svg .moon > circle:first-child {
+  pointer-events: none;
 }
 
 .orbit-svg .moon-icon,
@@ -855,6 +884,7 @@
   }
 
   :root[data-arm-orbit] .orbit:not([data-scene-state]) .orb-label {
+    visibility: hidden;
     opacity: 0;
   }
 
@@ -1234,7 +1264,9 @@
 
   /* The orbit is an illustration: in forced colours it rests on the story's last frame (the page
      never loads its motion; spec §8.9) and keeps its own night sky and colours, framed by the
-     plate, as a picture does; its words are all in the columns, in system colours. */
+     plate, as a picture does; its words are all in the columns, in system colours. A hovered moon
+     lights in its own ion too: a light theme's Highlight is about 1.2:1 on the stage's navy
+     (review of the orbit's hover, finding 3). */
   .orbit__stage,
   .orbit-col__shot {
     forced-color-adjust: none;
@@ -1243,20 +1275,6 @@
 
   .orbit-col__rule {
     background: Highlight;
-  }
-
-  /* A hovered moon's ring and label in the system's highlight colour. */
-  .orbit-svg .moon-ring {
-    stroke: Highlight;
-  }
-
-  :is(
-      .orbit-svg:has([data-moon='data']:hover) [data-moon='data'],
-      .orbit-svg:has([data-moon='model']:hover) [data-moon='model'],
-      .orbit-svg:has([data-moon='ui']:hover) [data-moon='ui']
-    )
-    .moon-label {
-    fill: Highlight;
   }
 
   .orbit-col__status::before {

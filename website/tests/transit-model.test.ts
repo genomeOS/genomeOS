@@ -43,6 +43,7 @@ import {
   KINDS,
   LABEL_FADE_MS,
   LAYOUTS,
+  LEAP,
   MOON_ORDER,
   PROPS,
   T,
@@ -54,6 +55,7 @@ import {
   labelCover,
   labelOpacity,
   labelTrack,
+  landingReach,
   layoutFor,
   moonCenter,
   partsAt,
@@ -248,12 +250,18 @@ describe('orbit scene', () => {
       'utf8',
     ).replace(/\s+/g, ' ');
     for (const L of [LAYOUTS.desktop, LAYOUTS.tablet]) {
-      const rule = css.match(
-        new RegExp(`\\.orbit-svg--${L.id} \\{ width: ([^;]+);`),
-      )?.[1];
-      expect(rule, L.id).toBeDefined();
-      expect(rule).toContain(`max(${L.minWidth}px,`);
-      expect(rule).toContain(`* ${L.w} / ${L.h})`);
+      const rules = [
+        ...css.matchAll(
+          new RegExp(`\\.orbit-svg--${L.id} \\{ width: ([^;]+);`, 'g'),
+        ),
+      ].map(([, rule]) => rule);
+      // The desktop's drawing has a second rule on a short screen (sized to the columns' typed
+      // lines there, not their links).
+      expect(rules, L.id).toHaveLength(L.id === 'desktop' ? 2 : 1);
+      for (const rule of rules) {
+        expect(rule).toContain(`max(${L.minWidth}px,`);
+        expect(rule).toContain(`* ${L.w} / ${L.h})`);
+      }
     }
   });
 
@@ -441,6 +449,18 @@ describe('orbit scene', () => {
       }
   });
 
+  it('shows each desktop and tablet label from its moon’s arrival to the story’s end', () => {
+    // The story is when a visitor reads the moons' names with the columns' text (review of the
+    // orbit's hover, finding 2: a label set deeper under its moon hid the Modeling one for four
+    // seconds while the pods landed).
+    for (const L of [LAYOUTS.desktop, LAYOUTS.tablet])
+      for (const kind of KINDS) {
+        const track = labelTrack(L, kind);
+        for (let t = T.moon[kind]; t <= T.story; t += 250)
+          expect(labelOpacity(track, t), `${L.id} ${kind} at ${t} ms`).toBe(1);
+      }
+  });
+
   it('fades a label out before anything reaches it and back in after, never blinking', () => {
     for (const L of layouts)
       for (const kind of KINDS) {
@@ -484,6 +504,12 @@ describe('orbit scene', () => {
     x0 >= 0 && y0 >= 0 && x1 <= L.w && y1 <= L.h;
   /** The pod's top above its pads at full scale: the beacon (props.ts spaceship). */
   const POD_TOP = 144;
+  /**
+   * An astronaut's art above its feet through a leap, hands and antenna up, at full scale and with
+   * the hop's squash: the most of any crew member, measured in the browser every 20 ms of each leap
+   * and rounded up (the orbit spec checks the drawn landings themselves).
+   */
+  const LEAP_TOP = 108;
 
   it('keeps every moon, crew, pod and showing label inside the stage all the way round', () => {
     for (const L of layouts) {
@@ -523,6 +549,48 @@ describe('orbit scene', () => {
           );
         }
     }
+  });
+
+  it('keeps every landing inside the desktop and tablet stages: each pod from its hover, each crew through its leap', () => {
+    // orbit.ts landing: a pod slows to its hover 1300 ms after it comes in and settles at
+    // touchdown; each crew member leaps out 420 + 260 i ms after touchdown, tops out 640 ms later
+    // and is down at 1220, then crouches and stands (the work spots, partsAt, take over). Between two
+    // keys neither reaches past the higher one (EASE.up, down and inOut never overshoot), so each
+    // moment is checked at the higher key's height, the figure at full scale. The Modeling moon
+    // lands at the top of its orbit, under the stage's top edge (landingReach). The phone's camera
+    // closes in on each landing, so its stage's edge never frames one.
+    for (const L of [LAYOUTS.desktop, LAYOUTS.tablet])
+      for (const kind of KINDS) {
+        const reach = landingReach(L, kind);
+        const td = T.ship[kind] + TOUCHDOWN_MS;
+        // [ms, the top in moon-local units before the depth scale]
+        const tops: [number, number][] = [];
+        for (let t = T.ship[kind] + 1300; t < td; t += 50)
+          tops.push([t, 1 - L.r[kind] - reach.hover - POD_TOP * L.cs * 0.95]);
+        CREW[kind].forEach((_, i) => {
+          const te = td + 420 + i * 260;
+          for (let t = te; t <= te + 1560; t += 50) {
+            const lift = t <= te + 1220 ? LEAP.apex * reach.leap : 0;
+            tops.push([t, 1.5 - L.r[kind] + L.cs * (lift - LEAP_TOP)]);
+          }
+        });
+        for (const [t, top] of tops) {
+          const [, y, d] = moonCenter(L, kind, t);
+          expect(
+            y + d * top,
+            `${L.id} ${kind} at ${t} ms`,
+          ).toBeGreaterThanOrEqual(0);
+        }
+      }
+    // Only the top moon's landing is lowered.
+    expect(landingReach(LAYOUTS.desktop, 'data')).toEqual({
+      hover: 120,
+      leap: 1,
+    });
+    expect(landingReach(LAYOUTS.phone, 'model')).toEqual({
+      hover: 120,
+      leap: 1,
+    });
   });
 
   it('makes the desktop and tablet stages as tall as their orbits need and no taller', () => {
