@@ -1,16 +1,14 @@
 /*
- * Home (site redesign spec §4.1, §2.3–§2.7; #454). Imported by src/pages/index.astro only, so every
- * rule here is Home's own. Sections: page type and calls to action · the bands · the flagship
- * project's section (.home-atlas) · the evidence base (.eb) · the applications band (.home-apps) ·
- * the vision strip (.vs) · built in the open (.of) · reduced motion.
+ * Home (round 2 spec §4.1, §2.3–§2.7; #454). Imported by src/pages/index.astro only, so every rule
+ * here is Home's own. Sections: page type and calls to action · the bands · why it matters (the
+ * people figure, .people) · how it works (the steps plate, .hiw, and the open-source row) · our
+ * flagship project · join us (the crew, .crew, and its cards) · reduced motion.
  *
- * Round 2 (plan T0 step 3) moved the figures that other tasks own into their components' files:
- * the hero film (components/home/hero-media.css), the toy globe (components/home/atlas-preview.css),
- * counts, not guesses (components/project/counts.css) and the application cards
- * (components/project/applications.css).
- *
- * Entrances arm only on screen (`@media screen`) and key on FigureController's
- * data-figure-state (armed → playing → rest), so print and reduced motion show the final state.
+ * Other files own the hero film and its text layout (components/home/hero-media.css) and the toy
+ * globe (components/home/atlas-preview.css). Scene motion runs on the timeline helper
+ * (src/graphics/timeline.ts) from each figure's module; this file holds the drawings' paint and
+ * the layouts, which media queries (viewport, 16 px rem) and container queries (the figure's
+ * width, 18 px rem) choose.
  */
 
 /* ------------------------------------------------------------ page type and calls to action */
@@ -24,6 +22,7 @@
 .home-head h2 {
   max-width: 22ch;
   margin: 0;
+  color: var(--color-starlight);
   font-family: var(--font-display);
   font-size: var(--type-h2);
   font-weight: 400;
@@ -32,12 +31,42 @@
   text-wrap: balance;
 }
 
-.mission-copy p {
+.home-lede {
   max-width: 38ch;
   margin: 1.25rem 0 0;
   color: var(--color-text-soft);
   font-size: var(--type-lede);
   line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.home-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  margin-top: 1.25rem;
+  font-weight: 650;
+}
+
+/* A text link with an arrow: the label carries the underline, the arrow does not; the arrow leans
+   on hover. */
+:is(.home-link, .home-open__links a) {
+  text-decoration: none;
+}
+
+.arrow-link__label {
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.22em;
+}
+
+.arrow-link__arrow {
+  transition: translate var(--dur-micro) var(--ease-ui);
+}
+
+:is(.home-link, .home-open__links a):hover .arrow-link__arrow {
+  translate: 0.2rem 0;
 }
 
 .button-link {
@@ -76,500 +105,528 @@
 
 /* ------------------------------------------------------------------------------- the bands */
 
-/* Home's six bands sit at the band token's own minimum (4rem) at every width. At its full desktop
-   value (7rem) their padding alone costs 1.6 screens at 1440×900 against Home's ≤ 6-screen target
-   (spec §4.1); the alternating band colours and hairlines still part the sections. */
+/* Four concept bands under the film, void and orbit in turn. */
 #main-content > .band {
-  --band-pad: 4rem;
+  --band-pad: clamp(4rem, 7vw, 5.5rem);
 }
 
-/* ---------------------------------------------------------------- the genomeOS Atlas preview */
-
-/* The film melts into the page above (.hero-media__scrim), so no hairline marks where it ends. */
-.band.home-atlas {
+/* The film melts into the page (.hero-media__scrim), so no hairline marks where it ends
+   (rulings item 17): the band under it starts on its own colour. */
+.home-hero + .band {
   border-top: 0;
 }
 
-/* The flagship project (round 2, ruling R2-2): its words, then the toy globe; from 72rem, a
-   figure-led split with the words on the left and the globe on the right, as in the film above. */
-.home-atlas__grid {
-  display: grid;
-  gap: var(--head-gap);
+/* The first band is orbit: it rises out of the film's void instead of starting on a hard edge. */
+.home-hero + .band--orbit {
+  background: linear-gradient(
+    var(--color-void),
+    var(--color-orbit) min(7rem, 60%)
+  );
 }
 
-.home-atlas__figure {
-  width: 100%;
-  max-width: 46rem;
-  min-width: 0;
+/* ----------------------------------------------------------------------- why it matters */
+
+/* PeopleFigure.astro: a data figure, open. The wide grid from a 33rem figure (a container query). */
+.people {
+  --micro-band: var(--color-orbit);
+
+  container: people / inline-size;
 }
 
-.home-atlas__lede {
-  max-width: 34ch;
-  margin: 1.25rem 0 0;
-  color: var(--color-text-soft);
-  font-size: var(--type-lede);
-  line-height: 1.5;
-}
-
-@media (min-width: 72rem) {
-  .home-atlas__grid {
-    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-    align-items: center;
-    column-gap: calc(var(--grid-gap) * 2);
-  }
-
-  .home-atlas__figure {
-    max-width: none;
-  }
-}
-
-/* ------------------------------------------------------------------------ evidence base */
-
-.eb-tiles {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  border-block: 1px solid var(--color-deep-line);
-}
-
-.eb-tiles > .metric {
-  min-width: 0;
-  padding: clamp(1.25rem, 2.4vw, 2rem);
-}
-
-.eb-tiles > .metric + .metric {
-  border-left: 1px solid var(--color-deep-line);
-}
-
-.metric data {
-  display: block;
+.people__title {
+  margin: 0;
   color: var(--color-starlight);
-  font-family: var(--font-body);
-  font-size: clamp(2.6rem, 4.6vw, 3.6rem);
-  font-weight: 560;
-  line-height: 1;
-  letter-spacing: -0.02em;
-  font-variant-numeric: lining-nums tabular-nums;
+  font-size: var(--type-legend);
+  font-weight: 640;
 }
 
-.metric h3 {
-  margin: 0.65rem 0 1.15rem;
-  color: var(--color-text-soft);
-  font-family: var(--font-body);
-  font-size: 1rem;
-  font-weight: 620;
+.people .kit-figure__stage > svg.people__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
 }
 
-.eb-bar {
-  display: flex;
-  gap: 1px;
-  height: 6px;
-  transform-origin: left center;
+.people .kit-figure__stage > svg.people__svg[data-layout='wide'] {
+  display: none;
 }
 
-.eb-bar__segment {
-  flex-basis: 0;
-  min-width: 2px;
+@container people (min-width: 33rem) {
+  .people .kit-figure__stage > svg.people__svg[data-layout='wide'] {
+    display: block;
+  }
+
+  .people .kit-figure__stage > svg.people__svg[data-layout='narrow'] {
+    display: none;
+  }
 }
 
-[data-tone='1'].eb-bar__segment,
-[data-tone='1'].eb-swatch {
-  background: rgb(242 248 255 / 88%);
+.people__p,
+.people__tone,
+.people__ring {
+  transform-box: fill-box;
+  transform-origin: center;
 }
 
-[data-tone='2'].eb-bar__segment,
-[data-tone='2'].eb-swatch {
-  background: var(--color-muted);
+.people__ring {
+  fill: none;
+  stroke: var(--color-starlight);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
 }
 
-[data-tone='3'].eb-bar__segment,
-[data-tone='3'].eb-swatch {
-  background: var(--color-faint);
+.people__leader {
+  stroke: var(--color-starlight);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  transform-box: fill-box;
+  transform-origin: 50% 0;
 }
 
-.eb-bar__cap,
-.eb-swatch--cap {
-  background:
-    repeating-linear-gradient(
-      135deg,
-      var(--enc-hatch) 0 1.2px,
-      transparent 1.2px 4px
-    ),
-    var(--enc-land);
+/* The note sits under the ring's leader: right-aligned, where the leader lands. */
+.people__note {
+  margin: 0.3rem 0 0;
+  color: var(--color-starlight);
+  font-size: var(--type-legend);
+  font-weight: 640;
+  line-height: 1.4;
+  text-align: right;
+  text-wrap: balance;
 }
 
-.eb-bar__cap {
-  flex: 0 0 1.1rem;
-}
-
-.eb-parts {
+.people__key {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.3rem 1.05rem;
-  margin: 0.7rem 0 0;
-  padding: 0;
-  list-style: none;
-  color: var(--color-muted);
-  font-size: 0.86rem;
-  font-variant-numeric: lining-nums tabular-nums;
-}
-
-.eb-parts li {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.eb-swatch {
-  display: inline-block;
-  flex: none;
-  width: 0.6rem;
-  height: 0.6rem;
-}
-
-.eb-diseases {
-  display: grid;
-  gap: 0.5rem;
+  gap: 0.5rem 1.75rem;
   margin: 0;
   padding: 0;
   list-style: none;
-  color: var(--color-text-soft);
-  font-size: 0.95rem;
 }
 
-.eb-diseases li {
+.people__key li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.people__key b {
+  min-width: 1.2em;
+  color: var(--color-starlight);
+  font-size: 1.05rem;
+  font-weight: 640;
+  font-variant-numeric: lining-nums tabular-nums;
+  text-align: right;
+}
+
+.people__glyph {
+  flex: none;
+  width: 0.85rem;
+  height: 1.06rem;
+}
+
+/* ------------------------------------------------------------------------- how it works */
+
+/* HowItWorks.astro (the kit Plate). Captions dim by colour, never by opacity: --hiw-lit mixes
+   faint into each caption's own colour, and how-it-works.ts animates it (registered, so it
+   interpolates; without @property it switches). */
+@property --hiw-lit {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 1;
+}
+
+.hiw .kit-plate__bar--top {
+  justify-content: flex-end;
+  padding-block: 0.2rem;
+}
+
+.hiw .kit-plate__stage {
+  padding-inline: clamp(0.75rem, 1.6vw, 1.75rem);
+}
+
+.hiw-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.hiw-svg[data-layout='wide'] {
+  display: none;
+}
+
+.hiw-svg[data-layout='tall'] {
+  max-width: 24rem;
+  margin-inline: auto;
+}
+
+@media (min-width: 64rem) {
+  .hiw-svg[data-layout='wide'] {
+    display: block;
+  }
+
+  .hiw-svg[data-layout='tall'] {
+    display: none;
+  }
+}
+
+.hiw-socket {
+  fill: var(--color-plate-raised);
+  stroke: var(--color-line-strong);
+  stroke-width: 1;
+}
+
+.hiw-icon {
+  fill: none;
+  stroke: var(--color-starlight);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.hiw-label {
+  fill: var(--color-muted);
+  font-family: var(--font-body);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.hiw-svg[data-layout='tall'] .hiw-label {
+  font-size: 16.5px;
+}
+
+.hiw-wire {
+  fill: none;
+  stroke-width: 1.4;
+}
+
+.hiw-wire--in {
+  stroke: var(--color-line-strong);
+  stroke-dasharray: 4 5;
+}
+
+/* Two lanes that never join, in the Pipeline's colours (round 1 §6.1 rule 1). */
+.hiw-wire--measured {
+  stroke: var(--lane-measured);
+}
+
+.hiw-wire--modeled {
+  stroke: var(--enc-mean-5);
+}
+
+.hiw-gate {
+  fill: var(--color-plate-raised);
+  stroke: var(--color-ion);
+  stroke-width: 1.4;
+}
+
+.hiw-edges {
+  stroke: rgb(165 185 211 / 26%);
+  stroke-width: 1;
+}
+
+.hiw-nodes {
+  fill: var(--color-plate);
+  stroke: var(--color-muted);
+  stroke-width: 1.4;
+}
+
+.hiw-cursor {
+  fill: var(--color-starlight);
+  stroke: var(--color-void);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+
+.hiw-record path {
+  fill: none;
+  stroke: var(--color-muted);
+  stroke-width: 1.6;
+}
+
+.hiw-stud {
+  fill: var(--enc-obs);
+  stroke: var(--color-void);
+  stroke-width: 1.5;
+}
+
+.hiw .atlas-mark__studs circle {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* The bottom bar: the three numbered steps. */
+.hiw .kit-plate__bar--bottom {
+  display: block;
+  padding: 0;
+}
+
+.hiw-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: hiw;
+}
+
+.hiw-step {
+  counter-increment: hiw;
+  padding: 1.2rem 1.4rem 1.4rem;
+}
+
+.hiw-step + .hiw-step {
+  border-left: 1px solid var(--color-deep-line);
+}
+
+.hiw-step h3 {
   display: flex;
   align-items: center;
   gap: 0.65rem;
+  margin: 0;
+  color: color-mix(
+    in srgb,
+    var(--color-starlight) calc(var(--hiw-lit) * 100%),
+    var(--color-faint)
+  );
+  font-family: var(--font-display);
+  font-size: var(--type-h3);
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
 }
 
-.eb-diseases svg {
+.hiw-step h3::before {
+  content: counter(hiw);
   flex: none;
-  color: var(--color-starlight);
+  display: inline-grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border: 1px solid currentColor;
+  color: color-mix(
+    in srgb,
+    var(--color-ion) calc(var(--hiw-lit) * 100%),
+    var(--color-faint)
+  );
+  font: 640 0.85rem / 1 var(--font-body);
+  letter-spacing: 0;
 }
 
-.eb-method summary {
-  min-height: 24px;
-  color: var(--color-ion);
-  font-weight: 620;
-  cursor: pointer;
+.hiw-step p {
+  max-width: 36ch;
+  margin: 0.55rem 0 0;
+  color: color-mix(
+    in srgb,
+    var(--color-text-soft) calc(var(--hiw-lit) * 100%),
+    var(--color-faint)
+  );
+  font-size: 1rem;
+  line-height: 1.5;
 }
 
-.eb-method p {
-  max-width: var(--reading-width);
-  margin: 0.75rem 0 0;
-  color: var(--color-muted);
-  font-size: 0.92rem;
+/* Mid widths: the tall stage in 5 of 12 columns, the steps beside it, each level with its stage. */
+@media (min-width: 48rem) and (max-width: 63.99rem) {
+  .hiw.kit-plate {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  }
+
+  .hiw .kit-plate__bar--top {
+    grid-column: 1 / -1;
+  }
+
+  .hiw .kit-plate__stage {
+    padding: 1.25rem 1rem;
+  }
+
+  .hiw .kit-plate__bar--bottom {
+    border-top: 0;
+    border-left: 1px solid var(--color-deep-line);
+  }
+
+  /* The stage sets the height; the steps spread over it, the first by the sources, the last by
+     the globe. */
+  .hiw-steps {
+    height: 100%;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: space-between;
+  }
+
+  .hiw-step + .hiw-step {
+    border-left: 0;
+  }
 }
 
-@media (max-width: 52rem) {
-  .eb-tiles {
+@media (max-width: 47.99rem) {
+  .hiw-steps {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .eb-tiles > .metric + .metric {
+  .hiw-step + .hiw-step {
     border-top: 1px solid var(--color-deep-line);
     border-left: 0;
   }
 }
 
-@media screen {
-  .eb[data-figure-state='armed'] .eb-bar {
-    transform: scaleX(0);
-  }
-
-  .eb[data-figure-state='playing'] .eb-bar {
-    animation: home-grow 600ms var(--ease-figure) both;
-  }
-}
-
-/* --------------------------------------------------------------------------- applications */
-
-.home-apps {
-  --spotlight-x: 78%;
-  --spotlight-y: 24rem;
-
-  background:
-    radial-gradient(
-      circle 30rem at var(--spotlight-x) var(--spotlight-y),
-      rgb(112 230 255 / 7%),
-      transparent 72%
-    ),
-    var(--color-void);
-}
-
-.home-apps__layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 22rem);
-  column-gap: var(--grid-gap);
-  row-gap: var(--head-gap);
-  align-items: end;
-}
-
-.home-apps__figure {
-  grid-column: 1 / -1;
-}
-
-@media (max-width: 52rem) {
-  .home-apps__layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .home-apps__cta {
-    order: 3;
-  }
-}
-
-/* --------------------------------------------------------------------------- vision strip */
-
-/* Project's scale frames at teaser scale (VisionStrip.astro; the art is styles/scale-frames.css):
-   a row of four from a 600 px stage, a 2 × 2 "U" below that. */
-.vs {
-  container: vs / inline-size;
-  margin: 0;
-}
-
-.vs-toolbar {
-  margin-bottom: 0.9rem;
-}
-
-.vs-svg {
-  display: block;
-  width: 100%;
-  height: auto;
-  overflow: visible;
-  font-family: var(--font-body);
-}
-
-.vs-svg--row {
-  display: none;
-  max-width: 760px;
-}
-
-.vs-svg--grid {
-  max-width: 26rem;
-}
-
-@container vs (min-width: 600px) {
-  .vs-svg--row {
-    display: block;
-  }
-
-  .vs-svg--grid {
+/* Under reduced motion there is nothing to replay, so the plate shows no empty top bar. */
+@media (prefers-reduced-motion: reduce) {
+  .hiw .kit-plate__bar--top {
     display: none;
   }
 }
 
-/* Each frame's status, as in the legend: an ion dot, or a dashed violet ring for future work. */
-.vs-dot {
-  fill: var(--color-ion);
-}
-
-.vs-dot[data-status='future'] {
-  fill: none;
-  stroke: var(--color-genome);
-  stroke-dasharray: 2 2;
-  stroke-width: 1.5;
-}
-
-.vs-legend {
+/* The open-source row, under the plate. */
+.home-open {
+  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem 1.5rem;
-  margin-top: 1.4rem;
-  color: var(--color-muted);
-  font-size: var(--type-legend);
-}
-
-.vs-status {
-  display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-}
-
-.vs-status::before {
-  content: '';
-  flex: none;
-  width: 0.55rem;
-  height: 0.55rem;
-  border-radius: 50%;
-  background: var(--color-ion);
-}
-
-.vs-status[data-status='future']::before {
-  border: 1.5px dashed var(--color-genome);
-  background: none;
-}
-
-.home-vision__link {
-  display: inline-flex;
-  gap: 0.4rem;
-  min-height: 24px;
-  margin-top: 1.5rem;
-  font-weight: 650;
-}
-
-/* Stacked, the figure-led split reads heading, figure (with its legend), then the link on. */
-@media (max-width: 52rem) {
-  .home-vision .layout-figure-split__text {
-    display: contents;
-  }
-
-  .home-vision .layout-figure-split__text > * {
-    grid-column: 1 / -1;
-  }
-
-  .home-vision__link {
-    order: 1;
-    justify-self: start;
-  }
-}
-
-@media screen {
-  .vs[data-figure-state='armed'] :is(.vs-frame, .vs-wedge) {
-    opacity: 0;
-  }
-
-  .vs[data-figure-state='playing'] :is(.vs-frame, .vs-wedge) {
-    animation: home-fade 320ms var(--ease-figure) calc(var(--k, 0) * 110ms) both;
-  }
-}
-
-/* --------------------------------------------------------------------- built in the open */
-
-/* The band sits on its calls to action's columns (design review, rounds 1 and 2): one column on a
-   phone; from 52rem two tracks (the text over the first card, the field over the second) with the
-   cards 2 × 2 on the same tracks; four tracks only from 80rem, where four cards fit in a row (the
-   text over the first three, the field over the last). The field is small and ends where the last
-   card ends. */
-.home-open__grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  column-gap: var(--grid-gap);
-  row-gap: var(--head-gap);
-  align-items: center;
-}
-
-.home-open__figure {
-  justify-self: end;
-  width: 100%;
-  max-width: 20rem;
-}
-
-@media (max-width: 51.99rem) {
-  .home-open__figure {
-    justify-self: start;
-  }
-}
-
-@media (min-width: 52rem) {
-  .home-open__grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  /* Two classes: the shared .link-row rules load after this file. */
-  .home-open__grid > .home-open__routes {
-    grid-column: 1 / -1;
-    grid-template-columns: subgrid;
-  }
-}
-
-@media (min-width: 80rem) {
-  .home-open__grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .home-open__text {
-    grid-column: span 3;
-  }
+  justify-content: space-between;
+  gap: 0.75rem 2.5rem;
+  margin-top: 1.75rem;
 }
 
 .home-open__line {
-  margin: 1.1rem 0 0;
+  max-width: 44ch;
+  margin: 0;
   color: var(--color-text-soft);
   font-size: var(--type-lede);
-  line-height: 1.5;
+  line-height: 1.45;
+  text-wrap: pretty;
 }
 
-.of {
+.home-open__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 2rem;
   margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.of-toolbar {
-  margin-bottom: 0.75rem;
+.home-open__links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  font-size: 1.05rem;
+  font-weight: 650;
 }
 
-.of-stage svg {
+/* ------------------------------------------------------------------- our flagship project */
+
+/* The toy globe is the band's figure (AtlasPreview.astro, atlas-preview.css). */
+.home-atlas .layout-figure-split {
+  align-items: center;
+}
+
+/* ----------------------------------------------------------------------------- join us */
+
+.home-join__figure {
+  display: grid;
+  gap: 1.6rem;
+  container: join-ways / inline-size;
+}
+
+/* Three cards in one row where each keeps its longest word whole; one column below that, never
+   two and one. */
+.home-join__ways {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--grid-gap);
+}
+
+@container join-ways (min-width: 40rem) {
+  .home-join__ways {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* CrewFigure.astro: decorative. The wide crew from a 34rem figure (a container query). */
+.crew {
+  position: relative;
+  margin: 0;
+  container: crew / inline-size;
+}
+
+.crew__layout {
+  position: relative;
+}
+
+.crew__layout[data-layout='wide'] {
+  display: none;
+}
+
+@container crew (min-width: 34rem) {
+  .crew__layout[data-layout='wide'] {
+    display: block;
+  }
+
+  .crew__layout[data-layout='narrow'] {
+    display: none;
+  }
+}
+
+.crew__svg {
   display: block;
   width: 100%;
   height: auto;
+  overflow: visible;
 }
 
-.of-fill {
-  opacity: 0;
-  transition: opacity 600ms var(--ease-figure);
+.crew__ledge path {
+  fill: var(--enc-land);
+  stroke: rgb(112 230 255 / 30%);
+  stroke-width: 1;
 }
 
-.of-stud {
+/* "Your spot": HTML, so it keeps its size; it sits over the outline (CrewFigure sets --x). */
+.crew__label {
+  position: absolute;
+  top: var(--y, 6%);
+  left: var(--x);
+  margin: 0;
+  translate: -50% 0;
+  color: var(--color-genome);
+  font-size: 0.9rem;
+  font-weight: 640;
+  white-space: nowrap;
+}
+
+.crew__spot {
+  transition: opacity 200ms var(--ease-ui);
+}
+
+/* A newcomer lands in the spot while a card is hovered or focused, and floats back out after. */
+.crew__newcomer {
   opacity: 0;
-  transform: scale(0.3);
-  transform-box: fill-box;
-  transform-origin: center;
+  translate: 0 -46px;
   transition:
-    opacity 300ms var(--ease-figure) 200ms,
-    transform 600ms var(--ease-camera);
+    opacity 180ms var(--ease-ui),
+    translate 320ms var(--ease-camera);
 }
 
-.of[data-filled] .of-fill,
-.of[data-filled] .of-stud {
+.crew[data-filled] .crew__newcomer {
   opacity: 1;
-  transform: none;
+  translate: 0 0;
+  transition:
+    opacity 140ms var(--ease-ui),
+    translate 420ms cubic-bezier(0.3, 1.45, 0.55, 1);
 }
 
-.of-legend {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.75rem;
-  color: var(--color-text-soft);
-  font-size: var(--type-legend);
-  font-weight: 600;
+.crew[data-filled] .crew__spot {
+  opacity: 0;
 }
 
-/* --------------------------------------------------------------------------- shared motion */
-
-@keyframes home-fade {
-  from {
-    opacity: 0;
-  }
-}
-
-@keyframes home-rise {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-}
-
-@keyframes home-grow {
-  from {
-    transform: scaleX(0);
-  }
-}
-
-@keyframes home-unroll {
-  from {
-    clip-path: inset(0 0 100% 0);
-  }
-
-  to {
-    clip-path: inset(0);
-  }
-}
+/* ------------------------------------------------------------------------- reduced motion */
 
 @media (prefers-reduced-motion: reduce) {
   .button-link,
-  .of-fill,
-  .of-stud {
+  .arrow-link__arrow,
+  .crew__spot,
+  .crew__newcomer,
+  .crew[data-filled] .crew__newcomer {
     transition: none;
   }
 }

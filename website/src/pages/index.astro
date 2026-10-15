@@ -1,23 +1,30 @@
 ---
 /**
- * Home (site redesign spec §4.1, #454; round 2 rulings R2-1, R2-2): the hero film under the page's
- * heading and calls to action, then seven concepts, each one figure plus its legend, in this order:
- * the genomeOS Atlas preview (#atlas, the toy globe), counts not guesses (#why), the Pipeline
- * (#how), the evidence base (#metrics-title), potential applications, the larger vision, and one
- * closing band.
+ * Home (round 2 spec §4.1; R2-1, R2-2, R2-3, R2-11, R2-14; rulings items 21–27; #454), for a visitor
+ * who is not an expert: what the genomeOS Foundation is for, why it matters, how it works, its
+ * flagship project and how to join. The owner's film and headline, then four concepts, each one
+ * figure:
+ *
+ *   #hero   the film (HeroMedia, decorative) under the headline and two calls to action
+ *   #why    why it matters: of every 100 participants in genome-wide studies, 86 had European
+ *           ancestry (the people figure, from Fatumo et al. 2022)
+ *   #how    how it works: gather and harmonize, build AI models, explore the Atlas (the steps
+ *           plate), then the open-source row
+ *   #atlas  our flagship project: the genomeOS Atlas preview (the toy globe) and the way to Projects
+ *   #join   you don't need a PhD: the crew and three ways in
+ *
+ * Projects (/projects/) holds the technical story; nothing appears on both pages. Bands alternate
+ * void and orbit from the film down.
  */
 import ralewayLatin from '@fontsource-variable/raleway/files/raleway-latin-wght-normal.woff2?url';
 import BrandName from '../components/BrandName.astro';
-import ApplicationCard from '../components/project/ApplicationCard.astro';
-import CountsFigure from '../components/project/CountsFigure.astro';
-import EvidenceBase from '../components/home/EvidenceBase.astro';
 import AtlasPreview from '../components/home/AtlasPreview.astro';
+import CrewFigure from '../components/home/CrewFigure.astro';
 import HeroMedia from '../components/home/HeroMedia.astro';
 import type { HeroVideoSource } from '../components/home/hero-media';
-import OpenField from '../components/home/OpenField.astro';
-import VisionStrip from '../components/home/VisionStrip.astro';
+import HowItWorks from '../components/home/HowItWorks.astro';
+import PeopleFigure from '../components/home/PeopleFigure.astro';
 import Glyph from '../components/kit/Glyph.astro';
-import Pipeline from '../components/kit/Pipeline.astro';
 import SiteLayout from '../layouts/SiteLayout.astro';
 import { sitePath } from '../lib/paths';
 import '../styles/pages/home.css';
@@ -51,73 +58,51 @@ const heroFilm: HeroVideoSource[] = [
   },
 ];
 
-const applications = [
-  {
-    title: 'Screening programmes',
-    horizon: 'First-release direction',
-    tone: 'aurora',
-    line: 'Where carrier screening would help most.',
-  },
-  {
-    title: 'Diagnostic context',
-    horizon: 'Clinical validation needed',
-    tone: 'signal',
-    line: 'Regional context before a genetic test.',
-  },
-  {
-    title: 'Trial planning',
-    horizon: 'Study planning',
-    tone: 'ion',
-    line: 'Where a study could find enough carriers.',
-  },
-  {
-    title: 'The map of what we don’t know',
-    horizon: 'Headline output',
-    tone: 'ion',
-    line: 'Where the next sample matters most.',
-  },
-  {
-    title: 'Medicines and drug response',
-    horizon: 'Future exploration',
-    tone: 'genome',
-    line: 'Variants that change a dose.',
-  },
-  {
-    title: 'Research and discovery',
-    horizon: 'Hypothesis generation',
-    tone: 'ion',
-    line: 'Patterns worth testing.',
-  },
-] as const;
-
 const repository = 'https://github.com/genomeOS/genomeOS';
-const routes = [
+
+/** The open-source row (spec §4.1.4): each visible label is contained in its name (WCAG 2.5.3). */
+const openLinks = [
   {
-    href: `${repository}/discussions/76`,
-    lead: 'Meet the community',
-    label: 'Introduce yourself',
+    label: 'Code',
+    name: 'Code on GitHub',
+    href: repository,
     external: true,
+  },
+  {
+    label: 'Data',
+    name: 'Data: where it comes from, and its terms',
+    href: sitePath('/docs/data-and-literature/'),
+    external: false,
+  },
+  {
+    label: 'Models',
+    name: 'Models: how they are tested',
+    href: sitePath('/docs/modeling-and-validation/'),
+    external: false,
+  },
+];
+
+/** Three ways in (spec §4.1.6): each card fills the crew's "Your spot" while hovered or focused. */
+const ways = [
+  {
+    lead: 'Find your place',
+    label: 'Start contributing',
+    href: sitePath('/contribute/'),
+    external: false,
     primary: true,
   },
   {
-    href: sitePath('/contribute/#working-groups'),
-    lead: 'Find your group',
-    label: 'Working groups',
+    lead: 'Say hello',
+    label: 'Introduce yourself',
+    href: `${repository}/discussions/76`,
+    external: true,
+    primary: false,
+  },
+  {
+    lead: 'Ask us anything',
+    label: 'Contact us',
+    href: sitePath('/contact/?topic=question'),
     external: false,
-    primary: false,
-  },
-  {
-    href: `${repository}/issues`,
-    lead: 'See what needs doing',
-    label: 'Open issues',
-    external: true,
-    primary: false,
-  },
-  {
-    href: 'https://github.com/orgs/genomeOS/projects/1',
-    lead: 'See the roadmap',
-    label: 'Project board',
-    external: true,
     primary: false,
   },
 ];
@@ -153,7 +138,9 @@ const routes = [
             Data, models and tools built in the open, with anyone, for everyone.
           </p>
           <div class="home-hero__actions">
-            <a class="button-link" href={sitePath('/app/')}>Open the Atlas</a>
+            <a class="button-link" href={sitePath('/contribute/')}
+              >Get involved</a
+            >
             <a class="button-link button-link--quiet" href="#how"
               >How it works</a
             >
@@ -164,26 +151,6 @@ const routes = [
   </section>
 
   <section
-    class="band home-atlas"
-    id="atlas"
-    data-concept
-    aria-labelledby="atlas-title"
-  >
-    <div class="section-shell home-atlas__grid">
-      <div class="home-atlas__text home-head">
-        <p class="section-kicker">Our flagship project</p>
-        <h2 id="atlas-title">The <BrandName /> Atlas</h2>
-        <p class="home-atlas__lede">
-          An open, interactive map of human genetic variation.
-        </p>
-      </div>
-      <div class="home-atlas__figure">
-        <AtlasPreview />
-      </div>
-    </div>
-  </section>
-
-  <section
     class="band band--orbit home-why"
     id="why"
     data-concept
@@ -191,17 +158,17 @@ const routes = [
   >
     <div class="section-shell layout-figure-split">
       <div class="layout-figure-split__text home-head">
-        <p class="section-kicker">Why <BrandName /></p>
-        <h2 id="why-title">Genetic knowledge should serve everyone.</h2>
-        <div class="mission-copy">
-          <p>
-            Location matters because a genetic variant can be common in one
-            population and rare in another.
-          </p>
-        </div>
+        <p class="section-kicker">Why it matters</p>
+        <h2 id="why-title">Genetic research should include everyone.</h2>
+        <p class="home-lede">
+          A genetic difference common in one community can be rare in another.
+          Yet most people in genetic studies so far have European ancestry. We
+          learn from humanity’s diversity, so discoveries serve everyone,
+          including communities research has left out.
+        </p>
       </div>
       <div class="layout-figure-split__figure">
-        <CountsFigure />
+        <PeopleFigure />
       </div>
     </div>
   </section>
@@ -214,137 +181,104 @@ const routes = [
   >
     <div class="section-shell layout-wide-figure">
       <div class="layout-wide-figure__head home-head">
-        <p class="section-kicker">How <BrandName /> works</p>
-        <h2 id="how-title">
-          Measured first. Modeled second. Uncertainty always.
-        </h2>
+        <p class="section-kicker">How it works</p>
+        <h2 id="how-title">Three steps, all in the open.</h2>
       </div>
       <div class="layout-wide-figure__figure">
-        <Pipeline mode={3} modeToggle={false} idPrefix="home-how" />
+        <HowItWorks />
+      </div>
+      <div class="home-open">
+        <p class="home-open__line">
+          Our code, data and models are public, so anyone can check our work and
+          build on it.
+        </p>
+        <ul class="home-open__links">
+          {
+            openLinks.map((link) => (
+              <li>
+                <a
+                  href={link.href}
+                  aria-label={link.name}
+                  target={link.external ? '_blank' : undefined}
+                  rel={link.external ? 'noopener noreferrer' : undefined}
+                >
+                  <span class="arrow-link__label">{link.label}</span>{' '}
+                  <span class="arrow-link__arrow" aria-hidden="true">
+                    {link.external ? '↗' : '→'}
+                  </span>
+                </a>
+              </li>
+            ))
+          }
+        </ul>
       </div>
     </div>
   </section>
 
   <section
-    class="band band--orbit home-metrics"
-    id="metrics"
+    class="band band--orbit home-atlas"
+    id="atlas"
     data-concept
-    aria-labelledby="metrics-title"
+    aria-labelledby="atlas-title"
   >
     <div class="section-shell layout-figure-split">
       <div class="layout-figure-split__text home-head">
-        <h2 id="metrics-title">A growing global evidence base.</h2>
-      </div>
-      <div class="layout-figure-split__figure">
-        <EvidenceBase />
-      </div>
-    </div>
-  </section>
-
-  <section
-    class="band home-apps"
-    id="applications"
-    data-concept
-    aria-labelledby="applications-title"
-    data-motion-surface
-  >
-    <div class="section-shell home-apps__layout">
-      <div class="home-head home-apps__head">
-        <p class="section-kicker">Potential applications</p>
-        <h2 id="applications-title">
-          From scattered evidence to better decisions.
-        </h2>
-      </div>
-      <a
-        class="github-cta home-apps__cta"
-        href={`${repository}/discussions/1`}
-        target="_blank"
-        rel="noopener noreferrer"
-        ><span>Help shape it</span><strong>Suggest an application</strong><span
-          aria-hidden="true">↗</span
-        ></a
-      >
-      <div class="home-apps__figure">
-        <figure class="apps" data-graphic="applications" data-kind="mechanism">
-          <figcaption class="apps__rule" data-figure-chrome>
-            Population evidence is context, not a diagnosis.
-          </figcaption>
-          <div
-            class="apps__grid"
-            data-figure-stage
-            role="group"
-            aria-labelledby="applications-title"
-          >
-            {
-              applications.map((application, index) => (
-                <ApplicationCard
-                  index={index}
-                  glyph={(index + 1) as 1 | 2 | 3 | 4 | 5 | 6}
-                  {...application}
-                />
-              ))
-            }
-          </div>
-        </figure>
-      </div>
-    </div>
-  </section>
-
-  <section
-    class="band band--orbit home-vision"
-    id="vision"
-    data-concept
-    aria-labelledby="vision-title"
-  >
-    <div class="section-shell layout-figure-split">
-      <div class="layout-figure-split__text home-head">
-        <h2 id="vision-title">From one world map to many biological scales.</h2>
-        <a class="home-vision__link" href={sitePath('/projects/#vision')}
-          >Explore the larger vision <span aria-hidden="true">→</span></a
+        <p class="section-kicker">Our flagship project</p>
+        <h2 id="atlas-title">A growing map of human genetic variation.</h2>
+        <p class="home-lede">
+          The <BrandName /> Atlas shows how common genetic differences are around
+          the world, where data are still missing, and how sure we are. Spin the preview,
+          then explore the real thing.
+        </p>
+        <a class="home-link" href={sitePath('/projects/')}
+          ><span class="arrow-link__label">Read about our projects</span>
+          <span class="arrow-link__arrow" aria-hidden="true">→</span></a
         >
       </div>
       <div class="layout-figure-split__figure">
-        <VisionStrip />
+        <AtlasPreview />
       </div>
     </div>
   </section>
 
   <section
-    class="band home-open"
-    id="open"
+    class="band home-join"
+    id="join"
     data-concept
-    aria-labelledby="open-title"
+    aria-labelledby="join-title"
   >
-    <div class="section-shell home-open__grid">
-      <div class="home-open__text home-head">
-        <p class="section-kicker">Built in the open</p>
-        <h2 id="open-title">
-          A global community can build what no single lab can.
-        </h2>
-        <p class="home-open__line">Open source, for the public good.</p>
+    <div class="section-shell layout-figure-split">
+      <div class="layout-figure-split__text home-head">
+        <p class="section-kicker">Join us</p>
+        <h2 id="join-title">You don’t need a PhD to help.</h2>
+        <p class="home-lede">
+          We’re a hacker collective doing open-source citizen science. Bring
+          skills from any field: code, design, writing, data, medicine and more.
+          Work alongside domain experts on something that does real good.
+        </p>
       </div>
-      <div class="home-open__figure">
-        <OpenField />
-      </div>
-      <div class="link-row link-row--four home-open__routes">
-        {
-          routes.map((route) => (
-            <a
-              class:list={[
-                'github-cta',
-                { 'github-cta--primary': route.primary },
-              ]}
-              href={route.href}
-              data-open-cta
-              target={route.external ? '_blank' : undefined}
-              rel={route.external ? 'noopener noreferrer' : undefined}
-            >
-              <span>{route.lead}</span>
-              <strong>{route.label}</strong>
-              <span aria-hidden="true">{route.external ? '↗' : '→'}</span>
-            </a>
-          ))
-        }
+      <div class="layout-figure-split__figure home-join__figure">
+        <CrewFigure />
+        <div class="home-join__ways">
+          {
+            ways.map((way) => (
+              <a
+                class:list={[
+                  'github-cta',
+                  { 'github-cta--primary': way.primary },
+                ]}
+                href={way.href}
+                data-crew-cta
+                target={way.external ? '_blank' : undefined}
+                rel={way.external ? 'noopener noreferrer' : undefined}
+              >
+                <span>{way.lead}</span>
+                <strong>{way.label}</strong>
+                <span aria-hidden="true">{way.external ? '↗' : '→'}</span>
+              </a>
+            ))
+          }
+        </div>
       </div>
     </div>
   </section>
@@ -352,39 +286,76 @@ const routes = [
 
 <script>
   /*
-   * The page's one island (site redesign spec §7; #454): every Home figure starts here, so the
-   * page fetches one module instead of one per figure, as Project and Contribute do.
+   * The page's one island (round 2 spec §4.1, §7): the hero film starts here; every figure's module
+   * is imported only as its figure comes within 600 px of the viewport (the Atlas preview, the
+   * steps, the people and the crew), so none of them is first-load JS. Under reduced motion the
+   * scenes have nothing to play (their server-rendered final states stay), so only the preview,
+   * which turns and drags by hand, is imported.
    */
-  import { initAtlasPreview } from '../components/home/atlas-preview';
-  import { initCounts } from '../components/project/counts';
   import { initHeroMedia } from '../components/home/hero-media';
-  import { FigureController } from '../graphics/figure';
-
-  const each = (selector: string, init: (figure: HTMLElement) => void) => {
-    for (const figure of document.querySelectorAll<HTMLElement>(selector))
-      init(figure);
-  };
 
   for (const hero of document.querySelectorAll<HTMLElement>(
     '[data-hero-media]',
   ))
     initHeroMedia(hero);
-  each('figure[data-graphic="atlas-preview"]', initAtlasPreview);
-  each('figure[data-graphic="counts"]', initCounts);
-  // The evidence base's totals are static text; its composition bars grow once (CSS, home.css).
-  each(
-    'figure[data-graphic="evidence-base"]',
-    (figure) => new FigureController(figure, { duration: 600, rest() {} }),
+
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const near = (
+    selector: string,
+    load: (figure: HTMLElement) => Promise<unknown>,
+  ) => {
+    for (const figure of document.querySelectorAll<HTMLElement>(selector)) {
+      const observer = new IntersectionObserver(
+        ([entry]) => {
+          if (!entry.isIntersecting) return;
+          observer.disconnect();
+          void load(figure);
+        },
+        { rootMargin: '600px 0px' },
+      );
+      observer.observe(figure);
+    }
+  };
+
+  near('figure[data-graphic="atlas-preview"]', (figure) =>
+    import('../components/home/atlas-preview').then(({ initAtlasPreview }) =>
+      initAtlasPreview(figure),
+    ),
   );
-  // The application glyphs draw in once, 90 ms apart (CSS, applications.css); each replays its mechanism
-  // on hover.
-  each(
-    'figure[data-graphic="applications"]',
-    (figure) => new FigureController(figure, { duration: 1100, rest() {} }),
-  );
-  // The vision strip's entrance is CSS only: the frames fade in left to right, once (home.css).
-  each(
-    'figure[data-graphic="vision"]',
-    (figure) => new FigureController(figure, { duration: 700, rest() {} }),
-  );
+  if (!reduced) {
+    near('figure[data-graphic="people"]', (figure) =>
+      import('../components/home/people').then(({ initPeople }) =>
+        initPeople(figure),
+      ),
+    );
+    near('figure[data-graphic="how-it-works"]', (figure) =>
+      import('../components/home/how-it-works').then(({ initHowItWorks }) =>
+        initHowItWorks(figure),
+      ),
+    );
+    near('figure[data-graphic="crew"]', (figure) =>
+      import('../components/home/crew').then(({ initCrew }) =>
+        initCrew(figure),
+      ),
+    );
+  }
+
+  /*
+   * "Your spot" fills while any of the band's three calls to action is hovered or focused: a
+   * newcomer lands in it (CSS, home.css); leaving or blurring sends it back out.
+   */
+  for (const figure of document.querySelectorAll<HTMLElement>(
+    'figure[data-graphic="crew"]',
+  )) {
+    const band = figure.closest('section') ?? document;
+    const fill = (on: boolean) => figure.toggleAttribute('data-filled', on);
+    const focused = () =>
+      document.activeElement?.hasAttribute('data-crew-cta') === true;
+    for (const cta of band.querySelectorAll<HTMLElement>('[data-crew-cta]')) {
+      cta.addEventListener('pointerenter', () => fill(true));
+      cta.addEventListener('pointerleave', () => fill(focused()));
+      cta.addEventListener('focus', () => fill(true));
+      cta.addEventListener('blur', () => fill(false));
+    }
+  }
 </script>
