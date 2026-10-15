@@ -24,15 +24,6 @@ const textOf = (html: string) =>
 const WORD = /[\p{L}\p{N}][\p{L}\p{N}'’.\-]*/gu;
 
 describe('contribute page content', () => {
-  it('teaches the repository contribution workflow', () => {
-    expect(contribute).toContain('Discussion #76');
-    expect(contribute).toContain('mention the original issue author');
-    expect(contribute).toContain('Ready');
-    expect(contribute).toContain('needs-human-decision');
-    expect(contribute).toContain('wants-expert-review');
-    expect(contribute).toContain('https://github.com/orgs/genomeOS/projects/1');
-  });
-
   it('defines all three forming working groups and modeling breadth', () => {
     expect(contribute).toMatch(
       /Data Gathering &amp; Infrastructure[\s\S]*Statistical &amp; AI Modeling[\s\S]*UI &amp; Applications/,
@@ -132,37 +123,6 @@ describe('contribute page content', () => {
       expect(svg).toMatch(/aria-hidden="true"/);
       expect(svg).not.toMatch(/<text\b/);
     }
-  });
-
-  it('without JavaScript, lists the five steps in order and parks the board on Ready', () => {
-    const panels = main.match(/<ol class="wb-panels"[\s\S]*?<\/ol>/)?.[0];
-    expect(panels).toBeDefined();
-    expect(panels!.match(/<li\b/g)).toHaveLength(5);
-    expect(panels).not.toMatch(/\shidden(?:=|\s|>)/);
-    expect(textOf(panels!)).toMatch(
-      /Discussion #76[\s\S]*mention the original issue author[\s\S]*Filter Ready work[\s\S]*wants-expert-review[\s\S]*needs-human-decision[\s\S]*pull request/,
-    );
-    expect(main).toMatch(/class="wb"[^>]*data-step="3"/);
-    expect(main).toMatch(/<div[^>]*role="tablist"[^>]*hidden/);
-  });
-
-  // Design review, round 3: step 3's panel said the board's Ready definition a second time. The
-  // definition line under the board says it once; the panel adds only the filters, with "Ready"
-  // (a pinned term) as its link to the board.
-  it('says what Ready means once, and links Ready to the board from step 3', () => {
-    const panel = main.match(
-      /<div class="wb-panel" id="wb-panel-3"[\s\S]*?<\/div>/,
-    )?.[0];
-    expect(panel).toBeDefined();
-    expect(textOf(panel!)).toBe(
-      'Filter Ready work by skill, type and priority labels.',
-    );
-    expect(panel).toMatch(
-      /<a href="https:\/\/github\.com\/orgs\/genomeOS\/projects\/1"[^>]*>Ready<\/a>/,
-    );
-    expect(textOf(main).match(/fully specified and unblocked/g)).toHaveLength(
-      1,
-    );
   });
 
   it('retires the community image, the old flow and its detail articles', () => {

@@ -14,7 +14,7 @@
  *   pause          a visible Pause/Play control (WCAG 2.2.2: the loop runs 16 s). The film also
  *                  pauses while the hero is off screen or the tab is hidden, and resumes only if
  *                  the visitor has not paused it.
- *   scroll fade    CSS scroll-driven animation (home.css); where `animation-timeline` is missing, a
+ *   scroll fade    CSS scroll-driven animation (hero-media.css); where `animation-timeline` is missing, a
  *                  rAF-throttled scroll listener sets `--hero-recede` instead (recedeAt). Neither
  *                  runs under reduced motion.
  */
@@ -38,7 +38,7 @@ export const SLOW_CONNECTIONS: ReadonlySet<string> = new Set([
   '3g',
 ]);
 
-/** The scroll fade's length, as a share of the hero's height (home.css uses the same span). */
+/** The scroll fade's length, as a share of the hero's height (hero-media.css uses the same span). */
 export const RECEDE_SPAN = 0.75;
 
 export type PosterReason =
@@ -234,7 +234,7 @@ export function initHeroMedia(root: HTMLElement): void {
   else window.addEventListener('load', later, { once: true });
 
   // The scroll fade's fallback where scroll-driven animations are missing. No scroll-linked motion
-  // under reduced motion (home.css keys the fallback on data-recede too).
+  // under reduced motion (hero-media.css keys the fallback on data-recede too).
   if (
     backdrop &&
     !reduce.matches &&

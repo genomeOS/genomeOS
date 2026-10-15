@@ -1,0 +1,566 @@
+/*
+ * The toy globe's CSS (round 2, rulings R2-2, R2-14, R2-16; round 2 spec §4.1.5): every .hg* and
+ * .atlas-open rule, cut verbatim from styles/pages/home.css (round 2 plan T0 step 3), so the globe
+ * task owns one file. AtlasPreview.astro imports it. The section around it (.home-atlas*) stays in
+ * home.css with the page.
+ */
+
+/* The figure: toolbar, stage, the note with the Atlas button, legend, footnote, table. */
+.hg {
+  container: hg / inline-size;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.hg .kit-figure__toolbar {
+  justify-content: flex-start;
+  margin-bottom: 0.75rem;
+}
+
+.hg .hg-layers {
+  flex: 1 1 auto;
+}
+
+.hg .hg-layers button {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.hg-spin {
+  min-width: 44px;
+  min-height: 2.25rem;
+  margin: 0 0 0 auto;
+  padding: 0.35rem 0.8rem 0.35rem 0.65rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid var(--color-line-strong);
+  background: rgb(2 7 18 / 70%);
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 620;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    color var(--dur-micro) var(--ease-ui),
+    border-color var(--dur-micro) var(--ease-ui);
+}
+
+.hg-spin[hidden] {
+  display: none;
+}
+
+.hg-spin:hover {
+  border-color: var(--color-ion);
+  color: var(--color-starlight);
+}
+
+.hg-spin svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex: none;
+  fill: currentColor;
+}
+
+.hg-spin:not([data-state='paused']) .hg-spin__play,
+.hg-spin[data-state='paused'] .hg-spin__pause {
+  display: none;
+}
+
+/* The layer control and the rotation's only do something on the live canvas: the poster (Modeled,
+   at the starting view) neither switches nor turns. They appear with the canvas, without a fade, so
+   no control is ever caught half drawn below its contrast. */
+.hg:not([data-live]) :is(.hg-layers, .hg-spin),
+.hg[data-mode='poster'] :is(.hg-layers, .hg-spin) {
+  visibility: hidden;
+}
+
+.hg .kit-figure__stage {
+  container-type: inline-size;
+  position: relative;
+}
+
+/* Compact form (a narrow figure): a square globe with its pins, the callouts listed under it. */
+.hg-globe {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  touch-action: pan-y;
+}
+
+.hg-globe:focus-visible {
+  border-radius: 50%;
+  outline-offset: 2px;
+}
+
+.hg[data-live]:not([data-mode='poster']) .hg-globe {
+  cursor: grab;
+}
+
+.hg[data-dragging] .hg-globe {
+  cursor: grabbing;
+}
+
+/* The poster's 640-unit square holds a 300-unit disc; the globe box is the disc plus 4%. */
+.hg-poster {
+  position: absolute;
+  top: -1.282%;
+  left: -1.282%;
+  width: 102.564%;
+  max-width: none;
+  height: auto;
+  pointer-events: none;
+  user-select: none;
+}
+
+.hg-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+}
+
+.hg[data-live] .hg-canvas {
+  opacity: 1;
+}
+
+.hg[data-live] .hg-poster,
+.hg[data-mode='poster'] .hg-canvas {
+  visibility: hidden;
+}
+
+/* A pin: a ring on its object and the number of its callout. While the globe turns it rides with
+   its object and fades toward the limb (--pin-alpha, atlas-preview.ts). */
+.hg-marker {
+  position: absolute;
+  top: var(--my);
+  left: var(--mx);
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.hg-marker__ring {
+  position: absolute;
+  top: -7.5px;
+  left: -7.5px;
+  width: 15px;
+  height: 15px;
+  border: 1.5px solid var(--color-starlight);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 1.5px rgb(2 7 18 / 75%),
+    inset 0 0 0 1px rgb(2 7 18 / 55%);
+}
+
+.hg-marker__badge,
+.hg-callout__n {
+  display: grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border: 1px solid var(--color-starlight);
+  background: var(--color-void);
+  color: var(--color-starlight);
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.hg-marker__badge {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+}
+
+.hg-marker__badge::before {
+  content: attr(data-n);
+}
+
+/* The callouts: the key under the globe in the compact form. */
+.hg-callouts {
+  margin: 0.9rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+  list-style: none;
+}
+
+.hg-callout {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  column-gap: 0.6rem;
+  color: var(--color-starlight);
+  font-size: 0.9rem;
+  line-height: 1.4;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.hg-callout__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--color-muted);
+  font-weight: 620;
+}
+
+.hg-nowrap {
+  white-space: nowrap;
+}
+
+.hg .hg-leaders {
+  display: none;
+}
+
+/* Callouts, leaders and pins light in order during the entrance; leaders show only at the
+   starting view (and while the entrance turns to it): once the globe turns, they fade and the
+   pins ride on. */
+.hg :is(.hg-callout, .hg-leader, .hg-marker) {
+  transition:
+    opacity var(--dur-ui) var(--ease-ui),
+    visibility 0s;
+}
+
+.hg-marker {
+  opacity: var(--pin-alpha, 1);
+}
+
+.hg :is(.hg-callout, .hg-leader, .hg-marker).is-off,
+.hg[data-view='moved'] .hg-leader {
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity var(--dur-ui) var(--ease-ui),
+    visibility 0s var(--dur-ui);
+}
+
+/* While the globe turns, the pins follow it frame by frame: no transition to lag behind. */
+.hg[data-view='moved'] .hg-marker:not(.is-off),
+.hg[data-view='entering'] .hg-marker:not(.is-off) {
+  transition: none;
+}
+
+/* Wide form: a 3:2 stage, the disc centred, the callouts in its corners with leader lines to their
+   pins. Units are cqw of the stage, as in AtlasPreview.astro: disc centre (50, 33.333), radius 30.
+   From a 36rem figure, where each corner leaves its callout three lines of room. */
+@container hg (min-width: 36rem) {
+  .hg .hg-layers {
+    flex: none;
+  }
+
+  .hg .hg-layers button {
+    flex: 1 1 auto;
+    min-width: auto;
+  }
+
+  .hg .kit-figure__stage {
+    aspect-ratio: 3 / 2;
+  }
+
+  .hg-globe {
+    position: absolute;
+    top: 2.133cqw;
+    left: 18.8cqw;
+    width: 62.4cqw;
+    height: 62.4cqw;
+  }
+
+  .hg .hg-leaders {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .hg-leader line {
+    stroke: rgb(205 217 232 / 62%);
+    stroke-width: 1;
+  }
+
+  .hg-callouts {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    display: block;
+    pointer-events: none;
+  }
+
+  /* Each box hangs from its corner point (--cx, --cy, set in AtlasPreview.astro) and grows away
+     from the disc, out to the stage's edge: its text wraps to the room the corner leaves. */
+  .hg .hg-callout {
+    position: absolute;
+    padding: 0.45rem 0.6rem 0.5rem 0.5rem;
+    border: 1px solid var(--color-line);
+    background: rgb(2 7 18 / 86%);
+    font-size: 0.8rem;
+    line-height: 1.35;
+    pointer-events: auto;
+  }
+
+  .hg-callout .hg-callout__n {
+    width: 1.25rem;
+    height: 1.25rem;
+    font-size: 0.75rem;
+  }
+
+  .hg-callout__label {
+    display: flex;
+  }
+
+  .hg-callout__value {
+    display: block;
+  }
+
+  .hg-callout--left {
+    right: calc((100 - var(--cx)) * 1cqw);
+  }
+
+  .hg-callout--right {
+    left: calc(var(--cx) * 1cqw);
+  }
+
+  .hg-callout--up {
+    bottom: calc((66.667 - var(--cy)) * 1cqw);
+  }
+
+  .hg-callout--down {
+    top: calc(var(--cy) * 1cqw);
+  }
+}
+
+/* The note: what this is, and the way to the real thing (ruling R2-14). Not a warning. */
+.hg-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem 1.5rem;
+  margin-top: 1.1rem;
+}
+
+.hg-note__text {
+  max-width: 32ch;
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: var(--type-legend);
+  line-height: 1.45;
+}
+
+/* Open the genomeOS Atlas: the Atlas pill's language at call-to-action size, a black pill in an
+   aurora rim with a still glow (the header pill's curtains move; this one does not). */
+.atlas-open {
+  position: relative;
+  isolation: isolate;
+  min-height: 3rem;
+  padding: 0.75rem 1.2rem 0.75rem 1.35rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  border-radius: 999px;
+  color: var(--color-starlight);
+  font-weight: 720;
+  line-height: 1.1;
+  text-decoration: none;
+  white-space: nowrap;
+  box-shadow:
+    0 0 1.4rem rgb(114 231 193 / 16%),
+    0 0 2.4rem rgb(138 92 255 / 12%);
+  transition:
+    box-shadow var(--dur-ui) var(--ease-ui),
+    transform var(--dur-micro) var(--ease-ui);
+}
+
+.atlas-open::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border: 1.5px solid transparent;
+  border-radius: inherit;
+  background:
+    linear-gradient(#000, #000) padding-box,
+    linear-gradient(
+        100deg,
+        rgb(114 231 193 / 85%),
+        rgb(18 255 255 / 60%),
+        rgb(138 92 255 / 85%)
+      )
+      border-box;
+  content: '';
+}
+
+.atlas-open .brand-name {
+  font-weight: 400;
+}
+
+.atlas-open__arrow {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: none;
+  fill: none;
+  stroke: var(--color-ion);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
+  transition: transform var(--dur-micro) var(--ease-ui);
+}
+
+.atlas-open:hover,
+.atlas-open:focus-visible {
+  color: var(--color-starlight);
+  box-shadow:
+    0 0 1.8rem rgb(114 231 193 / 30%),
+    0 0 3rem rgb(138 92 255 / 24%);
+  transform: translateY(-1px);
+}
+
+.atlas-open:hover .atlas-open__arrow,
+.atlas-open:focus-visible .atlas-open__arrow {
+  transform: translateX(3px);
+}
+
+.atlas-open:focus-visible {
+  border-radius: 999px;
+  outline: 2px solid var(--color-starlight);
+  outline-offset: 4px;
+}
+
+@media (max-width: 30rem) {
+  .atlas-open {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+.hg-legend {
+  display: grid;
+}
+
+.hg-legend__variant {
+  grid-area: 1 / 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 1.4rem;
+  visibility: hidden;
+}
+
+.hg-legend__variant[data-active] {
+  visibility: visible;
+}
+
+.hg-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.hg-key__studs {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+/* The VSUP wedge: its label over the top (strong-evidence) row, the fading named beside the
+   rows that fade (spec §4.1 H1). */
+.hg-key--wedge {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  grid-template-areas: 'top top' 'wedge side';
+  align-items: center;
+  gap: 0.2rem 0.6rem;
+}
+
+.hg-wedge__top {
+  grid-area: top;
+}
+
+.hg-key--wedge .kit-glyph {
+  grid-area: wedge;
+}
+
+.hg-wedge__side {
+  grid-area: side;
+}
+
+.hg-table {
+  display: grid;
+  gap: 1rem;
+}
+
+.hg-table p {
+  margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hg-spin,
+  .atlas-open,
+  .atlas-open__arrow,
+  .hg :is(.hg-callout, .hg-leader, .hg-marker),
+  .hg :is(.hg-callout, .hg-leader, .hg-marker).is-off,
+  .hg[data-view='moved'] .hg-leader {
+    transition: none;
+  }
+
+  .atlas-open:hover,
+  .atlas-open:focus-visible {
+    transform: none;
+  }
+}
+
+/* The live canvas never prints or forces colours: the poster stands in (spec §2.2, §8). The poster
+   is the Modeled layer at the starting view, so a print carries that layer's legend, and the pins,
+   leaders and callouts that describe it, never the last layer's legend or a turned view. The
+   controls never print. */
+@media print {
+  /* As specific as the screen rules that show them (.hg .hg-layers …). */
+  .hg :is(.hg-canvas, .hg-layers, .hg-spin) {
+    display: none;
+  }
+
+  .hg[data-live] .hg-poster {
+    visibility: visible;
+  }
+
+  .hg-legend__variant:not([data-legend='modeled']) {
+    visibility: hidden;
+  }
+
+  .hg-legend__variant[data-legend='modeled'],
+  .hg[data-view] :is(.hg-callout, .hg-leader, .hg-marker) {
+    opacity: 1;
+    visibility: visible;
+    transition: none;
+  }
+}
+
+/* The island also enters its poster mode here (atlas-preview.ts), so nothing turns a hidden canvas. */
+@media (forced-colors: active) {
+  .hg-canvas {
+    visibility: hidden;
+  }
+
+  .hg[data-live] .hg-poster {
+    visibility: visible;
+  }
+
+  .hg-marker__ring {
+    border-color: CanvasText;
+  }
+
+  .hg-leader line {
+    stroke: CanvasText;
+  }
+
+  .atlas-open::before {
+    border-color: LinkText;
+    background: Canvas;
+  }
+}

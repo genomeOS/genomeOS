@@ -1,0 +1,256 @@
+/*
+ * Potential applications (site redesign spec §4.1 H5; round 2 spec §4.2.3): the card grid (.apps),
+ * the cards (.application-card) and their glyphs (.ag), cut verbatim from styles/pages/home.css
+ * (round 2 plan T0 step 3) as they move to Projects. ApplicationCard.astro imports it. The entrance
+ * and hover keyframes it plays are copied from home.css's shared motion (same names, same frames).
+ * The section around the grid (.home-apps*) stays with the page.
+ */
+
+.apps {
+  margin: 0;
+}
+
+.apps__rule {
+  margin: 0 0 1.25rem;
+  color: var(--color-starlight);
+  font-size: var(--type-legend);
+  font-weight: 620;
+}
+
+.apps__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--color-line);
+  border-left: 1px solid var(--color-line);
+}
+
+.application-card {
+  position: relative;
+  min-width: 0;
+  padding: clamp(1.25rem, 2.4vw, 1.75rem);
+  display: grid;
+  align-content: start;
+  gap: 0.55rem;
+  border-right: 1px solid var(--color-line);
+  border-bottom: 1px solid var(--color-line);
+  background: rgb(7 24 49 / 54%);
+  transition:
+    transform var(--dur-micro) var(--ease-ui),
+    border-color var(--dur-micro) var(--ease-ui),
+    background-color var(--dur-micro) var(--ease-ui);
+}
+
+.application-card:hover {
+  z-index: 1;
+  border-color: rgb(112 230 255 / 54%);
+  background: rgb(10 35 67 / 90%);
+  transform: translateY(-2px);
+}
+
+/* At least the spec's 96 × 64 (design review, round 3): the 84 × 48 band at 4.5rem tall (141.75 ×
+   81 px), so each drawing reads at about 128 × 80 and the title starts a spacing step below it. */
+.application-card .ag {
+  width: 7.875rem;
+  height: 4.5rem;
+  margin-bottom: 0.45rem;
+  overflow: visible;
+}
+
+.application-card h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--type-h3);
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+}
+
+.application-card__horizon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.86rem;
+  font-weight: 620;
+}
+
+.application-card__horizon::before {
+  content: '';
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--tone);
+}
+
+.application-card__horizon[data-tone='aurora'] {
+  --tone: var(--color-aurora);
+}
+
+.application-card__horizon[data-tone='signal'] {
+  --tone: var(--color-signal);
+}
+
+.application-card__horizon[data-tone='ion'] {
+  --tone: var(--color-ion);
+}
+
+/* Future work is a violet dashed outline, never a fill (spec §6.1 rule 7). */
+.application-card__horizon[data-tone='genome']::before {
+  border: 1.5px dashed var(--color-genome);
+  background: none;
+}
+
+.application-card__line {
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.ag .ag-allele-was {
+  opacity: 0;
+}
+
+.ag :is(.ag-ring, .ag-contour[pathLength]) {
+  stroke-dasharray: 1;
+}
+
+@media (max-width: 64rem) {
+  .apps__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 40rem) {
+  .apps__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media screen {
+  .apps[data-figure-state='armed'] .ag {
+    opacity: 0;
+  }
+
+  .apps[data-figure-state='playing'] .ag {
+    animation: home-rise 600ms var(--ease-figure) calc(var(--i, 0) * 90ms) both;
+  }
+}
+
+/* Hover plays the card's mechanism once (≤ 1.2 s); the drawing at rest is its end state. */
+@media (prefers-reduced-motion: no-preference) {
+  .application-card:hover .ag-sweep {
+    animation: ag-sweep 800ms var(--ease-camera) both;
+  }
+
+  .application-card:hover .ag-above {
+    animation: home-fade 260ms linear calc(620ms + var(--k) * 80ms) both;
+  }
+
+  .application-card:hover .ag-range {
+    /* The bar grows from its tick (x 63 of the bar's 52–78), whatever the glyph's viewBox. */
+    transform-box: fill-box;
+    transform-origin: 42.3077% 50%;
+    animation: home-grow 700ms var(--ease-figure) both;
+  }
+
+  .application-card:hover .ag-ring {
+    animation: ag-close 900ms var(--ease-figure) 200ms both;
+  }
+
+  .application-card:hover .ag-dot {
+    animation: ag-gather 700ms var(--ease-camera) calc(var(--k) * 40ms) both;
+  }
+
+  .application-card:hover .ag-stud {
+    animation: ag-land 420ms var(--ease-camera) both;
+  }
+
+  .application-card:hover .ag-fill {
+    animation: home-fade 300ms linear calc(420ms + var(--k) * 70ms) both;
+  }
+
+  .application-card:hover .ag-allele-was {
+    animation: ag-was 900ms linear both;
+  }
+
+  .application-card:hover .ag-allele-now {
+    animation: home-fade 300ms linear 500ms both;
+  }
+
+  .application-card:hover .ag-contour[pathLength] {
+    animation: ag-close 700ms var(--ease-figure) both;
+  }
+
+  .application-card:hover .ag-intersect {
+    animation: home-fade 400ms linear 650ms both;
+  }
+}
+
+@keyframes ag-sweep {
+  from {
+    transform: translateY(26px);
+  }
+}
+
+@keyframes ag-close {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
+@keyframes ag-gather {
+  from {
+    transform: translate(var(--dx), var(--dy));
+    opacity: 0.25;
+  }
+}
+
+@keyframes ag-land {
+  from {
+    transform: translateY(-14px);
+    opacity: 0;
+  }
+}
+
+@keyframes ag-was {
+  0%,
+  55% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes home-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes home-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes home-grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .application-card {
+    transition: none;
+  }
+
+  .application-card:hover {
+    transform: none;
+  }
+}

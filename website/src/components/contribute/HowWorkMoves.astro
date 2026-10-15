@@ -1,0 +1,43 @@
+---
+/**
+ * How work moves (site redesign spec §4.3 C2; round 2 spec §4.3.4, plan I-9; #454): the whole
+ * #how-work-moves section of Contribute, with its heading, legend, the work board, the milestone
+ * rail and the link to the workflow in Docs. Extracted verbatim from contribute.astro (round 2 plan
+ * T0 step 3), so the board task owns the section, its CSS (how-work-moves.css) and its script.
+ * No props.
+ */
+import Mark from './Mark.astro';
+import MilestoneRail from './MilestoneRail.astro';
+import WorkBoard from './WorkBoard.astro';
+import { sitePath } from '../../lib/paths';
+import './how-work-moves.css';
+---
+
+<section
+  class="band band--orbit contribute-band wb-section"
+  id="how-work-moves"
+  data-concept
+  aria-labelledby="how-work-moves-title"
+>
+  <div class="section-shell">
+    <div class="contribute-head">
+      <h2 class="contribute-h2" id="how-work-moves-title">How work moves</h2>
+      <p class="contribute-legend">
+        <strong>One issue, from hello to review.</strong> Board statuses mean exactly
+        what they say.
+      </p>
+    </div>
+    <WorkBoard />
+    <MilestoneRail />
+    <p class="contribute-more">
+      <a href={sitePath('/docs/issues-and-projects/')}
+        >The full workflow in Docs <Mark icon="arrow" size={18} /></a
+      >
+    </p>
+  </div>
+</section>
+
+<script>
+  // The board's steps (board.ts), in the section's own script.
+  import './board';
+</script>
