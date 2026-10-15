@@ -405,9 +405,12 @@
   border-left: 1px solid var(--color-deep-line);
 }
 
+/* The number stands level with the title's first line, so the three stay in a row when a title
+   wraps: the title starts half the difference between the number's box (1.7rem and its border)
+   and one line (1.2 × the type size) lower, just where centring put a one-line title. */
 .hiw-step h3 {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.65rem;
   margin: 0;
   color: color-mix(
@@ -437,6 +440,10 @@
   );
   font: 640 0.85rem / 1 var(--font-body);
   letter-spacing: 0;
+}
+
+.hiw-step h3 > span {
+  margin-top: calc((1.7rem + 2px - var(--type-h3) * 1.2) / 2);
 }
 
 .hiw-step p {

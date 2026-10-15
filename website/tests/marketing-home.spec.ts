@@ -488,6 +488,83 @@ test('the steps play once at 35% visible, rest, and Replay plays them again', as
   await expect(figure.getByRole('button', { name: /^Pause\b/ })).toHaveCount(0);
 });
 
+test('each step’s number sits level with the first line of its title, also when a title wraps @desktop-chromium', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  // The number is the title's ::before; DevTools reports a pseudo-element's box.
+  const cdp = await page.context().newCDPSession(page);
+  type Node = {
+    nodeId: number;
+    pseudoType?: string;
+    children?: Node[];
+    pseudoElements?: Node[];
+  };
+  // At 1024 px "Explore the genomeOS Atlas" takes two lines; at 1440 every title takes one.
+  for (const width of [1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    await steps(page).scrollIntoViewIfNeeded();
+    const { root } = (await cdp.send('DOM.getDocument', { depth: -1 })) as {
+      root: Node;
+    };
+    const nodes = new Map<number, Node>();
+    const walk = (node: Node) => {
+      nodes.set(node.nodeId, node);
+      node.children?.forEach(walk);
+    };
+    walk(root);
+    const { nodeIds } = await cdp.send('DOM.querySelectorAll', {
+      nodeId: root.nodeId,
+      selector: '.hiw-step h3',
+    });
+    expect(nodeIds).toHaveLength(3);
+    const badges: { top: number; middle: number }[] = [];
+    for (const nodeId of nodeIds) {
+      const before = nodes
+        .get(nodeId)!
+        .pseudoElements!.find(({ pseudoType }) => pseudoType === 'before')!;
+      const { model } = await cdp.send('DOM.getBoxModel', {
+        nodeId: before.nodeId,
+      });
+      const [, top, , , , bottom] = model.border;
+      badges.push({ top, middle: (top + bottom) / 2 });
+    }
+    const lines = await steps(page)
+      .locator('.hiw-step h3')
+      .evaluateAll((titles) =>
+        titles.map((title) => {
+          // The text's own line boxes (not its wrapping span's box).
+          const walker = document.createTreeWalker(title, NodeFilter.SHOW_TEXT);
+          const rects: DOMRect[] = [];
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            rects.push(...range.getClientRects());
+          }
+          const first = rects[0];
+          return {
+            middle: first.y + first.height / 2,
+            lines: new Set(rects.map(({ y }) => Math.round(y))).size,
+          };
+        }),
+      );
+    if (width === 1024)
+      expect(lines[2].lines, 'step 3 wraps at 1024').toBeGreaterThan(1);
+    for (const [index, badge] of badges.entries())
+      expect(
+        Math.abs(badge.middle - lines[index].middle),
+        `${width}: step ${index + 1}`,
+      ).toBeLessThan(2);
+    // The three badges stand in one row.
+    expect(
+      Math.max(...badges.map(({ top }) => top)) -
+        Math.min(...badges.map(({ top }) => top)),
+      `${width}`,
+    ).toBeLessThan(1);
+  }
+});
+
 /* ------------------------------------------------------------------------------ the crew */
 
 test('the crew hops in one by one, then rests', async ({ page }, info) => {
