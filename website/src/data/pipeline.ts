@@ -144,11 +144,16 @@ const CAPTION = {
     'Each survey keeps its place, a location radius and its count: AC of AN, never just a percentage.',
   model:
     'Bayesian spatial models are fitted ahead of time and published as versioned results.',
+  // Round 2 (spec §4.2.6, §0.2 #12): the frequency model is named as machine learning, so Home's
+  // "Build AI models" step has a visible referent on Projects.
+  frequency:
+    'Bayesian spatial models, a kind of machine learning, are fitted ahead of time and published as versioned results.',
   surface:
     'Every estimate carries a 95% range. Too little evidence means no number, only a hatch.',
   burden:
     'Frequency, inheritance, penetrance and population become expected cases, with a range.',
-  gate: 'Results stay labelled “not yet validated” until they reproduce published HbS, G6PD and carrier-screening estimates.',
+  // R2-14: the gate is described, never quoted as a scare label.
+  gate: 'Results are checked against published HbS, G6PD and carrier-screening estimates before they are called validated.',
   service: 'Serves versioned results fast. No model runs on this path.',
   map: 'Measured and modeled arrive as separate layers you can switch on and off.',
   registry:
@@ -290,8 +295,11 @@ export const PIPELINE: Record<PipelineMode, PipelineModeData> = {
         id: 'part-frequency',
         kind: 'model',
         glyph: 'model',
-        label: ['Frequency', 'modeling'],
-        caption: CAPTION.model,
+        // One line, so the subtitle fits under it in the stage-column layout (two text rows, as
+        // every part has); the full method name is in the caption (round 2 spec §4.2.6).
+        label: ['Frequency modeling'],
+        sub: 'Machine learning',
+        caption: CAPTION.frequency,
         guide: 'modeling-and-validation/',
       },
       {

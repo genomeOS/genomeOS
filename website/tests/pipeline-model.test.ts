@@ -477,10 +477,22 @@ describe('the Pipeline copy', () => {
       ]);
   });
 
-  it('marks the gate as validation, in words that match the Atlas', () => {
+  it('describes the validation gate without quoting a scare label (R2-14)', () => {
     const gate = PIPELINE[6].nodes.find((node) => node.kind === 'gate')!;
-    expect(gate.caption).toContain('not yet validated');
+    expect(gate.caption).toBe(
+      'Results are checked against published HbS, G6PD and carrier-screening estimates before they are called validated.',
+    );
+    expect(JSON.stringify(PIPELINE)).not.toMatch(/not yet validated/i);
     expect(gate.caption).not.toMatch(/nothing ships/i);
+  });
+
+  it('names the frequency model as machine learning, so Home’s “AI models” has a referent', () => {
+    const frequency = PIPELINE[6].nodes.find((node) => node.key === 'model')!;
+    expect(frequency.label).toEqual(['Frequency modeling']);
+    expect(frequency.sub).toBe('Machine learning');
+    expect(frequency.caption).toBe(
+      'Bayesian spatial models, a kind of machine learning, are fitted ahead of time and published as versioned results.',
+    );
   });
 
   it('carries no invented counts and no P-codes', () => {
