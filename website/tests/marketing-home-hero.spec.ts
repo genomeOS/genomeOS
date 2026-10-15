@@ -727,8 +727,8 @@ test('on a phone the hero’s calls to action are two equal buttons, side by sid
 });
 
 // The film fills the first view on laptops and desktops, its text on the left beside the globe the
-// clip keeps on the right, and the calls to action are on screen; the headline sets in two or three
-// lines (round 2 spec §4.1.1).
+// clip keeps on the right, and the calls to action are on screen; the headline sets on two lines,
+// broken after "science" (round 2 spec §4.1.1, ruling 47).
 test('the hero fills the first view, its text on the left and its calls to action on screen @desktop-chromium', async ({
   page,
 }) => {
@@ -770,8 +770,30 @@ test('the hero fills the first view, its text on the left and its calls to actio
     expect(hero.width, where).toBe(width);
     expect(right, where).toBeLessThanOrEqual(width * 0.6);
     expect(actions.y + actions.height, where).toBeLessThanOrEqual(height);
-    expect(lines, where).toBeGreaterThanOrEqual(2);
-    expect(lines, where).toBeLessThanOrEqual(3);
+    expect(lines, where).toBe(2);
+  }
+});
+
+// Ruling 47: "Open science / for the benefit of all." on two lines on every phone, the second line
+// whole, in the web font as served.
+test('on a phone the headline breaks after “science” and sets on two lines @mobile-chromium', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(() => document.fonts.ready);
+  for (const width of [320, 360, 390, 430]) {
+    await page.setViewportSize({ width, height: 800 });
+    const lines = await page.evaluate(() => {
+      const range = document.createRange();
+      range.selectNodeContents(document.querySelector('.home-hero h1')!);
+      return new Set(
+        [...range.getClientRects()].map((rect) => Math.round(rect.top)),
+      ).size;
+    });
+    expect(lines, `${width}`).toBe(2);
+    await expect(page.locator('.home-hero h1')).toHaveText(
+      'Open science for the benefit of all.',
+    );
   }
 });
 

@@ -17,9 +17,11 @@ const text = main
   .replace(/\s+/g, ' ');
 
 describe('home page content', () => {
+  // Ruling 47: the owner's break after "science"; the space before it keeps the heading's text and
+  // accessible name "Open science for the benefit of all."
   it('keeps the owner’s headline, kicker, lede and page description word for word', () => {
     expect(home).toMatch(
-      /<h1[^>]*>Open science for the benefit of all\.<\/h1>/,
+      /<h1[^>]*>Open science <br\s*\/?>\s*for the benefit of all\.<\/h1>/,
     );
     expect(text).toContain('Genomics, AI and public health');
     expect(text).toContain(

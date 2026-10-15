@@ -102,8 +102,11 @@
   pointer-events: none;
 }
 
+/* The heading breaks after "science" (owner, 2026-10-15). "for the benefit of all." measures
+   7.97em in Raleway and less in each fallback, so 8.3em keeps it on one line in all of them (an em,
+   unlike a ch, does not change with the face, so a font swap never rewraps it). */
 .home-hero h1 {
-  max-width: 12ch;
+  max-width: 8.3em;
   margin: 0;
   font-family: var(--font-display);
   font-size: var(--type-hero);
@@ -218,8 +221,7 @@
    clear of the cookie control's corner. */
 @media (max-width: 26rem) {
   .home-hero h1 {
-    font-size: clamp(2rem, 11.2vw, 2.6rem);
-    max-width: 14ch;
+    font-size: clamp(1.75rem, 10.4vw, 2.6rem);
   }
 
   .home-hero__lede {
