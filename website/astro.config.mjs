@@ -88,12 +88,13 @@ export default defineConfig({
       sidebar: [
         {
           // #454: the site nav for docs readers below 72rem, where the header hides it. No
-          // "genomeOS" in a label: every visible genomeOS is set in the wordmark type.
-          label: 'Explore the project',
+          // "genomeOS" in a label: every visible genomeOS is set in the wordmark type. Round 2
+          // (spec §1.1): "Explore the site", and Projects at /projects/.
+          label: 'Explore the site',
           items: [
             { label: 'Home', link: '/' },
             { label: 'Atlas', link: '/app/' },
-            { label: 'Project', link: '/project/' },
+            { label: 'Projects', link: '/projects/' },
             { label: 'Contribute', link: '/contribute/' },
           ],
         },
@@ -103,8 +104,12 @@ export default defineConfig({
         },
       ],
     }),
-    // /working-groups/ only redirects to /contribute/#working-groups (#454, spec §1.4).
-    sitemap({ filter: (page) => !page.includes('/working-groups/') }),
+    // /working-groups/ only redirects to /contribute/#working-groups (#454, spec §1.4), and
+    // /project/ to /projects/ (round 2 spec §1.3); /kit/ is the e2e build's test gallery (§3.1).
+    sitemap({
+      filter: (page) =>
+        !/\/(working-groups|project|kit)\/$/.test(new URL(page).pathname),
+    }),
   ],
   vite: {
     envDir: '..',

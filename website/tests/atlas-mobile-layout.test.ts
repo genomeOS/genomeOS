@@ -17,7 +17,7 @@ function viewportOf(html: string): string | undefined {
 }
 
 describe('phone viewport contract (mobile sheets design §A.1.1)', () => {
-  it.each(['', 'project', 'working-groups', 'contribute'])(
+  it.each(['', 'projects', 'project', 'working-groups', 'contribute'])(
     'keeps /%s at initial scale 1 without viewport-fit',
     (route) => {
       expect(viewportOf(builtPage(route))).toBe(
@@ -66,7 +66,13 @@ describe('mobile CSS placement (mobile sheets design §A.1.12)', () => {
 describe('Atlas page shell (mobile sheets design §A.1.2)', () => {
   it('scopes the no-overscroll page class to the Atlas page', () => {
     expect(builtPage('app')).toMatch(/<html lang="en" class="atlas-page"/);
-    for (const route of ['', 'project', 'working-groups', 'contribute']) {
+    for (const route of [
+      '',
+      'projects',
+      'project',
+      'working-groups',
+      'contribute',
+    ]) {
       expect(builtPage(route)).not.toContain('atlas-page');
     }
   });

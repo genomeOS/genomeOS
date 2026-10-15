@@ -116,7 +116,7 @@ describe('homepage contract', () => {
   it('draws the vision teaser with the Project ladder’s frame art and zoom boxes', () => {
     const vision = section(/<section\b[^>]*\bid="vision"/);
     const project = readFileSync(
-      path.resolve(import.meta.dirname, '../dist/project/index.html'),
+      path.resolve(import.meta.dirname, '../dist/projects/index.html'),
       'utf8',
     );
     const ladder = project.match(
@@ -169,7 +169,7 @@ describe('homepage contract', () => {
       'alt="A luminous globe showing genetic evidence',
     );
     expect(html).toContain('Explore the larger vision');
-    expect(html).toMatch(/href="\/project\/#vision"/);
+    expect(html).toMatch(/href="\/projects\/#vision"/);
     expect(html).not.toContain('/images/vision-cell.webp');
     expect(html).not.toContain('/images/vision-bridge.webp');
   });

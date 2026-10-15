@@ -259,7 +259,7 @@ const ENTRANCE = 1200;
 const STEP_PX = 16;
 const CASING = 'rgb(2 7 18 / 88%)';
 const CONTOUR = '#70e6ff';
-/** The threshold outlines, CSS px (the legend's keys in project.css match). */
+/** The threshold outlines, CSS px (the legend's keys in projects.css match). */
 export const OUTLINE = {
   confident: { width: 2.6, casing: 5.4 },
   possible: { width: 1.8, casing: 4.2, dash: [6, 4] },

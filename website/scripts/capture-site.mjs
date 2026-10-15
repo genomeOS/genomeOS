@@ -5,7 +5,7 @@
  *
  *   node scripts/capture-site.mjs --base http://127.0.0.1:4466 --out <dir> [options]
  *
- *   --routes /,/project/      routes to capture (default: every top-level route and the 404)
+ *   --routes /,/projects/     routes to capture (default: every top-level route and the 404)
  *   --profiles desktop,phone  desktop is 1440×900 at DPR 1; phone is 390×844 at DPR 2, touch
  *   --frames 300,1000,2400    also capture the first viewport frozen at these entrance times
  *                             (the `?t=<ms>` hook exists only in dev builds: astro dev)
@@ -28,7 +28,7 @@ const { values: args } = parseArgs({
     out: { type: 'string' },
     routes: {
       type: 'string',
-      default: '/,/project/,/contribute/,/docs/,/privacy/,/404.html',
+      default: '/,/projects/,/contribute/,/docs/,/privacy/,/404.html',
     },
     profiles: { type: 'string', default: 'desktop,phone' },
     frames: { type: 'string', default: '' },

@@ -21,8 +21,8 @@ function htmlFiles(directory: string): string[] {
 
 describe('resolveInternalTarget', () => {
   it('resolves a root deployment route to its emitted index', () => {
-    expect(resolveInternalTarget('/project/', 'index.html', '/')).toBe(
-      'project/index.html',
+    expect(resolveInternalTarget('/projects/', 'index.html', '/')).toBe(
+      'projects/index.html',
     );
   });
 
@@ -57,7 +57,7 @@ describe('resolveInternalTarget', () => {
 
   it('refuses root-relative links outside a project base', () => {
     expect(() =>
-      resolveInternalTarget('/project/', 'index.html', '/genomeOS/'),
+      resolveInternalTarget('/projects/', 'index.html', '/genomeOS/'),
     ).toThrow('outside configured base /genomeOS/');
   });
 });

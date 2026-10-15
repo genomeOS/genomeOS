@@ -17,7 +17,9 @@ function page(route: string): string {
 }
 
 const home = page('');
-const project = page('project');
+const project = page('projects');
+// The redirect to Projects (R2-4): one h1, like every page.
+const projectRedirect = page('project');
 // The redirect to Contribute's working groups (#454): one h1, like every page.
 const groups = page('working-groups');
 const contribute = page('contribute');
@@ -26,7 +28,8 @@ const preview = page('app');
 describe('public site content', () => {
   it.each([
     ['home', home],
-    ['project', project],
+    ['projects', project],
+    ['project redirect', projectRedirect],
     ['working groups', groups],
     ['contribute', contribute],
     ['preview', preview],
