@@ -14,5 +14,5 @@
   },
   "cls": 0.02,
   "imagesKbGz": 11.0,
-  "budgetNote": "Round 2 integration (T7): spec §7's Docs row, Starlight's baseline as round 1 measured it plus the paper theme's allowance: first-load JS 28.8 + 1 KB (the theme control; measured 28.8, the control is inline), transfer 141.3 + 4 KB CSS + 1 KB (measured 144.0). Initial images 10.0 plus 10%: only the header lockup."
+  "budgetNote": "Round 2 integration (T7): spec §7's Docs row, Starlight's baseline as round 1 measured it plus the paper theme's allowance: first-load JS 28.8 + 1 KB (the theme control; measured 28.8, the control is inline), transfer 141.3 + 4 KB CSS + 1 KB (measured 144.0). Initial images 10.0 plus 10%: only the header lockup. Design critique 2 (T7 fix 2): the bar's pill wears the favicon's colour globe inline (about 1 KB) and the bar carries the site's Menu from 50em to 72em; transfer measures 146.0, within the 146.3 budget (the favicon image instead would have put it at about 150)."
 }
