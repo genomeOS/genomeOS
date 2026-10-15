@@ -129,6 +129,13 @@ async function attach(info: TestInfo, name: string, png: Buffer) {
   await info.attach(name, { body: png, contentType: 'image/png' });
 }
 
+/** Where each element is drawn: the centre of its box on screen, CSS px (for `evaluateAll`). */
+const centres = (elements: Element[]) =>
+  elements.map((element) => {
+    const box = element.getBoundingClientRect();
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  });
+
 test.beforeEach(async ({ page, isMobile }) => {
   await page.setViewportSize(viewportFor(isMobile));
 });
@@ -154,22 +161,18 @@ test('the people figure draws 100 people, 86 · 13 · 1 in that order, the ring�
   expect(groups.filter((group) => group === 'european')).toHaveLength(86);
   expect(groups.filter((group) => group === 'other')).toHaveLength(13);
   expect(groups.filter((group) => group === 'african')).toHaveLength(1);
-  // Reading order: the one African-ancestry person is the last place in the grid.
-  const places = await svg.locator('.people__p').evaluateAll((uses) =>
-    uses.map((use) => ({
-      x: Number(use.getAttribute('x')),
-      y: Number(use.getAttribute('y')),
-    })),
-  );
-  const african = await svg
+  // Reading order: the one African-ancestry person is the last place in the grid (where each
+  // person is drawn, not how the markup places it).
+  const places = await svg.locator('.people__p').evaluateAll(centres);
+  const [african] = await svg
     .locator('[data-person="african"]')
-    .evaluate((use) => ({
-      x: Number(use.getAttribute('x')),
-      y: Number(use.getAttribute('y')),
-    }));
-  expect(african).toEqual(places[99]);
-  expect(Math.max(...places.map(({ y }) => y))).toBe(african.y);
-  expect(Math.max(...places.map(({ x }) => x))).toBe(african.x);
+    .evaluateAll(centres);
+  const last = places[99];
+  expect(Math.abs(african.x - last.x)).toBeLessThan(0.5);
+  expect(Math.abs(african.y - last.y)).toBeLessThan(0.5);
+  // The last place is the bottom row's right end.
+  expect(Math.max(...places.map(({ y }) => y))).toBeCloseTo(last.y, 1);
+  expect(Math.max(...places.map(({ x }) => x))).toBeCloseTo(last.x, 1);
 
   const box = async (locator: Locator) => (await locator.boundingBox())!;
   const person = await box(svg.locator('[data-person="african"]'));
@@ -228,6 +231,45 @@ test('the people arrive in a diagonal wave, settle into their groups, and end on
   await seek(figure, 'people', 2100);
   const end = await figure.locator('[data-figure-stage]').screenshot();
   expect(await differingShare(page, end, await served(figure))).toBe(0);
+});
+
+test('each person grows in place: mid-wave, every glyph is centred where it rests', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const figure = people(page);
+  const svg = () => shown(figure, 'svg[data-layout]');
+  const glyphs = () =>
+    svg()
+      .locator('.people__p')
+      .evaluateAll((uses) =>
+        uses.map((use) => {
+          const box = use.getBoundingClientRect();
+          return {
+            x: box.x + box.width / 2,
+            y: box.y + box.height / 2,
+            width: box.width,
+            shown: Number(getComputedStyle(use).opacity) > 0.02,
+          };
+        }),
+      );
+  await seek(figure, 'people', 2100);
+  const rest = await glyphs();
+  expect(rest).toHaveLength(100);
+  // 300 ms: the wave is half way across; 500 ms: everyone is in and many are still growing.
+  for (const ms of [300, 500]) {
+    await seek(figure, 'people', ms);
+    const now = await glyphs();
+    // The check has teeth: many people are visible and still growing at this instant.
+    const growing = now.filter(
+      ({ width, shown }, index) => shown && width < rest[index].width - 0.5,
+    );
+    expect(growing.length, `${ms} ms`).toBeGreaterThan(10);
+    const drift = now.map(({ x, y }, index) =>
+      Math.hypot(x - rest[index].x, y - rest[index].y),
+    );
+    expect(Math.max(...drift), `${ms} ms`).toBeLessThan(1.5);
+  }
 });
 
 /* ------------------------------------------------------------------------- how it works */

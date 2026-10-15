@@ -113,6 +113,16 @@ describe('homepage figures', () => {
     expect(why).not.toMatch(/micro-face-/);
     // One <use> per person per layout (100) plus the 14 tone layers, never one drawing each.
     expect(why.match(/<use\b[^>]*class="people__p"/g)).toHaveLength(200);
+    // Each person is placed by a group and drawn at its origin, so the entrance scales the glyph
+    // round its own centre: a <use> placed by x/y scales round the wrong point in Chromium.
+    const placed = [
+      ...why.matchAll(
+        /<g transform="translate\([\d.]+ [\d.]+\)">\s*<use\b([^>]*)class="people__p"([^>]*)>/g,
+      ),
+    ];
+    expect(placed).toHaveLength(200);
+    for (const [, before, after] of placed)
+      expect(before + after).not.toMatch(/\s(x|y)=/);
   });
 
   it('builds the steps plate in two layouts with two lanes that never join', () => {

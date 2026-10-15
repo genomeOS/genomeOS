@@ -17,6 +17,11 @@
  * Both layouts are server-rendered at rest; the 13 and the 1 sit over a tested-grey copy of
  * themselves, which people.ts uses to settle them into their tones during the entrance. Labels are
  * HTML. The stage is an image named in full; key, note and footnote are real text.
+ *
+ * Each person is placed by a `<g transform="translate(x y)">` and drawn at that group's origin.
+ * The entrance scales each glyph round its own centre (`transform-box: fill-box`), and Chromium
+ * takes a `<use>`'s fill box without its x/y, so a glyph placed by x/y would grow from the
+ * figure's top-left corner instead of in place.
  */
 import Figure from '../kit/Figure.astro';
 import provenance from '../../data/figures/gwas-ancestry.provenance.json';
@@ -109,31 +114,27 @@ const label = `Of every ${PEOPLE_TOTAL} participants in genome-wide studies up t
         focusable="false"
       >
         {layout.placed.map((person) => (
-          <use
-            class="people__p"
-            href={`#${microId('tested')}`}
-            x={person.x}
-            y={person.y}
-            width={GLYPH.w}
-            height={GLYPH.h}
-            data-c={person.c}
-            data-r={person.r}
-            data-person={person.group === 'european' ? 'european' : undefined}
-          />
-        ))}
-        {layout.placed
-          .filter((person) => person.group !== 'european')
-          .map((person) => (
+          <g transform={`translate(${person.x} ${person.y})`}>
             <use
-              class="people__tone"
-              href={`#${microId(STATE[person.group])}`}
-              x={person.x}
-              y={person.y}
+              class="people__p"
+              href={`#${microId('tested')}`}
               width={GLYPH.w}
               height={GLYPH.h}
-              data-person={person.group}
+              data-c={person.c}
+              data-r={person.r}
+              data-person={person.group === 'european' ? 'european' : undefined}
             />
-          ))}
+            {person.group !== 'european' && (
+              <use
+                class="people__tone"
+                href={`#${microId(STATE[person.group])}`}
+                width={GLYPH.w}
+                height={GLYPH.h}
+                data-person={person.group}
+              />
+            )}
+          </g>
+        ))}
         <rect
           class="people__ring"
           x={layout.ring.x}
