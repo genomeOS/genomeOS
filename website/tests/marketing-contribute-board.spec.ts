@@ -479,6 +479,15 @@ test.describe('the example card @desktop-chromium', () => {
     await seek(page, 21880);
     expect(await tail('[data-example="home"]')).toBeGreaterThan(30);
   });
+
+  test('says each column’s count once to assistive tech', async ({ page }) => {
+    await openBoard(page);
+    await seek(page, 13620);
+    const counts = page.locator(`${BOARD} .gh-count`);
+    await expect(counts).toHaveCount(5);
+    for (const count of await counts.all())
+      await expect(count).toHaveAttribute('aria-hidden', 'true');
+  });
 });
 
 test.describe('the phone camera @mobile-chromium', () => {

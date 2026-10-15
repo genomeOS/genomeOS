@@ -107,6 +107,12 @@ describe('how work moves', () => {
     expect(holders).toHaveLength(3);
   });
 
+  it('keeps the count pills out of the accessibility tree: the cards and the story say it', () => {
+    const pills = section.match(/<span[^>]*class="gh-count"[^>]*>/g) ?? [];
+    expect(pills).toHaveLength(5);
+    for (const pill of pills) expect(pill).toContain('aria-hidden="true"');
+  });
+
   it('wraps every visible genomeOS in the brand name', () => {
     const bare = textOf(
       section.replace(/<span class="brand-name">genomeOS<\/span>/g, ''),

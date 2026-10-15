@@ -163,15 +163,14 @@ const REST: ColumnKey = 'merge';
                     <div class="gh-col__head">
                       <Fragment set:html={COLUMN_ICON[column.key]} />
                       <span class="gh-col__name">{column.name}</span>
-                      <span class="gh-count">
+                      {/* Decoration for assistive tech, which reads the cards and the
+                          story's text twin: while the story plays both numbers sit in
+                          the pill, one of them transparent. */}
+                      <span class="gh-count" aria-hidden="true">
                         <span class="c-out" hidden={here === 1}>
                           {cards.length}
                         </span>
-                        <span
-                          class="c-in"
-                          hidden={here === 0}
-                          aria-hidden={here === 0 ? 'true' : undefined}
-                        >
+                        <span class="c-in" hidden={here === 0}>
                           {cards.length + 1}
                         </span>
                       </span>

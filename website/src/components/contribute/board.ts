@@ -209,7 +209,6 @@ export function initBoard(figure: HTMLElement): void {
         '.gh-count > [hidden], [data-example="home"] .st[hidden]',
       )) {
         element.hidden = false;
-        element.removeAttribute('aria-hidden');
         element.style.opacity = '0';
       }
       await draw();
