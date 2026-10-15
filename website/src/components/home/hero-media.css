@@ -131,14 +131,19 @@
 /*
  * The film's Pause/Play control (ruling 22 of the round-2 build): a white glyph with no background,
  * the kit's scene-control look (styles/scenes.css: a 44 px target round a 20 px glyph, the ion
- * focus ring, ButtonText in forced colours). Over the film its drop shadow is a little deeper than
- * the kit's, so the glyph holds 3:1 against the brightest frame behind it (WCAG 1.4.11; measured
- * with the hero contrast script). Wide screens put it at the bottom of the text's column, its glyph
- * on the column's edge; tall ones at the top right, over the globe (WCAG 2.2.2). It never sits over
- * the text or in the cookie control's corner.
+ * focus ring, ButtonText in forced colours). Over the film its drop shadow is deeper than the
+ * kit's: three stacked shadows (each also shades the one before) lay a soft dark halo round the
+ * bars, so the glyph holds 3:1 against the brightest pixel next to it in every frame of the loop,
+ * the limb and the aurora included (WCAG 1.4.11; measured with the hero contrast script at eight
+ * sizes). Hover adds a faint white glow. Wide screens put it at the bottom of the text's column,
+ * its glyph on the column's edge; tall ones at the top right, over the globe (WCAG 2.2.2). It
+ * never sits over the text or in the cookie control's corner.
  */
 .hero-media .hero-media__toggle {
   --glyph-inset: 12px;
+  --glyph-shadow: drop-shadow(0 0 1px rgb(2 7 18))
+    drop-shadow(0 0 2.5px rgb(2 7 18 / 90%))
+    drop-shadow(0 0 6px rgb(2 7 18 / 70%));
 
   position: absolute;
   bottom: clamp(0.5rem, 3vh - 0.75rem, 1rem);
@@ -146,16 +151,12 @@
     max(var(--space-page), (100% - var(--content-width)) / 2) -
       var(--glyph-inset)
   );
-  opacity: 0.94;
-  filter: drop-shadow(0 0 1.5px rgb(2 7 18 / 95%))
-    drop-shadow(0 0 5px rgb(2 7 18 / 75%));
+  opacity: 1;
+  filter: var(--glyph-shadow);
 }
 
 .hero-media .hero-media__toggle:hover {
-  opacity: 1;
-  filter: drop-shadow(0 0 1.5px rgb(2 7 18 / 95%))
-    drop-shadow(0 0 5px rgb(2 7 18 / 75%))
-    drop-shadow(0 0 8px rgb(242 248 255 / 30%));
+  filter: var(--glyph-shadow) drop-shadow(0 0 8px rgb(242 248 255 / 30%));
 }
 
 .hero-media__toggle[hidden] {
