@@ -1736,11 +1736,19 @@ test('the legend names the muted state in words, for the threshold shown', async
   await expect(figure.getByRole('slider')).toHaveValue('14');
 });
 
+/*
+ * Timed on Playwright's clock, paused, so the 300 ms is the page's own time (ruling 36) and not
+ * the runner's frame rate: CI's software-rendered Pixel 7 took 334–352 ms of wall time on SS, as
+ * its frames queue behind the repaint, where the same profile at up to 6× CPU throttling with
+ * software GL took 253–272 ms on a laptop. The fade still runs frame by frame (runFor).
+ */
 test('the recolour takes at most 300 ms and moves nothing on the page', async ({
   page,
 }) => {
+  await page.clock.install();
   await page.goto('/projects/');
   const figure = await mapAtRest(page);
+  await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 500);
   await page.evaluate(() => {
     const state = window as unknown as { __shifts: number };
     state.__shifts = 0;
@@ -1768,21 +1776,28 @@ test('the recolour takes at most 300 ms and moves nothing on the page', async ({
     );
   const before = await boxes();
   for (const genotype of ['SS', 'AA', 'AS'] as const) {
-    const elapsed = await figure.evaluate(
-      (element, value) =>
-        new Promise<number>((resolve) => {
-          const started = performance.now();
-          new MutationObserver((_, observer) => {
-            observer.disconnect();
-            resolve(performance.now() - started);
-          }).observe(element, { attributeFilter: ['data-hbs-shown'] });
-          element
-            .querySelector<HTMLButtonElement>(`button[data-value="${value}"]`)!
-            .click();
-        }),
-      genotype,
+    await figure.evaluate((element, value) => {
+      const state = window as unknown as { __recolour: number | null };
+      state.__recolour = null;
+      const started = performance.now();
+      new MutationObserver((_, observer) => {
+        observer.disconnect();
+        state.__recolour = performance.now() - started;
+      }).observe(element, { attributeFilter: ['data-hbs-shown'] });
+      element
+        .querySelector<HTMLButtonElement>(`button[data-value="${value}"]`)!
+        .click();
+    }, genotype);
+    await page.clock.runFor(300);
+    const elapsed = await page.evaluate(
+      () => (window as unknown as { __recolour: number | null }).__recolour,
     );
+    expect(elapsed, `${genotype} settled`).not.toBeNull();
     expect(elapsed, genotype).toBeLessThanOrEqual(300);
+    await expect(figure, genotype).toHaveAttribute(
+      'data-hbs-shown',
+      new RegExp(`^${genotype} `),
+    );
     expect(await boxes(), genotype).toEqual(before);
   }
   expect(
