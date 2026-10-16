@@ -38,6 +38,7 @@ import {
 } from '../src/components/contribute/transit-route';
 import {
   BREAKPOINTS,
+  CAM,
   CREW,
   GROUPS,
   KINDS,
@@ -46,11 +47,13 @@ import {
   LEAP,
   MOON_ORDER,
   PROPS,
+  SHOTS,
   T,
   THETA0,
   TOUCHDOWN_MS,
   depth,
   discAt,
+  focus,
   labelBox,
   labelCover,
   labelOpacity,
@@ -558,7 +561,7 @@ describe('orbit scene', () => {
     // keys neither reaches past the higher one (EASE.up, down and inOut never overshoot), so each
     // moment is checked at the higher key's height, the figure at full scale. The Modeling moon
     // lands at the top of its orbit, under the stage's top edge (landingReach). The phone's camera
-    // closes in on each landing, so its stage's edge never frames one.
+    // closes in on each landing, so a close-up's edge frames it there (below).
     for (const L of [LAYOUTS.desktop, LAYOUTS.tablet])
       for (const kind of KINDS) {
         const reach = landingReach(L, kind);
@@ -587,10 +590,89 @@ describe('orbit scene', () => {
       hover: 120,
       leap: 1,
     });
-    expect(landingReach(LAYOUTS.phone, 'model')).toEqual({
-      hover: 120,
-      leap: 1,
-    });
+  });
+
+  /** A close-up's box in the phone layout's units at time t: the stage seen through the camera. */
+  const closeUp = (kind: (typeof KINDS)[number], t: number): Box => {
+    const L = LAYOUTS.phone;
+    const [tx, ty] = focus(L, kind, t);
+    return [
+      -tx / CAM.zoom,
+      -ty / CAM.zoom,
+      (L.w - tx) / CAM.zoom,
+      (L.h - ty) / CAM.zoom,
+    ];
+  };
+
+  it('frames each phone landing in the middle of its close-up: each pod from its hover, each crew through its leap', () => {
+    // orbit.ts cameraTracks holds a close-up on each landing (SHOTS), CAM.zoom times the overview
+    // and centred on the moon by `focus`, so its stage's edge frames that. While a shot holds, the
+    // pod (from its hover, which only Data's shot watches, through touchdown until it lifts off)
+    // and each crew member through the leap stay inside it with room to spare, and so does the
+    // moon's foot (design critique 4: the shorter phone stage). Each moment is checked at the higher
+    // key's height, as on the desktop and the tablet above.
+    const L = LAYOUTS.phone;
+    // The shot centres halfway between a crew member at the top of the leap and the moon's foot.
+    expect(CAM.lift).toBeCloseTo(-(1.5 + L.cs * (LEAP.apex - LEAP_TOP)) / 2, 0);
+    for (const [kind, arrive, leave] of SHOTS) {
+      const reach = landingReach(L, kind);
+      expect(reach.leap, kind).toBe(1);
+      const td = T.ship[kind] + TOUCHDOWN_MS;
+      const tops: [number, number][] = [];
+      for (let t = T.ship[kind] + 1300; t <= td + 1300; t += 50)
+        tops.push([
+          t,
+          1 - L.r[kind] - (t < td ? reach.hover : 0) - POD_TOP * L.cs * 0.95,
+        ]);
+      CREW[kind].forEach((_, i) => {
+        const te = td + 420 + i * 260;
+        for (let t = te; t <= te + 1560; t += 50) {
+          const lift = t <= te + 1220 ? LEAP.apex : 0;
+          tops.push([t, 1.5 - L.r[kind] + L.cs * (lift - LEAP_TOP)]);
+        }
+      });
+      const held = tops.filter(([t]) => t >= arrive && t <= leave);
+      // Data's shot sees its pod come down from its hover; the others glide in as theirs touch down.
+      expect(held.length, kind).toBeGreaterThan(0);
+      for (const [t, top] of held) {
+        const [, y, d] = moonCenter(L, kind, t);
+        expect(
+          y + d * top - closeUp(kind, t)[1],
+          `${kind} at ${t} ms`,
+        ).toBeGreaterThanOrEqual(8);
+      }
+      for (let t = arrive; t <= leave; t += 50) {
+        const [, y, r] = discAt(L, kind, t);
+        expect(
+          closeUp(kind, t)[3] - (y + r),
+          `${kind} foot at ${t} ms`,
+        ).toBeGreaterThanOrEqual(8);
+      }
+    }
+    expect(SHOTS[0][1]).toBeLessThanOrEqual(T.ship.data + 1300);
+  });
+
+  it('frames each crew at work in the phone’s idle tour, all the way round', () => {
+    // The tour holds each moon for one loop in turn (orbit.ts cameraTracks: from 900 ms into the
+    // loop, Data, Modeling, UI, ten tours a revolution): its crew and props, bubbles too, and its
+    // foot inside the shot.
+    const order = ['data', 'model', 'ui'] as const;
+    for (let k = 0; k < T.orbit / T.loop; k += 1) {
+      const kind = order[k % 3];
+      for (let t = k * T.loop + 1000; t < (k + 1) * T.loop; t += 250) {
+        const at = T.story + t;
+        const shot = closeUp(kind, at);
+        for (const part of partsAt(LAYOUTS.phone, kind, at))
+          expect(
+            Math.min(part[0] - shot[0], part[1] - shot[1], shot[2] - part[2]),
+            `${kind} at ${at} ms`,
+          ).toBeGreaterThanOrEqual(4);
+        const [, y, r] = discAt(LAYOUTS.phone, kind, at);
+        expect(shot[3] - (y + r), `${kind} foot at ${at} ms`).toBeGreaterThan(
+          4,
+        );
+      }
+    }
   });
 
   it('makes the desktop and tablet stages as tall as their orbits need and no taller', () => {
@@ -620,6 +702,36 @@ describe('orbit scene', () => {
     const front = (T.orbit * (THETA0.ui - 90 + 360)) / 360;
     expect(theta('ui', front) % 360).toBeCloseTo(-270, 6);
     expect(labelCover(desktop, 'ui', front)).toBe('edge');
+  });
+
+  it('makes the phone stage as tall as its orbit and its moons’ names need, and no taller', () => {
+    // Design critique 4: the stage and the group text it types on one phone screen. The top moon's
+    // crew, at work, a few units under the top edge all the way round; the front moon a little
+    // over the bottom edge, its label fading as it would cross it.
+    const L = LAYOUTS.phone;
+    let top = Infinity;
+    let bottom = -Infinity;
+    for (const t of moments)
+      for (const kind of KINDS) {
+        if (t < T.moon[kind]) continue;
+        for (const part of partsAt(L, kind, t)) top = Math.min(top, part[1]);
+        const [, y, r] = discAt(L, kind, t);
+        bottom = Math.max(bottom, y + r);
+      }
+    expect(top).toBeLessThanOrEqual(6);
+    expect(L.h - bottom).toBeLessThanOrEqual(20);
+    // In the overview, from each moon's arrival until the camera closes in, its label shows: the
+    // visitor reads each moon's name with its group's text. The UI moon arrives low on the right,
+    // and its label sets the stage's bottom: 2 units shorter, and it would hide on its arrival.
+    const until = SHOTS[0][1] - CAM.glide;
+    const shows = (layout: typeof L, kind: (typeof KINDS)[number]) => {
+      const track = labelTrack(layout, kind);
+      for (let t = T.moon[kind] + 900; t <= until; t += 250)
+        if (labelOpacity(track, t) !== 1) return false;
+      return true;
+    };
+    for (const kind of KINDS) expect(shows(L, kind), kind).toBe(true);
+    expect(shows({ ...L, h: L.h - 2 }, 'ui')).toBe(false);
   });
 
   it('brings the moons in column order and types each group’s text before the next moon comes', () => {

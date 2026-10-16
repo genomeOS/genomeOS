@@ -29,7 +29,9 @@
  *   the columns down to their links at 1440 × 900 and up; the bar, the stage and every typed line
  *   at 1366 × 768 and 1280 × 800; the moon labels at 13 px or more at each, and the moons and crews
  *   within a tenth of their size before. Every landing stays inside the stage, on the desktop and
- *   the tablet: each pod from its hover, each crew through its leap.
+ *   the tablet: each pod from its hover, each crew through its leap; on a phone, while the camera
+ *   holds on it. On a phone (design critique 4) the whole stage and the third line the panel types
+ *   show together under the header at 390 × 844 and 360 × 740 (the first line at 320 × 640).
  * - A moon under the pointer (owner, 2026-10-15) lights alone, from its disc or its label, and a
  *   click (a tap on a phone) opens its group's issues on GitHub in a new tab, its column link's
  *   URL; only its art that shows takes the pointer (a faded label, a crew yet to land and the
@@ -59,6 +61,14 @@ const T = {
   ship: { data: 19400, model: 21600, ui: 23800 },
   touchdown: 2000,
 } as const;
+/**
+ * orbit-layouts.ts SHOTS: the phone camera's close-up on each landing, [moon, arrive, leave], ms.
+ */
+const SHOTS: [string, number, number][] = [
+  ['data', 19800, 23200],
+  ['model', 23850, 25600],
+  ['ui', 26250, 30600],
+];
 const COLUMNS = ['group-data', 'group-modeling', 'group-ui'] as const;
 /** --color-faint, --color-starlight and --color-ion, as painted (snapshot's `rgb`). */
 const FAINT = 'rgb(127, 147, 174)';
@@ -1942,6 +1952,190 @@ test.describe('the orbit scene on a phone @mobile-chromium', () => {
     expect(end.columns[1].top).toBeGreaterThan(end.columns[0].top + 100);
     expect(end.columns[2].top).toBeGreaterThan(end.columns[1].top + 100);
   });
+
+  // Design critique 4: the phone's stage is shorter, and its close-ups keep each landing inside it.
+  test('keeps each landing inside the stage while the camera holds on it', async ({
+    page,
+  }) => {
+    await openOrbit(page);
+    await page
+      .locator(FIGURE)
+      .evaluate((element) =>
+        element.scrollIntoView({ block: 'center', behavior: 'instant' }),
+      );
+    expect(
+      await page.evaluate(heldLandings, {
+        shots: SHOTS,
+        ship: T.ship,
+        touchdown: T.touchdown,
+        step: 100,
+      }),
+    ).toEqual([]);
+  });
+});
+
+/**
+ * The phone's landings inside its close-ups (design critique 4; brief: "nothing clips"): every
+ * `step` ms while the camera holds on a moon, the drawn art of its crew once it shows and of its pod
+ * from its hover until it lifts off, inside the stage's box (which clips). Data's shot watches its
+ * pod come down from its hover; the others glide in as theirs touch down. One evaluate for the
+ * whole sweep.
+ */
+async function heldLandings({
+  shots,
+  ship,
+  touchdown,
+  step,
+}: {
+  shots: [string, number, number][];
+  ship: Record<string, number>;
+  touchdown: number;
+  step: number;
+}) {
+  const found: string[] = [];
+  const stage = document
+    .querySelector('[data-graphic="orbit"] [data-figure-stage]')!
+    .getBoundingClientRect();
+  for (const [kind, arrive, leave] of shots)
+    for (let t = arrive; t <= leave; t += step) {
+      await window.__motion!.seek('orbit', t);
+      const svg = [
+        ...document.querySelectorAll<SVGSVGElement>(
+          '[data-graphic="orbit"] .orbit-svg',
+        ),
+      ].find((item) => item.getClientRects().length > 0)!;
+      if (svg.dataset.layout !== 'phone') return ['not the phone layout'];
+      const moon = svg.querySelector(`.orbiter--moon[data-moon="${kind}"]`)!;
+      const flying =
+        t >= ship[kind] + 1300 && t <= ship[kind] + touchdown + 1300;
+      for (const part of [
+        ...moon.querySelectorAll('.crew'),
+        ...(flying ? [moon.querySelector('.ship-g')!] : []),
+      ])
+        for (const art of part.querySelectorAll(
+          'path, circle, ellipse, rect, line, use',
+        )) {
+          if (
+            !art.checkVisibility({
+              opacityProperty: true,
+              visibilityProperty: true,
+            })
+          )
+            continue;
+          const box = art.getBoundingClientRect();
+          if (!box.width && !box.height) continue;
+          const out = Math.max(
+            stage.top - box.top,
+            box.bottom - stage.bottom,
+            stage.left - box.left,
+            box.right - stage.right,
+          );
+          if (out > 0.5)
+            found.push(
+              `${t} ms: the ${kind} ${part.matches('.crew') ? 'crew' : 'pod'} ${Math.round(out)} px out`,
+            );
+        }
+    }
+  return [...new Set(found)];
+}
+
+/**
+ * The stage and its text on one phone screen (design critique 4; owner: "explanatory texts appear
+ * below the entire scene"): scrolled to the plate, its top under the site's header, the whole stage
+ * and the third line the panel types show together at 390 × 844 and 360 × 740 for every group the
+ * panel brings in, its moon's arrival and its landing (the first line at 320 × 640). The moon labels
+ * stay 13 px or more, and the moons and crews the size they were (`before`, CSS px a viewBox unit;
+ * brief: they "don't shrink by more than about 10% on screen").
+ */
+test.describe('the orbit stage and its text on one phone screen @mobile-chromium', () => {
+  for (const [width, height, line, before] of [
+    [390, 844, 3, 0.963],
+    [360, 740, 3, 0.879],
+    [320, 640, 1, 0.768],
+  ] as const)
+    test(`shows the whole stage and typed line ${line} at ${width}×${height}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height });
+      await openOrbit(page);
+      await page.evaluate(() =>
+        window.scrollTo({ top: 200, behavior: 'instant' }),
+      );
+      // The header's resize settles.
+      await page.waitForTimeout(500);
+      for (const [t, id] of [
+        [3000, 'group-data'],
+        [9000, 'group-modeling'],
+        [16000, 'group-ui'],
+        [21000, 'group-data'],
+        [24500, 'group-modeling'],
+        [28000, 'group-ui'],
+      ] as const) {
+        await seek(page, t);
+        const fit = await page.locator(FIGURE).evaluate(
+          (figure, { id, line }) => {
+            const header = document
+              .querySelector('[data-site-header]')!
+              .getBoundingClientRect().bottom;
+            window.scrollTo({
+              top: figure.getBoundingClientRect().top + scrollY - header,
+              behavior: 'instant',
+            });
+            const stage = figure
+              .querySelector('[data-figure-stage]')!
+              .getBoundingClientRect();
+            const column = figure.querySelector(`#${id}`)!;
+            // The lines the panel types, from the twin's characters (each a box on its line).
+            const lines: { top: number; bottom: number }[] = [];
+            for (const char of column.querySelectorAll(
+              '.orbit-col__what .typed .tc > span',
+            )) {
+              const box = char.getBoundingClientRect();
+              if (!box.height) continue;
+              const last = lines.at(-1);
+              if (last && Math.abs(box.top - last.top) < 4)
+                last.bottom = Math.max(last.bottom, box.bottom);
+              else lines.push({ top: box.top, bottom: box.bottom });
+            }
+            const svg = [
+              ...figure.querySelectorAll<SVGSVGElement>('.orbit-svg'),
+            ].find((item) => item.getClientRects().length > 0)!;
+            return {
+              layout: svg.dataset.layout,
+              shown: getComputedStyle(column).opacity,
+              top: figure.getBoundingClientRect().top - header,
+              stage: { top: stage.top - header, bottom: stage.bottom },
+              line: lines[line - 1]?.bottom ?? Infinity,
+              room: innerHeight,
+              scale:
+                svg.getBoundingClientRect().width / svg.viewBox.baseVal.width,
+              labels: [
+                ...svg.querySelectorAll<SVGTextElement>('.moon-label'),
+              ].map((label) => {
+                const matrix = label.getScreenCTM()!;
+                return (
+                  Number.parseFloat(getComputedStyle(label).fontSize) *
+                  Math.hypot(matrix.a, matrix.b)
+                );
+              }),
+            };
+          },
+          { id, line },
+        );
+        const where = `${id} at ${t} ms`;
+        expect(fit.layout, where).toBe('phone');
+        expect(fit.shown, where).toBe('1');
+        // The plate's top meets the header (scrolling rounds); the whole stage shows under it.
+        expect(Math.abs(fit.top), where).toBeLessThan(2);
+        expect(fit.stage.top, where).toBeGreaterThanOrEqual(0);
+        expect(fit.stage.bottom, where).toBeLessThanOrEqual(fit.room);
+        expect(fit.line, where).toBeLessThanOrEqual(fit.room);
+        expect(fit.scale, where).toBeGreaterThanOrEqual(0.9 * before);
+        expect(fit.labels, where).toHaveLength(3);
+        for (const size of fit.labels)
+          expect(size, where).toBeGreaterThanOrEqual(13);
+      }
+    });
 });
 
 /**

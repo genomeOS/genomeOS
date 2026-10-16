@@ -120,6 +120,14 @@ export interface OrbitLayout {
  * cross the bottom edge (labelCover), so the stage ends just under the front moon. The desktop's
  * 21-unit labels let its drawing narrow to 818 px on a short laptop screen, labels still 13 px, so
  * the plate's text shows under it (contribute.css); the moons and crews keep their sizes in units.
+ *
+ * So is the phone's (design critique 4: on a phone the stage and the group text it types never
+ * showed on one screen, against the owner's "explanatory texts appear below the entire scene"): it
+ * kept empty bands over the top moon's crew and under the orbit, 58 units in all, now cut. The top
+ * moon's crew, at work, reaches 2 units under the top edge, the front moon passes 16 units over the
+ * bottom one, and the UI moon, which arrives low on the right, has room for its label from its
+ * arrival until the camera closes in (labelTrack). Its width, and with it the size of every moon,
+ * crew and label on screen, is as it was; the camera's close-ups keep to the shorter stage (CAM).
  */
 export const LAYOUTS: Record<LayoutId, OrbitLayout> = {
   desktop: {
@@ -161,9 +169,9 @@ export const LAYOUTS: Record<LayoutId, OrbitLayout> = {
   phone: {
     id: 'phone',
     w: 358,
-    h: 460,
+    h: 402,
     cx: 179,
-    cy: 228,
+    cy: 216,
     globe: 34,
     Rx: 124,
     Ry: 124,
@@ -318,15 +326,16 @@ export const LEAP = { out: -70, apex: -118 } as const;
  * top of its orbit, just under the top edge of the desktop's and the tablet's stage (each as tall
  * as its orbit needs, LAYOUTS), so there its pod hovers low and its crew leap under half as high,
  * heads and shoulders over the pod, and neither leaves the stage (brief: "nothing clips"; review
- * of the orbit's hover, finding 1). The phone's camera closes in on each landing.
+ * of the orbit's hover, finding 1). The phone's camera closes in on each landing, and its close-up
+ * on the phone's shorter stage holds a pod hovering 40 units up, not 120: the Data pod, watched
+ * from its hover, stays in the shot to the end (CAM; design critique 4).
  */
 export function landingReach(
   L: OrbitLayout,
   kind: MoonKind,
 ): { hover: number; leap: number } {
-  return kind === 'model' && L.id !== 'phone'
-    ? { hover: 20, leap: 0.44 }
-    : { hover: 120, leap: 1 };
+  if (L.id === 'phone') return { hover: 40, leap: 1 };
+  return kind === 'model' ? { hover: 20, leap: 0.44 } : { hover: 120, leap: 1 };
 }
 
 /* ------------------------------------------------------------------- what covers a label */
@@ -801,6 +810,37 @@ export function renderOrbit(L: OrbitLayout, opt: RenderOptions): string {
     `<g id="${moonsId(L)}">${moons}</g>` +
     `</g></svg>`
   );
+}
+
+/* ------------------------------------------------------------------------ the phone camera */
+
+/**
+ * The phone's close-up (characters.md §4; orbit.ts plays it): its zoom, its glide from one shot to
+ * the next, ms, and the point it centres on, `lift` units over the moon's centre (moon-local, so
+ * the depth scale applies). That is halfway between a crew member at the top of their leap and the
+ * moon's foot, whatever the moon's size, so on the phone's shorter stage a landing sits in the
+ * middle of the shot with room above and below, rather than low in it (design critique 4).
+ */
+export const CAM = { zoom: 2.05, glide: 650, lift: 40 } as const;
+
+/**
+ * The phone's close-ups on each landing: [moon, arrive, leave]; each glide starts where the last
+ * shot left (the first CAM.glide before it arrives).
+ */
+export const SHOTS: readonly [MoonKind, number, number][] = [
+  ['data', 19800, 23200],
+  ['model', 23850, 25600],
+  ['ui', 26250, 30600],
+];
+
+/** The camera's offset, layout units, that centres a close-up on a moon at time t. */
+export function focus(
+  L: OrbitLayout,
+  kind: MoonKind,
+  t: number,
+): [number, number] {
+  const [mx, my, d] = moonCenter(L, kind, t);
+  return [L.w / 2 - CAM.zoom * mx, L.h / 2 - CAM.zoom * (my - d * CAM.lift)];
 }
 
 /**
