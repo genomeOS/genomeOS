@@ -126,10 +126,16 @@ const crowding = (page: Page, which = '.floor-svg--live') =>
       );
       // The floor ignores the pointer; let it be hit-tested for the measurement only.
       floor.style.pointerEvents = 'auto';
+      // What is drawn on top at a point: invisible parts (a held block at opacity 0) cover
+      // nothing.
       const top = (x: number, y: number) =>
         document
           .elementsFromPoint(x, y)
-          .find((element) => svg.contains(element));
+          .find(
+            (element) =>
+              svg.contains(element) &&
+              element.checkVisibility({ opacityProperty: true }),
+          );
       // Every astronaut drawn (the live cast, or each appearance in the storyboard).
       const faces = [...svg.querySelectorAll('.astro')].map((astro) => {
         const helmet = astro

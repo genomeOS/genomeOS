@@ -1117,7 +1117,9 @@ export function plan(geo: Geo): Plan {
   for (let r = 0; r < WALL_ROWS; r++)
     for (let c = 0; c < WALL_COLS; c++) {
       if (r === HOLE[1] && c === HOLE[0]) continue;
-      const d = Math.hypot(c - HOLE[0], r - HOLE[1]) * 90;
+      // the light spreads from the socket over about a third of a second, as it did over the
+      // six-block wall
+      const d = Math.hypot(c - HOLE[0], r - HOLE[1]) * 150;
       props.push([
         'story',
         `.wall-cell-${r}-${c}`,
