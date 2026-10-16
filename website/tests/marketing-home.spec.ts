@@ -1080,8 +1080,10 @@ test('the people figure’s source never ends a line on a lone “A” or its la
     await page.setViewportSize({ width, height: 900 });
     await page.goto('/');
     const source = people(page).locator('.kit-figure__footnote');
+    // \s: a pattern meets the text as it is, no-break spaces and all (a string would be
+    // normalized).
     await expect(source).toHaveText(
-      /\. A person in several studies is counted in each\.$/,
+      /\.\sA\sperson in several studies is counted in\seach\.$/,
     );
     const lines = await renderedLines(source);
     for (const line of lines.slice(0, -1))
