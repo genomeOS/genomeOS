@@ -608,7 +608,7 @@ export const GROUPS: Group[] = [
     title: 'Statistical & AI Modeling',
     moon: 'Statistical & AI Modeling',
     short: 'Modeling',
-    what: 'The world has not been sampled evenly. Brian leads Bayesian spatial models; geometric deep learning welcome. Frequencies become disease-burden and risk estimates.',
+    what: 'The world has not been sampled evenly. Bayesian spatial models and geometric deep learning fill the gaps. Frequencies become disease-burden and risk estimates.',
     who: 'For example: statisticians, machine-learning engineers, epidemiologists.',
     issues: issuesLink(['type:science', 'skill:spatial-stats']),
   },

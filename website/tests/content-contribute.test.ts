@@ -42,7 +42,9 @@ describe('contribute page content', () => {
       /Data &amp; Infrastructure[\s\S]*Statistical &amp; AI Modeling[\s\S]*UI &amp; Applications/,
     );
     expect(contribute).toContain('geometric deep learning');
-    expect(contribute).toContain('Brian');
+    expect(contribute).toContain('Bayesian spatial models');
+    // The owner (2026-10-16): no one knows the lead by name, so the group names its methods.
+    expect(contribute).not.toContain('Brian');
     expect(contribute).toMatch(/not been sampled evenly/i);
     expect(contribute).toMatch(/disease-burden[\s\S]*risk estimates/i);
     expect(contribute).toMatch(/agentic AI[\s\S]*own genomes/i);

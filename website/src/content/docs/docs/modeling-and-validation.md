@@ -10,8 +10,8 @@ making uncertainty and unsupported regions first-class results.
 
 ## More than one model class
 
-Brian leads the Bayesian spatial modeling line. The [working group](../../contribute/#working-groups) also welcomes geometric deep
-learning and other statistically defensible approaches. Models compete on scientific acceptance
+The [working group](../../contribute/#working-groups) builds Bayesian spatial models and welcomes
+geometric deep learning and other statistically defensible approaches. Models compete on scientific acceptance
 evidence rather than on visual smoothness or novelty.
 
 ## One shared result format
