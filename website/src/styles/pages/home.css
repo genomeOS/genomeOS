@@ -610,6 +610,16 @@
 
 /* ----------------------------------------------------------------------------- join us */
 
+/* "open-source" keeps to one line in the owner's first sentence: a browser may break a compound
+   after its hyphen, and at 390, 414, 1280 and 1920 the line ended "doing open-" (final
+   verification). A no-break hyphen (U+2011) would change the sentence's characters, so the span
+   holds the compound whole instead. An inline block, not white-space: nowrap, because Chromium's
+   pretty wrapping gives up on a paragraph with a nowrap run (at 834 it left "science." alone on
+   the last line); an inline block it wraps around like a word. */
+.home-join__compound {
+  display: inline-block;
+}
+
 .home-join__figure {
   display: grid;
   gap: 1.6rem;

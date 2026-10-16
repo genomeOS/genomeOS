@@ -121,6 +121,11 @@ describe('home page content', () => {
   it('invites anyone to join, with three ways in', () => {
     expect(text).toContain('Join us');
     expect(text).toContain('You don’t need a PhD to help.');
+    // The compound never breaks after its hyphen (final verification: "doing open-" ended the line
+    // at 390, 414, 1280 and 1920); a span holds it, so the owner's characters are unchanged.
+    expect(main).toContain(
+      'doing <span class="home-join__compound">open-source</span> citizen science.',
+    );
     expect(text).toContain(
       'We’re a hacker collective doing open-source citizen science. All skillsets and backgrounds are welcome: coding, writing, healthcare, graphic design, fundraising, business strategy, or just a strong curiosity and desire to do good for the world. We’ll find a place to fit your expertise and interests.',
     );

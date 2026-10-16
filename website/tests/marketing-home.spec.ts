@@ -1093,6 +1093,34 @@ test('the people figure’s source never ends a line on a lone “A” or its la
   }
 });
 
+// Final verification of the redesign: the Join us lede's first sentence ended its first line
+// "doing open-" at 390, 414, 1280 and 1920. The compound stays whole, in the owner's characters.
+test('the Join us lede never breaks “open-source” after its hyphen', async ({
+  page,
+  isMobile,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  for (const width of isMobile
+    ? [414, 390, 375, 360, 320]
+    : [1920, 1440, 1280, 1024, 834]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    const lede = page.locator('#join .home-lede').first();
+    await expect(lede).toHaveText(
+      'We’re a hacker collective doing open-source citizen science.',
+    );
+    const lines = await renderedLines(lede);
+    for (const line of lines)
+      expect(line, `${width}: ${lines.join(' | ')}`).not.toMatch(/-$/);
+    // An inline block, not a nowrap run, which Chromium's pretty wrapping gave up on: at 834 it
+    // left "science." alone on the last line.
+    expect(
+      lines.at(-1)!.split(' ').length,
+      `${width}: ${lines.join(' | ')}`,
+    ).toBeGreaterThan(1);
+  }
+});
+
 test('“How it works” takes the visitor down to the three steps, below the header', async ({
   page,
 }) => {
