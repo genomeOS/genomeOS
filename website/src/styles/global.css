@@ -125,9 +125,11 @@ svg {
 }
 
 /* The site header's bar at the top of a page (the hero fills the rest of the
- * first screen). The Atlas keeps its own 4.75rem bar. */
+ * first screen), and once the page scrolls (MotionController) the compact bar
+ * of .site-header--lockup. The Atlas keeps its own 4.75rem bar. */
 :root {
   --site-header-height: 5.5rem;
+  --compact-header-height: 3.9rem;
 }
 
 .site-header {
@@ -233,7 +235,6 @@ svg {
  */
 .site-header--lockup {
   --header-ease: cubic-bezier(0.2, 0.75, 0.25, 1);
-  --compact-header-height: 3.9rem;
   --lockup-landing-width: calc(3.6rem * 1395 / 300);
   --lockup-compact-width: calc(2.6rem * 1395 / 300);
   position: fixed;

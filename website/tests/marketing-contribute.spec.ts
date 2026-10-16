@@ -36,15 +36,23 @@ test('/working-groups/ shows "Three groups are forming." below the fixed header'
   await expect(heading).toBeInViewport();
   // html's smooth scrolling and the bar's 200 ms resize settle first.
   await page.waitForTimeout(1_000);
-  const { headerBottom, top, bottom } = await heading.evaluate((element) => ({
-    headerBottom: document
-      .querySelector('[data-site-header]')!
-      .getBoundingClientRect().bottom,
-    top: element.getBoundingClientRect().top,
-    bottom: element.getBoundingClientRect().bottom,
-  }));
+  const { headerBottom, top, bottom, plateTop } = await heading.evaluate(
+    (element, orbit) => ({
+      headerBottom: document
+        .querySelector('[data-site-header]')!
+        .getBoundingClientRect().bottom,
+      top: element.getBoundingClientRect().top,
+      bottom: element.getBoundingClientRect().bottom,
+      plateTop: document.querySelector(orbit)!.getBoundingClientRect().top,
+    }),
+    ORBIT,
+  );
   expect(top).toBeGreaterThanOrEqual(headerBottom - 0.5);
   expect(bottom).toBeLessThanOrEqual(page.viewportSize()!.height);
+  // The plate's top, not the section's, meets the compact bar's bottom edge (final verification:
+  // the plate stopped at 151 px on a laptop and 128 px on a phone, with the intro's last line
+  // showing between it and the bar).
+  expect(Math.abs(plateTop - headerBottom)).toBeLessThan(1.5);
 });
 
 // Design review, round 2: four cards broke 3 + 1 from 960 to 1279 px, leaving an orphan. They sit

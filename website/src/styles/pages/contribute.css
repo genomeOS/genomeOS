@@ -89,7 +89,24 @@
 }
 
 .band.wg-section {
-  padding-top: clamp(1.25rem, 2.2vw, 1.75rem);
+  --wg-band-top: clamp(1.25rem, 2.2vw, 1.75rem);
+  padding-top: var(--wg-band-top);
+}
+
+/* A link to the working groups (/working-groups/, the docs' links to #working-groups) lands the
+   plate's top, not the section's, on the bar's bottom edge. html's scroll padding is the landing
+   bar's, but this far down the page the bar has compacted (MotionController), so the section
+   stopped 47 px lower than the bar on a laptop and 33 px on a phone, plus the band's opening:
+   the plate's top was at 151 and 128 px, the intro's last line showed between it and the bar,
+   and at 1440 × 900 the columns' links ended 75 px below the screen (final verification). Only
+   with scripting: without it the bar stays at its landing height, and html's padding is right. */
+@media (scripting: enabled) {
+  .band.wg-section {
+    scroll-margin-top: calc(
+      var(--compact-header-height) - var(--site-header-height) - 1px - 1rem -
+        var(--wg-band-top)
+    );
+  }
 }
 
 /* A short laptop screen (1366 × 768, 1280 × 800): the intro's padding and lede step down further
@@ -112,7 +129,7 @@
   }
 
   .band.wg-section {
-    padding-top: 1rem;
+    --wg-band-top: 1rem;
   }
 
   .wg-section .orbit__bar {
