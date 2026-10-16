@@ -45,14 +45,17 @@ import {
 } from '../../graphics/timeline';
 import { typeFrames } from '../../graphics/typing';
 import {
+  CAM,
   CREW,
   KINDS,
   LAYOUTS,
   LEAP,
   SAY,
+  SHOTS,
   T,
   TOUCHDOWN_MS,
   depth,
+  focus,
   landingReach,
   moonCenter,
   surf,
@@ -885,45 +888,23 @@ function activity(
 
 /* -------------------------------------------------------------------------- phone camera */
 
-/** The close-up: zoom and glide (characters.md §4). */
-export const CAM = { zoom: 2.05, glide: 650 } as const;
-
-function focus(
-  L: OrbitLayout,
-  kind: MoonKind,
-  t: number,
-  z: number,
-): [number, number] {
-  const [mx, my, d] = moonCenter(L, kind, t);
-  const r = L.r[kind] * d;
-  // The crew stands on top.
-  return [L.w / 2 - z * mx, L.h * 0.56 - z * (my - r - 6)];
-}
-
 const camAt = (tx: number, ty: number, z: number) =>
   `translate(${f(tx)}px, ${f(ty)}px) scale(${f(z)})`;
 
 /**
  * Phones: the overview while the moons arrive and the texts type, a close-up on each landing (the
- * crews read at about 75 px), then a slow tour that holds each moon for one 8 s loop. The tour is
- * 24 s and the orbit 240 s, so one 240 s camera loop tracks the moving moons exactly, forever.
+ * crews read at about 75 px; SHOTS, centred on each moon by `focus`, orbit-layouts.ts), then a slow
+ * tour that holds each moon for one 8 s loop. The tour is 24 s and the orbit 240 s, so one 240 s
+ * camera loop tracks the moving moons exactly, forever.
  */
-/** The phone's close-ups on each landing: [moon, arrive, leave]; each glide starts where the last
- * shot left (the first CAM.glide before it arrives). */
-const SHOTS: readonly [MoonKind, number, number][] = [
-  ['data', 19800, 23200],
-  ['model', 23850, 25600],
-  ['ui', 26250, 30600],
-];
-
 function cameraTracks(tl: Timeline, svg: SVGSVGElement, L: OrbitLayout): void {
   const cam = svg.querySelector('.cam');
   const z = CAM.zoom;
   const frames: Frame[] = [[0, camAt(0, 0, 1)]];
   const hold = (kind: MoonKind, t0: number, t1: number) => {
     for (let t = t0; t <= t1; t += 500)
-      frames.push([t, camAt(...focus(L, kind, t, z), z)]);
-    frames.push([t1, camAt(...focus(L, kind, t1, z), z)]);
+      frames.push([t, camAt(...focus(L, kind, t), z)]);
+    frames.push([t1, camAt(...focus(L, kind, t1), z)]);
   };
   let prev = 0;
   for (const [kind, arrive, leave] of SHOTS) {
@@ -964,10 +945,10 @@ function cameraTracks(tl: Timeline, svg: SVGSVGElement, L: OrbitLayout): void {
     const t0 = k * T.loop;
     tour.push([t0, k === 0 ? overview : tour[tour.length - 1][1], EASE.inOut]);
     for (let t = t0 + 900; t < t0 + T.loop; t += 1000)
-      tour.push([t, camAt(...focus(L, kind, T.story + t, z), z)]);
+      tour.push([t, camAt(...focus(L, kind, T.story + t), z)]);
     tour.push([
       t0 + T.loop - 1,
-      camAt(...focus(L, kind, T.story + t0 + T.loop - 1, z), z),
+      camAt(...focus(L, kind, T.story + t0 + T.loop - 1), z),
     ]);
   }
   tour.push([T.orbit, overview]);

@@ -263,6 +263,65 @@
   }
 }
 
+/* On a phone (the phone layout: a stage under 680 px) the bar is one row, the kicker over the
+   heading beside the controls, and the caption line closes the plate under the columns. With the
+   caption in the bar, the bar took 163 to 216 px, and a phone screen showed the stage or the text
+   it types under it, never both (design critique 4; owner: "explanatory texts appear below the
+   entire scene"). The caption stays in the bar's figcaption, which gives up its box on a phone, so
+   the figure lays the bar's parts out on its own grid with the stage and the columns. A container
+   query can't style its own container, so the section's shell is the container the figure's grid
+   asks (the figure's 1 px frame each side: 682 px of shell is the 680 px stage). The heading
+   keeps to two lines down to the 320 px phone, where 1.5rem would take three. */
+.wg-section > .section-shell {
+  container: orbit-shell / inline-size;
+}
+
+@container orbit-shell (max-width: 681.98px) {
+  .orbit {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .orbit__bar {
+    display: contents;
+  }
+
+  .orbit__head {
+    grid-area: 1 / 1;
+    padding: 0.55rem 0 0.6rem 1.1rem;
+  }
+
+  /* Two classes: the built stylesheet orders the shared .section-kicker after this one. */
+  .orbit .orbit__kicker {
+    margin-bottom: 0.15rem;
+  }
+
+  .orbit__title {
+    font-size: clamp(1.3rem, 8.6cqi, 1.5rem);
+  }
+
+  .orbit__bar .kit-scene-controls {
+    grid-area: 1 / 2;
+    align-self: start;
+    padding: 0.3rem 0.45rem 0 0;
+  }
+
+  .orbit__stage {
+    grid-area: 2 / 1 / 3 / -1;
+    border-top: 1px solid var(--color-deep-line);
+  }
+
+  .orbit__cols {
+    grid-area: 3 / 1 / 4 / -1;
+  }
+
+  .orbit__caption {
+    grid-area: 4 / 1 / 5 / -1;
+    padding: 0.65rem 1.1rem;
+    border-top: 1px solid var(--color-deep-line);
+  }
+}
+
 /* The stage draws the layout that fits its width (orbit-layouts.ts LAYOUTS): phones below 680 px,
    tablets from 680 px, desktops from 960 px, so the moon labels stay at 13 px or more. */
 /* The stage listens for a moon's click (contribute.astro), so iOS would flash its tap highlight
@@ -601,6 +660,19 @@
   }
 }
 
+/* On a phone the panel's head sets a touch tighter too, its status as abreast, so the line it
+   types third shows with the whole stage on a 360 × 740 screen, for a group whose title takes two
+   lines as well (design critique 4). */
+@container orbit (max-width: 679.98px) {
+  .orbit-col {
+    padding-top: 1.1rem;
+  }
+
+  .orbit-col__status {
+    line-height: 1.3;
+  }
+}
+
 /*
  * The typing (review of T4, finding 4; orbit-layouts.ts typedTwin). The kit types a twin by giving
  * every character an opacity worked out from the twin's count (--n): at the orbit's 62 characters a
@@ -839,6 +911,16 @@
   .orbit__cols:not(:focus-within) > .orbit-col:nth-child(3) {
     opacity: 1;
     pointer-events: auto;
+  }
+}
+
+/* On a phone the group in the panel sets its link right under its words, as every column does once
+   the story ends, and the room a longer group needs falls below the link. The panel keeps one
+   height, so a switch moves nothing under it, but no group's link stands apart from its text
+   (design critique 4: up to 120 px between them). */
+@container orbit (max-width: 679.98px) and (not style(--orbit-panel: 0)) {
+  .orbit-col__link {
+    margin-top: 0;
   }
 }
 
