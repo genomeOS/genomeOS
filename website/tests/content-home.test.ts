@@ -9,10 +9,12 @@ import { builtHtml } from './helpers/dist';
 
 const home = builtHtml('');
 const main = home.slice(home.indexOf('<main'), home.indexOf('</main>'));
-/** Visible text: tags stripped, entities for quotes and ampersands decoded, spaces collapsed. */
+/** Visible text: tags stripped, entities for quotes, ampersands and no-break spaces decoded,
+ * spaces collapsed. */
 const text = main
   .replace(/<[^>]+>/g, ' ')
   .replace(/&amp;/g, '&')
+  .replace(/&nbsp;/g, ' ')
   .replace(/&#39;|&apos;/g, "'")
   .replace(/\s+/g, ' ');
 

@@ -183,12 +183,19 @@ const label = `Of every ${PEOPLE_TOTAL} participants in genome-wide studies up t
     </ul>
   </Fragment>
 
+  {
+    /*
+     * No lone word at a line's end or start: "A" keeps to "person" and "each." to "in" (the final
+     * verification: from 1024 to 1920 the first line ended "2022 ↗. A", and at 834 and 320 the
+     * last line was "each." alone). The words and the accessible text are unchanged.
+     */
+  }
   <Fragment slot="footnote">
     Source: GWAS Catalog, July 2021, in <a
       href={provenance.source.url}
       target="_blank"
       rel="noopener noreferrer"
       >{provenance.source.short} <span aria-hidden="true">↗</span></a
-    >. A person in several studies is counted in each.
+    >. A&nbsp;person in several studies is counted in&nbsp;each.
   </Fragment>
 </Figure>

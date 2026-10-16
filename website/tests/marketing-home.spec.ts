@@ -1044,6 +1044,55 @@ test('public typography keeps body and supporting text comfortably large', async
     if (selector !== 'body') expect(size, selector).toBeGreaterThanOrEqual(16);
 });
 
+/** An element's text, one string per rendered line (each character placed by its own range). */
+const renderedLines = (locator: Locator) =>
+  locator.evaluate((element) => {
+    const lines: { top: number; text: string }[] = [];
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const data = (node as Text).data;
+      for (let i = 0; i < data.length; i++) {
+        const range = document.createRange();
+        range.setStart(node, i);
+        range.setEnd(node, i + 1);
+        const box = range.getBoundingClientRect();
+        if (!box.height) continue;
+        let line = lines.find(({ top }) => Math.abs(top - box.top) < 6);
+        if (!line) lines.push((line = { top: box.top, text: '' }));
+        line.text += data[i];
+      }
+    }
+    return lines
+      .sort((a, b) => a.top - b.top)
+      .map(({ text }) => text.replace(/\s+/g, ' ').trim());
+  });
+
+// Final verification of the redesign: the people figure's source ended its first line on a lone
+// "A" from 1024 to 1920, and its last line was "each." alone at 834 and 320. The words are kept.
+test('the people figure’s source never ends a line on a lone “A” or its last on one word', async ({
+  page,
+  isMobile,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  for (const width of isMobile
+    ? [414, 390, 375, 360, 320]
+    : [1920, 1440, 1280, 1024, 834]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    const source = people(page).locator('.kit-figure__footnote');
+    await expect(source).toHaveText(
+      /\. A person in several studies is counted in each\.$/,
+    );
+    const lines = await renderedLines(source);
+    for (const line of lines.slice(0, -1))
+      expect(line, `${width}: ${lines.join(' | ')}`).not.toMatch(/(^|\s)A$/);
+    expect(
+      lines.at(-1)!.split(' ').length,
+      `${width}: ${lines.join(' | ')}`,
+    ).toBeGreaterThan(1);
+  }
+});
+
 test('“How it works” takes the visitor down to the three steps, below the header', async ({
   page,
 }) => {

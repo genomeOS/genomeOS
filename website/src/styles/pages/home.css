@@ -273,6 +273,14 @@
   height: 1.06rem;
 }
 
+/* The source note never leaves a lone word at a line's end or start: "A" keeps to "person" and
+   "each." to "in" (PeopleFigure.astro), and pretty wrapping takes a word or two more onto the last
+   line where it would be "in each." alone (834, 320; final verification). From 1024 each sentence
+   is a line of its own, as before. */
+.people .kit-figure__footnote {
+  text-wrap: pretty;
+}
+
 /* ------------------------------------------------------------------------- how it works */
 
 /* HowItWorks.astro (the kit Plate). Captions dim by colour, never by opacity: --hiw-lit mixes

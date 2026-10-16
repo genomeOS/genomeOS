@@ -89,7 +89,10 @@ describe('the people figure draws the sidecar', () => {
   });
 
   it('keys, notes and sources the figure in words, linking the DOI', () => {
-    const text = figure.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+    const text = figure
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\s+/g, ' ');
     expect(text).toContain(
       'Of every 100 participants in genome-wide studies, up to 2021',
     );
@@ -104,6 +107,11 @@ describe('the people figure draws the sidecar', () => {
     expect(text).toMatch(/13 All other ancestries, or not recorded/);
     expect(text).toMatch(/1 African ancestry/);
     expect(text).toContain('A person in several studies is counted in each.');
+    // No lone word at a line's end or start: "A" keeps to "person", "each." to "in" (final
+    // verification of the redesign).
+    expect(figure).toContain(
+      '. A&nbsp;person in several studies is counted in&nbsp;each.',
+    );
     expect(figure).toMatch(
       /<a\b[^>]*href="https:\/\/doi\.org\/10\.1038\/s41591-021-01672-4"[^>]*target="_blank"[^>]*>/,
     );
