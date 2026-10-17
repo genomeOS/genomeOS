@@ -196,3 +196,7 @@ def test_cli_fetch_list_and_verify(
     _served(store, "validation/crossval_summary.json").write_bytes(b"tampered")
     assert fd.main([*common, "--verify-remote"]) == 1
     assert fd.main([*common, "--prefix", "nowhere/"]) == 1
+
+
+def test_released_artifact_dirs_name_their_first_release(store: dict) -> None:
+    assert fd.released_artifact_dirs(store["releases"]) == {"x__v3__map-2026-08": RELEASE}

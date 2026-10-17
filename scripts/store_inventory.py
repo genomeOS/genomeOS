@@ -13,6 +13,11 @@ against.
 
 Checksums are over content, not mtime: a file that silently changed is the failure worth catching,
 and a timestamp cannot see it.
+
+This describes only what is on this disk. The record of what was *published* is the committed
+release manifest, ``data/releases/<release>.json`` (data store design 2026-10-17 §5), which lists
+every object in the public data store with its sha256; ``scripts/fetch_data.py --verify-local``
+checks local files against it, and ``scripts/fetch_data.py`` fetches what is missing.
 """
 
 from __future__ import annotations

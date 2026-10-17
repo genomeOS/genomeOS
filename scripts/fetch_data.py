@@ -197,6 +197,21 @@ def verify_remote(
     return problems
 
 
+def released_artifact_dirs(releases: Path = RELEASES) -> dict[str, str]:
+    """Artifact directory name → the first committed release that published it.
+
+    Every committed release counts, not only the newest: once an artifact is published its key is
+    cited, and it stays immutable even if a later release stops listing it (design §5).
+    """
+    found: dict[str, str] = {}
+    names = sorted((path.stem for path in releases.glob("*.json")), key=dr.release_sort_key)
+    for name in names:
+        for item in load_release(name, releases)[1]:
+            if item.path.startswith(dr.ARTIFACT_PREFIX):
+                found.setdefault(item.path.split("/")[2], name)
+    return found
+
+
 def require_local(
     path: Path | str,
     *,
