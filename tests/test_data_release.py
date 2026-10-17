@@ -241,3 +241,10 @@ def test_validation_does_not_mutate_its_input() -> None:
     snapshot = copy.deepcopy(manifest)
     dr.validate_manifest(manifest)
     assert manifest == snapshot
+
+
+def test_bucket_names() -> None:
+    assert dr.assert_bucket_name("example-bucket") == "example-bucket"
+    for bad in ("Example", "gs://example-bucket", "a", "a..b", ""):
+        with pytest.raises(dr.DataReleaseError, match="bucket"):
+            dr.assert_bucket_name(bad)

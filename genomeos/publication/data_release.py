@@ -61,6 +61,7 @@ _SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _SOURCE_ID = re.compile(r"[a-z][a-z0-9_-]*")
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_BUCKET = re.compile(r"[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]")
 
 
 class DataReleaseError(ValueError):
@@ -157,6 +158,13 @@ def assert_base_url(base: object) -> str:
 
 def public_url(base: str, key: str) -> str:
     return assert_base_url(base) + key
+
+
+def assert_bucket_name(name: object) -> str:
+    """A GCS bucket name (3-63 characters, lower case). It comes from a variable, never from git."""
+    if not isinstance(name, str) or not _BUCKET.fullmatch(name) or ".." in name:
+        raise DataReleaseError(f"invalid bucket name {name!r}; pass the GENOMEOS_DATA_BUCKET value")
+    return name
 
 
 def canonical_bytes(manifest: Mapping[str, Any]) -> bytes:
