@@ -27,7 +27,7 @@ git clone --filter=blob:none https://github.com/genomeOS/genomeOS.git
 ```
 
 `--filter=blob:none` skips the large data files that older commits still carry. Published data is not
-in git. It lives in the public data store, and `python scripts/fetch_data.py` downloads any part of it
+in git. It lives in the public data store at `https://storage.googleapis.com/genomeos-atlas-data/`, and `python scripts/fetch_data.py` downloads any part of it
 into `data/` over HTTPS, with no credentials, checking every file's sha256 against the committed
 release manifest. See [`docs/data-store.md`](docs/data-store.md).
 

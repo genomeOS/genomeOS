@@ -10,7 +10,8 @@ tracking `data/store/artifacts/**` and `data/validation/**`.
 **Rules:**
 
 - Every gcloud call goes through `scripts/gcloud_repo.py`.
-- Never commit a bucket name, project id or account. Tests write `example-*` names.
+- Never commit a project id or account. Tests write `example-*` names. The owner later decided to
+  commit the public data-store URL and bucket name (spec §3 C8).
 - Tests use no network and no GCP. Fetch tests use a local `http.server` on 127.0.0.1. Upload and
   provisioning tests reuse `tests/fake_gcloud.py`.
 - Before every commit, run `scripts/check_private_files.py` and `git diff --cached --name-only`.

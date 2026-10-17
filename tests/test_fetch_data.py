@@ -166,12 +166,18 @@ def test_require_local_leaves_paths_outside_the_store_alone(store: dict, tmp_pat
     assert resolved == elsewhere
 
 
-def test_missing_objects_without_a_base_url_name_the_variable(
+def test_the_committed_url_is_the_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(dr.BASE_URL_VARIABLE, raising=False)
+    assert fd.base_url() == dr.DATA_STORE_BASE_URL
+
+
+def test_a_variable_naming_another_store_is_refused_not_followed(
     store: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv(dr.BASE_URL_VARIABLE, raising=False)
-    with pytest.raises(fd.FetchError, match=dr.BASE_URL_VARIABLE):
+    monkeypatch.setenv(dr.BASE_URL_VARIABLE, "https://storage.googleapis.com/example-other-bucket/")
+    with pytest.raises(fd.FetchError, match="committed"):
         fd.require_local(store["dest"] / "validation", releases=store["releases"], dest=store["dest"])
+    assert not (store["dest"] / "validation").exists()
 
 
 def test_nothing_missing_needs_no_base_url(store: dict, monkeypatch: pytest.MonkeyPatch) -> None:

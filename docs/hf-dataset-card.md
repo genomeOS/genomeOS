@@ -24,7 +24,7 @@ It holds three kinds of thing: **source tables** the pipeline ingests, **trained
 **published per-cell surfaces** those models produce.
 
 > **This is a secondary mirror.** Since 2026-10-17 the project's data home is the public GCS data
-> store ([#468](https://github.com/genomeOS/genomeOS/issues/468)): every released file under the
+> store at `https://storage.googleapis.com/genomeos-atlas-data/` ([#468](https://github.com/genomeOS/genomeOS/issues/468)): every released file under the
 > repository's `data/` (the surface artifacts, validation evidence, curated inputs) at an immutable,
 > release-versioned path, with a committed manifest of sha256 checksums. Fetch and verify it with no
 > credentials using

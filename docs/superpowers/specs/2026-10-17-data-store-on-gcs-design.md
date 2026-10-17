@@ -1,8 +1,9 @@
 # genomeOS data store on GCS — Design
 
-**Status:** builder's design under the owner's instruction (2026-10-17). Every call marked
-**Builder's call** below is one the owner handed to the builder. The owner can change any of them
-without a new design.
+**Status:** builder's design under the owner's instruction (2026-10-17). Every call in §3 is one the
+owner handed to the builder, and the owner can change any of them without a new design. Calls the
+owner has since decided are marked **Owner decision**: C2 (versioning, soft delete, a non-listing
+reader role), C8 (the committed public URL) and the automation model in §7.
 
 **Date:** 2026-10-17 · **Issue:** #468 · **Related:** #33 (private staging and data-version
 pinning), #406 (public Atlas web-data bucket; fast-load/GCS design 2026-10-07 §C)
@@ -53,14 +54,14 @@ bucket exposes nothing new.
 
 | # | Call | Why | Change it by |
 |---|---|---|---|
-| C1 | **A dedicated bucket** in the existing project, separate from the web-data bucket. | The consumers differ: the web bucket serves the browser, with gzip transport encoding, content-addressed names and a CORS policy pinned to the site's origins. The data store serves people and scripts, with raw bytes (so the sha256 is of exactly what `curl` saves), human-readable release paths and open CORS. Keeping them apart also separates egress accounting and budget alerts, and keeps the web provisioner's `genomeos-purpose=atlas-web` adoption guard meaningful. Reusing the web bucket under a prefix would save one bucket but couple two lifecycles. | Pass a different `--bucket`; the scripts do not care which bucket it is. |
-| C2 | **Uniform bucket-level access, `allUsers` → `roles/storage.objectViewer`, us-east1, no object versioning, default soft delete, label `genomeos-purpose=data-store`.** | This mirrors fast-load §C.2. Keys are immutable and uploads refuse to overwrite, so versioning would add cost without adding safety. | `scripts/provision_data_store_bucket.py`. |
+| C1 | **A dedicated bucket** in the existing project, `genomeos-atlas-data`, separate from the web-data bucket. | The consumers differ: the web bucket serves the browser, with gzip transport encoding, content-addressed names and a CORS policy pinned to the site's origins. The data store serves people and scripts, with raw bytes (so the sha256 is of exactly what `curl` saves), human-readable release paths and open CORS. Keeping them apart also separates egress accounting and budget alerts, and keeps the web provisioner's `genomeos-purpose=atlas-web` adoption guard meaningful. Reusing the web bucket under a prefix would save one bucket but couple two lifecycles. | Change `DATA_STORE_BUCKET` and `DATA_STORE_BASE_URL` in `genomeos/publication/data_release.py` in a PR (C8). |
+| C2 | **Owner decision.** Uniform bucket-level access, us-east1, label `genomeos-purpose=data-store`. **Object versioning on and a 30-day soft delete.** **`allUsers` → `roles/storage.legacyObjectReader`**: read any object by key, but never list the bucket. | The owner wants the store version-controlled in GCS. Versioning and soft delete are a backstop against an accidental overwrite or delete; they do not replace the immutable release paths (C4) or the no-overwrite uploads (C6). Objects can still be fetched without credentials, because every key comes from the manifest, so nothing needs to list. (The first draft had no versioning, the default 7-day soft delete and `objectViewer`; the bucket was changed in place, §10.) | `scripts/provision_data_store_bucket.py`. |
 | C3 | **Open CORS** (`GET`, `HEAD` from `*`). | The data is public. Browser tools such as DuckDB-WASM or Observable can read parquet over HTTP only if CORS allows it. | `deploy/data-store-cors.json`. |
 | C4 | **Release-versioned keys**: `releases/<release>/<path>`, where `<path>` is relative to `data/`. A later release may reuse an earlier release's key for a byte-identical file, so unchanged files are not uploaded twice. | Keys are readable and never change meaning. Deduplication comes without content-addressed filenames. | The manifest `key` field (§5). |
 | C5 | **Raw bytes, no `Content-Encoding`. `Cache-Control: public, max-age=31536000, immutable`. Custom metadata `sha256=<hex>`.** | What a reader downloads is exactly what the manifest hashes. Immutable keys make the year-long cache safe for correctness. **Under review:** the year-long cache slows a takedown (§9 item 6). | `genomeos/publication/data_release.py`. |
 | C6 | **No-overwrite upload.** Each object is described first. If absent, it is uploaded with `--if-generation-match=0`. If present, its metadata sha256 and size are compared: a match is skipped, and anything else is a hard error. A 412 response triggers the same comparison. After upload, the size, md5 and sha256 metadata must equal what was sent. | This is the guard #406 already proved. Nothing is ever deleted. | `scripts/publish_data_store.py`. |
 | C7 | **Stays in git and is also published:** the hand-curated inputs reviewed by diff (`data/registry/**`, `data/sources/**`, `data/raw/afnd_populations.tsv`), plus `data/store/catalog-metadata.json` and `data/store/INVENTORY.json`. **Leaves git:** `data/store/artifacts/**` and `data/validation/**`. | A diff of a reviewed input is the review surface, and these files are small (about 1 MB together). The outputs are large, or are generated evidence. | `.gitignore` and the `in_git` field. |
-| C8 | **The public base URL is a variable, `GENOMEOS_DATA_BASE_URL`** (for example `https://storage.googleapis.com/<bucket>/`). It is never committed. | Repository rule (`docs/repo-gcloud-auth.md`; fast-load §C.1.4). | §9: the discoverability decision is the owner's. |
+| C8 | **Owner decision. The public base URL is committed:** `DATA_STORE_BASE_URL` (and `DATA_STORE_BUCKET`) in `genomeos/publication/data_release.py`. It is `fetch_data.py`'s default. A `GENOMEOS_DATA_BASE_URL`, `GENOMEOS_DATA_BUCKET` or flag that names anything else is refused, because the committed value is the truth; only a loopback mirror is admitted, for tests and local serving. | The URL is public anyway, and committing it is how a fresh clone finds the data. `docs/repo-gcloud-auth.md` now allows committing public read-only bucket URLs and names, never project ids or numbers, accounts or credentials. `test_no_concrete_bucket_url_is_tracked` exempts exactly this URL. | A PR changing the constants. |
 | C9 | **The fetch cache is `data/` itself**, at each file's logical path. | The scripts' existing default paths keep working after a fetch. Everything except the in-git inputs is git-ignored there. | `--dest`. |
 | C10 | **Release id = the build date, `YYYY-MM-DD`** (optionally `.N`), so release ids sort chronologically. | Releases sort by date, and the newest committed manifest is the default. | `--release`. |
 | C11 | **Pickles are never published.** The builder refuses `.pkl`, `.pickle` and `.joblib` files, and any `.npy` file with an object dtype. | Loading a pickle from the public internet executes code (§8). | Not configurable, on purpose. |
@@ -68,17 +69,18 @@ bucket exposes nothing new.
 ## 4. Layout
 
 ```
-gs://<bucket>/                                   (name never committed)
-  releases/<release>/<path>                      every object, raw bytes, immutable
-  manifests/<release>.json                       byte-identical copy of the committed manifest
+https://storage.googleapis.com/genomeos-atlas-data/   (committed, C8; read by key, no listing)
+  releases/<release>/<path>                           every object, raw bytes, immutable
+  manifests/<release>.json                            byte-identical copy of the committed manifest
 
 data/releases/<release>.json                     committed manifest (git)
 data/<path>                                      fetch cache at the logical path (git-ignored
                                                  except the in-git inputs of C7)
 ```
 
-The bucket describes itself. Anyone who knows the base URL can read `manifests/<release>.json` and
-verify every object, without the repository.
+The bucket describes itself. Anyone can read `manifests/<release>.json` at the committed base URL and
+verify every object without the repository. The manifest is how keys are found, because anonymous
+readers cannot list the bucket (C2).
 
 ## 5. Manifest schema (version 1)
 
@@ -166,7 +168,6 @@ refused: artifacts are immutable (AGENTS invariant; design §5). A new model pub
 `scripts/fetch_data.py` uses only the standard library (`urllib`).
 
 ```bash
-export GENOMEOS_DATA_BASE_URL=https://storage.googleapis.com/<bucket>/
 python scripts/fetch_data.py                                   # whole newest release into data/
 python scripts/fetch_data.py --prefix store/artifacts/chr11-5227002-T-A__v3__map-2026-08/
 python scripts/fetch_data.py --list                            # plan only, no network
@@ -182,8 +183,9 @@ For each selected object:
   match is renamed atomically into place. A mismatch is deleted and reported. Nothing unverified
   ever lands at a logical path.
 
-In-git objects are skipped by default, because they arrive with the clone. A missing base URL is a
-hard error, and the message names the variable.
+In-git objects are skipped by default, because they arrive with the clone. The base URL is the
+committed one (C8); a variable or flag naming another is a hard error. Nothing lists the bucket: every
+key comes from the committed manifest, so the non-listing reader role (C2) is all a reader needs.
 
 Scripts call `fetch_data.require_local(path)`. It ensures every manifest object under that `data/`
 path is present and verified, fetching what is missing, and returns the path. The scripts that touch
@@ -202,18 +204,27 @@ changing (the web format version), so it is not edited here. Its runbook runs
 `fetch_data.py --prefix store/` first. No test reads `data/store/artifacts`; a grep of `tests/`
 confirms this.
 
-## 7. Upload flow (maintainer)
+## 7. Upload flow (maintainer today, CI later)
+
+**Owner decision: the long-term model is automated.** When a dataset's data changes, CI launches the
+compute that refits, and the new data and surface are uploaded to GCS and served. The CI will
+authenticate through GitHub→GCP Workload Identity Federation, with no stored keys. That is a
+follow-up project and is not built here.
+
+The maintainer tools below are the **current mechanism** and the **base for that automation**. They
+already have the shape a CI job needs: deterministic release builds, a dry-run plan,
+identity-checked no-overwrite uploads, and an anonymous verification pass. A CI job would run the
+same commands under a federated identity instead of a maintainer's repository-local login.
 
 ```bash
 python scripts/gcloud_repo.py auth login
 python scripts/gcloud_repo.py init --account <account> --project <project>
-export GENOMEOS_GCP_PROJECT=<project> GENOMEOS_DATA_BUCKET=<bucket>
-python scripts/provision_data_store_bucket.py --bucket "$GENOMEOS_DATA_BUCKET" --dry-run
-python scripts/provision_data_store_bucket.py --bucket "$GENOMEOS_DATA_BUCKET"
-python scripts/publish_data_store.py --bucket "$GENOMEOS_DATA_BUCKET" --dry-run
-python scripts/publish_data_store.py --bucket "$GENOMEOS_DATA_BUCKET"
-GENOMEOS_DATA_BASE_URL="https://storage.googleapis.com/$GENOMEOS_DATA_BUCKET/" \
-  python scripts/fetch_data.py --verify-remote --include-git-tracked
+export GENOMEOS_GCP_PROJECT=<project>
+python scripts/provision_data_store_bucket.py --dry-run      # the committed bucket (C8)
+python scripts/provision_data_store_bucket.py
+python scripts/publish_data_store.py --dry-run
+python scripts/publish_data_store.py
+python scripts/fetch_data.py --verify-remote                 # anonymous, against the committed URL
 ```
 
 **Provisioning** mirrors `provision_atlas_web_bucket.py --mode edge`, which is reused through its
@@ -223,8 +234,10 @@ org-policy check:
 2. Create the bucket with uniform bucket-level access and public-access prevention not enforced.
 3. Label it, so that an existing bucket without the label is refused before any change
    (needs-human-decision).
-4. Grant `allUsers` read.
-5. Set CORS.
+4. Turn on object versioning and set a 30-day soft delete.
+5. Grant `allUsers` `roles/storage.legacyObjectReader`, then remove any listing role `allUsers` held
+   (`objectViewer`, `legacyBucketReader`). Reads never lapse, and nobody can list.
+6. Set CORS.
 
 Every step is idempotent. Public-access prevention is never lifted on an existing bucket.
 
@@ -257,18 +270,10 @@ The parquet artifacts already carry every per-cell posterior summary a consumer 
 
 ## 9. Owner decisions and follow-ups
 
-1. **Discoverability of the base URL.** Under the repository rule, the URL cannot be committed. The
-   options:
-   - **(a)** Keep the rule. Publish the URL on the site and in the release notes at deploy time from a
-     repository variable. Optionally have the site serve a small `data-store.json` pointer that
-     `fetch_data.py` could read from the already-public site domain.
-   - **(b)** A custom domain, `data.genome-os.org`. HTTPS on a custom domain needs the load balancer
-     and managed certificate already scripted for the web bucket (`cloud-cdn` mode), plus a DNS
-     record at the registrar, which is a human step with a recurring cost. A plain CNAME to
-     `c.storage.googleapis.com` serves HTTP only.
-   - **(c)** Carve an exception to the rule for this one public bucket.
-
-   This builder changed no DNS.
+1. **Discoverability of the base URL: decided.** The owner chose to commit the public URL (C8), with
+   `docs/repo-gcloud-auth.md` amended to match. A custom domain (`data.genome-os.org`, which needs the
+   scripted `cloud-cdn` load balancer, certificate and DNS) remains possible later. No DNS was
+   changed.
 2. **Egress and budget.** The release is about 0.27 GB. Internet egress from us-east1 Standard
    storage is about $0.12/GB, so one full download costs about $0.03 and 1,000 full downloads about
    $30. Storage costs well under $0.01 a month. Setting a budget alert on the project needs billing
@@ -295,7 +300,7 @@ The parquet artifacts already carry every per-cell posterior summary a consumer 
    - **(b)** Set `public, max-age=3600` for future releases by changing `IMMUTABLE_CACHE_CONTROL` in
      `genomeos/publication/data_release.py`, plus the post-upload check that compares it.
    - **(c)** Also rewrite the existing objects' cache metadata with
-     `python scripts/gcloud_repo.py run storage objects update gs://<bucket>/releases/2026-10-17/** --cache-control="public, max-age=3600"`.
+     `python scripts/gcloud_repo.py run storage objects update "gs://$GENOMEOS_DATA_BUCKET/releases/2026-10-17/**" --cache-control="public, max-age=3600"`.
      This updates metadata only and never touches the bytes. It does not shorten copies that are
      already cached.
 
@@ -303,7 +308,7 @@ The parquet artifacts already carry every per-cell posterior summary a consumer 
    with the local file's, as well as the uploader's sha256 metadata and the size. That came from the
    same review.
 7. **A CI check of the remote store.** For example, a cheap HEAD and metadata check of the newest
-   manifest when the variable is set. Not built here.
+   manifest against the committed URL. Not built here. It belongs with the CI automation in §7.
 
 ## 10. Rollout
 
@@ -311,7 +316,12 @@ The parquet artifacts already carry every per-cell posterior summary a consumer 
    untracking and the docs. Until upload and verification it is opened as a draft headed "do not
    merge until uploaded and verified".
 2. **An authenticated maintainer runs §7**, ending with the anonymous `--verify-remote`. If this
-   session has credentials, the builder runs it.
+   session has credentials, the builder runs it. For release 2026-10-17, the builder ran it.
+   - The bucket was first provisioned under the first draft's C2 (no versioning, the default 7-day
+     soft delete, `objectViewer`).
+   - After the owner's decisions, the updated provisioning script changed the bucket's settings in
+     place, without rewriting any object: versioning on, a 30-day soft delete, `allUsers` granted
+     `legacyObjectReader` and then removed from `objectViewer`.
 3. **The PR is marked ready, and the owner merges.** Until the merge, `main` still tracks the files.
    After the merge, history still holds them and the bucket serves them. No step deletes anything,
    anywhere.

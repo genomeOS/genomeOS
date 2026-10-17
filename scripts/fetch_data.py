@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Fetch and verify the public genomeOS data store, with no credentials (data store design 2026-10-17 §6).
 
-    export GENOMEOS_DATA_BASE_URL=https://storage.googleapis.com/<bucket>/
     python scripts/fetch_data.py                                  # newest release into data/
     python scripts/fetch_data.py --prefix store/artifacts/chr11-5227002-T-A__v3__map-2026-08/
     python scripts/fetch_data.py --list                           # the plan; no network
@@ -9,7 +8,10 @@
     python scripts/fetch_data.py --verify-remote                  # GET and hash every object; writes nothing
 
 Reads the committed manifest ``data/releases/<release>.json`` (newest by default) and resolves each
-object's key against the base URL, over plain HTTPS. Every download streams into
+object's key against the committed public base URL (``data_release.DATA_STORE_BASE_URL``), over plain
+HTTPS. ``GENOMEOS_DATA_BASE_URL`` or ``--base-url`` may only repeat that URL or name a loopback mirror;
+anything else is refused, because the committed value is the truth. Nothing here lists the bucket
+(anonymous readers may not): every key comes from the manifest. Every download streams into
 ``data/.fetch-partial/``, is checked against the manifest's byte count and sha256, and only then is
 renamed into place; a mismatch is deleted and reported. A local file that already matches is skipped;
 one that differs is a hard error and is never overwritten. Objects git already tracks are skipped
@@ -71,11 +73,11 @@ def load_release(
 
 
 def base_url(explicit: str | None = None) -> str:
-    value = explicit or os.environ.get(dr.BASE_URL_VARIABLE, "")
+    """The committed data-store URL; a flag or variable naming anything but it (or loopback) is refused."""
     try:
-        return dr.assert_base_url(value)
+        return dr.resolve_base_url(explicit or os.environ.get(dr.BASE_URL_VARIABLE))
     except dr.DataReleaseError as error:
-        raise FetchError(f"{error}; set {dr.BASE_URL_VARIABLE} or pass --base-url") from error
+        raise FetchError(str(error)) from error
 
 
 def pending(objects: Sequence[dr.ReleaseObject], *, include_git: bool) -> tuple[dr.ReleaseObject, ...]:
@@ -254,7 +256,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Fetch and verify the public genomeOS data store.")
     parser.add_argument("--release", help="release id (default: the newest committed manifest)")
     parser.add_argument("--prefix", action="append", default=[], help="only paths under this prefix")
-    parser.add_argument("--base-url", help=f"default: ${dr.BASE_URL_VARIABLE}")
+    parser.add_argument(
+        "--base-url", help=f"default: the committed {dr.DATA_STORE_BASE_URL} (or ${dr.BASE_URL_VARIABLE})"
+    )
     parser.add_argument("--dest", type=Path, default=DATA, help="where files land (default: data/)")
     parser.add_argument("--releases", type=Path, default=RELEASES, help=argparse.SUPPRESS)
     parser.add_argument("--include-git-tracked", action="store_true", help="also objects git tracks")

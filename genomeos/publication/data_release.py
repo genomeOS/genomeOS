@@ -33,6 +33,12 @@ IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
 NOT_CHECKED = "not_checked"
 ARTIFACT_PREFIX = "store/artifacts/"
 BASE_URL_VARIABLE = "GENOMEOS_DATA_BASE_URL"
+BUCKET_VARIABLE = "GENOMEOS_DATA_BUCKET"
+#: The public, read-only data store. Committed by owner decision (2026-10-17): a public bucket's URL and
+#: name may be committed, project ids, accounts and credentials may not (docs/repo-gcloud-auth.md).
+#: These committed values are the truth: a variable or flag that names anything else is refused.
+DATA_STORE_BUCKET = "genomeos-atlas-data"
+DATA_STORE_BASE_URL = "https://storage.googleapis.com/genomeos-atlas-data/"
 
 #: Closed: an extension missing here is refused rather than served under a guessed type.
 MEDIA_TYPES: Mapping[str, str] = {
@@ -160,10 +166,38 @@ def public_url(base: str, key: str) -> str:
     return assert_base_url(base) + key
 
 
+def resolve_base_url(value: str | None) -> str:
+    """The committed data-store URL, unless ``value`` is it or a loopback mirror (tests, local serving).
+
+    A variable that names any other host or bucket is refused rather than followed: the committed
+    value is the truth, so a stale or hostile ``GENOMEOS_DATA_BASE_URL`` cannot redirect a reader.
+    """
+    if not value or value == DATA_STORE_BASE_URL:
+        return DATA_STORE_BASE_URL
+    base = assert_base_url(value)
+    if urlsplit(base).scheme == "http":  # assert_base_url admits http only on loopback
+        return base
+    raise DataReleaseError(
+        f"{BASE_URL_VARIABLE}={value!r} differs from the committed data-store URL {DATA_STORE_BASE_URL}; "
+        "the committed value is the truth (unset the variable, or fix the committed constant in a PR)"
+    )
+
+
+def resolve_bucket(value: str | None) -> str:
+    """The committed data-store bucket; any other name is refused, never written to."""
+    if not value or value == DATA_STORE_BUCKET:
+        return DATA_STORE_BUCKET
+    assert_bucket_name(value)
+    raise DataReleaseError(
+        f"bucket {value!r} differs from the committed data-store bucket {DATA_STORE_BUCKET}; "
+        "the committed value is the truth"
+    )
+
+
 def assert_bucket_name(name: object) -> str:
     """A GCS bucket name (3-63 characters, lower case). It comes from a variable, never from git."""
     if not isinstance(name, str) or not _BUCKET.fullmatch(name) or ".." in name:
-        raise DataReleaseError(f"invalid bucket name {name!r}; pass the GENOMEOS_DATA_BUCKET value")
+        raise DataReleaseError(f"invalid bucket name {name!r}")
     return name
 
 

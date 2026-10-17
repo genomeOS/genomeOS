@@ -1,21 +1,26 @@
 #!/usr/bin/env python3
 """Provision the public data-store bucket (data store design 2026-10-17 §3 C1–C3, §7).
 
-    python scripts/provision_data_store_bucket.py --bucket "$GENOMEOS_DATA_BUCKET" --dry-run
-    python scripts/provision_data_store_bucket.py --bucket "$GENOMEOS_DATA_BUCKET"
+    python scripts/provision_data_store_bucket.py --project <project> --dry-run
+    python scripts/provision_data_store_bucket.py --project <project>
 
-A dedicated bucket, separate from the Atlas web-data bucket: us-east1, uniform bucket-level access,
-readable by ``allUsers`` (``roles/storage.objectViewer``), no object versioning (keys are immutable and
-uploads refuse to overwrite), default soft delete, open CORS for ``GET``/``HEAD`` and the label
-``genomeos-purpose=data-store``. It mirrors ``provision_atlas_web_bucket.py --mode edge`` and reuses its
-org-policy check: a blocking policy stops the run before any change.
+The committed bucket (``data_release.DATA_STORE_BUCKET``), separate from the Atlas web-data bucket:
+us-east1, uniform bucket-level access, open CORS for ``GET``/``HEAD`` and the label
+``genomeos-purpose=data-store``. Anonymous readers get ``roles/storage.legacyObjectReader``: they read
+any object by key, but cannot list the bucket (owner decision 2026-10-17); a listing role granted to
+``allUsers`` earlier (``objectViewer``, ``legacyBucketReader``) is removed after the reader role is in
+place, so reads never lapse. Object versioning is on and soft delete is 30 days: a backstop against an
+accidental overwrite or delete, not a substitute for the immutable release paths and no-overwrite
+uploads. It mirrors ``provision_atlas_web_bucket.py --mode edge`` and reuses its org-policy check: a
+blocking policy stops the run before any change.
 
 Idempotent: every step reads the current state and changes only what differs, so a second run changes
 nothing. ``--dry-run`` prints every command and runs none. Because this makes a bucket public, an
 existing bucket is adopted only if it carries this script's label and belongs to the project; any other,
 including the web-data bucket, is refused before any change (needs-human-decision). Public-access
-prevention is never lifted on an existing bucket, and nothing is ever deleted. No project id or bucket
-name is stored in git (docs/repo-gcloud-auth.md). Every command goes through scripts/gcloud_repo.py.
+prevention is never lifted on an existing bucket, and no object is ever touched. The project id is never
+stored in git (docs/repo-gcloud-auth.md); the bucket name is committed, and any other is refused. Every
+command goes through scripts/gcloud_repo.py.
 """
 
 from __future__ import annotations
@@ -41,7 +46,12 @@ from scripts.provision_atlas_web_bucket import ProvisionError, check_org_policie
 CORS_FILE = Path("deploy") / "data-store-cors.json"
 LOCATION = "us-east1"
 PUBLIC_MEMBER = "allUsers"
-PUBLIC_ROLE = "roles/storage.objectViewer"
+#: Read an object by key; no ``storage.objects.list``. Readers take every key from the manifest.
+PUBLIC_ROLE = "roles/storage.legacyObjectReader"
+#: Roles that would let anyone list the bucket; removed from ``allUsers`` once PUBLIC_ROLE is granted.
+LISTING_ROLES = ("roles/storage.objectViewer", "roles/storage.legacyBucketReader")
+SOFT_DELETE = "30d"
+SOFT_DELETE_SECONDS = str(30 * 86400)
 LABEL_KEY = "genomeos-purpose"
 LABEL_VALUE = "data-store"
 # What a bucket created by this script looks like; stands in for the describe a dry run cannot make.
@@ -134,36 +144,38 @@ def provision(gcloud: Gcloud, bucket: str, project: str, report: list[str]) -> N
     updates: list[str] = []
     if not iam.get("uniformBucketLevelAccess", {}).get("enabled"):
         updates.append("--uniform-bucket-level-access")
-    if current.get("versioning", {}).get("enabled"):
-        updates.append("--no-versioning")
+    if not (current.get("versioning") or {}).get("enabled"):
+        updates.append("--versioning")
+    if str((current.get("softDeletePolicy") or {}).get("retentionDurationSeconds")) != SOFT_DELETE_SECONDS:
+        updates.append(f"--soft-delete-duration={SOFT_DELETE}")
     if updates:
         _mutate(gcloud, ["storage", "buckets", "update", url, *updates])
         report.append(f"bucket {url}: updated {' '.join(updates)}")
     policy = gcloud.describe(["storage", "buckets", "get-iam-policy", url, "--format=json"]) or {}
-    public = any(
-        binding.get("role") == PUBLIC_ROLE and PUBLIC_MEMBER in binding.get("members", [])
+    public_roles = {
+        binding.get("role")
         for binding in policy.get("bindings", [])
-    )
-    if public:
+        if PUBLIC_MEMBER in binding.get("members", [])
+    }
+    if PUBLIC_ROLE in public_roles:
         report.append(f"IAM: {PUBLIC_MEMBER} already has {PUBLIC_ROLE}")
     else:
-        _mutate(
-            gcloud,
-            [
-                "storage",
-                "buckets",
-                "add-iam-policy-binding",
-                url,
-                f"--member={PUBLIC_MEMBER}",
-                f"--role={PUBLIC_ROLE}",
-            ],
-        )
+        _mutate(gcloud, _binding("add", url, PUBLIC_ROLE))
         report.append(f"IAM: {PUBLIC_MEMBER} granted {PUBLIC_ROLE}")
+    for role in LISTING_ROLES:  # only after the reader role exists, so anonymous reads never lapse
+        if role in public_roles:
+            _mutate(gcloud, _binding("remove", url, role))
+            report.append(f"IAM: {PUBLIC_MEMBER} removed from {role} (it allows listing)")
     if current.get("cors") == committed:
         report.append("CORS: already the committed policy")
     else:
         _mutate(gcloud, ["storage", "buckets", "update", url, f"--cors-file={CORS_FILE}"])
         report.append(f"CORS: set from {CORS_FILE}")
+
+
+def _binding(verb: str, url: str, role: str) -> list[str]:
+    member = f"--member={PUBLIC_MEMBER}"
+    return ["storage", "buckets", f"{verb}-iam-policy-binding", url, member, f"--role={role}"]
 
 
 def _mutate(gcloud: Gcloud, arguments: list[str]) -> None:
@@ -172,20 +184,11 @@ def _mutate(gcloud: Gcloud, arguments: list[str]) -> None:
         raise ProvisionError(f"{Gcloud.display(arguments)} failed: {result.stderr.strip()}")
 
 
-def _bucket(value: str) -> str:
-    try:
-        return dr.assert_bucket_name(value)
-    except dr.DataReleaseError as error:
-        raise argparse.ArgumentTypeError(str(error)) from error
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Provision the public data-store bucket.")
     parser.add_argument(
         "--bucket",
-        type=_bucket,
-        default=os.environ.get("GENOMEOS_DATA_BUCKET"),
-        help="bucket name (default: $GENOMEOS_DATA_BUCKET; never stored in git)",
+        help=f"must be the committed {dr.DATA_STORE_BUCKET} (the default; or ${dr.BUCKET_VARIABLE})",
     )
     parser.add_argument("--project", help="GCP project id (default: $GENOMEOS_GCP_PROJECT; never in git)")
     parser.add_argument("--dry-run", action="store_true", help="print every gcloud command and run none")
@@ -195,22 +198,24 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     project = args.project or os.environ.get("GENOMEOS_GCP_PROJECT")
-    if not args.bucket or not project:
-        print(
-            "error: pass --bucket and --project (or GENOMEOS_DATA_BUCKET and GENOMEOS_GCP_PROJECT); "
-            "neither is stored in git",
-            file=sys.stderr,
-        )
+    if not project:
+        print("error: pass --project or set GENOMEOS_GCP_PROJECT; project ids are not stored in git",
+              file=sys.stderr)
         return 2
+    try:
+        bucket = dr.resolve_bucket(args.bucket or os.environ.get(dr.BUCKET_VARIABLE))
+    except dr.DataReleaseError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
     report: list[str] = []
     try:
-        provision(Gcloud(dry_run=args.dry_run), args.bucket, project, report)
+        provision(Gcloud(dry_run=args.dry_run), bucket, project, report)
     except (ProvisionError, GcloudError) as error:
         print("\n".join(report))
         print(f"error: {error}", file=sys.stderr)
         return 1
     print("\n".join(report))
-    print(f"base URL: {base_url(args.bucket)}")
+    print(f"base URL: {base_url(bucket)}")
     return 0
 
 

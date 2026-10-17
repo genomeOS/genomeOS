@@ -286,12 +286,17 @@ the design. Git keeps one manifest per release, `data/releases/<release>.json`.
 
 - Clone with `git clone --filter=blob:none`: older commits still carry the data blobs (history was
   not rewritten), and a blobless clone fetches them only if you check those commits out.
-- `python scripts/fetch_data.py` downloads a release into the git-ignored `data/` over public HTTPS,
-  with no credentials, and verifies every sha256 (set `GENOMEOS_DATA_BASE_URL`). Scripts that read
-  `data/store` resolve their inputs through it.
+- `python scripts/fetch_data.py` downloads a release into the git-ignored `data/` over public HTTPS
+  from the committed URL `https://storage.googleapis.com/genomeos-atlas-data/`, with no credentials, and verifies every sha256. Scripts that read
+  `data/store` resolve their inputs through it. The committed URL is the truth: a
+  `GENOMEOS_DATA_BASE_URL` naming anything else is refused.
 - Never commit a new artifact, validation output or other generated data file under `data/`. Publish
   it in a new release (`build_data_release.py`, then `publish_data_store.py` through the gcloud
-  wrapper). A released artifact is immutable; the tools refuse to change one.
+  wrapper). A released artifact is immutable; the tools refuse to change one. Today a maintainer runs
+  the upload; it is the base for planned CI automation (refit on data change, upload through
+  GitHub→GCP Workload Identity Federation).
+- A public, read-only bucket's URL may be committed. Project ids and numbers, accounts and credentials
+  may not ([`docs/repo-gcloud-auth.md`](docs/repo-gcloud-auth.md)).
 - Never publish a pickle (a fitted model's `.fit.pkl`). Loading one from the internet executes code.
 
 `sqlite:///./genomeos.db` is the local default; production requires a PostgreSQL `DATABASE_URL`.

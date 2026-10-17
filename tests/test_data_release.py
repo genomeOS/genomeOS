@@ -248,3 +248,33 @@ def test_bucket_names() -> None:
     for bad in ("Example", "gs://example-bucket", "a", "a..b", ""):
         with pytest.raises(dr.DataReleaseError, match="bucket"):
             dr.assert_bucket_name(bad)
+
+
+def test_the_committed_data_store_url_names_the_committed_bucket() -> None:
+    assert dr.DATA_STORE_BASE_URL == f"https://storage.googleapis.com/{dr.DATA_STORE_BUCKET}/"
+    assert dr.assert_bucket_name(dr.DATA_STORE_BUCKET) == dr.DATA_STORE_BUCKET
+
+
+@pytest.mark.parametrize("value", [None, "", dr.DATA_STORE_BASE_URL])
+def test_the_committed_base_url_is_the_default_and_the_truth(value: str | None) -> None:
+    assert dr.resolve_base_url(value) == dr.DATA_STORE_BASE_URL
+
+
+def test_a_loopback_mirror_is_allowed_for_tests_and_local_serving() -> None:
+    assert dr.resolve_base_url("http://127.0.0.1:8123/") == "http://127.0.0.1:8123/"
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["https://storage.googleapis.com/example-other-bucket/", "https://data.example.org/", "http://example.org/"],
+)
+def test_any_other_base_url_is_refused(value: str) -> None:
+    with pytest.raises(dr.DataReleaseError, match=dr.BASE_URL_VARIABLE):
+        dr.resolve_base_url(value)
+
+
+def test_only_the_committed_bucket_is_accepted() -> None:
+    assert dr.resolve_bucket(None) == dr.DATA_STORE_BUCKET
+    assert dr.resolve_bucket(dr.DATA_STORE_BUCKET) == dr.DATA_STORE_BUCKET
+    with pytest.raises(dr.DataReleaseError, match="committed"):
+        dr.resolve_bucket("example-other-bucket")

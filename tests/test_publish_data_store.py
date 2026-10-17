@@ -17,7 +17,7 @@ from genomeos.publication import data_release as dr
 from scripts import publish_data_store as publish
 from tests.atlas_web_fixtures import install_fake_gcloud
 
-BUCKET = "example-data-bucket"
+BUCKET = dr.DATA_STORE_BUCKET  # the committed bucket; the fake gcloud never reaches GCP
 RELEASE = "2026-10-17"
 FILES = {
     "store/artifacts/x__v3__map-2026-08/cells.parquet": b"cells for x",
@@ -188,3 +188,15 @@ def test_matching_sha256_metadata_over_different_stored_bytes_is_refused(
     assert _run(release) == 1
     assert "server md5Hash" in capsys.readouterr().err
     assert fake.mutating_calls() == []
+
+
+def test_any_bucket_but_the_committed_one_is_refused(
+    release: Release, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capsys
+) -> None:
+    fake = install_fake_gcloud(tmp_path / "gcloud", monkeypatch, EMPTY_BUCKET)
+    arguments = ["--manifest", str(release["manifest"]), "--data", str(release["data"])]
+    assert publish.main(["--bucket", "example-other-bucket", *arguments]) == 1
+    monkeypatch.setenv(dr.BUCKET_VARIABLE, "example-other-bucket")
+    assert publish.main(arguments) == 1
+    assert "committed" in capsys.readouterr().err
+    assert fake.calls() == []

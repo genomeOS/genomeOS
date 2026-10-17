@@ -4,7 +4,7 @@
 The published surfaces live in the public data store, not in git (data store design 2026-10-17 §6).
 A ``--source`` under ``data/`` is resolved through ``scripts/fetch_data.py``: every released artifact
 under it is fetched and sha256-verified first, so a fresh clone builds the same catalog as the machine
-that published them. Set ``GENOMEOS_DATA_BASE_URL`` for that, or fetch beforehand.
+that published them, from the committed public URL with no credentials.
 """
 
 from __future__ import annotations

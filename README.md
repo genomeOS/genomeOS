@@ -109,12 +109,12 @@ background; there is a glossary at the end.
 ## Getting the data
 
 The data is open: the fitted surfaces, validation evidence and curated inputs are in a public data
-store, with no credentials needed. Git keeps only a checksummed manifest per release
-(`data/releases/`). Clone without the historical data blobs, then fetch what you need:
+store at `https://storage.googleapis.com/genomeos-atlas-data/`, with no credentials needed. Git keeps only a checksummed manifest per release
+(`data/releases/`); the store's own copy is at `manifests/<release>.json` under that URL. Clone
+without the historical data blobs, then fetch what you need:
 
 ```bash
 git clone --filter=blob:none https://github.com/genomeOS/genomeOS.git && cd genomeOS
-export GENOMEOS_DATA_BASE_URL=https://storage.googleapis.com/<bucket>/   # see docs/data-store.md
 python scripts/fetch_data.py                 # every file sha256-verified against the manifest
 ```
 

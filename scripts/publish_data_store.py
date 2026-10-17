@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """Upload a committed data-store release to its public bucket, never overwriting (data store design §7).
 
-    python scripts/publish_data_store.py --bucket "$GENOMEOS_DATA_BUCKET" --dry-run
-    python scripts/publish_data_store.py --bucket "$GENOMEOS_DATA_BUCKET"
+    python scripts/publish_data_store.py --dry-run
+    python scripts/publish_data_store.py
+
+The bucket is the committed ``data_release.DATA_STORE_BUCKET``; a ``--bucket`` or
+``GENOMEOS_DATA_BUCKET`` naming any other is refused. This maintainer upload is the current mechanism
+and the base for the planned CI automation (refit on data change, upload through GitHub→GCP Workload
+Identity Federation; data store design §7), not the final model.
 
 Uploads every object of ``data/releases/<release>.json`` (newest by default) at its manifest key, as
 raw bytes with ``--if-generation-match=0``, its media type, the immutable ``Cache-Control`` and
@@ -196,13 +201,6 @@ def _upload(item: Upload, bucket: str, gcloud: Gcloud) -> str:
     return "uploaded"
 
 
-def _bucket(value: str) -> str:
-    try:
-        return dr.assert_bucket_name(value)
-    except dr.DataReleaseError as error:
-        raise argparse.ArgumentTypeError(str(error)) from error
-
-
 def _newest_manifest() -> Path:
     names = [path.stem for path in RELEASES.glob("*.json")]
     if not names:
@@ -214,9 +212,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Upload a data-store release, never overwriting.")
     parser.add_argument(
         "--bucket",
-        type=_bucket,
-        default=os.environ.get("GENOMEOS_DATA_BUCKET"),
-        help="bucket name (default: $GENOMEOS_DATA_BUCKET; never stored in git)",
+        help=f"must be the committed {dr.DATA_STORE_BUCKET} (the default; or ${dr.BUCKET_VARIABLE})",
     )
     parser.add_argument("--manifest", type=Path, help="default: the newest data/releases/*.json")
     parser.add_argument("--data", type=Path, default=DATA, help="the local data/ tree to upload from")
@@ -226,12 +222,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if not args.bucket:
-        print("error: pass --bucket or set GENOMEOS_DATA_BUCKET", file=sys.stderr)
-        return 2
     try:
+        bucket = dr.resolve_bucket(args.bucket or os.environ.get(dr.BUCKET_VARIABLE))
         release, uploads = plan(args.manifest or _newest_manifest(), args.data)
-        counts = publish(uploads, args.bucket, Gcloud(dry_run=args.dry_run))
+        counts = publish(uploads, bucket, Gcloud(dry_run=args.dry_run))
     except (PublishError, GcloudError, dr.DataReleaseError, OSError, json.JSONDecodeError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

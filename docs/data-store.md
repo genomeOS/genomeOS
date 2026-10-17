@@ -8,9 +8,10 @@ not in git.
 Anyone can download and verify it without credentials:
 
 ```bash
-export GENOMEOS_DATA_BASE_URL=https://storage.googleapis.com/<bucket>/   # see "Public data store"
 python scripts/fetch_data.py              # newest release into data/, every file sha256-checked
 ```
+
+The store's committed public URL is `https://storage.googleapis.com/genomeos-atlas-data/` (owner decision; `docs/repo-gcloud-auth.md`).
 
 Git keeps one manifest per release, `data/releases/<release>.json`, listing every object's path,
 bytes, sha256 and source terms. Clone with `git clone --filter=blob:none` to skip the data blobs
@@ -85,7 +86,7 @@ python scripts/build_atlas_catalog.py --source data/store/artifacts \
 ```
 
 A `--source` under `data/` is resolved through the data store first: every released artifact under it
-is fetched and sha256-verified (`GENOMEOS_DATA_BASE_URL` must be set unless they are already local).
+is fetched from the committed URL and sha256-verified.
 `export_atlas_web.py --store data/store` does not fetch by itself; run
 `python scripts/fetch_data.py --prefix store/` before it.
 
@@ -229,14 +230,20 @@ regenerates the browser-test fixture from the same tree.
 ## Public data store
 
 Every file a release lists is served from a dedicated public bucket, separate from the web-data bucket
-above (data store design 2026-10-17 §3): raw bytes at `releases/<release>/<path>`, the manifest copy at
-`manifests/<release>.json`, `Cache-Control: public, max-age=31536000, immutable`, and the sha256 in
-object metadata. Keys never change meaning; a later release reuses an earlier key for a byte-identical
-file, and the builder refuses a released artifact whose bytes changed. The bucket name and project are
-never committed (`docs/repo-gcloud-auth.md`).
+above (data store design 2026-10-17 §3): `https://storage.googleapis.com/genomeos-atlas-data/`. Each object is raw bytes at
+`releases/<release>/<path>`, with the manifest copy at `manifests/<release>.json`,
+`Cache-Control: public, max-age=31536000, immutable` (under review, #473) and the sha256 in object
+metadata. Keys never change meaning: a later release reuses an earlier key for a byte-identical file,
+and the builder refuses a released artifact whose bytes changed.
 
-**Reading** needs no credentials: set `GENOMEOS_DATA_BASE_URL` to
-`https://storage.googleapis.com/<bucket>/` and run `scripts/fetch_data.py`. Downloads stream into
+- Anyone may read an object by key (`roles/storage.legacyObjectReader`), but nobody may list the
+  bucket. The keys come from the manifest.
+- Object versioning and a 30-day soft delete back up the no-overwrite uploads. They are not a
+  substitute for them.
+- The bucket's URL and name are committed in `genomeos/publication/data_release.py`, and any other
+  value is refused. The project id is never committed (`docs/repo-gcloud-auth.md`).
+
+**Reading** needs no credentials: run `scripts/fetch_data.py`. Downloads stream into
 `data/.fetch-partial/`, are checked against the manifest's byte count and sha256, and only then are
 renamed into place; a local file that differs is a hard error and is never overwritten. Without the
 repository, `manifests/<release>.json` in the bucket is the same manifest.
@@ -248,20 +255,22 @@ python scripts/fetch_data.py --verify-local              # hash local files agai
 python scripts/fetch_data.py --verify-remote             # GET and hash every object; writes nothing
 ```
 
-**Publishing a release** (maintainers, with the repository-local gcloud configuration):
+**Publishing a release.** Today a maintainer runs this with the repository-local gcloud
+configuration. It is the current mechanism and the base for the planned automation, in which CI
+refits when a dataset changes and uploads through GitHub→GCP Workload Identity Federation (data store
+design §7). That automation is not built yet.
 
 ```bash
 python scripts/gcloud_repo.py auth login
 python scripts/gcloud_repo.py init --account <account> --project <project>
-export GENOMEOS_GCP_PROJECT=<project> GENOMEOS_DATA_BUCKET=<bucket>
+export GENOMEOS_GCP_PROJECT=<project>
 python scripts/fetch_data.py                                       # the previous release, locally
 python scripts/build_data_release.py --release <YYYY-MM-DD>        # commit data/releases/<release>.json
-python scripts/provision_data_store_bucket.py --dry-run            # idempotent; first time only
+python scripts/provision_data_store_bucket.py --dry-run            # idempotent; changes only what differs
 python scripts/provision_data_store_bucket.py
 python scripts/publish_data_store.py --dry-run
 python scripts/publish_data_store.py
-GENOMEOS_DATA_BASE_URL="https://storage.googleapis.com/$GENOMEOS_DATA_BUCKET/" \
-  python scripts/fetch_data.py --verify-remote
+python scripts/fetch_data.py --verify-remote                       # anonymous, every object
 ```
 
 Publishing checks every local file against the manifest, describes every key before uploading
