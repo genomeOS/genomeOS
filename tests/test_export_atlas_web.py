@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from genomeos.publication.surface_codec import GosaError
+from genomeos.publication.web_format import WEB_FORMAT_VERSION
 from genomeos.registry.variants import load as load_variant_registry
 from genomeos.registry.variants import normalized_identity
 from genomeos.surfaces.prior import PRIOR_DRAWS, PRIOR_NORMALIZATION
@@ -314,6 +315,14 @@ def test_export_declares_the_compact_borders_the_site_ships(export_inputs: dict[
     }
     published = json.loads((export_atlas_web.ROOT / "website/public/data/atlas/catalog.json").read_text())
     assert published["context_sources"] == catalog["context_sources"]
+
+
+def test_export_stamps_the_web_format_version_it_writes(export_inputs: dict[str, Path]) -> None:
+    """The catalog names its format (docs/web-data-format.md); the pre-#467 integer is not kept beside it."""
+    _export(export_inputs)
+    catalog = json.loads((export_inputs["out"] / "catalog.json").read_text())
+    assert catalog["format_version"] == WEB_FORMAT_VERSION
+    assert "schema_version" not in catalog
 
 
 def test_export_is_byte_deterministic(export_inputs: dict[str, Path]) -> None:

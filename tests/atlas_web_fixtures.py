@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 
+from genomeos.publication.web_format import WEB_FORMAT_VERSION
 from genomeos.publication.web_layout import apply_download_layout, artifact_objects
 
 GRID = b"GOSA grid stand-in: two res-3 cells\n"
@@ -77,6 +78,7 @@ def flat_catalog() -> dict[str, Any]:
             }
         ],
         "context_sources": [{"id": "natural-earth-admin-0", "url": "ne-50m-admin-0.geojson"}],
+        "format_version": WEB_FORMAT_VERSION,
         "grids": {
             GRID_SHA256: {
                 "bytes": len(GRID),

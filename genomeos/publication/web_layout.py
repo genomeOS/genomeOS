@@ -10,6 +10,10 @@ rewrite), ``scripts/publish_atlas_web.py`` (what is uploaded, with which headers
 Keys are relative and content-addressed: the first 16 hex digits of the object's sha256 are the last
 dot-segment before the extension, so an immutable ``Cache-Control`` can never pin stale bytes.
 Digests are over decoded bytes; gzip is a transport encoding the publisher adds.
+
+The catalog's ``format_version`` decides which keys name objects, so the enumerators refuse a
+catalog of another MAJOR, or of a newer MINOR whose keys this layout cannot know
+(``web_format.require_known``; ``docs/web-data-format.md``).
 """
 
 from __future__ import annotations
@@ -20,6 +24,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, TypeVar
 from urllib.parse import urljoin, urlsplit
+
+from genomeos.publication.web_format import WebFormatError, require_known
 
 OBJECT_PREFIX = "atlas/web/"
 IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
@@ -173,6 +179,7 @@ def apply_download_layout(catalog: Mapping[str, Any]) -> tuple[dict[str, Any], t
 
 def artifact_objects(catalog: Mapping[str, Any]) -> tuple[WebObject, ...]:
     """Every artifact-base object the catalog references, one per key, in key order."""
+    _require_known_format(catalog)
     found: dict[str, WebObject] = {}
     for grid in catalog["grids"].values():
         _merge(found, _web_object(grid["url"], grid["sha256"], grid["bytes"], None))
@@ -213,6 +220,7 @@ def site_objects(catalog: Mapping[str, Any]) -> tuple[SiteObject, ...]:
 
     A cache key named more than once must carry one digest; a context source has none to compare.
     """
+    _require_known_format(catalog)
     found: dict[str, str | None] = {}
     for source in catalog["context_sources"]:
         found.setdefault(assert_data_key(source["url"]), None)
@@ -222,6 +230,13 @@ def site_objects(catalog: Mapping[str, Any]) -> tuple[SiteObject, ...]:
             digest = _require_sha256(f"{key} cache", resource["cache_sha256"])
             found[key] = _agree(key, "cache sha256", found.get(key), digest)
     return tuple(SiteObject(key, found[key]) for key in sorted(found))
+
+
+def _require_known_format(catalog: Mapping[str, Any]) -> None:
+    try:
+        require_known(catalog)
+    except WebFormatError as error:
+        raise WebLayoutError(str(error)) from error
 
 
 def _download_entries(ref: Mapping[str, Any]) -> list[tuple[str, Any]]:

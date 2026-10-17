@@ -52,7 +52,7 @@ describe('ATLAS_CATALOG_PATH build wiring', () => {
   it('fails the build when the catalog violates the strict schema', () => {
     const outDir = mkdtempSync(path.join(tmpdir(), 'genomeos-atlas-catalog-'));
     const catalog = path.join(outDir, 'broken-catalog.json');
-    writeFileSync(catalog, JSON.stringify({ schema_version: 1 }));
+    writeFileSync(catalog, JSON.stringify({ format_version: '1.0' }));
     try {
       let output = '';
       try {

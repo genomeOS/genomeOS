@@ -39,6 +39,7 @@ from genomeos.publication.commercial_use import (  # noqa: E402
 from genomeos.publication.commercial_use import (  # noqa: E402
     validate as validate_commercial_use,
 )
+from genomeos.publication.web_format import WEB_FORMAT_VERSION  # noqa: E402
 from genomeos.registry.sources import afnd as afnd_registry  # noqa: E402
 from genomeos.registry.variants import load as load_variant_registry  # noqa: E402
 from genomeos.registry.variants import normalized_identity  # noqa: E402
@@ -785,10 +786,10 @@ def export_catalog(
         ],
         "created_at": str(catalog_metadata["created_at"]),
         "discovery_groups": discovery_groups,
+        "format_version": WEB_FORMAT_VERSION,  # docs/web-data-format.md
         "hf_dataset": hf_dataset,
         "hf_revision": hf_revision,
         "registry_versions": sorted(registry_versions),
-        "schema_version": SCHEMA_VERSION,
     }
     catalog_path = out_dir / "catalog.json"
     _write_json(catalog_path, catalog)

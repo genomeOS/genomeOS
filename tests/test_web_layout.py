@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from genomeos.publication.web_format import CURRENT
 from genomeos.publication.web_layout import (
     WebLayoutError,
     apply_download_layout,
@@ -208,6 +209,28 @@ def test_artifact_objects_share_json_keys_and_carry_declared_decoded_sizes() -> 
 def test_artifact_objects_refuse_a_key_that_is_not_content_addressed() -> None:
     with pytest.raises(WebLayoutError, match="not content-addressed"):
         artifact_objects(flat_catalog())
+
+
+@pytest.mark.parametrize(
+    ("version", "message"),
+    [
+        pytest.param(None, "declares no format_version", id="missing"),
+        pytest.param(1, "MAJOR.MINOR", id="legacy-integer"),
+        pytest.param(f"{CURRENT[0] + 1}.0", f"reads MAJOR {CURRENT[0]} only", id="another-major"),
+        pytest.param(f"{CURRENT[0]}.{CURRENT[1] + 1}", "newer than", id="newer-minor"),
+    ],
+)
+@pytest.mark.parametrize("enumerate_objects", [artifact_objects, critical_objects, site_objects])
+def test_enumerators_refuse_a_format_whose_object_keys_they_cannot_know(
+    enumerate_objects: Callable[[dict[str, Any]], object], version: object, message: str
+) -> None:
+    """Publishing or gating a catalog means visiting every object it names (docs/web-data-format.md)."""
+    catalog = staged_catalog()
+    del catalog["format_version"]
+    if version is not None:
+        catalog["format_version"] = version
+    with pytest.raises(WebLayoutError, match=message):
+        enumerate_objects(catalog)
 
 
 @pytest.mark.parametrize(("defect", "message"), DOWNLOAD_DEFECTS)

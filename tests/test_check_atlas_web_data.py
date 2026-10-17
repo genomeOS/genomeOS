@@ -510,8 +510,20 @@ def test_a_malformed_json_api_resource_fails_cleanly(
         (json.dumps({**staged_catalog(), "artifacts": []}).encode(), "the catalog lists no artifacts"),
         (json.dumps({**staged_catalog(), "grids": []}).encode(), "not the published shape"),
         (json.dumps({**staged_catalog(), "context_sources": [7]}).encode(), "not the published shape"),
+        (json.dumps({**staged_catalog(), "format_version": "999.0"}).encode(), "has MAJOR 999"),
+        (json.dumps({**staged_catalog(), "format_version": 1}).encode(), "MAJOR.MINOR"),
     ],
-    ids=["empty", "not-utf-8", "array", "no-fields", "no-artifacts", "grids-array", "context-int"],
+    ids=[
+        "empty",
+        "not-utf-8",
+        "array",
+        "no-fields",
+        "no-artifacts",
+        "grids-array",
+        "context-int",
+        "another-format-major",
+        "legacy-integer-version",
+    ],
 )
 def test_an_unreadable_or_misshapen_catalog_fails_cleanly(
     served: Served, tmp_path: Path, capsys: pytest.CaptureFixture[str], text: bytes, reason: str

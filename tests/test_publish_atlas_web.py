@@ -195,6 +195,19 @@ def test_a_catalog_with_flat_keys_is_refused(
     assert fake.calls() == []
 
 
+def test_a_catalog_of_another_format_major_is_refused_before_any_gcloud_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Publishing a format this code cannot enumerate could leave objects the catalog names unpublished."""
+    fake = install_fake_gcloud(tmp_path / "gcloud", monkeypatch, EMPTY_BUCKET)
+    root = tmp_path / "next-major"
+    catalog = write_staging(root)  # every object staged, so only the version can stop it
+    (root / "catalog.json").write_text(json.dumps({**catalog, "format_version": "999.0"}), encoding="utf-8")
+    assert _publish(root) == 1
+    assert "has MAJOR 999" in capsys.readouterr().err
+    assert fake.calls() == []
+
+
 def test_every_call_goes_through_the_repository_wrapper(
     staging: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -114,7 +114,8 @@ domain transition cannot hide broken internal paths.
 The `/app/` page inlines the Atlas catalog at build time from `public/data/atlas/catalog.json`.
 Set `ATLAS_CATALOG_PATH` (relative to `website/`) to build against another catalog, for example
 `ATLAS_CATALOG_PATH=tests/fixtures/atlas/e2e/catalog.json npm run build`. The build fails if that
-catalog does not pass the strict browser schema.
+catalog does not pass the strict browser schema, or declares a `format_version` whose MAJOR this
+site cannot read. A newer MINOR builds with a warning (`docs/web-data-format.md`).
 
 ## Atlas cold-load measurement
 

@@ -5,9 +5,9 @@
  */
 
 import {
-  atlasCatalogSchema,
   externalInfoSchema,
   observationArtifactSchema,
+  parseAtlasCatalog,
   type ArtifactRef,
   type AtlasCatalog,
   type ExternalInfo,
@@ -257,7 +257,7 @@ export class StaticAtlasDataProvider implements AtlasDataProvider {
           'The Atlas catalog is missing from this page or is not valid JSON.',
         );
       }
-      this.#catalog = atlasCatalogSchema.parse(this.#inlineCatalog);
+      this.#catalog = parseAtlasCatalog(this.#inlineCatalog);
     }
     return this.#catalog;
   }
