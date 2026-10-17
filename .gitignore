@@ -259,14 +259,14 @@ data/*
 !data/store/
 data/store/*
 !data/store/catalog-metadata.json
-# The published artifacts ARE the citable output and are ~1.1 MB per variant. Committing them is
-# what gets a result off one laptop. The fits that produced them are ~100 MB each and stay local.
-!data/store/artifacts/
 !data/store/INVENTORY.json
-# The held-out validation results are the evidence for #109 and are ~4 KB. Same rule as the
-# artifacts: a number that lives only in one terminal is not a result anyone can check, and
-# these are what say the surface is calibrated near data and not calibrated away from it.
-!data/validation/
+# The published artifacts (data/store/artifacts/) and the held-out validation results
+# (data/validation/) live in the public GCS data store, not in git (data store design 2026-10-17,
+# #468). data/releases/<release>.json lists every object with its bytes and sha256, and
+# scripts/fetch_data.py fetches and verifies them into this git-ignored tree. They left tracking on
+# 2026-10-17; history was not rewritten. The fits that produced the artifacts are pickles and stay
+# local (design §8).
+!data/releases/
 # The harvested AFND population table is committed, unlike other fetched sources. The rule is
 # cost, not principle: MAP is one HTTP request and stays fetched-by-script, but this is 1,825
 # requests and about two hours. A pod re-scraping it spent 1.7 billed hours before fitting
