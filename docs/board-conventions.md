@@ -70,21 +70,22 @@ close-as-completed → `Done`, new issue → on the board as `Backlog`.
 
 Configuration lives in repository variables (`PROJECT_ID`, `STATUS_FIELD_ID`,
 `BACKLOG_OPTION_ID`, `DONE_OPTION_ID`, `NOT_PLANNED_OPTION_ID`, `IN_PROGRESS_OPTION_ID`),
-already set for the organisation board. It needs one secret, `PROJECT_TOKEN`, also set:
+already set for the organisation board. It needs one secret, `PROJECT_TOKEN`, held by the
+`project-board` environment rather than the repository:
 
 ```bash
-gh secret set PROJECT_TOKEN -R genomeOS/genomeOS
+gh secret set PROJECT_TOKEN --env project-board -R genomeOS/genomeOS
 ```
 
 The default `GITHUB_TOKEN` cannot write to Projects v2, so the workflow needs a personal access
-token. The current secret is a classic PAT with the **`project`** and **`repo`** scopes. It dates
-from when the board was owned by a user account, where fine-grained tokens cannot reach Projects
-at all. It kept working after the board moved to the organisation on 2026-10-10 (#425).
+token. Use a fine-grained token with **genomeOS** as the resource owner, organisation permission
+**`Projects: Read and write`**, and repository access to `genomeOS/genomeOS` with
+**`Issues: Read`**, and nothing else.
 
-When the token is next rotated, prefer a fine-grained token with **genomeOS** as the resource
-owner, organisation permission **`Projects: Read and write`**, and repository access to
-`genomeOS/genomeOS` with **`Issues: Read`**. The board belongs to the organisation now, so the
-fine-grained route is available.
+The `project-board` environment allows deployments from `main` only, so a workflow pushed to
+any other branch cannot read the token. The earlier repository secret was a classic PAT with the
+`project` and **`repo`** scopes, readable by any write collaborator's branch workflow and
+sufficient to push code as its owner. It is retired once the environment secret is in place.
 
 ## One manual step
 
@@ -92,5 +93,4 @@ fine-grained route is available.
 ascending (Critical first). Projects v2 view configuration — grouping and sorting — is not
 writable through the API, so this is the one thing that has to be done in the UI.
 
-(The `PROJECT_TOKEN` secret is set, and auto-add is handled by the workflow above rather than by
-the UI-only built-in.)
+(Auto-add is handled by the workflow above rather than by the UI-only built-in.)
