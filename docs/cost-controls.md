@@ -138,8 +138,12 @@ thresholds and the default email recipients are unchanged, and fails loudly if a
 A budget already sending to a different topic, or an account holding an extra role, stops the run
 (needs-human-decision).
 
-**Is it live?** Check that the function is `ACTIVE`, that the budget names the topic, and that
-recent log lines exist:
+**Is it live?** Check that the function is `ACTIVE` with a `BUDGET_ID`, that the budget names the
+topic, and that recent log lines exist and say `below_threshold`. A real budget message logged as
+`malformed` means the switch is not reading Cloud Billing's messages (for example, they lack the
+`budgetId` attribute it expects), so it would never trip. Check this after the first real message
+following every deploy. A drill message cannot stand in for it, because the drill sets the
+attribute itself.
 
 ```bash
 python scripts/gcloud_repo.py run functions describe budget-kill-switch --gen2 --region=us-east1 \
