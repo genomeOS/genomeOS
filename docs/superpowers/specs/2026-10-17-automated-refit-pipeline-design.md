@@ -468,8 +468,10 @@ None of these was decided by the owner.
 
 ## 13. Open questions for the owner
 
-None open. The cache lifetime of refit outputs was settled for the data store as a whole in #474:
-`public, max-age=3600`, so a takedown takes effect within an hour (B11).
+1. **Cache lifetime of data-store objects (#473).** The 2026-10-17 release objects carry
+   `public, max-age=31536000, immutable`. This design assumes refit outputs get
+   `public, max-age=3600` (B11), so a takedown takes effect within an hour. If the owner keeps the
+   one-year lifetime, B11 changes one constant and takedowns rely on the withdrawn list alone.
 
 ## 14. Alternatives considered
 
