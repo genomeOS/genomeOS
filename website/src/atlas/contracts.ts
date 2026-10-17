@@ -1,6 +1,15 @@
-/** Strict static-atlas browser contracts for Atlas design §11. */
+/**
+ * Strict static-atlas browser contracts for Atlas design §11. The catalog is read through
+ * `parseAtlasCatalog`, which applies the format-version rules of `format-version.ts`.
+ */
 
 import { z } from 'zod';
+
+import {
+  catalogReadMode,
+  FORMAT_VERSION_PATTERN,
+  SUPPORTED_FORMAT,
+} from './format-version';
 
 const finiteNumber = z
   .number()
@@ -103,10 +112,16 @@ export const artifactIdentitySchema = z
   .strictObject(artifactIdentityFields)
   .superRefine(requireVersionedTargetGrid);
 
-const supportCountsSchema = z.partialRecord(
-  supportSchema,
-  z.int().nonnegative(),
-);
+// An unknown state is a custom issue, not an unrecognized key, so `parseAtlasCatalog` can never
+// ignore it under a newer MINOR: a new support state is a MAJOR change (docs/web-data-format.md).
+const supportCountsSchema = z
+  .record(z.string(), z.unknown())
+  .refine(
+    (counts) =>
+      Object.keys(counts).every((key) => supportSchema.safeParse(key).success),
+    'support_counts keys must be support states',
+  )
+  .pipe(z.partialRecord(supportSchema, z.int().nonnegative()));
 
 const downloadRefSchema = z.strictObject({
   label: nonEmpty,
@@ -270,6 +285,15 @@ export const contextSourceSchema = z.strictObject({
   url: dataKeySchema,
 });
 
+/** "MAJOR.MINOR" with this client's MAJOR (docs/web-data-format.md). */
+const formatVersionSchema = z
+  .string()
+  .regex(FORMAT_VERSION_PATTERN, 'format_version must be "MAJOR.MINOR"')
+  .refine(
+    (value) => Number(value.split('.')[0]) === SUPPORTED_FORMAT.major,
+    `format_version MAJOR must be ${SUPPORTED_FORMAT.major}`,
+  );
+
 export const atlasCatalogSchema = z
   .strictObject({
     artifact_version: nonEmpty,
@@ -278,11 +302,11 @@ export const atlasCatalogSchema = z
     context_sources: z.array(contextSourceSchema),
     created_at: nonEmpty,
     discovery_groups: z.array(discoveryGroupSchema).min(1),
+    format_version: formatVersionSchema,
     grids: z.record(sha256, gridEntrySchema),
     hf_dataset: nonEmpty,
     hf_revision: nonEmpty,
     registry_versions: z.array(nonEmpty).min(1),
-    schema_version: z.literal(1),
   })
   .superRefine(({ artifacts, discovery_groups, grids }, context) => {
     if (Object.keys(grids).length !== 1) {
@@ -320,6 +344,44 @@ export const atlasCatalogSchema = z
       }
     }
   });
+
+/**
+ * Read a raw catalog under the format-version rules (docs/web-data-format.md). No version, a
+ * malformed one or another MAJOR throws `AtlasFormatVersionError` before any field is read. This
+ * client's MINOR, or an older one, must pass the strict schema, so an unknown key there is an error.
+ * A newer MINOR must pass it once the keys this client does not know are dropped; every known field
+ * is still validated. `raw` is not mutated.
+ */
+export function parseAtlasCatalog(raw: unknown): AtlasCatalog {
+  return atlasCatalogSchema.parse(
+    catalogReadMode(raw) === 'strict' ? raw : withoutUnknownKeys(raw),
+  );
+}
+
+/** A copy of `raw` without the keys the strict schema reports as unrecognized, wherever they are. */
+function withoutUnknownKeys(raw: unknown): unknown {
+  // The catalog arrived as JSON text, so a JSON round trip is an exact deep copy.
+  const value: unknown = JSON.parse(JSON.stringify(raw));
+  for (let removed = true; removed;) {
+    removed = false;
+    const result = atlasCatalogSchema.safeParse(value);
+    if (result.success) break;
+    for (const issue of result.error.issues) {
+      if (issue.code !== 'unrecognized_keys') continue;
+      const owner = issue.path.reduce<unknown>(
+        (node, key) => (node as Record<PropertyKey, unknown>)[key],
+        value,
+      ) as Record<string, unknown>;
+      for (const key of issue.keys) {
+        if (Object.hasOwn(owner, key)) {
+          delete owner[key];
+          removed = true;
+        }
+      }
+    }
+  }
+  return value;
+}
 
 export const surfaceCellSchema = z
   .strictObject({

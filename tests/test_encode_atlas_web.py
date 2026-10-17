@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 
 from genomeos.publication import surface_codec as codec
+from genomeos.publication.web_format import WEB_FORMAT_VERSION, WebFormatError
 from scripts import encode_atlas_web, export_atlas_web
 
 #: Ascending resolution-3 cells around Madrid.
@@ -91,7 +92,7 @@ def _write_export(
         artifacts.append(ref)
     (root / "catalog.json").write_bytes(
         encode_atlas_web.canonical_bytes(
-            {"artifact_version": "fixture", "artifacts": artifacts, "schema_version": 1}
+            {"artifact_version": "fixture", "artifacts": artifacts, "format_version": WEB_FORMAT_VERSION}
         )
     )
     return root
@@ -162,6 +163,37 @@ def test_canonical_bytes_matches_the_exporter_serialisation() -> None:
     expected = export_atlas_web._canonical_bytes(value)
     assert encode_atlas_web.canonical_bytes(value) == expected
     assert "東京".encode() in expected  # written as UTF-8, not \u escapes
+
+
+def test_the_encoded_catalog_keeps_the_format_version_it_was_exported_with(tmp_path: Path) -> None:
+    export = _write_export(tmp_path / "web", {"alpha": _cells()})
+    assert encode_atlas_web.encode_export(export, export)["format_version"] == WEB_FORMAT_VERSION
+    assert json.loads((export / "catalog.json").read_text())["format_version"] == WEB_FORMAT_VERSION
+
+
+@pytest.mark.parametrize(
+    ("version", "message"),
+    [
+        pytest.param(None, "declares no format_version", id="missing"),
+        pytest.param(1, "MAJOR.MINOR", id="legacy-integer"),
+        pytest.param("2.0", "this code writes", id="another-major"),
+        pytest.param("1.99", "this code writes", id="newer-minor"),
+    ],
+)
+def test_refuses_an_export_that_is_not_the_current_format_before_writing_anything(
+    tmp_path: Path, version: object, message: str
+) -> None:
+    """The encoder rewrites the catalog it reads, so it can only vouch for the format it writes."""
+    export = _write_export(tmp_path / "web", {"alpha": _cells()})
+    catalog = json.loads((export / "catalog.json").read_text())
+    del catalog["format_version"]
+    if version is not None:
+        catalog["format_version"] = version
+    (export / "catalog.json").write_bytes(encode_atlas_web.canonical_bytes(catalog))
+    before = _tree(export)
+    with pytest.raises(WebFormatError, match=message):
+        encode_atlas_web.encode_export(export, export)
+    assert _tree(export) == before
 
 
 def test_observations_bytes_is_null_when_observations_are_unavailable(tmp_path: Path) -> None:

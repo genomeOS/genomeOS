@@ -35,9 +35,9 @@ describe('escapeInlineJson', () => {
 
 describe('readInlineCatalog', () => {
   it('parses the inline catalog element', () => {
-    expect(readInlineCatalog(documentWith('{"schema_version":1}'))).toEqual({
-      schema_version: 1,
-    });
+    expect(readInlineCatalog(documentWith('{"format_version":"1.0"}'))).toEqual(
+      { format_version: '1.0' },
+    );
   });
 
   it('returns undefined when the element is missing or is not JSON', () => {
@@ -61,8 +61,12 @@ describe('loadPageCatalog', () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'genomeos-catalog-'));
     try {
       const broken = path.join(directory, 'catalog.json');
-      writeFileSync(broken, JSON.stringify({ schema_version: 1 }));
+      writeFileSync(broken, JSON.stringify({ format_version: '1.0' }));
       expect(() => loadPageCatalog(broken)).toThrow(/fails atlasCatalogSchema/);
+      writeFileSync(broken, JSON.stringify({ schema_version: 1 }));
+      expect(() => loadPageCatalog(broken)).toThrow(
+        /declares no format_version/,
+      );
       writeFileSync(broken, '{oops');
       expect(() => loadPageCatalog(broken)).toThrow(
         /could not be read as JSON/,

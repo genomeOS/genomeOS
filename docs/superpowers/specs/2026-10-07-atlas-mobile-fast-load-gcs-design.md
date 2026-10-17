@@ -562,6 +562,14 @@ when `observations_available` is true and `null` otherwise, mirroring `observati
   `null` (indeterminate) otherwise. The `Content-Length`/`Content-Encoding` heuristic in
   `static-provider.ts` is deleted: cross-origin, `Content-Encoding` is hidden while `Content-Length`
   (the compressed size) stays visible, so header totals are wrong, not merely missing.
+- **Format version** (amended 2026-10-17, #467). The catalog's `schema_version: 1` is replaced by
+  `format_version: "MAJOR.MINOR"` (`"1.0"`), the version of the whole Python→web data format. The
+  client refuses another MAJOR (`AtlasFormatVersionError`, build and runtime) and reads a newer
+  MINOR with unknown catalog keys ignored. Python writers emit exactly the current version, and
+  `web_layout` refuses a MAJOR or newer MINOR it can't enumerate. A missing version is refused,
+  never defaulted. The GOSA and GOBD u16 slots and the JSON `schema_version`s are unchanged and
+  pinned by the format MAJOR, so no published object is rewritten. Rules and the bump procedure are
+  in `docs/web-data-format.md`.
 - **Keys** are relative paths validated by zod: `^[a-z0-9][a-z0-9._/-]*$`, no `..` segment, no
   leading `/`, no scheme. A violation fails the build (app.astro validates at build time).
 - **Two bases** (B.6.1): `artifactDataBase` resolves `grids.*.url`, `web.render.url`,
@@ -1338,3 +1346,4 @@ whole, and the catalog is one canonical line, so the two changes conflict on tha
 | Issues filed before each part's first work commit (owner's approval authorises filing) | AGENTS "issue first" | None |
 | Part C operations run on the stacked branch before the owner merges A and B | Merges are the owner's call; content-addressed keys make early publishing safe | Re-run encode/publish if review changes Part B's bytes |
 | Stacked PRs A → B → C, one spec, one plan | AGENTS "one PR per coherent unit"; B and C share the format | Merge order is fixed |
+| Format version in the committed catalog, not in object headers (amended 2026-10-17, #467) | The catalog deploys with the site and names every object by digest; header bytes are hashed into immutable keys | A per-object change still needs a MAJOR bump and new keys |

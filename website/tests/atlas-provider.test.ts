@@ -3,6 +3,11 @@ import { ZodError } from 'zod';
 
 import type { ArtifactRef } from '../src/atlas/contracts';
 import {
+  ATLAS_WEB_FORMAT_VERSION,
+  AtlasFormatVersionError,
+  SUPPORTED_FORMAT,
+} from '../src/atlas/format-version';
+import {
   NATURAL_EARTH_BORDERS,
   NATURAL_EARTH_PLACES,
 } from '../src/atlas/context-sources';
@@ -245,13 +250,29 @@ describe('StaticAtlasDataProvider catalog', () => {
         'The Atlas catalog is missing from this page or is not valid JSON.',
       );
     }
-    const invalid = await createProvider({ inlineCatalog: {} })
+    const invalid = await createProvider({
+      inlineCatalog: { format_version: ATLAS_WEB_FORMAT_VERSION },
+    })
       .getCatalog()
       .catch((error: unknown) => error);
     expect(invalid).toBeInstanceOf(ZodError);
     expect((invalid as ZodError).issues).toContainEqual(
       expect.objectContaining({ path: ['artifacts'] }),
     );
+  });
+
+  it('refuses a catalog of another format MAJOR, or of no declared format', async () => {
+    const raw = goldenCatalogRaw() as Record<string, unknown>;
+    const { format_version: _, ...unversioned } = raw;
+    for (const inlineCatalog of [
+      { ...raw, format_version: `${SUPPORTED_FORMAT.major + 1}.0` },
+      unversioned,
+      {},
+    ]) {
+      await expect(
+        createProvider({ inlineCatalog }).getCatalog(),
+      ).rejects.toThrow(AtlasFormatVersionError);
+    }
   });
 
   it('resolves catalog context sources against the site data base', async () => {

@@ -11,6 +11,10 @@ by cell: detail float64 bit-for-bit, render float32 equal to ``float32(JSON)``, 
 the support histogram exact. Byte-deterministic and idempotent; every file is written to a temporary
 sibling and renamed into place, so an interrupted run can simply be re-run. Needs only the ``read`` extra.
 
+The catalog it reads must declare exactly the current ``format_version`` (``docs/web-data-format.md``):
+the encoder rewrites that catalog, so it can only vouch for the format it writes, and it refuses any
+other before writing anything.
+
     python scripts/encode_atlas_web.py --in DIR [--out DIR] [--with-downloads]
 """
 
@@ -31,6 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from genomeos.publication import surface_codec as codec  # noqa: E402
+from genomeos.publication.web_format import require_current  # noqa: E402
 from genomeos.publication.web_layout import WebLayoutError, apply_download_layout  # noqa: E402
 from scripts.atlas_web_staging import StagingError, write_atomic, write_download_copies  # noqa: E402
 
@@ -161,6 +166,7 @@ def encode_catalog(
     observations_size: Callable[[Mapping[str, Any]], int | None],
 ) -> dict[str, Any]:
     """Encode and verify every artifact, one at a time; return the catalog with its web objects."""
+    require_current(catalog)
     out_dir = Path(out_dir)
     grid: SharedGrid | None = None
     artifacts = []

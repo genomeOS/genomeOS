@@ -1,7 +1,8 @@
 /**
  * Build-time catalog loading for the `/app/` page (fast-load design §B.6.1). Node-only: imported by
- * `app.astro` frontmatter, never by client code. A catalog that fails the strict browser schema fails
- * the build.
+ * `app.astro` frontmatter, never by client code. A catalog that fails the strict browser schema, or
+ * whose `format_version` this client cannot read (docs/web-data-format.md), fails the build. A newer
+ * MINOR builds, with a warning that the keys it adds are ignored.
  */
 
 import { readFileSync } from 'node:fs';
@@ -9,7 +10,12 @@ import path from 'node:path';
 
 import { z } from 'zod';
 
-import { atlasCatalogSchema, type AtlasCatalog } from '../atlas/contracts';
+import { parseAtlasCatalog, type AtlasCatalog } from '../atlas/contracts';
+import {
+  ATLAS_WEB_FORMAT_VERSION,
+  AtlasFormatVersionError,
+  catalogReadMode,
+} from '../atlas/format-version';
 import { escapeInlineJson } from '../atlas/inline-catalog';
 
 export const DEFAULT_ATLAS_CATALOG_PATH = 'public/data/atlas/catalog.json';
@@ -27,13 +33,23 @@ export function loadPageCatalog(
       `Atlas catalog ${resolved} could not be read as JSON: ${(error as Error).message}`,
     );
   }
-  const parsed = atlasCatalogSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new Error(
-      `Atlas catalog ${resolved} fails atlasCatalogSchema:\n${z.prettifyError(parsed.error)}`,
-    );
+  let catalog: AtlasCatalog;
+  try {
+    catalog = parseAtlasCatalog(raw);
+  } catch (error) {
+    if (error instanceof AtlasFormatVersionError)
+      throw new Error(`Atlas catalog ${resolved}: ${error.message}`);
+    if (error instanceof z.ZodError)
+      throw new Error(
+        `Atlas catalog ${resolved} fails atlasCatalogSchema:\n${z.prettifyError(error)}`,
+      );
+    throw error;
   }
-  return { catalog: parsed.data, json: escapeInlineJson(JSON.stringify(raw)) };
+  if (catalogReadMode(raw) === 'newer-minor')
+    console.warn(
+      `Atlas catalog ${resolved} is format ${catalog.format_version}, newer than this site's ${ATLAS_WEB_FORMAT_VERSION}: catalog keys this site does not know are ignored (docs/web-data-format.md).`,
+    );
+  return { catalog, json: escapeInlineJson(JSON.stringify(raw)) };
 }
 
 /** The committed e2e fixture catalog, relative to `website/` (Task 21 (B1.7)). */

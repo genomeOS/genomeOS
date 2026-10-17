@@ -23,6 +23,9 @@ workstream, and the gate list — and points back here. It routes; this file rul
    schema-tested examples if you are extracting or importing publication evidence.
 7. [`docs/panukb-architecture.md`](docs/panukb-architecture.md) if you are touching the
    Pan-UKB evidence slice.
+8. [`docs/web-data-format.md`](docs/web-data-format.md) if you are changing anything the website's
+   Atlas reads from Python (`catalog.json`, the GOSA objects, the exported JSON). That shared format
+   is versioned; the page says what is a MAJOR or a MINOR change and how to bump it.
 
 ## Scientific contract before implementation
 
