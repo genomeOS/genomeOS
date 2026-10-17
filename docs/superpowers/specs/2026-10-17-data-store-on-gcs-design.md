@@ -43,7 +43,7 @@ bucket exposes nothing new.
   deferred. Old commits keep the files.
 - **Trained models.** They exist only as pickles, so they are not published (§8).
 - **Raw third-party harvests that are not in git** (MAP WFS exports, AFND frequencies, gnomAD,
-  WorldPop and others). Publishing them is phase 2, a follow-up issue.
+  WorldPop and others). Publishing them is phase 2, follow-up #472.
 - **Changing the Atlas web-data bucket.** Its settings, layout and deploy gate stay exactly as they
   are.
 - **Data governance.** Questions such as #66 are decided. This design carries the existing terms
@@ -248,7 +248,7 @@ the posterior. They are git-ignored under `data/store/{fits,screen,screen_v2}` a
 interim Hugging Face dataset: 2 + 20 + 28 = 50 pickles, about 0.7 GB.
 
 No fit exists in a safe format, so **no fit is published to the data store**. Loading a pickle
-fetched from the public internet executes whatever code it contains. A follow-up issue covers
+fetched from the public internet executes whatever code it contains. Follow-up #471 covers
 exporting each fit to a safe format, for example the posterior as ArviZ netCDF plus a JSON config
 plus npz prediction state, with a loader that never unpickles. Once that exists, fits publish like
 any other object.
@@ -280,8 +280,9 @@ The parquet artifacts already carry every per-cell posterior summary a consumer 
    only code and docs.
 4. **History rewrite.** Deferred by the owner. After this change, `git clone --filter=blob:none`
    avoids downloading old data blobs until they are needed.
-5. **Follow-up issues:** a safe export format for fits (§8), and phase 2 for the raw third-party
-   harvests.
+5. **Follow-up issues:** #471, a safe export format for fits (§8); and #472, phase 2 for the raw
+   third-party harvests, listing each source with its recorded terms. Decisions 1, 2 and 6 are
+   tracked in #473 (`needs-human-decision`).
 6. **A CI check of the remote store.** For example, a cheap HEAD and metadata check of the newest
    manifest when the variable is set. Not built here.
 
