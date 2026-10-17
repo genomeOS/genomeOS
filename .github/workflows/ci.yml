@@ -6,7 +6,125 @@ on:
   pull_request:
 
 jobs:
+  # Decides whether a pull request needs the Python `test` job, which takes 17-50 minutes (#469).
+  # A pull request skips it only when every path it changes is one the job never reads: the
+  # website outside the files listed below, prose and figures under docs/, the contributor
+  # guides, and two workflows nothing in Python reads. Pushes to main are never filtered,
+  # because the coverage badge and the container publish (docker.yml, through workflow_run)
+  # depend on that run. The test job runs unless this job answers exactly "false", so a failure
+  # here runs the tests rather than skipping them. A skipped job still reports a status, so
+  # `test` can be made a required check.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.classify.outputs.python }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The pull request's merge commit and both of its parents.
+          fetch-depth: 2
+      - name: Classify the changed paths
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          # Read by the Python job, so each forces the run, even inside a skippable tree below.
+          # `ruff check .` lints every Python source and reads every ruff configuration wherever
+          # they sit; the rest come from a trace of every file the job reads (#469).
+          read_by_python=(
+            '*.py' '*.pyi' '*.ipynb' '*pyproject.toml' '*ruff.toml'
+            'website/public/data/atlas/*'              # check_commercial_use.py, borders tests
+            'website/public/_static/coverage.svg'      # the "Coverage badge is current" step
+            'website/src/atlas/public-artifacts.json'  # check_commercial_use.py, export tests
+            'website/tests/fixtures/atlas/*'           # byte-identical fixture copies
+            'docs/literature-evidence-curation.md'     # test_literature_evidence_schema
+          )
+          # Read by nothing in the Python job except the two whole-tree scans, which the
+          # tracked-files job runs on every pull request. Under docs/ only prose and figures are
+          # here, because tests read some of its data files. In these patterns * also matches /,
+          # so website/* is the whole tree. A new Python reader of a file here belongs above.
+          skippable=(
+            'website/*'
+            'docs/*.md' 'docs/*.png'
+            'AGENTS.md' 'CLAUDE.md' 'CONTRIBUTING.md'
+            '.github/PULL_REQUEST_TEMPLATE.md'
+            '.github/workflows/pages.yml' '.github/workflows/project-status.yml'
+          )
+
+          matches() {
+            local path=$1 pattern
+            shift
+            for pattern in "$@"; do
+              # shellcheck disable=SC2053  # the unquoted right side is the glob
+              [[ $path == $pattern ]] && return 0
+            done
+            return 1
+          }
+
+          decide() {
+            local python=false
+            [[ $1 == run ]] && python=true
+            echo "python=$python" >> "$GITHUB_OUTPUT"
+            echo "Python test job: **$1**, because $2." >> "$GITHUB_STEP_SUMMARY"
+            echo "Python test job: $1, because $2."
+            exit 0
+          }
+
+          if [[ $EVENT_NAME != pull_request ]]; then
+            decide run "$EVENT_NAME events are never filtered"
+          fi
+          if ! git rev-parse --verify --quiet 'HEAD^2' > /dev/null; then
+            decide run "HEAD is not a pull-request merge commit, so the change set is unknown"
+          fi
+
+          # HEAD^1 is the base branch. Without rename detection a move lists both its old and
+          # its new path, so moving a file out of a path the Python job reads still counts.
+          changed="$RUNNER_TEMP/changed-paths"
+          git -c core.quotePath=false diff --name-only --no-renames 'HEAD^1' HEAD > "$changed"
+          echo "Changed paths:"
+          cat "$changed"
+
+          count=0
+          while IFS= read -r path; do
+            count=$((count + 1))
+            if matches "$path" "${read_by_python[@]}"; then
+              decide run "\`$path\` is read by the Python job"
+            fi
+            if ! matches "$path" "${skippable[@]}"; then
+              decide run "\`$path\` is not in a path the job is known never to read"
+            fi
+          done < "$changed"
+          if (( count == 0 )); then
+            decide run "no changed path was found"
+          fi
+          decide skip "none of the $count changed paths is read by the Python job"
+
+  # The two checks in the Python job that read every tracked file, website and docs included,
+  # so any pull request can fail them, even one that skips the test job. They need only the
+  # standard library and pytest, so they run here on every event; the test job runs them too.
+  tracked-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pytest
+        run: python -m pip install --constraint requirements.lock pytest
+      - name: Private-file gate
+        run: python scripts/check_private_files.py
+      - name: No concrete bucket URL is tracked
+        # --noconftest: tests/conftest.py imports the database layer, which this test never uses.
+        run: >-
+          python -m pytest --noconftest -p no:cacheprovider
+          "tests/test_web_layout.py::test_no_concrete_bucket_url_is_tracked"
+
   test:
+    needs: changes
+    # Skipped only when `changes` answered exactly "false"; if it failed, the tests run.
+    if: ${{ !cancelled() && needs.changes.outputs.python != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
