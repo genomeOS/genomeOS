@@ -32,6 +32,8 @@ def _load(name: str) -> ModuleType:
 
 ks = _load("kill_switch")
 TARGET = "genomeos-atlas-data"
+BUDGET = "example-budget-id"
+ATTRIBUTES = {"schemaVersion": "1.0", "budgetId": BUDGET}
 READER = {"role": "roles/storage.legacyObjectReader", "members": {"allUsers", "projectViewer:example"}}
 OWNER = {"role": "roles/storage.legacyBucketOwner", "members": {"projectOwner:example"}}
 KILLER = {"role": "projects/example/roles/budgetKillSwitch", "members": {"serviceAccount:k@example"}}
@@ -39,7 +41,7 @@ KILLER = {"role": "projects/example/roles/budgetKillSwitch", "members": {"servic
 
 def event(payload: Any, *, attributes: dict[str, str] | None = None, raw: str | None = None) -> dict:
     data = raw if raw is not None else base64.b64encode(json.dumps(payload).encode()).decode()
-    message = {"data": data, "attributes": {"schemaVersion": "1.0"} if attributes is None else attributes}
+    message = {"data": data, "attributes": dict(ATTRIBUTES) if attributes is None else attributes}
     return {"message": message, "subscription": "projects/example/subscriptions/s"}
 
 
@@ -78,14 +80,16 @@ class FakeBucket:
         self.bindings = [dict(binding, members=set(binding["members"])) for binding in bindings]
 
 
-def run(data: Any, bucket: FakeBucket, target: str | None = TARGET) -> dict[str, Any]:
+def run(
+    data: Any, bucket: FakeBucket, target: str | None = TARGET, budget_id: str | None = BUDGET
+) -> dict[str, Any]:
     opened: list[str] = []
 
     def open_bucket(name: str) -> FakeBucket:
         opened.append(name)
         return bucket
 
-    record = ks.handle(data, target, open_bucket, event_id="e1")
+    record = ks.handle(data, open_bucket, target=target, budget_id=budget_id, event_id="e1")
     json.dumps(record)  # every record is one JSON log line
     record["opened"] = opened
     return record
@@ -177,11 +181,43 @@ def test_persistent_conflicts_and_io_failures_are_logged_not_raised() -> None:
     assert "PermissionError" in record["error"]
 
 
-@pytest.mark.parametrize("target", ["genomeos-atlas-web", "", None])
-def test_the_web_bucket_and_a_missing_target_are_refused(target: str | None) -> None:
+@pytest.mark.parametrize(
+    ("target", "budget_id", "why"),
+    [
+        ("genomeos-atlas-web", BUDGET, "protected"),
+        ("", BUDGET, "TARGET_BUCKET is not set"),
+        (None, BUDGET, "TARGET_BUCKET is not set"),
+        (TARGET, "", "BUDGET_ID is not set"),
+        (TARGET, None, "BUDGET_ID is not set"),
+    ],
+)
+@pytest.mark.parametrize("data", [notification(10_000), notification(10), None])
+def test_a_misconfigured_switch_refuses_every_message(
+    target: str | None, budget_id: str | None, why: str, data: Any
+) -> None:
+    """Refused below the threshold, and for junk, too: a broken deployment is loud within hours."""
     bucket = FakeBucket([{"role": "roles/storage.objectViewer", "members": {"allUsers"}}])
-    record = run(notification(10_000), bucket, target=target)
+    record = run(data, bucket, target=target, budget_id=budget_id)
     assert (record["decision"], record["severity"]) == ("refused", "CRITICAL")
+    assert why in record["message"]
+    assert (record["opened"], bucket.reads, bucket.writes) == ([], 0, [])
+
+
+@pytest.mark.parametrize(
+    "attributes",
+    [
+        {"schemaVersion": "1.0", "budgetId": "another-budget"},
+        {"schemaVersion": "1.0", "budgetId": ""},
+        {"schemaVersion": "1.0"},
+        {},
+    ],
+)
+def test_a_message_from_another_budget_is_ignored(attributes: dict[str, str]) -> None:
+    payload = {"costAmount": 10_000, "budgetAmount": 200}
+    bucket = FakeBucket([READER])
+    record = run(event(payload, attributes=attributes), bucket)
+    assert (record["decision"], record["severity"]) == ("malformed", "WARNING")
+    assert "not the configured BUDGET_ID" in record["message"]
     assert (record["opened"], bucket.reads, bucket.writes) == ([], 0, [])
 
 
@@ -241,7 +277,9 @@ def test_the_entry_point_is_the_one_provisioning_deploys() -> None:
     assert f"def {provision.ENTRY_POINT}(" in (SOURCE / "main.py").read_text(encoding="utf-8")
 
 
-def test_the_cloud_run_wrapper_round_trips_a_real_policy(capsys: pytest.CaptureFixture[str]) -> None:
+def test_the_cloud_run_wrapper_round_trips_a_real_policy(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Runs only where the function's own requirements are installed (not in the repo's CI)."""
     pytest.importorskip("functions_framework")
     iam = pytest.importorskip("google.api_core.iam")
@@ -284,6 +322,11 @@ def test_the_cloud_run_wrapper_round_trips_a_real_policy(capsys: pytest.CaptureF
     class Event(dict):
         data = notification(10)
 
+    monkeypatch.setenv("TARGET_BUCKET", TARGET)
+    monkeypatch.setenv("BUDGET_ID", BUDGET)
     main.on_budget_notification(Event(id="e2"))
     line = json.loads(capsys.readouterr().out)
-    assert (line["decision"], line["event_id"]) == ("below_threshold", "e2")
+    assert (line["decision"], line["event_id"], line["budget_id"]) == ("below_threshold", "e2", BUDGET)
+    monkeypatch.delenv("BUDGET_ID")
+    main.on_budget_notification(Event(id="e3"))
+    assert json.loads(capsys.readouterr().out)["decision"] == "refused"

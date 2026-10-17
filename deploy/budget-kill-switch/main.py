@@ -1,8 +1,9 @@
 """Cloud Run function (2nd gen) for the budget kill switch (data store design 2026-10-17 §9.2).
 
 Triggered by the budget's Pub/Sub topic through Eventarc. The decision and the IAM edit live in
-``kill_switch.py``, which has no I/O; this module only reads ``TARGET_BUCKET``, talks to Cloud
-Storage and prints one JSON log line per event, which Cloud Logging parses (``severity`` included).
+``kill_switch.py``, which has no I/O; this module only reads ``TARGET_BUCKET`` and ``BUDGET_ID``,
+talks to Cloud Storage (``getIamPolicy`` and ``setIamPolicy``, nothing else) and prints one JSON log
+line per event, which Cloud Logging parses (``severity`` included).
 Deployed by scripts/provision_budget_kill_switch.py; see docs/cost-controls.md.
 """
 
@@ -52,8 +53,9 @@ def _open_bucket(name: str) -> GcsBucketIam:
 def on_budget_notification(cloud_event: Any) -> None:
     record = kill_switch.handle(
         cloud_event.data,
-        os.environ.get("TARGET_BUCKET"),
         _open_bucket,
+        target=os.environ.get("TARGET_BUCKET"),
+        budget_id=os.environ.get("BUDGET_ID"),
         event_id=cloud_event.get("id"),
     )
     print(json.dumps(record, sort_keys=True), flush=True)

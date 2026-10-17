@@ -7,7 +7,8 @@ scripts/gcp_identity.py), each with its exact flag set; anything else exits 2 (u
 script that drifts to an untested command fails its tests. Error text mirrors gcloud 498's
 ("NOT_FOUND: …", "status=[404]").
 
-State keys: services_enabled[name], roles{id: resource}, service_accounts{email: resource},
+State keys: services_enabled[name], roles{id: resource} (the project's custom roles),
+predefined_roles{"roles/<name>": resource}, service_accounts{email: resource},
 topics{name: resource}, functions{name: resource}, policies{"<kind>/<name>": [bindings]} (kind is
 project, service-account, topic or run-service), billing_account (str), budgets[resource],
 budget_update_merges (merged into a budget's notificationsRule by every update, to stand in for an
@@ -106,6 +107,13 @@ def _services(state: dict[str, Any], verb: str, rest: list[str], flags: dict[str
 
 
 def _roles(state: dict[str, Any], verb: str, role: str, flags: dict[str, str]) -> int | None:
+    if role.startswith("roles/"):
+        predefined = state.get("predefined_roles", {})
+        if verb != "describe" or flags != {"format": "json"}:
+            return None
+        if role not in predefined:
+            return _fail(f"(gcloud.iam.roles.describe) NOT_FOUND: The role named {role} was not found.")
+        return _print(predefined[role])
     roles = state.setdefault("roles", {})
     project = flags.get("project")
     if verb == "describe" and set(flags) == {"project", "format"}:

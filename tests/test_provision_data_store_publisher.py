@@ -20,7 +20,7 @@ OWNER = "maintainer@example.org"
 BUCKET = dr.DATA_STORE_BUCKET
 EMAIL = f"data-store-publisher@{PROJECT}.iam.gserviceaccount.com"
 MEMBER = f"serviceAccount:{EMAIL}"
-LISTER = f"projects/{PROJECT}/roles/dataStoreLister"
+READER_ROLE = f"projects/{PROJECT}/roles/dataStoreReader"
 READER = {"role": "roles/storage.legacyObjectReader", "members": ["allUsers"]}
 Capsys = pytest.CaptureFixture[str]
 
@@ -48,11 +48,11 @@ def test_dry_run_prints_the_whole_sequence_and_runs_nothing(
     assert fake.calls() == []
     for fragment in (
         "services enable iam.googleapis.com iamcredentials.googleapis.com",
-        "iam roles create dataStoreLister",
-        "--permissions=storage.objects.list --stage=GA",
+        "iam roles create dataStoreReader",
+        "--permissions=storage.objects.get,storage.objects.list --stage=GA",
         "iam service-accounts create data-store-publisher",
         f"--member={MEMBER} --role=roles/storage.objectCreator",
-        f"--member={MEMBER} --role={LISTER}",
+        f"--member={MEMBER} --role={READER_ROLE}",
         f"--member=user:{OWNER} --role=roles/iam.serviceAccountTokenCreator",
         f"CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT={EMAIL}",
     ):
@@ -70,9 +70,12 @@ def test_provisioning_grants_upload_only_access_once(
     assert state["buckets"][BUCKET]["bindings"] == [
         READER,
         {"role": "roles/storage.objectCreator", "members": [MEMBER]},
-        {"role": LISTER, "members": [MEMBER]},
+        {"role": READER_ROLE, "members": [MEMBER]},
     ]
-    assert state["roles"]["dataStoreLister"]["includedPermissions"] == ["storage.objects.list"]
+    assert state["roles"]["dataStoreReader"]["includedPermissions"] == [
+        "storage.objects.get",
+        "storage.objects.list",
+    ], "read and list only: no create beyond objectCreator, no delete, no overwrite"
     assert state["policies"][f"service-account/{EMAIL}"] == [
         {"role": "roles/iam.serviceAccountTokenCreator", "members": [f"user:{OWNER}"]}
     ]
@@ -110,6 +113,46 @@ def test_a_service_account_maintainer_is_granted_as_one() -> None:
     assert provision.principal(OWNER) == f"user:{OWNER}"
     ci = "ci@example-project.iam.gserviceaccount.com"
     assert provision.principal(ci) == f"serviceAccount:{ci}"
+
+
+@pytest.mark.parametrize(
+    "account",
+    ["group:maintainers@example.org", f"user:{OWNER}", "serviceAccount:ci@x.iam.gserviceaccount.com"],
+)
+def test_an_explicit_member_kind_is_kept(account: str) -> None:
+    assert provision.principal(account) == account
+
+
+@pytest.mark.parametrize("account", ["domain:example.org", "allUsers", "group:", "maintainers"])
+def test_a_malformed_account_changes_nothing(
+    account: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capsys
+) -> None:
+    fake = install_fake_gcloud(tmp_path / "gcloud", monkeypatch, world())
+    assert provision.main(["--project", PROJECT, "--account", account]) == 1
+    assert "--account" in capsys.readouterr().err
+    assert fake.calls() == []
+
+
+def test_a_group_maintainer_is_granted_as_a_group(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = install_fake_gcloud(tmp_path / "gcloud", monkeypatch, world())
+    group = "group:maintainers@example.org"
+    assert provision.main(["--project", PROJECT, "--account", group]) == 0
+    assert fake.state()["policies"][f"service-account/{EMAIL}"] == [
+        {"role": "roles/iam.serviceAccountTokenCreator", "members": [group]}
+    ]
+
+
+def test_who_else_can_mint_its_keys_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capsys
+) -> None:
+    compute = "serviceAccount:1-compute@developer.gserviceaccount.com"
+    state = world(
+        policies={f"project/{PROJECT}": [{"role": "roles/editor", "members": [compute]}]},
+        predefined_roles={"roles/editor": {"includedPermissions": ["iam.serviceAccountKeys.create"]}},
+    )
+    install_fake_gcloud(tmp_path / "gcloud", monkeypatch, state)
+    assert _run() == 0
+    assert f"warning: {compute} can act as {MEMBER}" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("argv", [["--project", PROJECT], ["--account", OWNER]])

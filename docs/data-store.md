@@ -256,12 +256,15 @@ python scripts/fetch_data.py --verify-remote             # GET and hash every ob
 ```
 
 **Publishing a release.** A maintainer uploads as the service account `data-store-publisher`,
-impersonated from their repository-local login. It has no key. On this bucket it holds
-`roles/storage.objectCreator` plus the custom role `dataStoreLister` (exactly `storage.objects.list`).
-So it can add new objects and list their names, but it cannot overwrite or delete an object or change
-a setting. The list permission is needed because `gcloud storage cp` lists the destination key as a
-prefix before every upload of a new key, and that listing fails without it.
-`publish_data_store.py` reads object metadata through the bucket's public read grant. This is the current mechanism and the
+impersonated from their repository-local login. Provisioning never creates a key for it. On this
+bucket it holds `roles/storage.objectCreator` plus the custom role `dataStoreReader` (exactly
+`storage.objects.get` and `storage.objects.list`). So it can add new objects, read objects and list
+their names, but it cannot overwrite or delete an object or change a setting. The list permission is
+needed because `gcloud storage cp` lists the destination key as a prefix before every upload of a new
+key, and that listing fails without it. The get permission covers `publish_data_store.py`'s metadata
+reads and post-upload checks, so publishing does not depend on the public read grant. Project
+editors and owners can still do more than this ([`cost-controls.md`](cost-controls.md), "Project-wide
+access"). This is the current mechanism and the
 base for the planned automation, in which CI refits when a dataset changes and uploads through
 GitHub→GCP Workload Identity Federation (data store design §7). That automation is not built yet.
 
@@ -297,9 +300,9 @@ the manifest copy last. Nothing is ever deleted or overwritten. The identity enf
 even without the precondition, replacing an object needs `storage.objects.delete`, which the
 publisher does not have.
 
-If the budget kill switch has made the bucket private ([`cost-controls.md`](cost-controls.md)), the
-first metadata read fails with a permission error and nothing is uploaded. Re-enable public access
-first.
+If the budget kill switch has made the bucket private ([`cost-controls.md`](cost-controls.md)),
+publishing still works, because the publisher reads through its own role. The anonymous
+`fetch_data.py --verify-remote` check fails until the owner re-enables public access.
 
 **What is not published yet.** Fits are pickles and are never published until a safe export format
 exists. The raw third-party harvests (MAP WFS exports, AFND frequencies and page caches, gnomAD, the

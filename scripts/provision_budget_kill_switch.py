@@ -10,16 +10,19 @@ data-store bucket is removed until the owner restores it. The web-data bucket ke
 script sets up, in order:
 
 1. the APIs a Pub/Sub-triggered Cloud Run function (2nd gen) needs, enabling only the missing ones;
-2. the custom role ``budgetKillSwitch``: exactly ``storage.buckets.get``, ``storage.buckets.getIamPolicy``
-   and ``storage.buckets.setIamPolicy``;
+2. the custom role ``budgetKillSwitch``: exactly ``storage.buckets.getIamPolicy`` and
+   ``storage.buckets.setIamPolicy``, the only two calls the function makes;
 3. the service account ``budget-kill-switch``, holding that role on the committed data-store bucket
-   only, no other role there and no project-wide role;
+   only, no other role there and no project-wide role. Every principal that can act as it through a
+   project-wide role is reported: a warning (the default compute account's ``roles/editor``, say),
+   or a note for owners and Google's service agents, which do so by design;
 4. the Pub/Sub topic ``budget-notifications``;
 5. the function ``budget-kill-switch`` from ``deploy/budget-kill-switch/`` (``TARGET_BUCKET`` = the
-   committed bucket), running as that account and triggered as it, which then needs
-   ``roles/run.invoker`` on the function's own service only;
-6. the topic attached to the project's existing budget, leaving its amount, thresholds and email
-   recipients as they are, then checked. A budget already sending to another topic is refused.
+   committed bucket, ``BUDGET_ID`` = the id of the project's budget, read at run time), running as
+   that account and triggered as it, which then needs ``roles/run.invoker`` on the function's own
+   service only;
+6. the topic attached to that budget, leaving its amount, thresholds and email recipients as they
+   are, then checked. A budget already sending to another topic is refused.
 
 Idempotent: every step reads the current state and changes only what differs; the function is
 redeployed only when its source digest (a label) or its settings differ. ``--dry-run`` prints every
@@ -59,8 +62,9 @@ APIS = (
 )
 ROLE_ID = "budgetKillSwitch"
 ROLE_TITLE = "Budget kill switch"
-ROLE_DESCRIPTION = "Read a bucket and replace its IAM policy; nothing else (docs/cost-controls.md)"
-ROLE_PERMISSIONS = ("storage.buckets.get", "storage.buckets.getIamPolicy", "storage.buckets.setIamPolicy")
+ROLE_DESCRIPTION = "Read and replace a bucket's IAM policy; nothing else (docs/cost-controls.md)"
+#: Exactly what deploy/budget-kill-switch/main.py calls: Bucket.get_iam_policy and set_iam_policy.
+ROLE_PERMISSIONS = ("storage.buckets.getIamPolicy", "storage.buckets.setIamPolicy")
 SERVICE_ACCOUNT_ID = "budget-kill-switch"
 TOPIC = "budget-notifications"
 FUNCTION = "budget-kill-switch"
@@ -95,7 +99,7 @@ def source_digest(root: Path = ROOT) -> str:
     return digest.hexdigest()[:32]
 
 
-def deploy_args(project: str, bucket: str, account: str, digest: str) -> list[str]:
+def deploy_args(project: str, bucket: str, account: str, budget_id: str, digest: str) -> list[str]:
     return [
         "functions",
         "deploy",
@@ -109,7 +113,7 @@ def deploy_args(project: str, bucket: str, account: str, digest: str) -> list[st
         f"--trigger-topic={TOPIC}",
         f"--run-service-account={account}",
         f"--trigger-service-account={account}",
-        f"--set-env-vars=TARGET_BUCKET={bucket}",
+        f"--set-env-vars=TARGET_BUCKET={bucket},BUDGET_ID={budget_id}",
         f"--memory={MEMORY}",
         f"--timeout={TIMEOUT}",
         "--max-instances=1",
@@ -119,18 +123,20 @@ def deploy_args(project: str, bucket: str, account: str, digest: str) -> list[st
 
 
 def function_drift(
-    current: Mapping[str, Any], project: str, bucket: str, account: str, digest: str
+    current: Mapping[str, Any], project: str, bucket: str, account: str, budget_id: str, digest: str
 ) -> list[str]:
     """What differs between the deployed function and this checkout; empty when nothing does."""
     build = current.get("buildConfig") or {}
     service = current.get("serviceConfig") or {}
     trigger = current.get("eventTrigger") or {}
     labels = current.get("labels") or {}
+    environment = service.get("environmentVariables") or {}
     expected = {
         "state": ("ACTIVE", current.get("state")),
         "runtime": (RUNTIME, build.get("runtime")),
         "entry point": (ENTRY_POINT, build.get("entryPoint")),
-        "TARGET_BUCKET": (bucket, (service.get("environmentVariables") or {}).get("TARGET_BUCKET")),
+        "TARGET_BUCKET": (bucket, environment.get("TARGET_BUCKET")),
+        "BUDGET_ID": (budget_id, environment.get("BUDGET_ID")),
         "runtime account": (account, service.get("serviceAccountEmail")),
         "ingress": ("ALLOW_INTERNAL_ONLY", service.get("ingressSettings")),
         "max instances": (1, service.get("maxInstanceCount")),
@@ -172,7 +178,13 @@ def ensure_topic(gcloud: Gcloud, project: str, report: list[str]) -> str:
 
 
 def ensure_function(
-    gcloud: Gcloud, project: str, bucket: str, account: str, digest: str, report: list[str]
+    gcloud: Gcloud,
+    project: str,
+    bucket: str,
+    account: str,
+    budget_id: str,
+    digest: str,
+    report: list[str],
 ) -> None:
     describe = [
         "functions",
@@ -184,15 +196,19 @@ def ensure_function(
         "--format=json",
     ]
     current = gcloud.describe(describe)
-    drift = ["absent"] if current is None else function_drift(current, project, bucket, account, digest)
+
+    def drift_of(current: Mapping[str, Any] | None) -> list[str]:
+        if current is None:
+            return ["absent"]
+        return function_drift(current, project, bucket, account, budget_id, digest)
+
+    drift = drift_of(current)
     if drift:
-        iam.mutate(gcloud, deploy_args(project, bucket, account, digest))
+        iam.mutate(gcloud, deploy_args(project, bucket, account, budget_id, digest))
         report.append(f"function {FUNCTION}: deployed ({'; '.join(drift)})")
         current = gcloud.describe(describe)
         if not gcloud.dry_run:
-            left = (
-                ["absent"] if current is None else function_drift(current, project, bucket, account, digest)
-            )
+            left = drift_of(current)
             if left:
                 raise ProvisionError(f"function {FUNCTION} after deploy: {'; '.join(left)}")
     else:
@@ -228,19 +244,31 @@ def find_budget(budgets: list[dict[str, Any]], project_number: str, wanted: str 
     return scoped[0]
 
 
-def ensure_budget_topic(
-    gcloud: Gcloud, project: str, topic: str, wanted: str | None, report: list[str]
-) -> None:
+def budgets_list(account: str) -> list[str]:
+    return ["billing", "budgets", "list", f"--billing-account={account}", "--format=json"]
+
+
+def budget_id_of(budget: Mapping[str, Any]) -> str:
+    return str(budget["name"]).rsplit("/", 1)[-1]
+
+
+def locate_budget(gcloud: Gcloud, project: str, wanted: str | None) -> tuple[str, dict[str, Any]]:
+    """The billing account id and the one budget scoped to ``project`` (or named ``wanted``). Read
+    before the function is deployed, because the function is told the budget's id (``BUDGET_ID``)."""
     billing = gcloud.describe(["billing", "projects", "describe", project, "--format=json"]) or {}
     account = str(billing.get("billingAccountName", "billingAccounts/<billing-account>")).rsplit("/", 1)[-1]
-    listed = ["billing", "budgets", "list", f"--billing-account={account}", "--format=json"]
     if gcloud.dry_run:
-        gcloud.query(listed)
-        budget: dict[str, Any] = {"name": "billingAccounts/<billing-account>/budgets/<budget>"}
-    else:
-        number = str(project_info(gcloud, project).get("projectNumber", ""))
-        budget = find_budget(iam.listing(gcloud, listed), number, wanted)
-    budget_id = str(budget["name"]).rsplit("/", 1)[-1]
+        gcloud.query(budgets_list(account))
+        return account, {"name": "billingAccounts/<billing-account>/budgets/<budget>"}
+    number = str(project_info(gcloud, project).get("projectNumber", ""))
+    return account, find_budget(iam.listing(gcloud, budgets_list(account)), number, wanted)
+
+
+def attach_budget_topic(
+    gcloud: Gcloud, project: str, account: str, budget: Mapping[str, Any], topic: str, report: list[str]
+) -> None:
+    listed = budgets_list(account)
+    budget_id = budget_id_of(budget)
     rule = budget.get("notificationsRule") or {}
     if rule.get("pubsubTopic") == topic:
         report.append(f"budget {budget.get('displayName', budget_id)!r}: already sends to {TOPIC}")
@@ -317,10 +345,11 @@ def provision(
     )
     member = f"serviceAccount:{account}"
     iam.ensure_bucket_roles(gcloud, bucket, member, (role,), report)
-    iam.assert_no_project_role(gcloud, project, member, report)
+    iam.check_project_iam(gcloud, project, member, report)
     topic = ensure_topic(gcloud, project, report)
-    ensure_function(gcloud, project, bucket, account, digest, report)
-    ensure_budget_topic(gcloud, project, topic, wanted_budget, report)
+    billing_account, budget = locate_budget(gcloud, project, wanted_budget)
+    ensure_function(gcloud, project, bucket, account, budget_id_of(budget), digest, report)
+    attach_budget_topic(gcloud, project, billing_account, budget, topic, report)
 
 
 def build_parser() -> argparse.ArgumentParser:

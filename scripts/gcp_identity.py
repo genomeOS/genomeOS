@@ -7,16 +7,43 @@ differs. Under ``--dry-run`` every read reports "absent", so the printed plan is
 for a fresh project. Roles are only ever granted here, never revoked. A service account that holds a
 role it should not (on the bucket, or anywhere in the project) stops the run as a needs-human-decision
 error rather than being "fixed" by removing access someone granted on purpose.
+
+Every principal that can act as any service account in the project is reported, because it can also
+act as the accounts these scripts create, whatever their own grants say: as a ``note:`` for project
+owners and Google-managed service agents, which do so by design, and as a ``warning:`` for anyone
+else. Neither is fatal. Such access predates these scripts (a new project gives its default compute
+account ``roles/editor``), and removing it is the owner's decision (docs/cost-controls.md,
+"Project-wide access").
 """
 
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
-from scripts.atlas_web_gcloud import Gcloud, GcloudResult
+from scripts.atlas_web_gcloud import Gcloud, GcloudError, GcloudResult
 from scripts.provision_atlas_web_bucket import ProvisionError
+
+#: Any one of these, held on the project, lets a principal act as or mint credentials for every
+#: service account in it: deploy code that runs as one (actAs), create a key, or get a token.
+IMPERSONATION_PERMISSIONS = frozenset(
+    {
+        "iam.serviceAccounts.actAs",
+        "iam.serviceAccountKeys.create",
+        "iam.serviceAccounts.getAccessToken",
+        "iam.serviceAccounts.implicitDelegation",
+        "iam.serviceAccounts.signBlob",
+        "iam.serviceAccounts.signJwt",
+    }
+)
+#: Google operates these accounts for its own services (``service-<number>@…`` and
+#: ``<number>@cloudservices…``); they act as service accounts by design.
+_SERVICE_AGENT = re.compile(
+    r"serviceAccount:(service-\d+@[a-z0-9-]+\.iam\.gserviceaccount\.com"
+    r"|\d+@cloudservices\.gserviceaccount\.com)"
+)
 
 
 def mutate(gcloud: Gcloud, arguments: Sequence[str]) -> GcloudResult:
@@ -171,12 +198,77 @@ def ensure_custom_role(
     return f"projects/{project}/roles/{role_id}"
 
 
-def assert_no_project_role(gcloud: Gcloud, project: str, member: str, report: list[str]) -> None:
-    """Grants are per resource, so a project-wide role for ``member`` is a mistake to surface."""
-    roles = roles_of(gcloud.describe(["projects", "get-iam-policy", project, "--format=json"]) or {}, member)
+def check_project_iam(gcloud: Gcloud, project: str, member: str, report: list[str]) -> None:
+    """``member`` holds no project-wide role (grants are per resource, so one is a mistake: fatal), and
+    who else can act as it through a project-wide role (a note or a warning, never fatal)."""
+    policy = gcloud.describe(["projects", "get-iam-policy", project, "--format=json"])
+    roles = roles_of(policy or {}, member)
     if roles:
         raise ProvisionError(
             f"{member} holds project-wide {', '.join(sorted(roles))}; its grants must be per resource: "
             "needs-human-decision"
         )
     report.append(f"IAM on the project: {member} holds no project-wide role")
+    if policy is None:  # dry-run reads nothing
+        report.append(f"IAM on the project: who else can act as {member} is reported on a real run")
+        return
+    found = False
+    for binding in policy.get("bindings", []):
+        role = str(binding.get("role"))
+        members = sorted(binding.get("members") or [])
+        permissions = role_permissions(gcloud, role)
+        if permissions is None:
+            found = True
+            report.append(
+                f"warning: could not read the permissions of project-wide {role} "
+                f"(held by {', '.join(members)}); check by hand whether it can act as {member}"
+            )
+            continue
+        granted = sorted(permissions & IMPERSONATION_PERMISSIONS)
+        if not granted:
+            continue
+        found = True
+        condition = " (conditionally)" if binding.get("condition") else ""
+        for holder in members:
+            expected = _expected_holder(holder, role)
+            label = f"note: {holder} ({expected})" if expected else f"warning: {holder}"
+            report.append(
+                f"{label} can act as {member}{condition} through project-wide {role} "
+                f'({", ".join(granted)}); see docs/cost-controls.md, "Project-wide access"'
+            )
+    if not found:
+        report.append(f"IAM on the project: no project-wide role lets anyone act as {member}")
+
+
+def _expected_holder(holder: str, role: str) -> str | None:
+    """Why ``holder`` acting as any service account is by design, or ``None`` when it is a finding."""
+    if role == "roles/owner":
+        return "a project owner"
+    if _SERVICE_AGENT.fullmatch(holder):
+        return "a Google-managed service agent"
+    return None
+
+
+def role_permissions(gcloud: Gcloud, role: str) -> frozenset[str] | None:
+    """The permissions of a predefined, project or organization role; ``None`` if unreadable."""
+    match role.split("/"):
+        case ["roles", _]:
+            arguments = ["iam", "roles", "describe", role, "--format=json"]
+        case ["projects", project, "roles", role_id]:
+            arguments = ["iam", "roles", "describe", role_id, f"--project={project}", "--format=json"]
+        case ["organizations", organization, "roles", role_id]:
+            arguments = [
+                "iam",
+                "roles",
+                "describe",
+                role_id,
+                f"--organization={organization}",
+                "--format=json",
+            ]
+        case _:
+            return None
+    try:
+        described = gcloud.describe(arguments)
+    except GcloudError:
+        return None
+    return None if described is None else frozenset(described.get("includedPermissions") or [])

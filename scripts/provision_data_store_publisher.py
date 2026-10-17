@@ -7,19 +7,23 @@
 
 Owner decision (#480): routine uploads run as the service account ``data-store-publisher``, never as
 the project owner. On the committed data-store bucket it holds ``roles/storage.objectCreator`` and the
-custom role ``dataStoreLister`` (exactly ``storage.objects.list``), and nothing else there or anywhere
-in the project. So it can add a new object, but it cannot overwrite one (that needs
-``storage.objects.delete``), delete one, or change any setting.
+custom role ``dataStoreReader`` (exactly ``storage.objects.get`` and ``storage.objects.list``), and
+nothing else there or anywhere in the project. So it can add a new object and read what is there,
+but it cannot overwrite one (that needs ``storage.objects.delete``), delete one, or change any setting.
 
-The list permission is there because ``gcloud storage cp`` needs it. Before every upload to a key that
-does not exist yet, cp reads the object (404) and then lists ``prefix=<key>, delimiter=/`` to check
-whether the destination is a folder. Without ``storage.objects.list`` that listing fails with 403, and
-so does the upload. The public grant (``legacyObjectReader``) gives ``storage.objects.get`` only, and
-``publish_data_store.py``'s own metadata reads go through it.
+The read permissions are there because publishing needs them. Before every upload to a key that does
+not exist yet, ``gcloud storage cp`` reads the object (404) and then lists ``prefix=<key>,
+delimiter=/`` to check whether the destination is a folder. Without ``storage.objects.list`` that
+listing fails with 403, and so does the upload. ``storage.objects.get`` covers cp's first read and
+``publish_data_store.py``'s metadata reads and post-upload checks. The public grant
+(``legacyObjectReader``) gives the same ``get`` to everyone today, but the budget kill switch removes
+that grant (docs/cost-controls.md), and publishing should not depend on it. Reading data that is
+published for everyone grants nothing new.
 
 The maintainer named by ``--account`` gets ``roles/iam.serviceAccountTokenCreator`` on that one
 account, which lets them publish with ``CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT``
-(docs/data-store.md). No key is ever created.
+(docs/data-store.md). No key is ever created. A plain email is a person (or, ending in
+``.gserviceaccount.com``, a service account); pass ``group:<email>`` for a Google group.
 
 Idempotent: every step reads the current state and changes only what differs. ``--dry-run`` prints
 every command and runs none. The account and project are passed at run time and never stored in git
@@ -45,22 +49,37 @@ from scripts.provision_atlas_web_bucket import ProvisionError  # noqa: E402
 
 SERVICE_ACCOUNT_ID = "data-store-publisher"
 BUCKET_ROLE = "roles/storage.objectCreator"
-LISTER_ROLE_ID = "dataStoreLister"
-LISTER_TITLE = "Data store lister"
-LISTER_DESCRIPTION = "List object names in a bucket, which gcloud storage cp needs to upload; nothing else"
-LISTER_PERMISSIONS = ("storage.objects.list",)
+READER_ROLE_ID = "dataStoreReader"
+READER_TITLE = "Data store reader"
+READER_DESCRIPTION = (
+    "Read objects and list their names, which publishing needs; nothing else (docs/data-store.md)"
+)
+READER_PERMISSIONS = ("storage.objects.get", "storage.objects.list")
 IMPERSONATION_ROLE = "roles/iam.serviceAccountTokenCreator"
 #: Impersonation mints short-lived tokens through the IAM Credentials API.
 APIS = ("iam.googleapis.com", "iamcredentials.googleapis.com")
+#: The IAM member prefixes ``--account`` may carry.
+MEMBER_KINDS = ("user", "group", "serviceAccount")
 
 
 def principal(account: str) -> str:
-    """The IAM member for a maintainer: a person, or a service account (a future CI identity)."""
-    kind = "serviceAccount" if account.endswith(".gserviceaccount.com") else "user"
-    return f"{kind}:{account}"
+    """The IAM member for a maintainer. ``user:``, ``group:`` and ``serviceAccount:`` are taken as
+    given; a bare email is a service account (a future CI identity) if it ends in
+    ``.gserviceaccount.com``, and a person otherwise. A group must be named with ``group:``, because
+    nothing in an email says it is one."""
+    kind, sep, email = account.partition(":")
+    if sep:
+        if kind not in MEMBER_KINDS or "@" not in email:
+            forms = ", ".join(f"{name}:<email>" for name in MEMBER_KINDS)
+            raise ProvisionError(f"--account {account!r}: expected an email, or {forms}")
+        return account
+    if "@" not in account:
+        raise ProvisionError(f"--account {account!r} is not an email")
+    return f"{'serviceAccount' if account.endswith('.gserviceaccount.com') else 'user'}:{account}"
 
 
 def provision(gcloud: Gcloud, bucket: str, project: str, account: str, report: list[str]) -> str:
+    maintainer = principal(account)  # before any call: a malformed --account changes nothing
     iam.ensure_apis(gcloud, project, APIS, report)
     email = iam.ensure_service_account(
         gcloud,
@@ -70,17 +89,17 @@ def provision(gcloud: Gcloud, bucket: str, project: str, account: str, report: l
         f"Upload-only: creates new objects in {bucket}; cannot overwrite or delete (docs/data-store.md)",
         report,
     )
-    lister = iam.ensure_custom_role(
-        gcloud, project, LISTER_ROLE_ID, LISTER_TITLE, LISTER_DESCRIPTION, LISTER_PERMISSIONS, report
+    reader = iam.ensure_custom_role(
+        gcloud, project, READER_ROLE_ID, READER_TITLE, READER_DESCRIPTION, READER_PERMISSIONS, report
     )
     member = f"serviceAccount:{email}"
-    iam.ensure_bucket_roles(gcloud, bucket, member, (BUCKET_ROLE, lister), report)
-    iam.assert_no_project_role(gcloud, project, member, report)
+    iam.ensure_bucket_roles(gcloud, bucket, member, (BUCKET_ROLE, reader), report)
+    iam.check_project_iam(gcloud, project, member, report)
     iam.ensure_member(
         gcloud,
         read=["iam", "service-accounts", "get-iam-policy", email, f"--project={project}", "--format=json"],
         add=["iam", "service-accounts", "add-iam-policy-binding", email, f"--project={project}"],
-        member=principal(account),
+        member=maintainer,
         roles=(IMPERSONATION_ROLE,),
         label=f"service account {SERVICE_ACCOUNT_ID}",
         report=report,
@@ -97,7 +116,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--project", help="GCP project id (default: $GENOMEOS_GCP_PROJECT; never in git)")
     parser.add_argument(
         "--account",
-        help="who may impersonate the publisher (default: $GENOMEOS_GCP_ACCOUNT; never in git)",
+        help="who may impersonate the publisher: an email, or group:<email> "
+        "(default: $GENOMEOS_GCP_ACCOUNT; never in git)",
     )
     parser.add_argument("--dry-run", action="store_true", help="print every gcloud command and run none")
     return parser

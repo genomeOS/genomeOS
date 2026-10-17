@@ -7,6 +7,7 @@ nothing reaches GCP.
 from __future__ import annotations
 
 import copy
+import re
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,7 @@ THRESHOLDS = [
     {"spendBasis": "CURRENT_SPEND", "thresholdPercent": 1.5},
     {"spendBasis": "FORECASTED_SPEND", "thresholdPercent": 1.0},
 ]
+AGENT = "serviceAccount:service-123456789012@compute-system.iam.gserviceaccount.com"
 Capsys = pytest.CaptureFixture[str]
 
 
@@ -71,13 +73,13 @@ def test_dry_run_prints_the_whole_sequence_and_runs_nothing(
     for fragment in (
         "services enable cloudfunctions.googleapis.com run.googleapis.com",
         "iam roles create budgetKillSwitch",
-        "--permissions=storage.buckets.get,storage.buckets.getIamPolicy,storage.buckets.setIamPolicy",
+        "--permissions=storage.buckets.getIamPolicy,storage.buckets.setIamPolicy --stage=GA",
         "iam service-accounts create budget-kill-switch",
         f"--member={MEMBER} --role={ROLE}",
         "pubsub topics create budget-notifications",
         "functions deploy budget-kill-switch --gen2",
         "--source=deploy/budget-kill-switch",
-        f"--set-env-vars=TARGET_BUCKET={BUCKET}",
+        f"--set-env-vars=TARGET_BUCKET={BUCKET},BUDGET_ID=<budget>",
         "--ingress-settings=internal-only",
         f"--member={MEMBER} --role=roles/run.invoker",
         f"--notifications-rule-pubsub-topic={TOPIC}",
@@ -85,6 +87,9 @@ def test_dry_run_prints_the_whole_sequence_and_runs_nothing(
         assert fragment in out, fragment
     assert "--retry" not in out, "a failure is logged and acknowledged, never retried in a loop"
     assert "disable-default-iam-recipients" not in out
+    assert out.index("billing budgets list") < out.index("functions deploy"), (
+        "the budget is found before the function is deployed with its id"
+    )
 
 
 def test_provisioning_sets_everything_up_once(
@@ -98,7 +103,8 @@ def test_provisioning_sets_everything_up_once(
     assert state["buckets"][BUCKET]["bindings"] == [READER, {"role": ROLE, "members": [MEMBER]}]
     assert state["objects"] == world()["objects"], "no object is touched"
     function = state["functions"]["budget-kill-switch"]
-    assert function["serviceConfig"]["environmentVariables"]["TARGET_BUCKET"] == BUCKET
+    environment = function["serviceConfig"]["environmentVariables"]
+    assert (environment["TARGET_BUCKET"], environment["BUDGET_ID"]) == (BUCKET, "b1")
     assert function["serviceConfig"]["serviceAccountEmail"] == ACCOUNT
     assert function["eventTrigger"] == {
         "pubsubTopic": TOPIC,
@@ -125,20 +131,28 @@ def test_provisioning_sets_everything_up_once(
     assert fake.configs() == {str(provision.ROOT / ".local" / "gcloud" / "genomeos")}
 
 
-def test_a_changed_setting_redeploys_the_function(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("variable", "value"), [("TARGET_BUCKET", "x"), ("BUDGET_ID", "stale"), ("BUDGET_ID", None)]
+)
+def test_a_changed_setting_redeploys_the_function(
+    variable: str, value: str | None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     fake = install_fake_gcloud(tmp_path / "gcloud", monkeypatch, world())
     assert _run() == 0
     state = fake.state()
-    state["functions"]["budget-kill-switch"]["serviceConfig"]["environmentVariables"]["TARGET_BUCKET"] = "x"
+    environment = state["functions"]["budget-kill-switch"]["serviceConfig"]["environmentVariables"]
+    if value is None:
+        del environment[variable]
+    else:
+        environment[variable] = value
     state["functions"]["budget-kill-switch"]["labels"]["genomeos-source"] = "stale"
     fake.write_state(state)
     assert _run() == 0
     deploys = [call for call in fake.mutating_calls() if call[:2] == ["functions", "deploy"]]
     assert len(deploys) == 2
-    assert (
-        fake.state()["functions"]["budget-kill-switch"]["labels"]["genomeos-source"]
-        == provision.source_digest()
-    )
+    function = fake.state()["functions"]["budget-kill-switch"]
+    assert function["labels"]["genomeos-source"] == provision.source_digest()
+    assert function["serviceConfig"]["environmentVariables"]["BUDGET_ID"] == "b1"
 
 
 def test_function_drift_names_each_difference() -> None:
@@ -148,19 +162,32 @@ def test_function_drift_names_each_difference() -> None:
         "labels": {"genomeos-purpose": "budget-kill-switch", "genomeos-source": digest},
         "buildConfig": {"runtime": "python312", "entryPoint": "on_budget_notification"},
         "serviceConfig": {
-            "environmentVariables": {"TARGET_BUCKET": BUCKET, "LOG_EXECUTION_ID": "true"},
+            "environmentVariables": {"TARGET_BUCKET": BUCKET, "BUDGET_ID": "b1", "LOG_EXECUTION_ID": "true"},
             "serviceAccountEmail": ACCOUNT,
             "ingressSettings": "ALLOW_INTERNAL_ONLY",
             "maxInstanceCount": 1,
         },
         "eventTrigger": {"pubsubTopic": TOPIC, "serviceAccountEmail": ACCOUNT},
     }
-    assert provision.function_drift(current, PROJECT, BUCKET, ACCOUNT, digest) == []
+    assert provision.function_drift(current, PROJECT, BUCKET, ACCOUNT, "b1", digest) == []
     changed = copy.deepcopy(current)
     changed["eventTrigger"]["retryPolicy"] = "RETRY_POLICY_RETRY"
     changed["serviceConfig"]["serviceAccountEmail"] = "other@example"
-    drift = provision.function_drift(changed, PROJECT, BUCKET, ACCOUNT, digest)
+    drift = provision.function_drift(changed, PROJECT, BUCKET, ACCOUNT, "b1", digest)
     assert len(drift) == 2 and "runtime account" in drift[0] and "retries" in drift[1]
+    assert provision.function_drift(current, PROJECT, BUCKET, ACCOUNT, "b2", digest) == [
+        "BUDGET_ID is 'b1', expected 'b2'"
+    ]
+
+
+def test_the_role_holds_only_what_the_function_calls() -> None:
+    main = (provision.ROOT / provision.SOURCE / "main.py").read_text(encoding="utf-8")
+    calls = set(re.findall(r"self\._bucket\.(\w+)\(", main))
+    assert calls == {"get_iam_policy", "set_iam_policy"}
+    assert set(provision.ROLE_PERMISSIONS) == {
+        "storage.buckets.getIamPolicy",
+        "storage.buckets.setIamPolicy",
+    }
 
 
 def test_an_extra_permission_on_the_role_is_removed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -193,6 +220,52 @@ def test_a_project_wide_role_is_refused(
     assert _run() == 1
     assert "project-wide roles/storage.admin" in capsys.readouterr().err
     assert "functions" not in fake.state(), "nothing is deployed for an over-privileged account"
+
+
+def test_who_else_can_act_as_the_account_is_reported_not_fatal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capsys
+) -> None:
+    compute = "serviceAccount:1-compute@developer.gserviceaccount.com"
+    policies = {
+        f"project/{PROJECT}": [
+            {"role": "roles/editor", "members": [compute]},
+            {"role": "roles/owner", "members": ["user:owner@example.org"]},
+            {"role": "roles/compute.serviceAgent", "members": [AGENT]},
+            {"role": "roles/viewer", "members": ["user:viewer@example.org"]},
+            {"role": "roles/unknown", "members": ["user:someone@example.org"]},
+        ]
+    }
+    predefined = {
+        "roles/editor": {
+            "includedPermissions": ["iam.serviceAccounts.actAs", "iam.serviceAccountKeys.create"]
+        },
+        "roles/viewer": {"includedPermissions": ["storage.buckets.list"]},
+        "roles/owner": {"includedPermissions": ["iam.serviceAccounts.actAs"]},
+        "roles/compute.serviceAgent": {"includedPermissions": ["iam.serviceAccounts.getAccessToken"]},
+    }
+    install_fake_gcloud(
+        tmp_path / "gcloud", monkeypatch, world(policies=policies, predefined_roles=predefined)
+    )
+    assert _run() == 0
+    out = capsys.readouterr().out
+    assert (
+        f"warning: {compute} can act as {MEMBER} through project-wide roles/editor "
+        "(iam.serviceAccountKeys.create, iam.serviceAccounts.actAs)"
+    ) in out
+    assert (
+        f"note: user:owner@example.org (a project owner) can act as {MEMBER} through project-wide roles/owner"
+    ) in out
+    assert f"note: {AGENT} (a Google-managed service agent) can act as {MEMBER}" in out
+    assert "viewer@example.org" not in out
+    assert "could not read the permissions of project-wide roles/unknown" in out
+
+
+def test_no_one_acting_as_the_account_is_reported_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capsys
+) -> None:
+    install_fake_gcloud(tmp_path / "gcloud", monkeypatch, world())
+    assert _run() == 0
+    assert f"no project-wide role lets anyone act as {MEMBER}" in capsys.readouterr().out
 
 
 def test_a_budget_already_sending_elsewhere_is_never_rewired(

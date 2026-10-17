@@ -16,6 +16,14 @@ directly. ``main.py`` is the thin Cloud Run function around it, and the only mod
   Objects are never read, changed or deleted.
 - Idempotent: a bucket with no public member is left alone. Budget notifications arrive several
   times a day, so a transient failure is retried by the next notification.
+- Acts only on its own budget's messages: the ``budgetId`` attribute Cloud Billing sets on every
+  notification must equal ``BUDGET_ID``, which provisioning sets at deploy time (never committed).
+  This screens out stray messages (a drill, a second budget attached to the topic). It is not
+  authentication: anyone who can publish to the topic and read the function's settings can copy the
+  id. A forged message can only make the bucket private, never public.
+- A misconfigured deployment (no ``TARGET_BUCKET``, the web bucket, no ``BUDGET_ID``) is refused on
+  every message, below the threshold too, so a broken switch shows up in the logs within hours
+  instead of on the day it is needed.
 - Never raises. A malformed message, a refused target or a failed IAM call is logged and the
   event is acknowledged, so a poison message cannot crash-loop the function.
 """
@@ -59,6 +67,7 @@ class BucketIam(Protocol):
 class Notification:
     cost: Decimal
     budget: Decimal
+    budget_id: str | None
     currency: str | None
     budget_name: str | None
     interval_start: str | None
@@ -82,6 +91,7 @@ def parse_notification(event_data: Any) -> Notification:
     version = attributes.get("schemaVersion")
     if version is not None and version != SCHEMA_VERSION:
         raise MalformedMessage(f"schemaVersion {version!r} is not {SCHEMA_VERSION}")
+    budget_id = attributes.get("budgetId")
     data = message.get("data")
     if not isinstance(data, str) or not data:
         raise MalformedMessage("message has no data")
@@ -99,6 +109,7 @@ def parse_notification(event_data: Any) -> Notification:
     return Notification(
         cost=cost,
         budget=budget,
+        budget_id=budget_id if isinstance(budget_id, str) and budget_id else None,
         currency=_text(payload, "currencyCode"),
         budget_name=_text(payload, "budgetDisplayName"),
         interval_start=_text(payload, "costIntervalStart"),
@@ -130,6 +141,12 @@ def check_target(bucket: str | None) -> str:
     return bucket
 
 
+def check_budget_id(budget_id: str | None) -> str:
+    if not budget_id:
+        raise ValueError("BUDGET_ID is not set")
+    return budget_id
+
+
 def strip_public(
     bindings: Iterable[Mapping[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
@@ -151,13 +168,19 @@ def strip_public(
 
 def handle(
     event_data: Any,
-    target: str | None,
     open_bucket: Callable[[str], BucketIam],
     *,
+    target: str | None,
+    budget_id: str | None,
     event_id: str | None = None,
 ) -> dict[str, Any]:
     """Act on one notification; the structured log record of what happened. Never raises."""
     record: dict[str, Any] = {"event_id": event_id, "bucket": target, "kill_ratio": str(KILL_RATIO)}
+    try:
+        bucket = check_target(target)
+        expected = check_budget_id(budget_id)
+    except ValueError as error:
+        return _done(record, "CRITICAL", "refused", f"misconfigured, so no message is acted on: {error}")
     try:
         notification = parse_notification(event_data)
     except MalformedMessage as error:
@@ -165,17 +188,21 @@ def handle(
     record.update(
         cost_amount=str(notification.cost),
         budget_amount=str(notification.budget),
+        budget_id=notification.budget_id,
         currency=notification.currency,
         budget_display_name=notification.budget_name,
         cost_interval_start=notification.interval_start,
         alert_threshold_exceeded=notification.alert_threshold,
     )
+    if notification.budget_id != expected:
+        return _done(
+            record,
+            "WARNING",
+            "malformed",
+            f"ignored a message from budget {notification.budget_id!r}, not the configured BUDGET_ID",
+        )
     if not notification.trips:
         return _done(record, "INFO", "below_threshold", "spend is below the kill threshold")
-    try:
-        bucket = check_target(target)
-    except ValueError as error:
-        return _done(record, "CRITICAL", "refused", f"spend reached the kill threshold, but {error}")
     tripped = "spend reached the kill threshold"
     try:
         removed = _make_private(open_bucket(bucket))
