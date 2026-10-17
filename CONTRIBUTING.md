@@ -18,6 +18,18 @@ every contributor, human or agent. **Read it before writing code.** It is short 
    | The Pan-UKB evidence slice | [`docs/panukb-architecture.md`](docs/panukb-architecture.md) |
    | The population registry, observations, surfaces, burden | [`docs/scientific-engineering-objectives.md`](docs/scientific-engineering-objectives.md) |
    | The board, labels, or status | [`docs/board-conventions.md`](docs/board-conventions.md) |
+   | Published data: artifacts, validation outputs, releases | [`docs/data-store.md`](docs/data-store.md) — the public data store, its manifests and the fetch and publish tools |
+
+## Getting the code and the data
+
+```bash
+git clone --filter=blob:none https://github.com/genomeOS/genomeOS.git
+```
+
+`--filter=blob:none` skips the large data files that older commits still carry. Published data is not
+in git. It lives in the public data store, and `python scripts/fetch_data.py` downloads any part of it
+into `data/` over HTTPS, with no credentials, checking every file's sha256 against the committed
+release manifest. See [`docs/data-store.md`](docs/data-store.md).
 
 ## Check the issues first — open *and* closed
 
@@ -73,6 +85,9 @@ broken build and can be cited before anyone notices.
   copy a paper's country or coordinates into an evidence ledger.
 - **Record source terms.** A completed check finding no explicit restriction is
   `no_restriction_found`; a check that did not happen is `not_checked`. The difference matters.
+- **Generated data is published, not committed.** New artifacts, validation outputs and other
+  generated files go into a new data-store release (`scripts/build_data_release.py`; a maintainer
+  uploads it). Only the release manifest and hand-curated, diff-reviewed inputs are committed.
 
 ## Filing work
 

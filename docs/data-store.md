@@ -1,13 +1,26 @@
-# Local data and model store
+# Data store
 
 What this project holds, where, and which parts are durable. Written because three separate pod
 runs had their output destroyed, and because most of what the pipeline produces is deliberately
 not in git.
 
+**Everything published lives in the public GCS data store** (data store design 2026-10-17, #468).
+Anyone can download and verify it without credentials:
+
+```bash
+export GENOMEOS_DATA_BASE_URL=https://storage.googleapis.com/<bucket>/   # see "Public data store"
+python scripts/fetch_data.py              # newest release into data/, every file sha256-checked
+```
+
+Git keeps one manifest per release, `data/releases/<release>.json`, listing every object's path,
+bytes, sha256 and source terms. Clone with `git clone --filter=blob:none` to skip the data blobs
+that older commits still carry (history was not rewritten).
+
 ## Layout
 
 ```
 data/
+  releases/<release>.json               committed: the data-store manifest for each release
   raw/                                  fetched sources — gitignored, re-fetchable by script
     map_hbs_surveys.csv                 scripts/fetch_map_hbs.py --layer hbs
     map_g6pd_surveys.csv                scripts/fetch_map_hbs.py --layer g6pd
@@ -17,10 +30,11 @@ data/
     map_hbs_surveys.csv                 HbS rows plus explicit bounding-disc support evidence
   store/
     fits/       <variant>.fit.pkl       trained models — a CACHE, not an artifact (see below)
-    artifacts/  <variant>__<model>__<data>/
+    artifacts/  <variant>__<model>__<data>/      in the data store; fetched, not tracked
                   cells.parquet         the citable per-cell surface (§5, §6)
                   manifest.json         what was published, and under what assumptions
-    INVENTORY.json                      checksums of everything above
+    INVENTORY.json                      checksums of what was on the publishing machine
+  validation/                           held-out validation evidence; in the data store
 reference/                              committed: Natural Earth countries (1:110m, and the 1:50m
                                         admin-0 source of the Atlas borders), Piel 2013 estimates
 tests/fixtures/                         committed: tiny, hand-checkable inputs
@@ -29,12 +43,15 @@ docs/figures/                           committed: review figures
 
 ## What is durable and what is not
 
-| | in git | re-creatable | notes |
+| | in git | in the data store | notes |
 |---|---|---|---|
-| `reference/`, `tests/fixtures/`, `docs/figures/` | **yes** | — | small, reviewable, diffable |
-| `data/raw/` | no | **yes**, by script | sources are versioned upstream; a committed copy goes stale silently |
-| `data/store/fits/*.pkl` | no | yes, by refitting | **~100 MB each** and environment-coupled |
-| `data/store/artifacts/` | **yes** | yes, from a fit | 1.1 MB parquet per variant — the citable output |
+| `reference/`, `tests/fixtures/`, `docs/figures/` | **yes** | no | small, reviewable, diffable |
+| `data/releases/*.json` | **yes** | **yes** (`manifests/`) | the record of what each release published |
+| `data/registry/`, `data/sources/`, `data/raw/afnd_populations.tsv`, `data/store/{catalog-metadata,INVENTORY}.json` | **yes** | **yes** | hand-curated inputs, reviewed by diff |
+| `data/store/artifacts/` | no (since 2026-10-17) | **yes** | the citable output; immutable once released |
+| `data/validation/` | no (since 2026-10-17) | **yes** | held-out validation evidence |
+| `data/raw/` (other files) | no | not yet (phase 2) | sources are versioned upstream; re-fetchable by script |
+| `data/store/fits/*.pkl` | no | **never** | pickles: environment-coupled, and loading one executes code |
 
 ## A fit is not an artifact
 
@@ -42,8 +59,9 @@ docs/figures/                           committed: review figures
 repeat. That is a **cache**: pickle is coupled to the installed PyMC and pytensor, and it executes
 arbitrary code on load, so it can be neither archival nor shared. It is also large — the HbS fit is
 **121 MB** against a **1.1 MB** artifact, a 110x difference, because the posterior carries a draw
-of `f`, `p` and `freq_pred` for every observation. The fits stay local; the artifacts are
-committed.
+of `f`, `p` and `freq_pred` for every observation. The fits stay local and are **never** published to
+the data store (`build_data_release.py` refuses a pickle); the artifacts are. Publishing trained
+models needs a safe export format first (data store design §8).
 
 The artifact is `store/artifacts/.../cells.parquet` — per-cell posterior summaries in plain
 columns, readable by anything that reads parquet, and what §5 means when it says the read API
@@ -65,6 +83,11 @@ with:
 python scripts/build_atlas_catalog.py --source data/store/artifacts \
     --metadata data/store/catalog-metadata.json --out data/serving/atlas-v1
 ```
+
+A `--source` under `data/` is resolved through the data store first: every released artifact under it
+is fetched and sha256-verified (`GENOMEOS_DATA_BASE_URL` must be set unless they are already local).
+`export_atlas_web.py --store data/store` does not fetch by itself; run
+`python scripts/fetch_data.py --prefix store/` before it.
 
 The command refuses to replace an existing output, validates entity IDs, row counts and H3
 resolutions, adds only mechanical H3 centre coordinates, checks that the catalog pins exactly one
@@ -123,7 +146,12 @@ python scripts/build_surfaces.py --hbs data/curated/map_hbs_surveys.csv \
 python scripts/publish_artifacts.py --fits data/store/fits --out data/store/artifacts \
     --hbs data/curated/map_hbs_surveys.csv --g6pd data/raw/map_g6pd_surveys.csv
 python scripts/store_inventory.py --root data --out data/store/INVENTORY.json
+python scripts/fetch_data.py                              # every released file, so the new release
+python scripts/build_data_release.py --release <YYYY-MM-DD>   # lists them all; then "Public data store"
 ```
+
+`publish_artifacts.py` refuses an artifact directory that any committed release already holds, even
+with `--overwrite`: a released artifact is cited, so a refit publishes under a new `model_version`.
 
 The HbS fetch command retains the untouched vendor export as raw evidence. That area-only export
 intentionally fails the HbS adapter: an area class cannot establish a bounding radius from the
@@ -198,9 +226,50 @@ byte-identical: their SHA-256 values are in the catalog and in every citation, a
 is a new publication, not a re-encode. `scripts/build_atlas_e2e_fixture.py --from-dir <export-dir>`
 regenerates the browser-test fixture from the same tree.
 
-## Known gap
+## Public data store
 
-The **artifacts and the inventory are committed**, so a published surface now survives this
-laptop. The **fits (217 MB) and the AFND harvest (36 MB of cached pages) are not** — they are
-re-creatable by script, and `INVENTORY.json` makes their loss *detectable* rather than
-*survivable*. Remote storage — #33 specifies GCS — is the actual fix and is not built.
+Every file a release lists is served from a dedicated public bucket, separate from the web-data bucket
+above (data store design 2026-10-17 §3): raw bytes at `releases/<release>/<path>`, the manifest copy at
+`manifests/<release>.json`, `Cache-Control: public, max-age=31536000, immutable`, and the sha256 in
+object metadata. Keys never change meaning; a later release reuses an earlier key for a byte-identical
+file, and the builder refuses a released artifact whose bytes changed. The bucket name and project are
+never committed (`docs/repo-gcloud-auth.md`).
+
+**Reading** needs no credentials: set `GENOMEOS_DATA_BASE_URL` to
+`https://storage.googleapis.com/<bucket>/` and run `scripts/fetch_data.py`. Downloads stream into
+`data/.fetch-partial/`, are checked against the manifest's byte count and sha256, and only then are
+renamed into place; a local file that differs is a hard error and is never overwritten. Without the
+repository, `manifests/<release>.json` in the bucket is the same manifest.
+
+```bash
+python scripts/fetch_data.py --list                      # what the newest release holds
+python scripts/fetch_data.py --prefix validation/        # one subtree
+python scripts/fetch_data.py --verify-local              # hash local files against the manifest
+python scripts/fetch_data.py --verify-remote             # GET and hash every object; writes nothing
+```
+
+**Publishing a release** (maintainers, with the repository-local gcloud configuration):
+
+```bash
+python scripts/gcloud_repo.py auth login
+python scripts/gcloud_repo.py init --account <account> --project <project>
+export GENOMEOS_GCP_PROJECT=<project> GENOMEOS_DATA_BUCKET=<bucket>
+python scripts/fetch_data.py                                       # the previous release, locally
+python scripts/build_data_release.py --release <YYYY-MM-DD>        # commit data/releases/<release>.json
+python scripts/provision_data_store_bucket.py --dry-run            # idempotent; first time only
+python scripts/provision_data_store_bucket.py
+python scripts/publish_data_store.py --dry-run
+python scripts/publish_data_store.py
+GENOMEOS_DATA_BASE_URL="https://storage.googleapis.com/$GENOMEOS_DATA_BUCKET/" \
+  python scripts/fetch_data.py --verify-remote
+```
+
+Publishing checks every local file against the manifest, describes every key before uploading
+anything, uploads absent objects with `--if-generation-match=0`, skips identical ones, treats any
+other existing object as a hard error, verifies size, md5 and metadata after each upload, and uploads
+the manifest copy last. Nothing is ever deleted or overwritten.
+
+**What is not published yet.** Fits are pickles and are never published until a safe export format
+exists. The raw third-party harvests (MAP WFS exports, AFND frequencies and page caches, gnomAD, the
+WorldPop grid, the external caches) are phase 2. Until then they live locally and in the interim
+Hugging Face mirror (`scripts/sync_store.py`).

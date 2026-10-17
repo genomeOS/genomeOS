@@ -102,8 +102,24 @@ background; there is a glossary at the end.
 | [Pan-UKB architecture](docs/panukb-architecture.md) | The serving model for the GWAS evidence layer |
 | [Board conventions](docs/board-conventions.md) | Labels, priorities, milestones, automation |
 | [Deployment guide](docs/deployment-gcp.md) · [gcloud wrapper](docs/repo-gcloud-auth.md) | GCP operations |
+| [Data store](docs/data-store.md) | Where the data lives (a public bucket, not git) and how to fetch and verify it |
 | [Dataset assessment (#3)](https://github.com/genomeOS/genomeOS/issues/3) | Every candidate data source, scored — the upstream document for the whole design |
 | [Prior art review (#4)](https://github.com/genomeOS/genomeOS/discussions/4) | Everything that has tried this before, and what is genuinely unbuilt |
+
+## Getting the data
+
+The data is open: the fitted surfaces, validation evidence and curated inputs are in a public data
+store, with no credentials needed. Git keeps only a checksummed manifest per release
+(`data/releases/`). Clone without the historical data blobs, then fetch what you need:
+
+```bash
+git clone --filter=blob:none https://github.com/genomeOS/genomeOS.git && cd genomeOS
+export GENOMEOS_DATA_BASE_URL=https://storage.googleapis.com/<bucket>/   # see docs/data-store.md
+python scripts/fetch_data.py                 # every file sha256-verified against the manifest
+```
+
+Details, including what is not published yet (trained models, raw third-party harvests), are in
+[the data store guide](docs/data-store.md).
 
 ## Contributing
 

@@ -50,14 +50,17 @@ No rank-uniformity or negative-control-rejection test was run on this pilot.
   mathematical error bound. Full-chain h ESS and MCSE remain `not_computed`.
 
 All identities, truths, fit diagnostics, ranks and saved predictive metrics are
-retained in the [inspection extraction](../../data/validation/b0h-timing-20260910-01-inspection.json),
-with the [original debug records](../../data/validation/b0h-timing-20260910-01/debug)
-and [arrays](../../data/validation/b0h-timing-20260910-01/arrays).
+retained in the inspection extraction (`data/validation/b0h-timing-20260910-01-inspection.json`),
+with the original debug records (`data/validation/b0h-timing-20260910-01/debug`)
+and arrays (`data/validation/b0h-timing-20260910-01/arrays`). Since 2026-10-17 these files are in
+the public data store rather than in git (#468); fetch them, sha256-verified, with
+`python scripts/fetch_data.py --prefix validation/b0h-timing-20260910-01` (see
+[`docs/data-store.md`](../data-store.md)).
 
 ## Whole-call timings
 
 Seconds rounded to three decimals below; exact integer nanoseconds are in the
-[original timing report](../../data/validation/b0h-timing-20260910-01/report.json).
+original timing report (`data/validation/b0h-timing-20260910-01/report.json`, in the data store).
 Tuple fields are `(track, study, case, replicate)`. These are different datasets,
 not repeated timing replicates of one workload.
 
@@ -110,7 +113,7 @@ The first requested pod was available. Linux Python 3.12.3 used the frozen
 project requirements plus constrained CUDA12 JAX and CuPy wheels. Both actual
 device probes were float64; JAX reported platform `gpu`, with explicit
 `JAX_PLATFORMS=cuda`, `JAX_ENABLE_X64=1`, and preallocation disabled.
-The [observed environment](../../data/validation/b0h-timing-20260910-01-environment.txt)
+The observed environment (`data/validation/b0h-timing-20260910-01-environment.txt`, in the data store)
 records all 89 installed package versions; it is not a project-lock change.
 Setup used the documented [JAX CUDA12 installation path](https://docs.jax.dev/en/latest/installation.html)
 and unset inherited `LD_LIBRARY_PATH` without disabling compatibility checks.
