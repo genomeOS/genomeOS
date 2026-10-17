@@ -19,6 +19,12 @@ Reads the fits `build_surfaces.py` saved and writes the immutable parquet each v
 be cited as. Separated from fitting on purpose: fitting is expensive and environment-coupled,
 publishing is cheap and must be repeatable, and a figure or a national rollup should read the
 artifact rather than re-running NUTS.
+
+Published artifacts live in the public data store, not in git (data store design 2026-10-17). A
+local `data/store/artifacts` may therefore be incomplete, so publishing there also refuses any
+directory a committed release already holds, even with `--overwrite`: immutability may not depend on
+what happens to be on this disk. New directories reach the store through
+`scripts/build_data_release.py` and `scripts/publish_data_store.py`.
 """
 
 from __future__ import annotations
@@ -47,8 +53,10 @@ from genomeos.surfaces.prior import PRIOR_DRAWS, PRIOR_NORMALIZATION  # noqa: E4
 
 try:
     from scripts.build_population_grid import read_population_grid  # noqa: E402
+    from scripts.fetch_data import DATA, released_artifact_dirs  # noqa: E402
 except ModuleNotFoundError:  # Direct `python scripts/publish_artifacts.py` entry.
     from build_population_grid import read_population_grid  # noqa: E402
+    from fetch_data import DATA, released_artifact_dirs  # noqa: E402
 
 LAYERS = {"hbs": map_surveys.load, "g6pd": map_g6pd.load}
 
@@ -71,6 +79,24 @@ def publication_coordinates(
     cells = publication_target_cells(population_grid)
     centres = np.asarray([h3.cell_to_latlng(cell) for cell in cells], dtype=float)
     return cells, centres[:, 0], centres[:, 1]
+
+
+def _directory_name(variant_id: str, args) -> str:
+    return f"{variant_id.replace(':', '__')}__{args.model_version}__{args.data_version}"
+
+
+def refuse_released(out: Path, names: list[str]) -> None:
+    """Refuse, before any work, a directory a committed data-store release already published (§5)."""
+    if Path(out).resolve() != (DATA / "store" / "artifacts").resolve():
+        return
+    released = released_artifact_dirs()
+    clashes = sorted(name for name in names if name in released)
+    if clashes:
+        raise SystemExit(
+            "already published in the data store, and artifacts are immutable (§5): "
+            + ", ".join(f"{name} (release {released[name]})" for name in clashes)
+            + ". Publish under a new --model-version instead; --overwrite never replaces a released one."
+        )
 
 
 def main() -> None:
@@ -165,6 +191,7 @@ def main() -> None:
             if (args.fits / f"{variant_id.replace(':', '__')}.fit.pkl").exists():
                 jobs.append((str(variant_id), rows.reset_index(drop=True)))
 
+    refuse_released(args.out, [_directory_name(variant_id, args) for variant_id, _ in jobs])
     print(f"publishing {len(jobs)} variants")
     for variant_id, observations in jobs:
         stem = variant_id.replace(":", "__")

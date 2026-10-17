@@ -4,9 +4,12 @@
     python scripts/sync_store.py pull          # hub -> local
     python scripts/sync_store.py status
 
-**Interim storage, deliberately.** §5 wants immutable published artifacts and #33 specifies GCS;
-neither exists yet. This keeps the store in one addressable place until it does, and everything
-here is plain files, so migrating to GCS later is a copy rather than a rewrite.
+**A secondary mirror now.** The canonical home of every released file under ``data/`` is the public
+GCS data store (data store design 2026-10-17): ``scripts/fetch_data.py`` reads it and
+``scripts/publish_data_store.py`` writes it. This hub dataset still holds what that store does not:
+the fits (pickles, never published to GCS; design §8), the population grid, the external caches and
+the raw harvests (phase 2). ``push-atlas-release`` resolves each artifact directory through
+``fetch_data.require_local``, so it works from a clone that never had the artifacts in git.
 
 **Why a hub dataset rather than a Runpod network volume.** Volumes are datacenter-scoped, and the
 account's existing ones show the cost of that: the same logical cache duplicated as
@@ -40,7 +43,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.fetch_data import require_local  # noqa: E402
 
 REPO_ID = "bschilder/genomeos-data"
 REPO_TYPE = "dataset"
@@ -133,7 +143,7 @@ def push_atlas_release(dry_run: bool) -> None:
     targets = atlas_release_targets()
     api = None if dry_run else _api()
     for local, remote in targets:
-        path = Path(local)
+        path = require_local(Path(local))
         if not path.exists():
             raise FileNotFoundError(f"Atlas release input is absent: {local}")
         size = (

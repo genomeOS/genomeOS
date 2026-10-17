@@ -23,10 +23,16 @@ genetic variation where every number can be traced back to the measurement behin
 It holds three kinds of thing: **source tables** the pipeline ingests, **trained models**, and the
 **published per-cell surfaces** those models produce.
 
-> **This is interim storage.** The project's artifact home is GCS
-> ([#33](https://github.com/bschilder/genomeOS/issues/33)); this dataset exists so the store lives
-> in one addressable place until that is set up. Everything here is plain files, so the migration
-> is a copy.
+> **This is a secondary mirror.** Since 2026-10-17 the project's data home is the public GCS data
+> store at `https://storage.googleapis.com/genomeos-atlas-data/` ([#468](https://github.com/genomeOS/genomeOS/issues/468)): every released file under the
+> repository's `data/` (the surface artifacts, validation evidence, curated inputs) at an immutable,
+> release-versioned path, with a committed manifest of sha256 checksums. Fetch and verify it with no
+> credentials using
+> [`scripts/fetch_data.py`](https://github.com/genomeOS/genomeOS/blob/main/scripts/fetch_data.py);
+> see [`docs/data-store.md`](https://github.com/genomeOS/genomeOS/blob/main/docs/data-store.md).
+> This dataset still holds what the GCS store does not: the pickled fits (never published there,
+> because loading a pickle executes code), the population grid, the external caches and the raw
+> harvests.
 
 > **Nothing here is validated science yet.** No golden test has passed. Held-out validation of the
 > HbS surface shows it predicting held-out surveys only marginally better than a global constant

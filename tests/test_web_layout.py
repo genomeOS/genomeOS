@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from genomeos.publication.data_release import DATA_STORE_BASE_URL, DATA_STORE_BUCKET
 from genomeos.publication.web_layout import (
     WebLayoutError,
     apply_download_layout,
@@ -447,9 +448,41 @@ def test_bucket_url_hygiene_passes_placeholders_and_third_party_data(text: str) 
     assert _concrete_bucket_names(text) == []
 
 
+# Owner decision 2026-10-17 (docs/repo-gcloud-auth.md): a public, read-only bucket's URL may be committed.
+# Exactly the data store's committed base URL (and paths under it) is allowed; every other form of its
+# name (gs://, virtual-hosted, the JSON API, the console) and every other bucket still fails.
+COMMITTED_PUBLIC_URLS = (DATA_STORE_BASE_URL,)
+
+
+def _without_committed_public_urls(line: str) -> str:
+    for url in COMMITTED_PUBLIC_URLS:
+        line = line.replace(url, "")
+    return line
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        f"gs://{DATA_STORE_BUCKET}/releases/2026-10-17/a.json",
+        f"https://{DATA_STORE_BUCKET}.storage.googleapis.com/releases/2026-10-17/a.json",
+        f"https://storage.googleapis.com/storage/v1/b/{DATA_STORE_BUCKET}/o",
+        f"https://console.cloud.google.com/storage/browser/{DATA_STORE_BUCKET}",
+        f"{DATA_STORE_BASE_URL}a.json and https://storage.googleapis.com/{CONCRETE}/",
+    ],
+)
+def test_only_the_committed_public_url_form_is_exempt(text: str) -> None:
+    assert _concrete_bucket_names(_without_committed_public_urls(text)) != []
+
+
+def test_the_committed_public_url_is_exempt() -> None:
+    line = f"GENOMEOS_DATA_BASE_URL={DATA_STORE_BASE_URL} and {DATA_STORE_BASE_URL}manifests/2026-10-17.json"
+    assert _concrete_bucket_names(line) == [DATA_STORE_BUCKET, DATA_STORE_BUCKET]
+    assert _concrete_bucket_names(_without_committed_public_urls(line)) == []
+
+
 def test_no_concrete_bucket_url_is_tracked() -> None:
-    """No bucket name of the project's is committed, in any URL form (design §C.1.4;
-    docs/repo-gcloud-auth.md)."""
+    """No bucket name of the project's is committed in any URL form, except the public data store's
+    committed base URL (design §C.1.4; data store design 2026-10-17 §3 C8; docs/repo-gcloud-auth.md)."""
     found = subprocess.run(
         [
             "git",
@@ -465,4 +498,8 @@ def test_no_concrete_bucket_url_is_tracked() -> None:
         check=False,
     )
     assert found.returncode in (0, 1), found.stderr
-    assert [line for line in found.stdout.splitlines() if _concrete_bucket_names(line)] == []
+    assert [
+        line
+        for line in found.stdout.splitlines()
+        if _concrete_bucket_names(_without_committed_public_urls(line))
+    ] == []
