@@ -1,0 +1,4 @@
+# Upload only the function's own files (scripts/provision_budget_kill_switch.py SOURCE_FILES).
+.gcloudignore
+__pycache__/
+*.pyc

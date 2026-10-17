@@ -293,8 +293,11 @@ the design. Git keeps one manifest per release, `data/releases/<release>.json`.
 - Never commit a new artifact, validation output or other generated data file under `data/`. Publish
   it in a new release (`build_data_release.py`, then `publish_data_store.py` through the gcloud
   wrapper). A released artifact is immutable; the tools refuse to change one. Today a maintainer runs
-  the upload; it is the base for planned CI automation (refit on data change, upload through
-  GitHub→GCP Workload Identity Federation).
+  the upload, impersonating the upload-only `data-store-publisher` account; it is the base for planned
+  CI automation (refit on data change, upload through GitHub→GCP Workload Identity Federation).
+- Cloud spend has a monthly budget, and at 150% of it a kill switch makes the data-store bucket
+  private until the owner restores it. If `fetch_data.py` suddenly gets permission errors, check
+  [`docs/cost-controls.md`](docs/cost-controls.md) before debugging anything else.
 - A public, read-only bucket's URL may be committed. Project ids and numbers, accounts and credentials
   may not ([`docs/repo-gcloud-auth.md`](docs/repo-gcloud-auth.md)).
 - Never publish a pickle (a fitted model's `.fit.pkl`). Loading one from the internet executes code.

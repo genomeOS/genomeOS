@@ -70,6 +70,20 @@ def test_dry_run_plans_every_upload_and_runs_nothing(
     assert "--if-generation-match=0" in out and " rm " not in out and "delete" not in out
 
 
+def test_every_command_runs_as_the_impersonated_publisher(
+    release: Release, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The runbook publishes with CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT (docs/data-store.md, #480);
+    the wrapper must hand it to every gcloud call, reads included."""
+    publisher = "data-store-publisher@example-project.iam.gserviceaccount.com"
+    monkeypatch.setenv("CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT", publisher)
+    fake = install_fake_gcloud(tmp_path / "gcloud", monkeypatch, EMPTY_BUCKET)
+    assert _run(release) == 0
+    verbs = {call[1] for call in fake.calls()}
+    assert verbs == {"objects", "cp"}, "describes and no-overwrite uploads only"
+    assert fake.impersonations() == {publisher}
+
+
 def test_publish_uploads_raw_bytes_with_identity_metadata_then_the_manifest(
     release: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -23,11 +23,12 @@ ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = ROOT / "scripts" / "gcloud_repo.py"
 # A 404 counts only inside gcloud's own command error, which names the command:
 # "ERROR: (gcloud.storage.objects.describe) gs://b/o not found: 404." or, for compute, "ERROR:
-# (gcloud.compute.addresses.describe) Could not fetch resource:\n - The resource '…' was not found".
+# (gcloud.compute.addresses.describe) Could not fetch resource:\n - The resource '…' was not found", or,
+# for IAM and Pub/Sub, the status "ERROR: (gcloud.iam.service-accounts.describe) NOT_FOUND: Unknown …".
 # A gcloud that is missing or broken (a FileNotFoundError or ModuleNotFoundError traceback, a shell's
 # "gcloud: not found", "ERROR: gcloud crashed (…)") is a failure, never an absent resource.
 _GCLOUD_ERROR = re.compile(r"^ERROR: \(gcloud\.[\w.-]+\)", re.MULTILINE)
-_NOT_FOUND = re.compile(r"\b404\b|\bnot found\b", re.IGNORECASE)
+_NOT_FOUND = re.compile(r"\b404\b|\bnot found\b|\bNOT_FOUND\b", re.IGNORECASE)
 _PRECONDITION = re.compile(r"\b412\b|precondition", re.IGNORECASE)  # "HTTPError 412: …"
 
 

@@ -1,0 +1,3 @@
+# The Cloud Run function's only direct dependencies, pinned exactly (docs/cost-controls.md).
+functions-framework==3.10.2
+google-cloud-storage==3.15.1

@@ -3,11 +3,14 @@
 
 It implements exactly the commands scripts/provision_atlas_web_bucket.py,
 scripts/publish_atlas_web.py, scripts/provision_data_store_bucket.py and scripts/publish_data_store.py
-issue and exits 2 on anything else, so a script that drifts to an
+issue; the IAM, Pub/Sub, Cloud Functions and billing commands of the budget kill switch and the
+data-store publisher are in tests/fake_gcloud_platform.py, which shares this state file. It exits 2 on
+anything else, so a script that drifts to an
 untested command fails its tests instead of passing them. Error text mirrors gcloud 498's formats
 ("gs://… not found: 404.", "HTTPError 412: …"). State is the JSON file named by FAKE_GCLOUD_STATE;
 every invocation is appended to the JSON-lines file named by FAKE_GCLOUD_LOG with the CLOUDSDK_CONFIG
-it saw, which proves the call went through scripts/gcloud_repo.py.
+it saw, which proves the call went through scripts/gcloud_repo.py, and the service account it was told
+to impersonate (CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT), if any.
 
 State keys: buckets{name: resource + "bindings"}, objects{"bucket/name": resource + "data_b64"},
 org_policies{constraint: policy}, org_policy_errors[constraint], race{"bucket/name": resource},
@@ -26,6 +29,8 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+
+import fake_gcloud_platform  # tests/, beside this file: the script's own directory is on sys.path
 
 UNSUPPORTED = 2
 DESCRIBE_FLAGS = {"raw": "", "format": "json"}
@@ -360,13 +365,18 @@ def _dispatch(state: dict[str, Any], positional: list[str], flags: dict[str, str
         case ["compute", collection, "create", name]:
             return _compute_create(state, collection, name, flags)
         case _:
-            return _unsupported(positional, flags)
+            return fake_gcloud_platform.dispatch(state, positional, flags)
 
 
 def main(argv: list[str]) -> int:
     state_path = Path(os.environ["FAKE_GCLOUD_STATE"])
     with open(os.environ["FAKE_GCLOUD_LOG"], "a", encoding="utf-8") as log:
-        log.write(json.dumps({"argv": argv, "cloudsdk_config": os.environ.get("CLOUDSDK_CONFIG")}) + "\n")
+        record = {
+            "argv": argv,
+            "cloudsdk_config": os.environ.get("CLOUDSDK_CONFIG"),
+            "impersonate": os.environ.get("CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT"),
+        }
+        log.write(json.dumps(record) + "\n")
     state = json.loads(state_path.read_text(encoding="utf-8"))
     positional, flags = _split(argv)
     code = _dispatch(state, positional, flags)

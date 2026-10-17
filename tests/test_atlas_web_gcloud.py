@@ -122,12 +122,14 @@ def test_a_test_without_the_fake_cannot_reach_the_real_gcloud() -> None:
     [
         (1, STORAGE_404, True),
         (1, COMPUTE_404, True),
+        (1, "ERROR: (gcloud.iam.service-accounts.describe) NOT_FOUND: Unknown service account.\n", True),
         (0, STORAGE_404, False),
         (1, FILE_NOT_FOUND, False),
         (1, MODULE_NOT_FOUND, False),
         (127, SHELL_NOT_FOUND, False),
         (1, CRASHED, False),
         (1, "ERROR: (gcloud.storage.objects.describe) HTTPError 403: permission denied\n", False),
+        (1, "ERROR: (gcloud.functions.describe) PERMISSION_DENIED: Cloud Functions API is disabled\n", False),
     ],
 )
 def test_only_gcloud_s_own_command_error_can_report_an_absent_resource(

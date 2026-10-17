@@ -255,28 +255,51 @@ python scripts/fetch_data.py --verify-local              # hash local files agai
 python scripts/fetch_data.py --verify-remote             # GET and hash every object; writes nothing
 ```
 
-**Publishing a release.** Today a maintainer runs this with the repository-local gcloud
-configuration. It is the current mechanism and the base for the planned automation, in which CI
-refits when a dataset changes and uploads through GitHub→GCP Workload Identity Federation (data store
-design §7). That automation is not built yet.
+**Publishing a release.** A maintainer uploads as the service account `data-store-publisher`,
+impersonated from their repository-local login. It has no key. On this bucket it holds
+`roles/storage.objectCreator` plus the custom role `dataStoreLister` (exactly `storage.objects.list`).
+So it can add new objects and list their names, but it cannot overwrite or delete an object or change
+a setting. The list permission is needed because `gcloud storage cp` lists the destination key as a
+prefix before every upload of a new key, and that listing fails without it.
+`publish_data_store.py` reads object metadata through the bucket's public read grant. This is the current mechanism and the
+base for the planned automation, in which CI refits when a dataset changes and uploads through
+GitHub→GCP Workload Identity Federation (data store design §7). That automation is not built yet.
+
+Once, as the owner (admin rights; `<maintainer>` is the account that will publish):
+
+```bash
+export GENOMEOS_GCP_PROJECT=<project>
+python scripts/provision_data_store_bucket.py --dry-run            # idempotent; changes only what differs
+python scripts/provision_data_store_bucket.py
+python scripts/provision_data_store_publisher.py --account <maintainer> --dry-run
+python scripts/provision_data_store_publisher.py --account <maintainer>
+```
+
+For every release, as the maintainer:
 
 ```bash
 python scripts/gcloud_repo.py auth login
-python scripts/gcloud_repo.py init --account <account> --project <project>
+python scripts/gcloud_repo.py init --account <maintainer> --project <project>
 export GENOMEOS_GCP_PROJECT=<project>
 python scripts/fetch_data.py                                       # the previous release, locally
 python scripts/build_data_release.py --release <YYYY-MM-DD>        # commit data/releases/<release>.json
-python scripts/provision_data_store_bucket.py --dry-run            # idempotent; changes only what differs
-python scripts/provision_data_store_bucket.py
+export CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT=data-store-publisher@$GENOMEOS_GCP_PROJECT.iam.gserviceaccount.com
 python scripts/publish_data_store.py --dry-run
-python scripts/publish_data_store.py
+python scripts/publish_data_store.py                               # gcloud warns it is impersonating; expected
+unset CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT
 python scripts/fetch_data.py --verify-remote                       # anonymous, every object
 ```
 
 Publishing checks every local file against the manifest, describes every key before uploading
 anything, uploads absent objects with `--if-generation-match=0`, skips identical ones, treats any
 other existing object as a hard error, verifies size, md5 and metadata after each upload, and uploads
-the manifest copy last. Nothing is ever deleted or overwritten.
+the manifest copy last. Nothing is ever deleted or overwritten. The identity enforces this as well:
+even without the precondition, replacing an object needs `storage.objects.delete`, which the
+publisher does not have.
+
+If the budget kill switch has made the bucket private ([`cost-controls.md`](cost-controls.md)), the
+first metadata read fails with a permission error and nothing is uploaded. Re-enable public access
+first.
 
 **What is not published yet.** Fits are pickles and are never published until a safe export format
 exists. The raw third-party harvests (MAP WFS exports, AFND frequencies and page caches, gnomAD, the

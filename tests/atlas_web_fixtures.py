@@ -131,7 +131,16 @@ def write_dist(root: Path, artifact_base: str, catalog: dict[str, Any] | None = 
 
 
 FAKE_GCLOUD = Path(__file__).with_name("fake_gcloud.py")
-MUTATING_VERBS = {"create", "update", "add-iam-policy-binding", "remove-iam-policy-binding", "cp"}
+MUTATING_VERBS = {
+    "create",
+    "update",
+    "add-iam-policy-binding",
+    "remove-iam-policy-binding",
+    "cp",
+    "enable",
+    "deploy",
+    "undelete",
+}
 
 
 @dataclass(frozen=True)
@@ -157,6 +166,9 @@ class FakeGcloud:
 
     def configs(self) -> set[str | None]:
         return {record["cloudsdk_config"] for record in self._records()}
+
+    def impersonations(self) -> set[str | None]:
+        return {record.get("impersonate") for record in self._records()}
 
     def mutating_calls(self) -> list[list[str]]:
         return [call for call in self.calls() if MUTATING_VERBS & set(call[:4])]

@@ -19,6 +19,7 @@ every contributor, human or agent. **Read it before writing code.** It is short 
    | The population registry, observations, surfaces, burden | [`docs/scientific-engineering-objectives.md`](docs/scientific-engineering-objectives.md) |
    | The board, labels, or status | [`docs/board-conventions.md`](docs/board-conventions.md) |
    | Published data: artifacts, validation outputs, releases | [`docs/data-store.md`](docs/data-store.md) — the public data store, its manifests and the fetch and publish tools |
+   | Cloud spend, the budget, the data-store kill switch | [`docs/cost-controls.md`](docs/cost-controls.md) |
 
 ## Getting the code and the data
 
