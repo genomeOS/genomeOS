@@ -165,3 +165,26 @@ def test_a_reused_key_must_already_exist(
     assert _run(release) == 1
     assert "earlier release" in capsys.readouterr().err
     assert fake.mutating_calls() == []
+
+
+def test_matching_sha256_metadata_over_different_stored_bytes_is_refused(
+    release: Release, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capsys
+) -> None:
+    """The metadata sha256 is the uploader's claim; the server's md5 of the stored bytes must agree."""
+    path = "raw/afnd_populations.tsv"
+    content = FILES[path]
+    forged = base64.b64encode(hashlib.md5(b"other bytes").digest()).decode("ascii")
+    key = _key(path)
+    state = json.loads(json.dumps(EMPTY_BUCKET))
+    state["objects"] = {
+        f"{BUCKET}/{key}": {
+            "name": key,
+            "size": str(len(content)),
+            "md5Hash": forged,
+            "metadata": {"sha256": hashlib.sha256(content).hexdigest()},
+        }
+    }
+    fake = install_fake_gcloud(tmp_path / "gcloud", monkeypatch, state)
+    assert _run(release) == 1
+    assert "server md5Hash" in capsys.readouterr().err
+    assert fake.mutating_calls() == []

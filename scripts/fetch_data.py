@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import sys
@@ -117,16 +118,20 @@ def _stream(url: str, item: dr.ReleaseObject, sink) -> None:
     """Copy ``url`` into ``sink`` (or nowhere), refusing any byte count or digest but the manifest's."""
     digest = hashlib.sha256()
     received = 0
-    with _open(url) as response:
-        if response.headers.get("Content-Encoding"):
-            raise FetchError(f"{url}: served with Content-Encoding {response.headers['Content-Encoding']!r}")
-        while chunk := response.read(CHUNK):
-            received += len(chunk)
-            if received > item.bytes:
-                raise FetchError(f"{item.path}: more than the manifest's {item.bytes} bytes")
-            digest.update(chunk)
-            if sink is not None:
-                sink.write(chunk)
+    try:
+        with _open(url) as response:
+            encoding = response.headers.get("Content-Encoding")
+            if encoding:
+                raise FetchError(f"{url}: served with Content-Encoding {encoding!r}; objects are raw bytes")
+            while chunk := response.read(CHUNK):
+                received += len(chunk)
+                if received > item.bytes:
+                    raise FetchError(f"{item.path}: more than the manifest's {item.bytes} bytes")
+                digest.update(chunk)
+                if sink is not None:
+                    sink.write(chunk)
+    except (OSError, http.client.HTTPException) as error:  # reset, timeout or truncation mid-read
+        raise FetchError(f"GET {url} failed after {received} bytes: {error!r}") from error
     if received != item.bytes:
         raise FetchError(f"{item.path}: received {received} bytes, the manifest says {item.bytes}")
     if digest.hexdigest() != item.sha256:

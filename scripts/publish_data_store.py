@@ -8,12 +8,13 @@ Uploads every object of ``data/releases/<release>.json`` (newest by default) at 
 raw bytes with ``--if-generation-match=0``, its media type, the immutable ``Cache-Control`` and
 ``--custom-metadata=sha256=<hex>``, then the manifest itself at ``manifests/<release>.json``, last.
 
-Identity is the sha256 in object metadata plus the stored size. Every local file is checked against
+Identity is the sha256 in object metadata, the stored size and the md5 GCS computed from the stored
+bytes. Every local file is checked against
 the manifest first, then every key is described before anything is uploaded: absent → upload; present
 with matching identity and no ``Content-Encoding`` → skip; anything else → hard error, never an
 overwrite. A key reused from an earlier release must already exist with that identity. A 412 on upload
-gets the same comparison. After an upload, the stored size, md5, sha256 metadata, media type and
-``Cache-Control`` must equal what was sent. ``--dry-run`` prints every command and the totals and runs
+gets the same comparison. After an upload, the same identity plus the media type and ``Cache-Control``
+must equal what was sent. ``--dry-run`` prints every command and the totals and runs
 none. Nothing is ever deleted. Every command goes through scripts/gcloud_repo.py (the same wrapper as
 the Atlas web bucket's ``publish_atlas_web.py``, whose guard this mirrors).
 """
@@ -119,6 +120,10 @@ def identity_problems(existing: Mapping[str, Any], item: Upload) -> list[str]:
         problems.append(f"metadata sha256 is {metadata.get('sha256')!r}, the manifest says {item.sha256}")
     if str(existing.get("size")) != str(item.bytes):
         problems.append(f"size is {existing.get('size')!r}, the manifest says {item.bytes}")
+    # The sha256 above is metadata the uploader asserted; md5Hash is what GCS computed from the stored
+    # bytes, so it is compared too (a composite object has none, which is refused, never overwritten).
+    if existing.get("md5Hash") != item.md5_b64:
+        problems.append(f"server md5Hash is {existing.get('md5Hash')!r}, the local file's is {item.md5_b64}")
     if existing.get("contentEncoding"):
         problems.append(f"contentEncoding is {existing.get('contentEncoding')!r}; objects are raw bytes")
     return problems
@@ -137,7 +142,6 @@ def verify_upload(url: str, stored: Mapping[str, Any] | None, item: Upload) -> N
     if stored is None:
         raise PublishError(f"{url}: not found right after upload")
     expected = {
-        "md5Hash": item.md5_b64,
         "contentType": item.media_type,
         "cacheControl": dr.IMMUTABLE_CACHE_CONTROL,
     }
