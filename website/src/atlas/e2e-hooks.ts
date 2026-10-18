@@ -1,9 +1,10 @@
 /**
  * Test-only hooks for the e2e build (fast-load design §B.8; #453), with the synthetic World
- * Terrain's probe and peak (terrain draping design, "Test plan"; #483) and the drape stats reader
- * ("Performance budget and measurement"). Each is inert unless the build sets
- * `PUBLIC_ATLAS_E2E_HOOKS=1`, which only `npm run build:e2e` may do (`assertE2eHooks`,
- * lib/catalog-build.ts), so no production build carries them.
+ * Terrain's probe and peak, and the placement readers that find a point above the rendered ground
+ * and a label's clearance over it (terrain draping design, "Test plan" and "Per layer under World
+ * Terrain"; #483), and the drape stats reader ("Performance budget and measurement"). Each is
+ * inert unless the build sets `PUBLIC_ATLAS_E2E_HOOKS=1`, which only `npm run build:e2e` may do
+ * (`assertE2eHooks`, lib/catalog-build.ts), so no production build carries them.
  */
 
 import type { CesiumWidget, TerrainProvider } from 'cesium';
@@ -31,6 +32,22 @@ declare global {
     __atlasSyntheticTerrain?: boolean;
     /** Reads the globe's terrain, lighting and camera, once the synthetic terrain is requested. */
     __atlasTerrainProbe?: () => TerrainProbe;
+    /**
+     * Where a point `aboveGroundMetres` above the rendered (exaggerated) ground at (`lon`, `lat`)
+     * shows, in canvas CSS px; null until that ground has loaded, or off screen. Published with
+     * the probe.
+     */
+    __atlasWindowOf?: (
+      lon: number,
+      lat: number,
+      aboveGroundMetres: number,
+    ) => { x: number; y: number } | null;
+    /**
+     * How far the scene's label reading `text` stands above the rendered ground under it, in
+     * metres; null when no label reads `text` or its ground has not loaded. Published with the
+     * probe.
+     */
+    __atlasLabelClearance?: (text: string) => number | null;
     /** Reads the draped tiles' counts, raster times and resident bytes, once draping has loaded. */
     __atlasDrapeStats?: () => DrapeStats;
   }
