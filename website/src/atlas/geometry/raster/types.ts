@@ -104,6 +104,9 @@ export const OUTLINE_MIN_LEVEL = 3;
 export const RESIDENT_TILE_BYTES = 349_525;
 /** Outline width in texels, linear from `OUTLINE_MIN_LEVEL` to `RASTER_MAX_LEVEL`. */
 export const OUTLINE_WIDTH_TEXELS = [1.5, 2] as const;
+/** The `atlas-surface` layer's own α factor. The layer scales its whole texture by it, so the mask
+ * texels, which the chunk path draws unscaled, store their material α divided by it. */
+export const DRAPED_SURFACE_ALPHA = 0.9;
 
 /** Grid rows by rectangle, with ±360° copies of rows that cross the antimeridian. */
 export interface GridIndex {
