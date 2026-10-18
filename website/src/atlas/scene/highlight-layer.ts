@@ -1,8 +1,16 @@
-/** Hover and persistent-selection highlights for Atlas design §11. */
+/** Hover and persistent-selection highlights for Atlas design §11. Under World
+ * Terrain the outline is a densified ring 300 m above the ground, in the same
+ * PolylineCollection, and it follows Physical relief when re-sampled (terrain
+ * draping design, "Per layer under World Terrain" (highlight), "Exaggeration"
+ * and "Failure modes" (antimeridian cells), #483).
+ */
 
 import {
   Cartesian3,
+  Cartographic,
+  Math as CesiumMath,
   Color,
+  type Globe,
   Material,
   PointPrimitive,
   PointPrimitiveCollection,
@@ -35,6 +43,56 @@ interface HighlightEntry {
 
 const HOVER_DURATION_MS = 160;
 const SURFACE_CLEARANCE_METRES = 5_500;
+/** The grounded outline's height above `globe.getHeight` under World Terrain. */
+export const HIGHLIGHT_GROUND_CLEARANCE_METRES = 300;
+/** Points per boundary edge of the grounded outline, so it follows the relief. */
+export const HIGHLIGHT_EDGE_SEGMENTS = 16;
+
+type Ground = Pick<Globe, 'getHeight'>;
+
+const scratchCartographic = new Cartographic();
+
+/** The rendered ground at a point (radians); 0 (the ellipsoid) where no tile
+ * has loaded. `getHeight` finds no tile beyond ±180°, so the longitude is
+ * wrapped into [−π, π] first. */
+function groundHeight(
+  ground: Ground,
+  longitude: number,
+  latitude: number,
+): number {
+  scratchCartographic.longitude = CesiumMath.negativePiToPi(longitude);
+  scratchCartographic.latitude = latitude;
+  scratchCartographic.height = 0;
+  return ground.getHeight(scratchCartographic) ?? 0;
+}
+
+/** The cell's boundary with HIGHLIGHT_EDGE_SEGMENTS points to an edge, each
+ * HIGHLIGHT_GROUND_CLEARANCE_METRES above the ground under it. Each edge is
+ * unwrapped to its short way round, so a cell across 180° keeps one ring. */
+function groundRing(ground: Ground, h3Index: string): Cartesian3[] {
+  const boundary = h3BoundaryDegrees(h3Index);
+  const positions: Cartesian3[] = [];
+  boundary.forEach(([lon, lat], index) => {
+    const [nextLon, nextLat] = boundary[(index + 1) % boundary.length];
+    const rawDeltaLon = nextLon - lon;
+    const deltaLon = rawDeltaLon - 360 * Math.round(rawDeltaLon / 360);
+    const deltaLat = nextLat - lat;
+    for (let step = 0; step < HIGHLIGHT_EDGE_SEGMENTS; step += 1) {
+      const fraction = step / HIGHLIGHT_EDGE_SEGMENTS;
+      const longitude = CesiumMath.toRadians(lon + deltaLon * fraction);
+      const latitude = CesiumMath.toRadians(lat + deltaLat * fraction);
+      positions.push(
+        Cartesian3.fromRadians(
+          longitude,
+          latitude,
+          groundHeight(ground, longitude, latitude) +
+            HIGHLIGHT_GROUND_CLEARANCE_METRES,
+        ),
+      );
+    }
+  });
+  return positions;
+}
 
 export function highlightStyle(kind: HighlightKind): HighlightStyle {
   return kind === 'hover'
@@ -95,6 +153,7 @@ export class HighlightLayer {
   #elevation = false;
   #exaggeration = 1;
   #earthOpacity = 1;
+  #ground: Ground | null = null;
   #hoverPick: AtlasPick | null = null;
   #selectionPick: AtlasPick | null = null;
   #hoverSequence = 0;
@@ -128,6 +187,17 @@ export class HighlightLayer {
     this.#exaggeration = exaggeration;
     this.#show(this.#hover, this.#hoverPick);
     this.#show(this.#selection, this.#selectionPick);
+  }
+
+  /** Ground the highlights on World Terrain's rendered surface, or `null` for
+   * today's outline at the data's top. Calling it again re-samples the shown
+   * highlights, so they follow relief once Cesium has re-exaggerated the tiles. */
+  setGround(ground: Ground | null): void {
+    this.#ground = ground;
+    if (!this.#hoverPick && !this.#selectionPick) return;
+    if (this.#hoverPick) this.#show(this.#hover, this.#hoverPick);
+    if (this.#selectionPick) this.#show(this.#selection, this.#selectionPick);
+    this.#scene.requestRender();
   }
 
   setElevationStyle(enabled: boolean, exaggeration: number): void {
@@ -207,13 +277,9 @@ export class HighlightLayer {
         this.#hide(entry);
         return;
       }
-      const top = this.#elevation
-        ? height * Math.max(0, this.#exaggeration)
-        : 0;
-      const coordinates = h3BoundaryDegrees(pick.h3Index).flatMap(
-        ([lon, lat]) => [lon, lat, top + SURFACE_CLEARANCE_METRES],
-      );
-      entry.line.positions = Cartesian3.fromDegreesArrayHeights(coordinates);
+      entry.line.positions = this.#ground
+        ? groundRing(this.#ground, pick.h3Index)
+        : this.#raisedRing(pick.h3Index, height);
       entry.line.show = true;
       entry.point.show = false;
       return;
@@ -223,13 +289,19 @@ export class HighlightLayer {
       this.#hide(entry);
       return;
     }
-    const top = surfaceHeightAt(
-      observation,
-      this.#surface,
-      this.#metric,
-      this.#elevation,
-      this.#exaggeration,
-    );
+    const top = this.#ground
+      ? groundHeight(
+          this.#ground,
+          CesiumMath.toRadians(observation.lon),
+          CesiumMath.toRadians(observation.lat),
+        )
+      : surfaceHeightAt(
+          observation,
+          this.#surface,
+          this.#metric,
+          this.#elevation,
+          this.#exaggeration,
+        );
     entry.point.position = Cartesian3.fromDegrees(
       observation.lon,
       observation.lat,
@@ -237,5 +309,17 @@ export class HighlightLayer {
     );
     entry.point.show = true;
     entry.line.show = false;
+  }
+
+  /** Today's outline on the smooth globe: the boundary at the data's top. */
+  #raisedRing(h3Index: string, height: number): Cartesian3[] {
+    const top = this.#elevation ? height * Math.max(0, this.#exaggeration) : 0;
+    return Cartesian3.fromDegreesArrayHeights(
+      h3BoundaryDegrees(h3Index).flatMap(([lon, lat]) => [
+        lon,
+        lat,
+        top + SURFACE_CLEARANCE_METRES,
+      ]),
+    );
   }
 }
