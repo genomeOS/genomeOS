@@ -52,6 +52,32 @@ async function surfaceLayers(
     .length;
 }
 
+/**
+ * The drape stats' tile requests once they have settled: every tile in view loaded, none queued,
+ * and no new request over a second. An outline layer reads as shown from its add, before the
+ * globe has rendered the frames that ask for its tiles, so `tilesLoaded` alone can be stale.
+ */
+async function settledRequests(page: Page): Promise<number> {
+  let last = -1;
+  await expect
+    .poll(
+      async () => {
+        const now = await page.evaluate(() =>
+          window.__atlasTerrainProbe!().tilesLoaded &&
+          window.__atlasDrapeStats!().queueDepth === 0
+            ? window.__atlasDrapeStats!().requested
+            : -1,
+        );
+        const settled = now >= 0 && now === last;
+        last = now;
+        return settled;
+      },
+      { intervals: [1_000], timeout: 60_000 },
+    )
+    .toBe(true);
+  return last;
+}
+
 test.describe('terrain draping @desktop-chromium', () => {
   test.beforeEach(async ({ page }) => {
     test.setTimeout(150_000);
@@ -205,28 +231,16 @@ test.describe('terrain draping @desktop-chromium', () => {
     await expect
       .poll(async () => (await probe(page)).imageryLayers, { timeout: 30_000 })
       .toContain('atlas-outlines');
-    // Every tile in view has loaded, so a later request could only come from the toggle.
-    await expect
-      .poll(
-        () =>
-          page.evaluate(
-            () =>
-              window.__atlasTerrainProbe!().tilesLoaded &&
-              window.__atlasDrapeStats!().queueDepth === 0,
-          ),
-        { timeout: 30_000 },
-      )
-      .toBe(true);
-    const requested = await page.evaluate(
-      () => window.__atlasDrapeStats!().requested,
-    );
+    const requested = await settledRequests(page);
+    // Instant: the toggle only changes the layer's alpha, so it asks the worker for no tile. Under
+    // CI's software WebGL one frame can take a second, so the toggle's own frame gets 10 s.
     await outlines.uncheck();
     await expect
-      .poll(async () => (await probe(page)).imageryLayers, { timeout: 1_000 })
+      .poll(async () => (await probe(page)).imageryLayers, { timeout: 10_000 })
       .not.toContain('atlas-outlines');
     await outlines.check();
     await expect
-      .poll(async () => (await probe(page)).imageryLayers, { timeout: 1_000 })
+      .poll(async () => (await probe(page)).imageryLayers, { timeout: 10_000 })
       .toContain('atlas-outlines');
     expect(
       await page.evaluate(() => window.__atlasDrapeStats!().requested),

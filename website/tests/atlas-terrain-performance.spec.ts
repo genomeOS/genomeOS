@@ -43,9 +43,6 @@ const BUDGETS = {
 /** How long the report waits for a draped milestone before it records none. */
 const MILESTONE_TIMEOUT_MS = 60_000;
 
-/** How long the restyle measurement waits, well inside the test's 180 s, before it records none. */
-const RESTYLE_TIMEOUT_MS = 30_000;
-
 /** What the init script records in the page, frame by frame. */
 interface DrapeTimes {
   /** `performance.now()` of the first frame with World Terrain on the globe. */
@@ -121,7 +118,9 @@ async function coldLoadDraped(page: Page): Promise<Report> {
  * From the palette change to one `atlas-surface` layer again, after the new one was added beside
  * the old, with every tile in view loaded. The probe's `layerStack` lists the incoming layer from
  * its add at alpha 0, so a sample need not land inside the 300 ms cross-fade, which a slow first
- * swap frame can end at once.
+ * swap frame can end at once. The times the new layer was added and the old one retired are
+ * reported too, so a restyle that outlasts the wait (CI's software WebGL can take longer than that
+ * to load an oblique view's tiles out to the horizon) still says how far it got.
  */
 async function restyleMs(page: Page): Promise<Report> {
   await expandExplorerSheet(page);
@@ -136,31 +135,37 @@ async function restyleMs(page: Page): Promise<Report> {
     await summary.click();
   const done = page.evaluate(
     (timeoutMs) =>
-      new Promise<number | null>((resolve) => {
+      new Promise<Report>((resolve) => {
         const started = performance.now();
-        let added = false;
+        const times: Record<string, number | null> = {
+          restyleAddedMs: null,
+          restyleMs: null,
+          restyleRetiredMs: null,
+        };
         const sample = () => {
           const probe = window.__atlasTerrainProbe!();
           const surfaces = probe.layerStack.filter(
             (name) => name === 'atlas-surface',
           ).length;
-          if (surfaces > 1) added = true;
-          const now = performance.now();
-          if (added && surfaces === 1 && probe.tilesLoaded)
-            resolve(now - started);
-          else if (now - started > timeoutMs) resolve(null);
+          const elapsed = performance.now() - started;
+          if (surfaces > 1) times.restyleAddedMs ??= elapsed;
+          if (times.restyleAddedMs !== null && surfaces === 1)
+            times.restyleRetiredMs ??= elapsed;
+          if (times.restyleRetiredMs !== null && probe.tilesLoaded)
+            times.restyleMs = elapsed;
+          if (times.restyleMs !== null || elapsed > timeoutMs) resolve(times);
           else requestAnimationFrame(sample);
         };
         requestAnimationFrame(sample);
       }),
-    RESTYLE_TIMEOUT_MS,
+    MILESTONE_TIMEOUT_MS,
   );
   await page.locator('#atlas-surface-palette').selectOption('viridis');
   const measured = await done;
   // The phone's sheet goes back down, so the scene the pan draws is in view.
   const sheet = page.locator('aside.atlas-controls[data-sheet-state]');
   if ((await sheet.count()) > 0) await setSheetState(sheet, 'peek');
-  return { restyleMs: measured };
+  return measured;
 }
 
 /** Animation frames per second while ArrowLeft is held on the scene for `ms`. */
