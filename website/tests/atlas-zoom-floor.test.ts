@@ -123,6 +123,18 @@ describe('zoomCamera', () => {
     expect(camera.positionCartographic.height).toBeCloseTo(8_000, 6);
   });
 
+  it('ignores a zoom-in while the scene morphs between views, rather than zooming by NaN', () => {
+    // Cesium's Camera.pitch is undefined while the scene is MORPHING; the buttons and keys stay
+    // live through the morph, and the morph rewrites the camera each frame anyway.
+    const camera = {
+      ...fakeCamera(29_600),
+      pitch: undefined as unknown as number,
+    };
+    zoomCamera(camera, { getHeight: () => 0 }, 'in', 50_000);
+    expect(camera.zoomIn).not.toHaveBeenCalled();
+    expect(camera.zoomOut).not.toHaveBeenCalled();
+  });
+
   it('never limits zooming out', () => {
     const camera = fakeCamera(1_000);
     zoomCamera(camera, { getHeight: () => 900 }, 'out', 50_000);

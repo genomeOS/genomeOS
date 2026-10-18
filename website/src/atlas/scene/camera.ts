@@ -161,7 +161,8 @@ export function zoomInDistance({
 }
 
 export interface ZoomCamera {
-  readonly pitch: number;
+  /** Undefined while the scene morphs between views (Cesium's `Camera.pitch`). */
+  readonly pitch: number | undefined;
   readonly positionCartographic: Cartographic;
   zoomIn(amount: number): void;
   zoomOut(amount: number): void;
@@ -175,7 +176,8 @@ export interface ZoomGlobe {
  * A button or keyboard zoom of `requested` metres that never ends below `ZOOM_FLOOR_METRES` above
  * the ground under the camera, on the smooth globe and on terrain (ground not yet loaded counts as
  * sea level). Ground ahead of a tilted camera can rise above the ground it started over, so the
- * camera backs off along its view line if it lands below the floor there.
+ * camera backs off along its view line if it lands below the floor there. A zoom-in during a
+ * morph between views does nothing: the camera has no pitch then, and the morph moves it anyway.
  */
 export function zoomCamera(
   camera: ZoomCamera,
@@ -187,8 +189,10 @@ export function zoomCamera(
     camera.zoomOut(requested);
     return;
   }
+  const { pitch } = camera;
+  if (pitch === undefined || !Number.isFinite(pitch)) return;
   const ground = () => globe?.getHeight(camera.positionCartographic) ?? 0;
-  const descent = Math.sin(-camera.pitch);
+  const descent = Math.sin(-pitch);
   const distance = zoomInDistance({
     descent,
     ground: ground(),
