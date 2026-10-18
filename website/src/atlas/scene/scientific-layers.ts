@@ -23,8 +23,10 @@
  * fades in on the wave's timeline once its tiles are loaded, a restyle
  * cross-fades over an outgoing layer held opaque, a toggle that changes the
  * cells baked into its texture rebuilds it, and a raster failure reverts the
- * globe through `onDrapeFailure`. The per-kind operations are in
- * `surface-groups.ts`.
+ * globe through `onDrapeFailure`. Cesium frees a hidden layer's tiles, so a
+ * draped group is cached only while displayed or incoming: one that leaves the
+ * view is destroyed, and the cache drops one whose raster failed. The per-kind
+ * operations are in `surface-groups.ts`.
  */
 
 import type { PrimitiveCollection, Scene } from 'cesium';
@@ -63,9 +65,11 @@ import {
   edgeStyleKey,
   isAbortError,
   isDrapedGroup,
+  observationKeyFor,
   opaqueUntilRetired,
   streamChunks,
   surfaceKeyFor,
+  switchAtOnce,
   viewLookAt,
   waitForDrapedOutlines,
   type AnySurfaceGroup,
@@ -191,20 +195,6 @@ export function raiseScientificOverlays(
 
 function shown(group: LiveGroup): boolean {
   return group.collection.show && group.opacity() > 0;
-}
-
-function observationKeyFor(
-  artifactKey: string,
-  style: ObservationPresentation,
-): string {
-  return [
-    artifactKey,
-    style.shape,
-    style.colorVariable,
-    style.solidColor,
-    ...style.gradient,
-    style.sizeVariable,
-  ].join(':');
 }
 
 export class ScientificLayers {
@@ -746,12 +736,9 @@ export class ScientificLayers {
     if (signal.aborted) throw new SupersededBuild();
     this.#rasterSource ??= runtime.rasterSource(this.#options.worker);
     const group = createDrapedGroup(this.#host, runtime, {
-      inView: (candidate) =>
-        !this.#destroyed &&
-        (candidate === this.#displayed?.group ||
-          candidate === this.#epoch?.group),
+      inView: (candidate) => !this.#destroyed && this.#inView(candidate),
       load,
-      onFailure: (error) => this.#options.onDrapeFailure(error),
+      onFailure: (error) => this.#drapeFailed(group, error),
       source: this.#rasterSource,
       style,
       surface,
@@ -828,7 +815,7 @@ export class ScientificLayers {
     const switching =
       !cold && outgoing !== null && outgoing.artifactKey !== load.artifactKey;
     if (switching) {
-      this.#switchAtOnce(group, observationGroup, outgoing);
+      switchAtOnce(group, observationGroup, outgoing);
       this.#options.wave.start(style.reducedMotion);
     }
     group.setEdgesHeld(this.#options.wave.running());
@@ -869,23 +856,10 @@ export class ScientificLayers {
       this.#displayed?.observationGroup === observationGroup
     )
       observationGroup.setOpacity(1);
+    const left = outgoing?.group; // hidden by the swap, unless a newer request took it back
+    if (isDrapedGroup(left) && !this.#inView(left)) this.#retire(left);
     this.#prune();
     this.#options.scene.requestRender();
-  }
-
-  /** The outgoing dataset goes and the incoming one shows, in the same frame (#453). */
-  #switchAtOnce(
-    group: AnySurfaceGroup,
-    observationGroup: ObservationPrimitiveGroup | null,
-    outgoing: Displayed,
-  ): void {
-    for (const leaving of [outgoing.group, outgoing.observationGroup])
-      if (leaving && leaving !== group && leaving !== observationGroup) {
-        leaving.setOpacity(0);
-        leaving.collection.show = false;
-      }
-    group.setOpacity(1);
-    observationGroup?.setOpacity(1);
   }
 
   #syncDisplayedMarks(group: AnySurfaceGroup, style: ScientificStyle): void {
@@ -970,7 +944,7 @@ export class ScientificLayers {
       if (isAbortError(error)) return;
       console.warn('Cell outlines could not be built.', error);
       // An outline raster is a raster: its failure reverts the globe too.
-      if (inView()) this.#options.onDrapeFailure(error);
+      if (inView()) this.#drapeFailed(group, error);
       return;
     }
     // A newer request owns the marks now.
@@ -990,10 +964,7 @@ export class ScientificLayers {
         group === newer?.group ||
         group === newer?.observationGroup);
     if (partial && !keep(partial)) this.#dispose(partial);
-    else if (epoch.group && !keep(epoch.group)) {
-      epoch.group.setOpacity(0);
-      epoch.group.collection.show = false;
-    }
+    else if (epoch.group && !keep(epoch.group)) this.#retire(epoch.group);
     if (epoch.observationGroup && !keep(epoch.observationGroup)) {
       epoch.observationGroup.setOpacity(0);
       epoch.observationGroup.collection.show = false;
@@ -1002,6 +973,27 @@ export class ScientificLayers {
     // Superseded or failed, this epoch's reveal is no longer what picks resolve against.
     if (this.#revealing?.epoch === epoch) this.#revealing = null;
     this.#options.scene.requestRender();
+  }
+
+  #inView(group: AnySurfaceGroup): boolean {
+    return group === this.#displayed?.group || group === this.#epoch?.group;
+  }
+
+  /** Hides a group that left the view; a draped one goes: Cesium frees a hidden layer's tiles. */
+  #retire(group: AnySurfaceGroup): void {
+    if (isDrapedGroup(group)) {
+      this.#surfaces.delete(group);
+      this.#dispose(group);
+    } else {
+      group.setOpacity(0);
+      group.collection.show = false;
+    }
+  }
+
+  /** A raster of `group` failed: the cache never hands it back, and the globe reverts (#483). */
+  #drapeFailed(group: DrapedSurfaceGroup, error: unknown): void {
+    this.#surfaces.delete(group);
+    this.#options.onDrapeFailure(error);
   }
 
   #dispose(group: AnySurfaceGroup | ObservationPrimitiveGroup): void {
