@@ -26,8 +26,8 @@ import {
   type TestCell,
 } from './helpers/raster-fixtures';
 
-/** A res-3 hexagon beside an icosahedron-edge pentagon: class III, so its boundary carries a
- * distortion vertex beyond its six corners. */
+/** A res-3 hexagon beside a pentagon (at an icosahedron vertex): class III, so its boundary
+ * carries a distortion vertex beyond its six corners. */
 const CELL = '83d602fffffffff';
 
 /** Cesium's display gamma (`Scene.gamma`, `czm_gamma`), which Atlas leaves at its default. */

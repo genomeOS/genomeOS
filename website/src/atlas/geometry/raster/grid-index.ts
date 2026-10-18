@@ -5,7 +5,7 @@
  * Each row gets a box from its topology corners, each unwrapped to within 180° of the row centre's
  * longitude and padded by 10% of the box's own extent on every side. The pad covers the class III
  * distortion points of `cellToBoundary`, which the topology does not hold: over every res-1 and
- * res-3 cell they lie at most 5% of the extent outside the corners. A row whose unwrapped corners
+ * res-3 cell they lie under 5.1% of the extent outside the corners. A row whose unwrapped corners
  * span more than 180° of longitude holds a pole: its box spans every longitude, from its lowest
  * (or highest) corner, padded the same way, to the pole. A box past ±180° is entered once more,
  * shifted by ∓360°, into 1° buckets, so tiles on both sides of the antimeridian find the row.

@@ -68,7 +68,8 @@ function mapControls(query: string, applied?: TerrainId): string {
   );
 }
 
-/** The inferred-surface controls for `query`, with `draped` the scene's draped rule (#483). */
+/** The inferred-surface controls for `query`, with `draped` the controls' draped rule,
+ * `hasPhysicalRelief(appliedTerrain)` (#483). */
 function surfaceControls(query: string, draped: boolean): string {
   const { state } = parseExplorerState(query, catalog);
   return renderToStaticMarkup(

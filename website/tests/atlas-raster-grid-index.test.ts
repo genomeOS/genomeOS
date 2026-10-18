@@ -16,8 +16,8 @@ import {
 } from './helpers/raster-fixtures';
 import { sortedU64 } from './helpers/mesh-input';
 
-/** A res-3 pentagon on an icosahedron edge and its ring: class III cells whose boundaries carry
- * distortion vertices that the topology's corners do not hold. */
+/** A res-3 pentagon (at an icosahedron vertex) and its ring: class III cells whose boundaries
+ * carry distortion vertices that the topology's corners do not hold. */
 const CLASS_III_CELLS: TestCell[] = sortedU64(
   gridDisk('83d600fffffffff', 1),
 ).map((h3): TestCell => ({ h3, support: 'observed', value: 0.5 }));
