@@ -4,7 +4,12 @@
  * After the surface is visible, the scene runs the post-reveal load order (§B.6.9, `load-order.ts`):
  * the Natural Earth borders' download, then each displayed artifact's detail tier (`queueDetail`),
  * then the starfield, which is also held until `ready`. A failed artifact request starts the same
- * order. */
+ * order.
+ *
+ * Under World Terrain (terrain draping design, "Picking" and "Lighting under World Terrain"; #483)
+ * picks take the rendered ground once that terrain is on the globe and the data lies flat, and the
+ * terrain shading hears whether a surface layer shows, so the ground atmosphere and water effect
+ * stay off over the data. */
 
 import { SceneMode, type CesiumWidget } from 'cesium';
 
@@ -15,6 +20,7 @@ import {
   type CameraMotionHook,
   type SyntheticTerrainHook,
 } from '../e2e-hooks';
+import { hasPhysicalRelief } from '../earth-style-catalog';
 import { createLoadOrder, type LoadOrder, type LoadTask } from '../load-order';
 import type {
   BasemapId,
@@ -262,6 +268,11 @@ class CesiumAtlasScene implements AtlasSceneController {
         for (const listener of this.#hoverListeners) listener(value);
       },
       createSurfacePickResolver(this.#widget.scene, {
+        // The applied terrain, not the requested one: until World Terrain is on the globe, the
+        // ground under the pointer is the ellipsoid. Lifted data keeps the depth pick.
+        draped: () =>
+          hasPhysicalRelief(this.#appliedTerrain) &&
+          this.#elevationFactor === 0,
         factor: () => this.#elevationFactor,
         geometry: () =>
           this.#layers.displayedLayer()?.geometry ?? this.#surfaceGeometry,
@@ -440,6 +451,9 @@ class CesiumAtlasScene implements AtlasSceneController {
     this.#layers.setVisibility(layers, this.#observationStyle.samplingAreas);
     this.#contextController.setVisible(layers.context);
     this.#overlay.setVisible(layers.countries);
+    this.#terrainShading.update({
+      surfaceShown: layers.surface || layers.support,
+    });
     this.#widget.scene.requestRender();
   }
 

@@ -77,7 +77,7 @@ export interface SurfacePickContext {
   /** How far the reveal wave has grown the cell centred along `direction` (ECEF); 0 is unpickable. */
   reveal?(direction: Vec3): number;
   /** World Terrain is on the globe and the data lies flat on it, so picks take the ground. */
-  draped?(): boolean;
+  draped(): boolean;
 }
 
 function cellDirection(h3Index: string): Vec3 {
@@ -275,7 +275,7 @@ export function createSurfacePickResolver(
     const chosen = preferredAtlasPick(picks, target?.artifactKey ?? null);
     if (chosen?.kind === 'observation') return chosen;
     if (!target) return null;
-    if (target.draped || context.draped?.()) {
+    if (target.draped || context.draped()) {
       const pick = resolveDrapedPick(scene, target, position);
       return pick &&
         !target.draped &&

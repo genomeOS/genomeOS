@@ -48,6 +48,7 @@ function context(
   hidden: { show: boolean }[] = [],
 ): SurfacePickContext {
   return {
+    draped: () => false,
     factor: () => factor,
     geometry: () => 'triangles',
     metric: () => 'post_mean',
