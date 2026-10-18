@@ -458,16 +458,24 @@ describe('draping (#483)', () => {
     void atlas.setTerrain('world-terrain');
     void atlas.setTerrain('smooth-globe');
     void atlas.setTerrain('world-terrain');
+    // The superseded smooth globe reaches the globe first: the newest request still drapes.
     harness.terrain[1].resolve(true);
+    await flushTasks();
+    expect(harness.layers!.style().draped).toBe(true);
+    expect(rebuilds()).toBe(3);
     harness.terrain[2].resolve(true);
+    await flushTasks();
     harness.terrain[0].resolve(false);
     await flushTasks();
     expect(harness.layers!.style().draped).toBe(true);
     expect(rebuilds()).toBe(3);
   });
 
-  // The first test here to import the runtime: the module registry keeps that import for the rest.
   it('loads the draped runtime once, only when asked, and removes the drape stats reader on destroy', async () => {
+    // A registry of its own, so no other test's import of the runtime counts here.
+    vi.resetModules();
+    vi.doMock('../src/atlas/scene/draped/runtime', runtimeFactory);
+    runtimeFactory.mockClear();
     expect(runtimeFactory).not.toHaveBeenCalled();
     const [a, b] = [harness.layers!.draped(), harness.layers!.draped()];
     expect(a).toBe(b);
