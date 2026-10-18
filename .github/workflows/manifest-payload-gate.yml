@@ -25,7 +25,9 @@ jobs:
       - name: Check out trusted validator
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.sha }}
+          # github.sha is the base branch tip under pull_request_target and the pushed commit
+          # under push; base.sha would freeze at the commit the pull request opened against.
+          ref: ${{ github.sha }}
           path: trusted
           persist-credentials: false
       - name: Check out candidate data

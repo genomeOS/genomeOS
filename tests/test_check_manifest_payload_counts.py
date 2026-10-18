@@ -234,11 +234,84 @@ def test_fork_gate_runs_trusted_code_over_candidate_data() -> None:
     assert "pull_request_target:" in workflow
     assert "permissions:\n  contents: read" in workflow
     assert workflow.count("persist-credentials: false") == 2
-    assert "github.event.pull_request.base.sha" in workflow
+    assert "ref: ${{ github.sha }}" in workflow
+    assert "github.event.pull_request.base.sha" not in workflow
     assert "github.event.pull_request.head.sha" in workflow
     assert "python trusted/scripts/check_manifest_payload_counts.py" in workflow
     assert '--fixtures-root "$GITHUB_WORKSPACE/candidate/tests/fixtures/literature"' in workflow
     assert "python candidate/" not in workflow
+
+
+def test_over_count_manifest_is_a_provenance_gap(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """A candidate the search never returned is a provenance gap, not a truncated capture.
+
+    This is the direction contributors will actually hit: adding a paper they already know about to a
+    search manifest. Naming the extra identifier is the whole point, and the remediation must not send
+    them to re-fetch a search that was never truncated.
+    """
+    corpus = build_corpus(tmp_path, payload_count=3, payload_ids=3)
+    ids = [str(40_000_000 - index) for index in range(3)]
+    _write_manifest(corpus / "searches.pending.tsv", [*ids, "99999999"])
+
+    problems = inspect(corpus).problems
+
+    assert len(problems) == 1
+    assert "records 4 candidate(s)" in problems[0]
+    assert "matching 3" in problems[0]
+    assert "do not appear in the declared payload" in problems[0]
+    assert "99999999" in problems[0]
+
+    _run_main(["--fixtures-root", str(tmp_path)], 1)
+    output = capsys.readouterr().out
+    assert "provenance gap" in output
+    assert "truncated or" not in output
+
+
+def test_duplicate_identifier_in_the_manifest_is_named(tmp_path: Path) -> None:
+    """Two rows for one PMID leave the count equal and the set wrong; the repeat has to be named."""
+    corpus = build_corpus(tmp_path, payload_count=2, payload_ids=2)
+    _write_manifest(corpus / "searches.pending.tsv", ["40000000", "40000000"])
+
+    problems = inspect(corpus).problems
+
+    assert len(problems) == 1
+    assert "recorded more than once" in problems[0]
+    assert "40000000" in problems[0]
+
+
+def test_payload_path_outside_the_corpus_is_refused(tmp_path: Path) -> None:
+    """The payload path is data from a pull request, so it may not point out of the corpus."""
+    corpus = build_corpus(tmp_path)
+    provenance_path = corpus / "PROVENANCE.json"
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    provenance["discovery"]["queries"][0]["payload"] = "../outside.json"
+    provenance_path.write_text(json.dumps(provenance), encoding="utf-8")
+
+    problems = inspect(corpus).problems
+
+    assert len(problems) == 1
+    assert "resolves outside the corpus directory" in problems[0]
+
+
+def test_non_utf8_provenance_is_a_named_refusal(tmp_path: Path) -> None:
+    """A decode failure names the file; it does not escape as a traceback."""
+    corpus = build_corpus(tmp_path)
+    (corpus / "PROVENANCE.json").write_bytes(b"\xff\xfe{}")
+
+    problems = inspect(corpus).problems
+
+    assert len(problems) == 1
+    assert "PROVENANCE.json is not readable JSON" in problems[0]
+
+
+def test_unreadable_manifest_is_a_named_refusal(tmp_path: Path) -> None:
+    """A manifest that is not UTF-8 text is named, not raised as a traceback."""
+    corpus = build_corpus(tmp_path)
+    (corpus / "searches.pending.tsv").write_bytes(b"\xff\xfe\x00bad")
+
+    problems = inspect(corpus).problems
+
+    assert any("not readable as a UTF-8 TSV" in problem for problem in problems)
 
 
 def _run_main(arguments: list[str], expected: int) -> None:

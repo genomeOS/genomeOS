@@ -95,7 +95,7 @@ def inspect(corpus: Path) -> Corpus:
     provenance_path = corpus / "PROVENANCE.json"
     try:
         provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, ValueError) as error:
         return Corpus(
             [f"{corpus.name}: PROVENANCE.json is not readable JSON ({error})"],
             [f"{corpus.name}: malformed provenance"],
@@ -130,13 +130,16 @@ def inspect(corpus: Path) -> Corpus:
             True,
         )
 
-    manifests = {
-        path.name: rows
-        for path in sorted(corpus.glob("*.tsv"))
-        if (rows := read_manifest(path)) is not None
-    }
-
+    manifests: dict[str, list[dict[str, str]]] = {}
     problems: list[str] = []
+    for path in sorted(corpus.glob("*.tsv")):
+        try:
+            rows = read_manifest(path)
+        except (OSError, UnicodeDecodeError, csv.Error) as error:
+            problems.append(f"{corpus.name}/{path.name}: not readable as a UTF-8 TSV ({error})")
+            continue
+        if rows is not None:
+            manifests[path.name] = rows
     lines = [f"{corpus.name}  ({version}, {len(manifests)} manifest file(s))"]
     for index, query in enumerate(queries):
         if not isinstance(query, dict):
@@ -153,13 +156,28 @@ def inspect(corpus: Path) -> Corpus:
             label = "field" if len(missing) == 1 else "fields"
             problems.append(f"{corpus.name}/{name}: missing required {label} {', '.join(missing)}")
             continue
-        payload = corpus / query["payload"]
+        declared = corpus / query["payload"]
+        if declared.is_symlink():
+            problems.append(
+                f"{corpus.name}/{name}: declared payload {declared.name} is a symlink, and a "
+                "payload is a committed file"
+            )
+            continue
+        payload = declared.resolve()
+        if not payload.is_relative_to(corpus.resolve()):
+            problems.append(
+                f"{corpus.name}/{name}: declared payload {declared.name} resolves outside the "
+                "corpus directory"
+            )
+            continue
         if not payload.exists():
             problems.append(f"{corpus.name}/{name}: declared payload {payload.name} is absent")
             continue
 
         idlist, found = payload_identifiers(payload)
-        problems += [f"{corpus.name}/{name}: {item}" for item in found]
+        if found:
+            problems += [f"{corpus.name}/{name}: {item}" for item in found]
+            continue
 
         search_id = make_search_id("pubmed", query["query"], query["executed_at"])
         recorded = [
@@ -169,10 +187,25 @@ def inspect(corpus: Path) -> Corpus:
             if row.get("search_id") == search_id and row.get("manifest_version") == version
         ]
         same_set = set(recorded) == set(idlist)
-        if len(recorded) != len(idlist):
+        repeated = sorted(pmid for pmid, times in Counter(recorded).items() if times > 1)
+        repeats = (
+            f"; {len(repeated)} identifier(s) are recorded more than once ({repeated[:3]})"
+            if repeated
+            else ""
+        )
+        if len(recorded) < len(idlist):
+            unreferenced = sorted(set(idlist) - set(recorded))
             problems.append(
                 f"{corpus.name}/{name}: manifest records {len(recorded)} candidate(s) under {version} "
-                f"for a payload matching {len(idlist)}"
+                f"for a payload matching {len(idlist)}; {len(unreferenced)} payload identifier(s) "
+                f"unreferenced ({unreferenced[:3]}){repeats}"
+            )
+        elif len(recorded) > len(idlist):
+            extra = sorted(set(recorded) - set(idlist))
+            problems.append(
+                f"{corpus.name}/{name}: manifest records {len(recorded)} candidate(s) under {version} "
+                f"for a payload matching {len(idlist)}; {len(extra)} candidate(s) do not appear in "
+                f"the declared payload ({extra[:3]}){repeats}"
             )
         elif not same_set:
             unexpected = sorted(set(recorded) - set(idlist))
@@ -181,7 +214,7 @@ def inspect(corpus: Path) -> Corpus:
                 f"{corpus.name}/{name}: manifest candidate set differs from the declared payload: "
                 f"{len(unexpected)} candidate(s) not in the declared payload "
                 f"({unexpected[:3]}), and {len(absent)} payload identifier(s) absent from the "
-                f"manifest ({absent[:3]})"
+                f"manifest ({absent[:3]}){repeats}"
             )
         lines.append(f"  {name}: payload {len(idlist)} identifier(s), manifest {len(recorded)} row(s), "
                      f"set match {same_set}")
@@ -219,17 +252,34 @@ def main(argv: list[str] | None = None) -> int:
     if problems:
         print("\nManifest/payload reconciliation failed:")
         print("\n".join(f"- {problem}" for problem in problems))
-        count_mismatch = any(
-            "manifest records" in problem or "payload count" in problem for problem in problems
+        truncated = any(
+            "payload identifier(s) unreferenced" in problem or "payload count" in problem
+            for problem in problems
         )
+        over_count = any("do not appear in the declared payload" in problem for problem in problems)
+        repeated_only = any("recorded more than once" in problem for problem in problems)
         set_mismatch = any("candidate set differs" in problem for problem in problems)
-        if count_mismatch:
+        if truncated:
             print(
                 "\nA manifest recording fewer candidates than the payload matched is a truncated or\n"
                 "paginated capture, not a screened one, and it is indistinguishable from a complete one\n"
                 "once committed. Re-fetch with scripts/fetch_pubmed_manifest.py (retmax=100000 refuses\n"
                 "this disagreement) and publish the result as a new manifest_version over the corrected\n"
                 "snapshot, stating which version it supersedes. Never edit a published manifest in place."
+            )
+        if over_count:
+            print(
+                "\nA manifest recording more candidates than the payload returned is a provenance gap,\n"
+                "not pagination. Either it names a paper the search did not return, or the same\n"
+                "identifier is recorded twice. Restore the identifiers the payload returned, or\n"
+                "declare and retain the source that introduced the extra candidate. Never edit a\n"
+                "published manifest in place."
+            )
+        if repeated_only and not (over_count or set_mismatch):
+            print(
+                "\nThe same identifier is recorded more than once, which inflates the candidate count\n"
+                "while leaving the set unchanged. Remove the repeat. Never edit a published manifest\n"
+                "in place."
             )
         if set_mismatch:
             print(
