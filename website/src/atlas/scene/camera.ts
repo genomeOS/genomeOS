@@ -14,8 +14,8 @@ export type KeyboardCommand =
   | 'pan-right'
   | 'pan-up'
   | 'pan-down'
-  | 'tilt-up'
-  | 'tilt-down'
+  | 'look-up'
+  | 'look-down'
   | 'zoom-in'
   | 'zoom-out';
 
@@ -61,8 +61,8 @@ export function keyboardCommandFor(
     ArrowUp: 'pan-up',
     a: 'pan-left',
     d: 'pan-right',
-    e: 'tilt-down',
-    q: 'tilt-up',
+    e: 'look-down',
+    q: 'look-up',
     s: 'pan-down',
     w: 'pan-up',
   };
@@ -214,8 +214,8 @@ function runCommand(widget: CesiumWidget, command: KeyboardCommand): void {
     'pan-left': () => widget.camera.moveLeft(distance),
     'pan-right': () => widget.camera.moveRight(distance),
     'pan-up': () => widget.camera.moveUp(distance),
-    'tilt-down': () => widget.camera.lookDown(angle),
-    'tilt-up': () => widget.camera.lookUp(angle),
+    'look-down': () => widget.camera.lookDown(angle),
+    'look-up': () => widget.camera.lookUp(angle),
     'zoom-in': () =>
       zoomCamera(widget.camera, widget.scene.globe, 'in', distance),
     'zoom-out': () =>

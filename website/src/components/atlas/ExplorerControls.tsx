@@ -21,6 +21,7 @@ import type {
   TerrainId,
 } from '../../atlas/url-state';
 import type { Metric, PaletteId } from '../../atlas/visual-encoding';
+import { CameraHelp } from './CameraHelp';
 import { ControlsSheet } from './ControlsSheet';
 import { InfoTip } from './InfoTip';
 import { ExternalInfoPanel } from './ExternalInfoPanel';
@@ -431,13 +432,7 @@ export function ExplorerControls({
         >
           −
         </button>
-        <details className="atlas-keyboard-help">
-          <summary role="button">Keys</summary>
-          <p>
-            Focus the globe, then use arrows or WASD to pan, +/− to zoom, and
-            Q/E to tilt.
-          </p>
-        </details>
+        <CameraHelp />
       </div>
     </ControlsSheet>
   );

@@ -1,5 +1,6 @@
 /** Basemap, terrain, and globe presentation controls for Atlas design §11. */
 
+import { TILT_HELP } from '../../atlas/camera-help';
 import { dayNightControl } from '../../atlas/earth-style-catalog';
 import type { SceneCapabilities } from '../../atlas/scene/atlas-scene';
 import type {
@@ -205,7 +206,7 @@ export function MapStyleControls({
           View
           <InfoTip label="view">
             Globe is 3D, Map is flat, and Perspective is an angled 2.5D view.
-            Statistical elevation requires an angled view.
+            Statistical elevation requires an angled view. {TILT_HELP}
           </InfoTip>
         </legend>
         <div className="atlas-segments">
