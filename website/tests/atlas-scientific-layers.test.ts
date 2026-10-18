@@ -10,7 +10,15 @@ import {
   type PointPrimitiveCollection,
   type PolylineCollection,
 } from 'cesium';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mocked,
+} from 'vitest';
 
 import type { ObservationArtifact } from '../src/atlas/contracts';
 import { ShiftedPerspectiveFrustum } from '../src/atlas/scene/globe-offset';
@@ -24,11 +32,13 @@ import {
 } from '../src/atlas/scene/scene-policy';
 import {
   ScientificLayers,
+  type ScientificLayersOptions,
   type ScientificStyle,
 } from '../src/atlas/scene/scientific-layers';
 import type {
   ArtifactLoad,
   AtlasMark,
+  DrapedRuntime,
   ObservationPresentation,
 } from '../src/atlas/scene/types';
 import { rowForH3, type SurfaceArtifact } from '../src/atlas/surface-columns';
@@ -41,6 +51,10 @@ import type { SurfaceChunkGroup } from '../src/atlas/scene/surface-chunk-layer';
 import { chunkMessage } from './helpers/chunk-buffers';
 import { stubCesiumBrowserImageTypes } from './helpers/cesium-stubs';
 import { columnarSurface } from './helpers/columnar-surface';
+import {
+  fakeDrapedRuntime,
+  type FakeDrapedGroup,
+} from './helpers/draped-fakes';
 import { FakeEvent, flushTasks } from './helpers/scene-fakes';
 
 // Every group the layers build, so a test can read the opacity the swap gives each one. The
@@ -147,9 +161,11 @@ function markReady(collection: PrimitiveCollection): void {
 function harness(
   overrides: Partial<ScientificStyle> = {},
   camera: Record<string, unknown> = {},
+  layerOptions: Partial<ScientificLayersOptions> = {},
 ) {
   stubCesiumBrowserImageTypes();
   const preUpdate = new FakeEvent();
+  const preRender = new FakeEvent();
   const postRender = new FakeEvent();
   const primitives = new PrimitiveCollection();
   const scene = {
@@ -159,7 +175,10 @@ function harness(
       ...camera,
     },
     canvas: { clientHeight: 600, clientWidth: 800 },
+    globe: { tilesLoaded: true },
+    imageryLayers: {},
     postRender,
+    preRender,
     preUpdate,
     primitives,
     requestRender: vi.fn(),
@@ -262,6 +281,7 @@ function harness(
     style: () => style,
     wave,
     worker: worker as never,
+    ...layerOptions,
   });
   const frame = () => {
     preUpdate.raiseEvent();
@@ -317,6 +337,7 @@ function harness(
     pump,
     realWaveStart,
     requests,
+    scene,
     show,
     style,
     wave,
@@ -324,6 +345,8 @@ function harness(
     worker,
   };
 }
+
+type Harness = ReturnType<typeof harness>;
 
 /** Runs each animation frame a second later, so an animated swap ends on its first frame. */
 function runAnimationFramesAtOnce(): void {
@@ -1206,5 +1229,410 @@ describe('displayed-artifact state', () => {
     cache.set('a', value);
     cache.delete(value);
     expect(cache.get('a')).toBeUndefined();
+  });
+});
+
+describe('draped surface (#483)', () => {
+  let runtime: Mocked<DrapedRuntime>;
+  let groups: FakeDrapedGroup[];
+  beforeEach(() => {
+    ({ groups, runtime } = fakeDrapedRuntime());
+  });
+
+  /** Shows `id` draped: its raster prepared, its tiles loaded and its fade run to the end. */
+  async function showDraped(h: Harness, id: string): Promise<void> {
+    const done = h.layers.setArtifact(h.load(id));
+    await h.pump();
+    const group = groups.at(-1)!;
+    group.prepared.resolve();
+    group.ready = true;
+    await h.pump();
+    await done;
+    h.finishWave();
+    await h.pump(1);
+  }
+
+  it('builds a draped group, never chunks, for a draped style', async () => {
+    const h = harness({ draped: true }, {}, { draped: async () => runtime });
+    void h.layers.setArtifact(h.load('hbs'));
+    await h.pump();
+    expect(h.worker.buildChunks).not.toHaveBeenCalled();
+    expect(groups).toHaveLength(1);
+    expect(groups[0].options.surface).toEqual({
+      artifactKey: keyOf('hbs'),
+      cells: { masked: true, supported: true },
+      contours: false,
+      geometry: 'triangles',
+      gridSha256: expect.any(String),
+      layer: 'surface',
+      metric: 'post_mean',
+      palette: 'rainbow',
+    });
+    expect(groups[0].options).toMatchObject({
+      artifactKey: keyOf('hbs'),
+      cellEdges: false,
+      edgeColor: { mode: 'matched' },
+      scene: h.scene,
+      source: runtime.rasterSource.mock.results[0].value,
+      surfaceOpacity: 0.58,
+      wave: h.wave,
+    });
+    expect(runtime.rasterSource).toHaveBeenCalledWith(h.worker);
+  });
+
+  it('drapes extruded as hexagons and draws the cells whose layers are on', async () => {
+    const { drapedSurfaceSpec } =
+      await import('../src/atlas/scene/surface-groups');
+    const h = harness({ draped: true, geometry: 'extruded' });
+    const surface = surfaceFor('hbs');
+    const spec = drapedSurfaceSpec({ artifactKey: keyOf('hbs') }, surface, {
+      ...h.style,
+      layers: { ...DEFAULT_LAYERS, support: false },
+    });
+    expect(spec).toMatchObject({
+      cells: { masked: false, supported: true },
+      geometry: 'hexagons',
+      gridSha256: surface.grid.gridSha256,
+    });
+  });
+
+  it('starts the cold fade at the first isReady, from opacity 0', async () => {
+    const h = harness(
+      { draped: true, reducedMotion: false },
+      {},
+      { draped: async () => runtime },
+    );
+    const done = h.layers.setArtifact(h.load('hbs'));
+    await h.pump();
+    groups[0].prepared.resolve();
+    await h.pump();
+    expect(groups[0].opacity()).toBe(0);
+    expect(h.waveStarts).not.toHaveBeenCalled();
+    groups[0].ready = true;
+    await h.pump();
+    expect(groups[0].opacity()).toBe(1);
+    expect(h.waveStarts).toHaveBeenCalledTimes(1);
+    expect(h.waveStarts).toHaveBeenCalledWith(false);
+    await done;
+    expect(h.commits).toEqual([keyOf('hbs')]);
+    expect(h.emitted).toContain('surface-visible');
+  });
+
+  it('draws no draped row for picks until the fade has drawn a frame', async () => {
+    const h = harness(
+      { draped: true, reducedMotion: false },
+      {},
+      { draped: async () => runtime },
+    );
+    const done = h.layers.setArtifact(h.load('hbs'));
+    await h.pump();
+    groups[0].prepared.resolve();
+    await flushTasks();
+    groups[0].ready = true;
+    h.frame();
+    await done;
+    expect(h.wave.running()).toBe(true);
+    expect(h.wave.progress()).toBe(0);
+    expect(h.layers.pickTarget()!.drawn(0)).toBe(false);
+    h.frame();
+    h.clock.now += 100;
+    h.frame();
+    expect(h.wave.progress()).toBeGreaterThan(0);
+    expect(h.layers.pickTarget()!.drawn(0)).toBe(true);
+  });
+
+  it('keeps the outgoing draped group opaque through a restyle swap and retires it after', async () => {
+    const h = harness(
+      { draped: true, reducedMotion: false },
+      {},
+      { draped: async () => runtime },
+    );
+    await showDraped(h, 'hbs');
+    // Frames run by hand, so the swap is sampled mid-fade.
+    const animationFrames: FrameRequestCallback[] = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
+      animationFrames.push(callback),
+    );
+    groups[0].opacities.length = 0;
+    h.style.palette = 'viridis';
+    const restyle = h.layers.rebuild();
+    await h.pump();
+    groups[1].prepared.resolve();
+    groups[1].ready = true;
+    for (let index = 0; index < 4 && animationFrames.length === 0; index += 1)
+      await h.pump();
+    expect(animationFrames).not.toHaveLength(0);
+    animationFrames.shift()!(performance.now() + 150);
+    expect(groups[1].opacity()).toBeGreaterThan(0);
+    expect(groups[1].opacity()).toBeLessThan(1);
+    // The incoming layer rises over an outgoing one that stays opaque.
+    expect(groups[0].opacity()).toBe(1);
+    while (animationFrames.length > 0)
+      animationFrames.shift()!(performance.now() + 1_000);
+    await restyle;
+    expect(new Set(groups[0].opacities)).toEqual(new Set([1, 0]));
+    expect(groups[0].opacities.at(-1)).toBe(0);
+    expect(groups[0].collection.show).toBe(false);
+    expect(groups[1].opacity()).toBe(1);
+    expect(h.commits).toEqual([keyOf('hbs'), keyOf('hbs')]);
+    // One raster source serves every group of these layers.
+    expect(runtime.rasterSource).toHaveBeenCalledTimes(1);
+  });
+
+  it('switches datasets at once and fades the new draped group in on a new wave', async () => {
+    const h = harness(
+      { draped: true, reducedMotion: false },
+      {},
+      { draped: async () => runtime },
+    );
+    await showDraped(h, 'hbs');
+    const atStart: unknown[] = [];
+    h.waveStarts.mockImplementation((reducedMotion) => {
+      atStart.push({
+        commits: [...h.commits],
+        incoming: groups[1].opacity(),
+        outgoing: groups[0].opacity(),
+        outgoingShown: groups[0].collection.show,
+      });
+      h.realWaveStart(reducedMotion);
+    });
+    // No animation frame is needed: a switch does not cross-fade.
+    const swap = h.layers.setArtifact(h.load('g6pd-deficiency'));
+    await h.pump();
+    groups[1].prepared.resolve();
+    groups[1].ready = true;
+    await h.pump();
+    await swap;
+    expect(atStart).toEqual([
+      {
+        commits: [keyOf('hbs'), keyOf('g6pd-deficiency')],
+        incoming: 1,
+        outgoing: 0,
+        outgoingShown: false,
+      },
+    ]);
+    expect(h.waveStarts).toHaveBeenCalledTimes(2);
+    expect(h.waveStarts).toHaveBeenLastCalledWith(false);
+    expect(h.wave.running()).toBe(true);
+  });
+
+  it('rebuilds when a layer toggle changes the drawn cells, and hides at α 0 when both are off', async () => {
+    const h = harness({ draped: true }, {}, { draped: async () => runtime });
+    await showDraped(h, 'hbs');
+    h.style.layers = { ...h.style.layers, support: false };
+    h.layers.setVisibility(h.style.layers, true);
+    await h.pump();
+    expect(groups).toHaveLength(2);
+    expect(groups[1].cells).toEqual({ masked: false, supported: true });
+    h.style.layers = { ...h.style.layers, support: false, surface: false };
+    h.layers.setVisibility(h.style.layers, true);
+    await h.pump();
+    expect(groups).toHaveLength(2);
+    expect(groups[1].setVisibility).toHaveBeenLastCalledWith(false, false);
+    expect(h.worker.buildChunks).not.toHaveBeenCalled();
+  });
+
+  it('rebuilds a toggle undone while its rebuild is still preparing', async () => {
+    // The pending rebuild drew the cells of the first toggle; the second one must not leave them.
+    const h = harness({ draped: true }, {}, { draped: async () => runtime });
+    await showDraped(h, 'hbs');
+    h.style.layers = { ...h.style.layers, support: false };
+    h.layers.setVisibility(h.style.layers, true);
+    await h.pump();
+    expect(groups).toHaveLength(2);
+    h.style.layers = { ...h.style.layers, support: true };
+    h.layers.setVisibility(h.style.layers, true);
+    await h.pump();
+    await h.pump(1);
+    expect(groups[1].destroy).toHaveBeenCalledTimes(1);
+    expect(h.commits).toEqual([keyOf('hbs'), keyOf('hbs')]);
+    expect(groups).toHaveLength(2);
+    expect(groups[0].collection.show).toBe(true);
+    expect(groups[0].opacity()).toBe(1);
+  });
+
+  it('reports a failed raster and settles with the rebuild it starts', async () => {
+    const failures: unknown[] = [];
+    const h = harness(
+      { draped: true },
+      {},
+      {
+        draped: async () => runtime,
+        onDrapeFailure: (e) => {
+          failures.push(e);
+          h.style.draped = false;
+          void h.layers.rebuild();
+        },
+      },
+    );
+    const done = h.layers.setArtifact(h.load('hbs'));
+    await h.pump();
+    groups[0].prepared.reject(new Error('raster'));
+    await h.pump();
+    await expect(done).resolves.toBeUndefined();
+    expect(failures).toEqual([new Error('raster')]);
+    expect(h.worker.buildChunks).toHaveBeenCalledTimes(1);
+    expect(groups[0].destroy).toHaveBeenCalled();
+    expect(h.commits).toEqual([keyOf('hbs')]);
+  });
+
+  it('rejects with the raster error when nothing reverts the terrain', async () => {
+    const h = harness({ draped: true }, {}, { draped: async () => runtime });
+    const done = h.layers
+      .setArtifact(h.load('hbs'))
+      .catch((error: unknown) => error);
+    await h.pump();
+    groups[0].prepared.reject(new Error('raster'));
+    expect(await done).toEqual(new Error('raster'));
+    expect(groups[0].destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a provider failure of a group in view once, and none of a retired one', async () => {
+    const onDrapeFailure = vi.fn();
+    const h = harness(
+      { draped: true },
+      {},
+      { draped: async () => runtime, onDrapeFailure },
+    );
+    await showDraped(h, 'hbs');
+    await showDraped(h, 'g6pd-deficiency');
+    // The retired group stays cached, hidden: its late tiles are not the globe's problem.
+    groups[0].options.onError(new Error('late'));
+    expect(onDrapeFailure).not.toHaveBeenCalled();
+    const error = new Error('tile');
+    groups[1].options.onError(error);
+    groups[1].options.onError(error);
+    expect(onDrapeFailure.mock.calls).toEqual([[error]]);
+  });
+
+  it('tells picks the group is draped and keeps draped groups out of the depth-pick hide list', async () => {
+    const h = harness({ draped: true }, {}, { draped: async () => runtime });
+    await showDraped(h, 'hbs');
+    h.style.palette = 'viridis';
+    void h.layers.rebuild();
+    await h.pump();
+    expect(groups).toHaveLength(2);
+    expect(h.layers.pickTarget()).toMatchObject({ draped: true, hidden: [] });
+  });
+
+  it('commits a draped surface with nothing to draw, ends its wave and still reads surface-visible', async () => {
+    const h = harness(
+      { draped: true, reducedMotion: false },
+      {},
+      { draped: async () => runtime },
+    );
+    void h.layers.setArtifact(h.load('hbs'));
+    await h.pump();
+    Object.assign(groups[0], { empty: true, ready: true });
+    groups[0].prepared.resolve();
+    await h.pump();
+    expect(h.waveStarts).not.toHaveBeenCalled();
+    expect(h.attributes.get('data-atlas-wave')).toBe('done');
+    expect(h.emitted).toContain('surface-visible');
+    expect(h.commits).toEqual([keyOf('hbs')]);
+  });
+
+  it('turns on draped outlines through setCellEdges and marks edges-ready once they are ready', async () => {
+    const h = harness({ draped: true }, {}, { draped: async () => runtime });
+    await showDraped(h, 'hbs');
+    h.style.cellEdges = true;
+    const edges = h.layers.setCellEdges(true);
+    await h.pump(2);
+    expect(groups[0].setCellEdges).toHaveBeenLastCalledWith(true);
+    expect(h.emitted).not.toContain('edges-ready');
+    groups[0].outlines = true;
+    await h.pump(2);
+    await edges;
+    expect(h.emitted).toContain('edges-ready');
+    expect(groups[0].setOutlineStyle).not.toHaveBeenCalled();
+
+    h.style.edgeColorMode = 'fixed';
+    h.style.edgeFixedColor = '#ff0000';
+    await h.layers.setEdgeStyle();
+    expect(groups[0].setOutlineStyle).toHaveBeenCalledExactlyOnceWith({
+      color: '#ff0000',
+      mode: 'fixed',
+    });
+    h.frame();
+    expect(h.attributes.get('data-atlas-edges-ready')).toBe('true');
+
+    await h.layers.setCellEdges(false);
+    expect(groups[0].setCellEdges).toHaveBeenLastCalledWith(false);
+    expect(h.attributes.get('data-atlas-edges-ready')).toBe('false');
+    expect(h.worker.buildEdges).not.toHaveBeenCalled();
+  });
+
+  it('reverts through onDrapeFailure when the outline raster fails', async () => {
+    const onDrapeFailure = vi.fn();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const h = harness(
+      { draped: true },
+      {},
+      { draped: async () => runtime, onDrapeFailure },
+    );
+    await showDraped(h, 'hbs');
+    const error = new Error('outline raster');
+    groups[0].setCellEdges.mockRejectedValueOnce(error);
+    h.style.cellEdges = true;
+    await h.layers.setCellEdges(true);
+    expect(onDrapeFailure.mock.calls).toEqual([[error]]);
+    expect(warn).toHaveBeenCalledWith(
+      'Cell outlines could not be built.',
+      error,
+    );
+    warn.mockRestore();
+  });
+
+  it('destroys a superseded draped group that was never shown', async () => {
+    const h = harness({ draped: true }, {}, { draped: async () => runtime });
+    const first = h.layers.setArtifact(h.load('hbs'));
+    await h.pump();
+    expect(groups).toHaveLength(1);
+    const second = h.layers.setArtifact(h.load('g6pd-deficiency'));
+    await h.pump();
+    await first;
+    expect(groups[0].destroy).toHaveBeenCalledTimes(1);
+    expect(groups[0].opacities.every((opacity) => opacity === 0)).toBe(true);
+    groups[1].prepared.resolve();
+    groups[1].ready = true;
+    await h.pump();
+    await second;
+    expect(groups[0].destroy).toHaveBeenCalledTimes(1);
+    expect(h.commits).toEqual([keyOf('g6pd-deficiency')]);
+  });
+
+  it('shows a cold draped surface at once under reduced motion', async () => {
+    const h = harness(
+      { draped: true, reducedMotion: true },
+      {},
+      { draped: async () => runtime },
+    );
+    const done = h.layers.setArtifact(h.load('hbs'));
+    await h.pump();
+    groups[0].prepared.resolve();
+    groups[0].ready = true;
+    await h.pump(1);
+    await done;
+    expect(groups[0].opacity()).toBe(1);
+    expect(h.waveStarts).toHaveBeenCalledExactlyOnceWith(true);
+    expect(h.attributes.get('data-atlas-wave')).toBe('done');
+    expect(h.wave.progress()).toBe(1);
+    expect(h.layers.pickTarget()!.drawn(0)).toBe(true);
+  });
+
+  it('destroys its draped groups with the layers, so their rasters are released', async () => {
+    const h = harness({ draped: true }, {}, { draped: async () => runtime });
+    await showDraped(h, 'hbs');
+    h.style.palette = 'viridis';
+    const restyle = h.layers.rebuild().catch((error: unknown) => error);
+    await h.pump();
+    expect(groups).toHaveLength(2);
+    h.layers.destroy();
+    await h.pump();
+    // As for chunks, a build that destroy cuts short ends with its AbortError.
+    expect(await restyle).toMatchObject({ name: 'AbortError' });
+    expect(groups.map((group) => group.destroy.mock.calls.length)).toEqual([
+      1, 1,
+    ]);
   });
 });

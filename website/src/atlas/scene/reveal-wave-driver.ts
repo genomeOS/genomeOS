@@ -22,6 +22,9 @@
  *   read both.
  * - E2E builds alone may hold the wave at a progress (`hold`), so a browser test can sample a
  *   frame mid-wave deterministically (`atlasRevealWaveHold`, boot.ts).
+ * - Under World Terrain a draped surface has no per-cell hook to grow, so it fades in on the same
+ *   timeline instead (`progress`; terrain draping design, "How existing features behave", Reveal,
+ *   #483): nothing until the wave's first drawn frame, then the eased clock, and whole at rest.
  */
 
 import {
@@ -42,6 +45,7 @@ import {
   restingWave,
   WAVE_COMPLETE_RADIUS,
   waveDone,
+  waveEase,
   waveFront,
   waveOrigin,
   waveReach,
@@ -104,6 +108,11 @@ export interface RevealWave {
    */
   finish(): void;
   running(): boolean;
+  /**
+   * How far the reveal has come, 0 to 1: 1 at rest (reduced motion and hidden tabs included), 0
+   * from `start` to the wave's first drawn frame, then `waveEase` of the wave's clock.
+   */
+  progress(): number;
   /** How far the wave has grown the cell whose centre lies along `direction`, 0 to 1. */
   reveal(direction: Vec3): number;
   /** Told `true` when a wave starts and `false` when it ends. */
@@ -260,6 +269,12 @@ export function createRevealWave(options: RevealWaveOptions): RevealWave {
       if (!destroyed) settle();
     },
     running: () => timeline !== null,
+    progress: () => {
+      if (!timeline) return 1;
+      return startedAt === null
+        ? 0
+        : waveEase(progressMs / timeline.durationMs);
+    },
     reveal: (direction) =>
       cellReveal(
         angleBetween(direction, [
