@@ -101,13 +101,15 @@ export function createSyntheticTerrain(): CustomHeightmapTerrainProvider {
 }
 
 /**
- * `SYNTHETIC_PEAK`'s summit on the rendered (exaggerated) ground, in canvas CSS px: null while the
- * globe has no tile under it, behind the camera, or outside the canvas.
+ * `SYNTHETIC_PEAK`'s summit on the rendered (exaggerated) ground, `ground` metres up, in canvas CSS
+ * px: null while the globe has no tile under it, behind the camera, or outside the canvas.
  */
-function apexWindow(scene: CesiumWidget['scene']): TerrainProbe['apexWindow'] {
+function apexWindow(
+  scene: CesiumWidget['scene'],
+  ground: number | null,
+): TerrainProbe['apexWindow'] {
   const { lat, lon } = SYNTHETIC_PEAK;
-  const ground = scene.globe.getHeight(Cartographic.fromDegrees(lon, lat));
-  if (ground === undefined) return null;
+  if (ground === null) return null;
   const position = SceneTransforms.worldToWindowCoordinates(
     scene,
     Cartesian3.fromDegrees(lon, lat, ground),
@@ -127,8 +129,13 @@ export function publishTerrainProbe(widget: CesiumWidget): () => void {
     const { camera, scene, terrainProvider } = widget;
     const { globe } = scene;
     const position = camera.positionCartographic;
+    const apexGround =
+      globe.getHeight(
+        Cartographic.fromDegrees(SYNTHETIC_PEAK.lon, SYNTHETIC_PEAK.lat),
+      ) ?? null;
     return {
-      apexWindow: apexWindow(scene),
+      apexGround,
+      apexWindow: apexWindow(scene, apexGround),
       cameraHeight: position.height,
       enableLighting: globe.enableLighting,
       groundHeight: globe.getHeight(position) ?? null,

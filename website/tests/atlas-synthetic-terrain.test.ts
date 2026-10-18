@@ -200,6 +200,7 @@ describe('publishTerrainProbe', () => {
     const widget = fakeWidget(new EllipsoidTerrainProvider());
     const unpublish = publishTerrainProbe(widget as unknown as CesiumWidget);
     expect(page.__atlasTerrainProbe!()).toEqual({
+      apexGround: 5_000,
       apexWindow: { x: 412, y: 288 },
       cameraHeight: expect.closeTo(20_000, 6),
       enableLighting: true,
@@ -247,6 +248,7 @@ describe('publishTerrainProbe', () => {
     widget.scene.globe.getHeight.mockReturnValue(undefined);
     toWindow.mockClear();
     expect(page.__atlasTerrainProbe!()).toMatchObject({
+      apexGround: null,
       apexWindow: null,
       groundHeight: null,
       provider: 'synthetic',
@@ -257,6 +259,7 @@ describe('publishTerrainProbe', () => {
     widget.scene.globe.getHeight.mockReturnValue(5_000);
     toWindow.mockReturnValue(undefined as unknown as Cartesian2);
     expect(page.__atlasTerrainProbe!()).toMatchObject({
+      apexGround: 5_000,
       apexWindow: null,
       groundHeight: 5_000,
     });

@@ -162,19 +162,50 @@ export async function openDrape(page: Page, query: string): Promise<void> {
 }
 
 /**
+ * How far the rendered summit may stand from its true (exaggerated) height for its place on the
+ * page to hold: a share of that height, or a few metres for the terrain mesh's quantisation.
+ */
+const SUMMIT_TOLERANCE = { metres: 10, share: 0.005 } as const;
+
+/**
+ * Whether the summit's own ground has loaded: the ground at the apex stands within
+ * `SUMMIT_TOLERANCE` of the peak at the probe's relief on the synthetic terrain, or of sea level on
+ * the smooth globe. From there finer tiles move the summit on the page by well under a pixel: in
+ * the oblique view at relief 3, 99.4% to 99.99% of the summit's height moves it by 0.43 px.
+ */
+function summitLoaded({
+  apexGround,
+  provider,
+  verticalExaggeration,
+}: TerrainProbe): boolean {
+  if (apexGround === null) return false;
+  const summit =
+    provider === 'synthetic'
+      ? SYNTHETIC_PEAK.peakMetres * verticalExaggeration
+      : 0;
+  return (
+    Math.abs(summit - apexGround) <=
+    Math.max(SUMMIT_TOLERANCE.share * summit, SUMMIT_TOLERANCE.metres)
+  );
+}
+
+/**
  * Where `SYNTHETIC_PEAK`'s summit stands on the rendered (exaggerated) ground, in page CSS px,
- * once every tile in view has loaded.
+ * once its own ground has loaded (`summitLoaded`) or every tile in view has. Under CI's software
+ * WebGL the oblique view's tiles out to the horizon can outlast the test, and they never move the
+ * summit.
  */
 export async function apexOnPage(page: Page): Promise<Point> {
   const found: { apex: Point | null } = { apex: null };
   await expect
     .poll(
       async () => {
-        const { apexWindow, tilesLoaded } = await probe(page);
-        found.apex = tilesLoaded ? apexWindow : null;
+        const view = await probe(page);
+        found.apex =
+          view.tilesLoaded || summitLoaded(view) ? view.apexWindow : null;
         return found.apex !== null;
       },
-      { timeout: 30_000 },
+      { timeout: 60_000 },
     )
     .toBe(true);
   const canvas = await page.evaluate(() => {

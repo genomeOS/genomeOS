@@ -53,6 +53,11 @@ export interface TerrainProbe {
   showWaterEffect: boolean;
   vertexShadowDarkness: number;
   /**
+   * The rendered (exaggerated) ground at `SYNTHETIC_PEAK`'s apex, in metres; null until its tile
+   * loads. It reaches the true summit as finer tiles load there.
+   */
+  apexGround: number | null;
+  /**
    * `SYNTHETIC_PEAK` on the rendered (exaggerated) ground, in canvas CSS px; null until its tile
    * loads or when off screen.
    */
