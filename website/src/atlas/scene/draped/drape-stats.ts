@@ -1,0 +1,96 @@
+/**
+ * Drape statistics for the World Terrain budgets (terrain draping design, "Performance budget and
+ * measurement", #483; Atlas design §11): tile counts through the raster source, a raster-time
+ * histogram of tiles at level 3 and finer, and resident Atlas imagery bytes, read from the pinned
+ * `ImageryLayer._imageryCache` (tests/atlas-cesium-internals.test.ts). The e2e build publishes the
+ * page's recorder as `__atlasDrapeStats`. Lazy: only the draped runtime imports this module.
+ */
+
+import type { ImageryLayer } from 'cesium';
+
+import {
+  OUTLINE_MIN_LEVEL,
+  RASTER_TILE_SIZE,
+  RESIDENT_TILE_BYTES,
+} from '../../geometry/raster/types';
+import type {
+  DrapeStats,
+  DrapeStatsRecorder,
+  RasterTileSource,
+} from '../types';
+
+/** Upper bounds (ms, inclusive) of the raster-time bins; the last catches the rest. */
+export const DRAPE_RASTER_BINS_MS = [0.5, 1, 2, 4, 8, 16, Infinity] as const;
+
+/** The members of a cached imagery tile this module reads. */
+interface CachedImagery {
+  texture?: { width: number };
+}
+
+function cachedImagery(layer: ImageryLayer): Iterable<CachedImagery> {
+  const cache = (
+    layer as unknown as { _imageryCache?: Record<string, CachedImagery> }
+  )._imageryCache;
+  return cache ? Object.values(cache) : [];
+}
+
+/** A recorder of its own; the page shares `drapeStats`. */
+export function createDrapeStats(): DrapeStatsRecorder {
+  let requested = 0;
+  let delivered = 0;
+  let empty = 0;
+  let queueDepth = 0;
+  const counts = DRAPE_RASTER_BINS_MS.map(() => 0);
+  const layers = new Set<ImageryLayer>();
+
+  const bin = (rasterMs: number): number => {
+    const index = DRAPE_RASTER_BINS_MS.findIndex((upper) => rasterMs <= upper);
+    return index === -1 ? DRAPE_RASTER_BINS_MS.length - 1 : index;
+  };
+
+  return {
+    source(inner: RasterTileSource): RasterTileSource {
+      return {
+        prepare: (spec, signal) => inner.prepare(spec, signal),
+        release: (id) => inner.release(id),
+        async tile(body) {
+          requested += 1;
+          queueDepth += 1;
+          try {
+            const message = await inner.tile(body);
+            delivered += 1;
+            if (message.bitmap === null) empty += 1;
+            if (message.level >= OUTLINE_MIN_LEVEL)
+              counts[bin(message.rasterMs)] += 1;
+            return message;
+          } finally {
+            queueDepth -= 1;
+          }
+        },
+      };
+    },
+    watchLayer(layer: ImageryLayer): () => void {
+      layers.add(layer);
+      return () => {
+        layers.delete(layer);
+      };
+    },
+    read(): DrapeStats {
+      let resident = 0;
+      for (const layer of layers)
+        for (const imagery of cachedImagery(layer))
+          if (imagery.texture?.width === RASTER_TILE_SIZE) resident += 1;
+      return {
+        delivered,
+        empty,
+        queueDepth,
+        rasterMs: { counts: [...counts], upperMs: DRAPE_RASTER_BINS_MS },
+        requested,
+        residentBytes: resident * RESIDENT_TILE_BYTES,
+      };
+    },
+  };
+}
+
+/** The page's recorder: `addDrapedImageryLayer` watches every Atlas layer with it. */
+export const drapeStats: DrapeStatsRecorder = createDrapeStats();
