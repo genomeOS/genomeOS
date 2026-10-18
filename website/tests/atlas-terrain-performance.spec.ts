@@ -32,7 +32,9 @@
  * Density: the e2e fixture's grids hold 256 cells, where production's res-4 grid holds 77,844 over
  * almost all land, and only non-empty tiles are resident (`scene/draped/drape-stats.ts`), so the
  * fixture's peak is a lower bound for production. The decision on the mobile fallbacks rests on
- * this tour at production density: the e2e build over the public bucket. The e2e build carries
+ * this tour at production density: the e2e build over the public bucket. What this spec asserts
+ * holds at the fixture's density only: the one headed run at production density met both memory
+ * budgets but missed three timing budgets (interaction design §5.2). The e2e build carries
  * its hooks only with the fixture catalog's path (#453), so such a run puts
  * `public/data/atlas/catalog.json` in that file for one local build, never committed (both hold
  * HbS `v3/map-2026-08`).

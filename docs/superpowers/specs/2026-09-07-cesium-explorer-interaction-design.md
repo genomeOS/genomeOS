@@ -264,10 +264,16 @@ the screen-space derivative; line-only Honmoon shows the basemap between its lin
 smooth globe. A 1 s fade replaces the radial reveal wave, and each new draped surface first draws
 one unseen frame at α 0.001, so Cesium compiles the globe shader before the fade rather than
 during it. Resident Atlas imagery is budgeted at 160 MiB on desktops and 96 MiB on touch screens
-(coarse pointers). No fallback was needed: the phone's measured peak stayed well inside 96 MiB,
-so phones keep Cesium's default tile cache, outlines in their own layer, borders to level 11, and
-World Terrain itself. The World Terrain budgets are asserted on hardware GPUs; on a software
-renderer only the memory budget is.
+(coarse pointers). No fallback was needed: at production density (the e2e build's stand-in
+terrain under the published HbS grid, one headed run on an Apple M3 Pro, the phone a Pixel 7
+emulation with its page CPU slowed ×4), the peak was 53.3 MiB on the desktop and 56.3 MiB on the
+phone, so phones keep Cesium's default tile cache, outlines in their own layer, borders to level
+11, and World Terrain itself. The World Terrain budgets are asserted on hardware GPUs; on a
+software renderer only the memory budget is. That asserted tour runs on the e2e fixture's
+256-cell grid. The production-density run met both memory budgets but missed three timing
+budgets: a desktop long frame of 346 ms against 200 ms, and on the phone data visible after 3.8 s
+against 2 s and a long frame of 927 ms against 800 ms. So the timing budgets are met at the
+fixture's density and not yet at production's.
 
 The GitHub Actions secret `CESIUM_TOKEN` is exposed to Astro as a public build variable only for
 the Pages build. A browser token is necessarily readable by the browser, so it is treated as a
