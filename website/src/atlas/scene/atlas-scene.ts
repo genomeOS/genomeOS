@@ -6,7 +6,7 @@
  * then the starfield, which is also held until `ready`. A failed artifact request starts the same
  * order.
  *
- * Under World Terrain (terrain draping design, "Picking" and "Lighting under World Terrain"; #483)
+ * Under World Terrain (terrain draping design, "Picking" and "Per layer under World Terrain"; #483)
  * picks take the rendered ground once that terrain is on the globe and the data lies flat, and the
  * terrain shading hears whether a surface layer shows, so the ground atmosphere and water effect
  * stay off over the data. */
