@@ -1,39 +1,71 @@
 /**
- * Test-only physical terrain for the e2e build (Atlas design §11; #483). CI has no Cesium ion
- * token, so World Terrain cannot load there; a browser test that sets
- * `window.__atlasSyntheticTerrain` gets this cone of known height in its place
- * (`syntheticTerrainTestHook`, e2e-hooks.ts), and reads the scene through
- * `window.__atlasTerrainProbe`. Only the e2e build loads this module: the hook imports it
- * dynamically behind `PUBLIC_ATLAS_E2E_HOOKS`, so no production chunk carries it.
+ * Test-only physical terrain for the e2e build (Atlas design §11; terrain draping design,
+ * "Test plan"; #483). CI has no Cesium ion token, so World Terrain cannot load there; a browser
+ * test that sets `window.__atlasSyntheticTerrain` gets this terrain of known height in its place
+ * (`syntheticTerrainTestHook`, e2e-hooks.ts): a cone under Everest, and a Gaussian peak under the
+ * HbS Spain survey, where the e2e fixture supports every nearby cell, so data drapes over relief.
+ * The test reads the scene through `window.__atlasTerrainProbe`. Only the e2e build loads this
+ * module: the hook imports it dynamically behind `PUBLIC_ATLAS_E2E_HOOKS`, so no production chunk
+ * carries it.
  */
 
 import {
+  Cartesian3,
+  Cartographic,
   CustomHeightmapTerrainProvider,
   EllipsoidTerrainProvider,
   Math as CesiumMath,
+  SceneTransforms,
   SunLight,
   type CesiumWidget,
 } from 'cesium';
 
-import { SYNTHETIC_CONE, type TerrainProbe } from '../e2e-hooks';
+import {
+  SYNTHETIC_CONE,
+  SYNTHETIC_PEAK,
+  type TerrainProbe,
+} from '../e2e-hooks';
 
-export { SYNTHETIC_CONE } from '../e2e-hooks';
+export { SYNTHETIC_CONE, SYNTHETIC_PEAK } from '../e2e-hooks';
 
 const EARTH_RADIUS_KM = 6_371;
 const TILE_SAMPLES = 33;
 
-/** The cone's height (metres) at a point, by great-circle distance from its apex. */
-export function syntheticConeHeight(lon: number, lat: number): number {
-  const φ1 = CesiumMath.toRadians(SYNTHETIC_CONE.lat);
+/** Great-circle distance (km) from `from` to (`lon`, `lat`), all in degrees. */
+function distanceKm(
+  from: { lat: number; lon: number },
+  lon: number,
+  lat: number,
+): number {
+  const φ1 = CesiumMath.toRadians(from.lat);
   const φ2 = CesiumMath.toRadians(lat);
-  const Δλ = CesiumMath.toRadians(lon - SYNTHETIC_CONE.lon);
+  const Δλ = CesiumMath.toRadians(lon - from.lon);
   const cosine =
     Math.sin(φ1) * Math.sin(φ2) + Math.cos(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-  const distanceKm =
-    EARTH_RADIUS_KM * Math.acos(Math.min(1, Math.max(-1, cosine)));
+  return EARTH_RADIUS_KM * Math.acos(Math.min(1, Math.max(-1, cosine)));
+}
+
+/** The cone's height (metres) at a point, by great-circle distance from its apex. */
+export function syntheticConeHeight(lon: number, lat: number): number {
   return (
     SYNTHETIC_CONE.peakMetres *
-    Math.max(0, 1 - distanceKm / SYNTHETIC_CONE.radiusKm)
+    Math.max(
+      0,
+      1 - distanceKm(SYNTHETIC_CONE, lon, lat) / SYNTHETIC_CONE.radiusKm,
+    )
+  );
+}
+
+/**
+ * The synthetic terrain's height (metres) at a point: the cone plus the Gaussian peak,
+ * `peakMetres · exp(−d² / 2σ²)` by great-circle distance `d` from its apex.
+ */
+export function syntheticTerrainHeight(lon: number, lat: number): number {
+  const d = distanceKm(SYNTHETIC_PEAK, lon, lat);
+  return (
+    syntheticConeHeight(lon, lat) +
+    SYNTHETIC_PEAK.peakMetres *
+      Math.exp(-(d * d) / (2 * SYNTHETIC_PEAK.sigmaKm ** 2))
   );
 }
 
@@ -56,7 +88,7 @@ export function createSyntheticTerrain(): CustomHeightmapTerrainProvider {
             const lon = CesiumMath.toDegrees(
               west + (east - west) * column * step,
             );
-            heights[row * TILE_SAMPLES + column] = syntheticConeHeight(
+            heights[row * TILE_SAMPLES + column] = syntheticTerrainHeight(
               lon,
               lat,
             );
@@ -68,26 +100,60 @@ export function createSyntheticTerrain(): CustomHeightmapTerrainProvider {
   return provider;
 }
 
+/**
+ * `SYNTHETIC_PEAK`'s summit on the rendered (exaggerated) ground, `ground` metres up, in canvas CSS
+ * px: null while the globe has no tile under it, behind the camera, or outside the canvas.
+ */
+function apexWindow(
+  scene: CesiumWidget['scene'],
+  ground: number | null,
+): TerrainProbe['apexWindow'] {
+  const { lat, lon } = SYNTHETIC_PEAK;
+  if (ground === null) return null;
+  const position = SceneTransforms.worldToWindowCoordinates(
+    scene,
+    Cartesian3.fromDegrees(lon, lat, ground),
+  );
+  // Cesium returns undefined only behind the camera; off the canvas it still returns a position.
+  if (position === undefined) return null;
+  const { clientHeight, clientWidth } = scene.canvas;
+  const { x, y } = position;
+  return x >= 0 && x < clientWidth && y >= 0 && y < clientHeight
+    ? { x, y }
+    : null;
+}
+
 /** Publishes `window.__atlasTerrainProbe` for this widget; returns its removal. */
 export function publishTerrainProbe(widget: CesiumWidget): () => void {
   const read = (): TerrainProbe => {
     const { camera, scene, terrainProvider } = widget;
+    const { globe } = scene;
     const position = camera.positionCartographic;
+    const apexGround =
+      globe.getHeight(
+        Cartographic.fromDegrees(SYNTHETIC_PEAK.lon, SYNTHETIC_PEAK.lat),
+      ) ?? null;
     return {
+      apexGround,
+      apexWindow: apexWindow(scene, apexGround),
       cameraHeight: position.height,
-      enableLighting: scene.globe.enableLighting,
-      groundHeight: scene.globe.getHeight(position) ?? null,
+      enableLighting: globe.enableLighting,
+      groundHeight: globe.getHeight(position) ?? null,
+      lambertDiffuseMultiplier: globe.lambertDiffuseMultiplier,
       provider:
         terrainProvider instanceof CustomHeightmapTerrainProvider
           ? 'synthetic'
           : terrainProvider instanceof EllipsoidTerrainProvider
             ? 'ellipsoid'
             : 'other',
+      showGroundAtmosphere: globe.showGroundAtmosphere,
+      showWaterEffect: globe.showWaterEffect,
       sunLight: scene.light instanceof SunLight,
-      tilesLoaded: scene.globe.tilesLoaded,
+      tilesLoaded: globe.tilesLoaded,
       verticalExaggeration: scene.verticalExaggeration,
       verticalExaggerationRelativeHeight:
         scene.verticalExaggerationRelativeHeight,
+      vertexShadowDarkness: globe.vertexShadowDarkness,
     };
   };
   window.__atlasTerrainProbe = read;

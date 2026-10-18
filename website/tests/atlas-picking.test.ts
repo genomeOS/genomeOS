@@ -48,10 +48,17 @@ function context(
   hidden: { show: boolean }[] = [],
 ): SurfacePickContext {
   return {
+    draped: () => false,
     factor: () => factor,
     geometry: () => 'triangles',
     metric: () => 'post_mean',
-    target: () => ({ artifactKey: KEY, hidden, surface }),
+    target: () => ({
+      artifactKey: KEY,
+      draped: false,
+      drawn: () => true,
+      hidden,
+      surface,
+    }),
   };
 }
 
@@ -490,6 +497,8 @@ describe('surface-chunk cell resolution', () => {
       geometry: () => 'extruded',
       target: () => ({
         artifactKey: disk.artifactKey,
+        draped: false,
+        drawn: () => true,
         hidden: [],
         surface: disk,
       }),
@@ -555,6 +564,8 @@ describe('extruded picks along the camera ray', () => {
       geometry: () => geometry,
       target: () => ({
         artifactKey: disk.artifactKey,
+        draped: false,
+        drawn: () => true,
         hidden: [],
         surface: disk,
       }),
@@ -653,6 +664,8 @@ describe('surface picks in the map frame (Columbus view and 2D)', () => {
       geometry: () => geometry,
       target: () => ({
         artifactKey: disk.artifactKey,
+        draped: false,
+        drawn: () => true,
         hidden: [],
         surface: disk,
       }),

@@ -1,7 +1,8 @@
 /**
- * Test-only hooks for the e2e build (fast-load design §B.8; #453). Each is inert unless the build
- * sets `PUBLIC_ATLAS_E2E_HOOKS=1`, which only `npm run build:e2e` may do (`assertE2eHooks`,
- * lib/catalog-build.ts), so no production build carries them.
+ * Test-only hooks for the e2e build (fast-load design §B.8; #453), with the synthetic World
+ * Terrain's probe and peak (terrain draping design, "Test plan"; #483). Each is inert unless the
+ * build sets `PUBLIC_ATLAS_E2E_HOOKS=1`, which only `npm run build:e2e` may do
+ * (`assertE2eHooks`, lib/catalog-build.ts), so no production build carries them.
  */
 
 import type { CesiumWidget, TerrainProvider } from 'cesium';
@@ -43,6 +44,24 @@ export interface TerrainProbe {
   /** The rendered (exaggerated) ground under the camera; null until its tile has loaded. */
   groundHeight: number | null;
   tilesLoaded: boolean;
+  /**
+   * The globe's hillshade and tint terms (terrain draping design, "Per layer under World
+   * Terrain").
+   */
+  lambertDiffuseMultiplier: number;
+  showGroundAtmosphere: boolean;
+  showWaterEffect: boolean;
+  vertexShadowDarkness: number;
+  /**
+   * The rendered (exaggerated) ground at `SYNTHETIC_PEAK`'s apex, in metres; null until its tile
+   * loads. It reaches the true summit as finer tiles load there.
+   */
+  apexGround: number | null;
+  /**
+   * `SYNTHETIC_PEAK` on the rendered (exaggerated) ground, in canvas CSS px; null until its tile
+   * loads or when off screen.
+   */
+  apexWindow: { x: number; y: number } | null;
 }
 
 /**
@@ -56,8 +75,21 @@ export const SYNTHETIC_CONE = {
   radiusKm: 150,
 } as const;
 
+/**
+ * The synthetic terrain's Gaussian peak (scene/synthetic-terrain.ts): 6 km high, σ 40 km, under
+ * the HbS Spain survey `map-surveys:1135` (MAP survey 1135, population label "Spain"), where the
+ * e2e grid's hbs-rs334 render tier supports every res-4 cell within 2σ of the apex (res-4 cell
+ * `84390cbffffffff`). None of the Kenya survey's 11 res-4 cells within 80 km is in that grid.
+ */
+export const SYNTHETIC_PEAK = {
+  lat: 40.419,
+  lon: -3.709,
+  peakMetres: 6_000,
+  sigmaKm: 40,
+} as const;
+
 export interface SyntheticTerrainHook {
-  /** Builds the cone that stands in for Cesium World Terrain. */
+  /** Builds the cone and peak that stand in for Cesium World Terrain. */
   worldTerrain(): Promise<TerrainProvider>;
   destroy(): void;
 }
@@ -65,8 +97,9 @@ export interface SyntheticTerrainHook {
 /**
  * The e2e build's stand-in for Cesium World Terrain (#483), when a browser test set
  * `window.__atlasSyntheticTerrain`; undefined elsewhere. CI has no ion token, so the test drives
- * World Terrain through the UI with a cone of known height (scene/synthetic-terrain.ts, loaded only
- * here), and reads the scene through `window.__atlasTerrainProbe`.
+ * World Terrain through the UI with terrain of known height, a cone and a Gaussian peak
+ * (scene/synthetic-terrain.ts, loaded only here), and reads the scene through
+ * `window.__atlasTerrainProbe`.
  */
 export function syntheticTerrainTestHook(
   widget: CesiumWidget,

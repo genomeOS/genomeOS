@@ -3,6 +3,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createAtlasScene } from '../src/atlas/scene/atlas-scene';
+import { DEFAULT_LAYERS } from '../src/atlas/scene/scene-policy';
+import type { SurfacePickContext } from '../src/atlas/scene/surface-pick';
 import type { TerrainId } from '../src/atlas/url-state';
 import type { AtlasWorkerClient } from '../src/atlas/worker/client';
 
@@ -12,6 +14,8 @@ const harness = vi.hoisted(() => ({
   zooms: [] as ['in' | 'out', number][],
   contextOptions: undefined as
     { onTerrainApplied?: (terrain: TerrainId) => void } | undefined,
+  /** The context the scene handed the surface pick resolver. */
+  pickContext: undefined as SurfacePickContext | undefined,
   setAppearance: [] as [number, number][],
   contextDestroyed: 0,
   shadingDestroyed: 0,
@@ -75,6 +79,9 @@ vi.mock('../src/atlas/scene/context-controller', () => ({
     setAppearance = (opacity: number, brightness: number) =>
       harness.setAppearance.push([opacity, brightness]);
     setBasemap = () => Promise.resolve(true);
+    /** A terrain request that never settles: the provider never reaches the globe. */
+    setTerrain = () => new Promise<boolean>(() => {});
+    setVisible = () => {};
     destroy = () => {
       harness.contextDestroyed += 1;
     };
@@ -93,6 +100,7 @@ vi.mock('../src/atlas/scene/context-overlay', () => ({
     load = () => new Promise(() => {});
     setElevationFactor = () => {};
     setSceneMode = () => Promise.resolve();
+    setVisible = () => {};
   },
 }));
 vi.mock('../src/atlas/scene/scientific-layers', async (importOriginal) => ({
@@ -103,6 +111,14 @@ vi.mock('../src/atlas/scene/scientific-layers', async (importOriginal) => ({
     destroy = () => {};
     setElevationFactor = () => {};
     setSceneMode = () => Promise.resolve();
+    setVisibility = () => {};
+  },
+}));
+vi.mock('../src/atlas/scene/surface-pick', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/atlas/scene/surface-pick')>()),
+  createSurfacePickResolver: (_scene: unknown, context: SurfacePickContext) => {
+    harness.pickContext = context;
+    return () => null;
   },
 }));
 vi.mock('../src/atlas/scene/scene-marks', () => ({
@@ -137,10 +153,11 @@ vi.mock('../src/atlas/scene/scene-policy', async (importOriginal) => ({
   styleAtlasScene: () => {},
 }));
 
-function scene() {
+function scene(reducedMotion = false) {
   return createAtlasScene({} as HTMLElement, {
     frameBudgetMs: 8,
     naturalEarthUrl: 'borders.bin',
+    reducedMotion,
     worker: {} as AtlasWorkerClient,
   });
 }
@@ -157,6 +174,7 @@ beforeEach(() => {
   harness.camera.height = 29_600;
   harness.zooms.length = 0;
   harness.contextOptions = undefined;
+  harness.pickContext = undefined;
   harness.setAppearance.length = 0;
   harness.contextDestroyed = 0;
   harness.shadingDestroyed = 0;
@@ -245,5 +263,40 @@ describe('scene terrain wiring (#483)', () => {
     expect(harness.zooms[1][1]).toBeCloseTo(56_000, 6);
     controller.zoom('out');
     expect(harness.zooms[2][0]).toBe('out');
+  });
+
+  it('picks on the ground once World Terrain is on the globe, and on the ellipsoid on the smooth globe', () => {
+    scene();
+    expect(harness.pickContext!.draped()).toBe(false);
+    harness.contextOptions?.onTerrainApplied?.('world-terrain');
+    expect(harness.pickContext!.draped()).toBe(true);
+    harness.contextOptions?.onTerrainApplied?.('smooth-globe');
+    expect(harness.pickContext!.draped()).toBe(false);
+  });
+
+  it('keeps the smooth pick while a requested World Terrain has not reached the globe', () => {
+    void scene().setTerrain('world-terrain'); // the fake never settles
+    expect(harness.pickContext!.draped()).toBe(false);
+  });
+
+  it('keeps the depth pick while data elevation lifts the surface under World Terrain', async () => {
+    const controller = scene(true);
+    harness.contextOptions?.onTerrainApplied?.('world-terrain');
+    await controller.setElevation(true, 2);
+    expect(harness.pickContext!.draped()).toBe(false);
+    await controller.setElevation(false, 2);
+    expect(harness.pickContext!.draped()).toBe(true);
+  });
+
+  it('tells the shading whether any surface layer is shown', () => {
+    const controller = scene();
+    controller.setLayerVisibility({
+      ...DEFAULT_LAYERS,
+      support: false,
+      surface: false,
+    });
+    expect(harness.updates).toContainEqual({ surfaceShown: false });
+    controller.setLayerVisibility({ ...DEFAULT_LAYERS, surface: false });
+    expect(harness.updates.at(-1)).toEqual({ surfaceShown: true });
   });
 });

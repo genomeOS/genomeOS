@@ -22,9 +22,18 @@
  * pass cannot hit it, but a 3 × 3 pick window can catch a grown neighbour's
  * chunk and an extruded ray test can choose an unreached neighbour's prism:
  * the wave's own answer for the resolved cell's centre has the last word.
+ *
+ * Under World Terrain (terrain draping design, "Picking"; #483) the ground can
+ * cover the surface, so a draped pick needs no surface chunk in the drill
+ * pick: an observation hit still wins, and otherwise the cell is the one on
+ * the rendered, exaggerated ground under the pointer (`globe.pick` through
+ * the camera's pick ray), kept only where a layer draws it. The 650 m
+ * clearance, the ellipsoid and the translucent depth pick play no part, and
+ * a mid-morph pick resolves nothing. Chunks still run the radial wave under
+ * terrain, so its answer stands for them; a draped group has no wave.
  */
 
-import { cellToLatLng } from 'h3-js';
+import { cellToLatLng, latLngToCell } from 'h3-js';
 import {
   Cartesian2,
   Cartesian3,
@@ -37,17 +46,27 @@ import {
 import type { MapFrameHit } from '../geometry/map-frame-pick';
 import { resolveSurfaceRow, type PickRay } from '../geometry/pick-resolver';
 import { isSupportedCode } from '../geometry/support-codes';
-import { h3At, renderAt, type SurfaceArtifact } from '../surface-columns';
+import {
+  h3At,
+  renderAt,
+  rowForH3,
+  type SurfaceArtifact,
+} from '../surface-columns';
 import type { SurfaceGeometry } from '../url-state';
 import { heightFor, type Metric } from '../visual-encoding';
 import { preferredAtlasPick, type PickResolver } from './picking';
 import type { Vec3 } from './reveal-wave';
 import { SURFACE_CLEARANCE_METRES } from './surface-appearance';
+import type { SurfacePick } from './types';
 
 export interface PickTarget {
   artifactKey: string;
   surface: SurfaceArtifact;
   hidden: readonly { show: boolean }[];
+  /** Supported rows need layers.surface, masked rows layers.support, and the group must be shown (α > 0). */
+  drawn(row: number): boolean;
+  /** The displayed group is draped imagery; a group of surface chunks is never draped. */
+  draped: boolean;
 }
 
 export interface SurfacePickContext {
@@ -57,6 +76,8 @@ export interface SurfacePickContext {
   geometry(): SurfaceGeometry;
   /** How far the reveal wave has grown the cell centred along `direction` (ECEF); 0 is unpickable. */
   reveal?(direction: Vec3): number;
+  /** World Terrain is on the globe and the data lies flat on it, so picks take the ground. */
+  draped(): boolean;
 }
 
 function cellDirection(h3Index: string): Vec3 {
@@ -68,12 +89,49 @@ function cellDirection(h3Index: string): Vec3 {
 type DepthPickScene = Pick<
   Scene,
   | 'camera'
+  | 'globe'
   | 'mapProjection'
   | 'mode'
   | 'pick'
   | 'pickPosition'
   | 'pickTranslucentDepth'
 >;
+
+export type DrapedPickScene = Pick<
+  Scene,
+  'camera' | 'globe' | 'mapProjection' | 'mode'
+>;
+
+/**
+ * The cell on the rendered ground under the pointer, if a layer draws it.
+ * `globe.pick` intersects the tiles drawn this frame, so it hits the
+ * exaggerated terrain mesh, and returns ECEF in every scene mode; mid-morph
+ * that mesh lies between both frames, so nothing is resolved.
+ */
+export function resolveDrapedPick(
+  scene: DrapedPickScene,
+  target: PickTarget,
+  position: Cartesian2,
+): SurfacePick | null {
+  if (scene.mode === SceneMode.MORPHING) return null;
+  const ray = scene.camera.getPickRay(position);
+  if (!ray) return null;
+  // `Globe.pick` reads only the scene's `mode` and `mapProjection`, projecting a 2D or
+  // Columbus-view hit back to ECEF (@cesium/engine 26.3.0, Globe.js:740-741, :823-831).
+  const hit = scene.globe.pick(ray, scene as Scene);
+  const cartographic = hit
+    ? Ellipsoid.WGS84.cartesianToCartographic(hit)
+    : undefined;
+  if (!cartographic) return null;
+  const h3Index = latLngToCell(
+    CesiumMath.toDegrees(cartographic.latitude),
+    CesiumMath.toDegrees(cartographic.longitude),
+    target.surface.grid.resolution,
+  );
+  const row = rowForH3(target.surface, h3Index);
+  if (row === null || !target.drawn(row)) return null;
+  return { artifactKey: target.artifactKey, h3Index, kind: 'surface', row };
+}
 
 /** The pointer's ray in ECEF metres; only the globe's camera works in those coordinates. */
 function globePickRay(
@@ -215,9 +273,18 @@ export function createSurfacePickResolver(
   return (picks, position) => {
     const target = context.target();
     const chosen = preferredAtlasPick(picks, target?.artifactKey ?? null);
-    if (!chosen) return null;
-    if (chosen.kind === 'observation') return chosen;
+    if (chosen?.kind === 'observation') return chosen;
     if (!target) return null;
+    if (target.draped || context.draped()) {
+      const pick = resolveDrapedPick(scene, target, position);
+      return pick &&
+        !target.draped &&
+        context.reveal &&
+        context.reveal(cellDirection(pick.h3Index)) <= 0
+        ? null
+        : pick;
+    }
+    if (!chosen) return null;
     const factor = context.factor();
     const geometry = context.geometry();
     let cartesian: [number, number, number] | null = null;

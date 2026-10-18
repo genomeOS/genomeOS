@@ -1,22 +1,25 @@
 /**
  * Physical terrain end to end (Atlas design §11, interaction design §5.2; #483). World Terrain,
  * chosen through the basemap and terrain chooser, is shaded by the fixed hillshade light rather
- * than the sun and raised by Physical relief ×; the zoom-in button and key stop a kilometre above
- * it; and from the global view it is drawn unlit, with no night side.
+ * than the sun and raised by Physical relief ×, and the smooth globe gets its own lighting terms
+ * back after it; the zoom-in button and key stop a kilometre above it; and from the global view it
+ * is drawn unlit, with no night side.
  *
  * CI has no Cesium ion token, so the e2e build stands a synthetic cone in for World Terrain when a
  * test sets `window.__atlasSyntheticTerrain` (src/atlas/e2e-hooks.ts), and reports the scene
- * through `window.__atlasTerrainProbe`. Desktop only: the chooser and the camera buttons are the
- * same components on a phone, behind the bottom sheet.
+ * through `window.__atlasTerrainProbe`, read with the helpers this spec shares with the drape spec
+ * (atlas-terrain-helpers.ts; terrain draping design, "Test plan"). Desktop only: the chooser and
+ * the camera buttons are the same components on a phone, behind the bottom sheet.
  */
 
 import { expect, test, type Page } from '@playwright/test';
 
+import { SYNTHETIC_CONE } from '../src/atlas/e2e-hooks';
 import {
-  SYNTHETIC_CONE,
-  type CameraMotion,
-  type TerrainProbe,
-} from '../src/atlas/e2e-hooks';
+  cameraSettled,
+  openTerrainChooser,
+  probe,
+} from './atlas-terrain-helpers';
 
 /** `ZOOM_FLOOR_METRES` (src/atlas/scene/camera.ts; its unit test pins the value). */
 const ZOOM_FLOOR_METRES = 1_000;
@@ -29,6 +32,18 @@ const RELIEF = 3;
 const HIDDEN_DATA =
   'World Terrain can hide map data on high ground, and raised relief hides more.';
 
+/**
+ * The smooth globe's own diffuse, shadow, ground atmosphere and water terms: Cesium 1.145's
+ * defaults (Globe.js), with the ground atmosphere styleAtlasScene turns on. The hillshade changes
+ * them under World Terrain and must hand them back.
+ */
+const SMOOTH_GLOBE_TERMS = {
+  lambertDiffuseMultiplier: 0.9,
+  showGroundAtmosphere: true,
+  showWaterEffect: true,
+  vertexShadowDarkness: 0.3,
+};
+
 const START = new URLSearchParams({
   dayNight: 'false',
   heading: '0',
@@ -37,29 +52,6 @@ const START = new URLSearchParams({
   lon: String(SYNTHETIC_CONE.lon),
   pitch: '-90',
 }).toString();
-
-async function probe(page: Page): Promise<TerrainProbe> {
-  await expect
-    .poll(() => page.evaluate(() => typeof window.__atlasTerrainProbe))
-    .toBe('function');
-  return page.evaluate(() => window.__atlasTerrainProbe!());
-}
-
-/** The camera has finished the explorer's flight to the linked view. */
-async function cameraSettled(page: Page): Promise<void> {
-  await expect
-    .poll(
-      () =>
-        page.evaluate(() => {
-          const read = (
-            window as Window & { __atlasCameraMotion?: () => CameraMotion }
-          ).__atlasCameraMotion;
-          return read ? !read().flying && !read().moving : false;
-        }),
-      { timeout: 30_000 },
-    )
-    .toBe(true);
-}
 
 /** Waits until the ground under the camera has loaded at `expected` metres (± 2%). */
 async function groundLoaded(page: Page, expected: number): Promise<number> {
@@ -71,15 +63,6 @@ async function groundLoaded(page: Page, expected: number): Promise<number> {
   const { groundHeight } = await probe(page);
   expect(groundHeight!).toBeLessThan(expected * 1.02);
   return groundHeight!;
-}
-
-async function openTerrainChooser(page: Page) {
-  await page
-    .getByRole('button', { name: 'Choose basemap and terrain' })
-    .click();
-  const dialog = page.getByRole('dialog', { name: 'Basemap and terrain' });
-  await expect(dialog).toBeVisible();
-  return dialog;
 }
 
 /** Opens the explorer at `query`, with the synthetic cone standing in for World Terrain. */
@@ -111,6 +94,7 @@ test.describe('physical terrain @desktop-chromium', () => {
 
     // The smooth globe keeps the sun, and day/night (off in this URL) decides its lighting.
     expect(await probe(page)).toMatchObject({
+      ...SMOOTH_GLOBE_TERMS,
       enableLighting: false,
       provider: 'ellipsoid',
       sunLight: true,
@@ -131,10 +115,13 @@ test.describe('physical terrain @desktop-chromium', () => {
       .click();
     await expect(page).toHaveURL(/terrain=world-terrain/);
 
-    // World Terrain: lit by the fixed hillshade light, whatever day/night says.
+    // World Terrain: lit by the fixed hillshade light, whatever day/night says, and with the
+    // default layers' surface showing, no ground atmosphere or water effect over it.
     await worldTerrainApplied(page);
     expect(await probe(page)).toMatchObject({
       enableLighting: true,
+      showGroundAtmosphere: false,
+      showWaterEffect: false,
       sunLight: false,
     });
     await expect(dayNight).toBeDisabled();
@@ -158,14 +145,15 @@ test.describe('physical terrain @desktop-chromium', () => {
     // The ground itself is raised, from sea level.
     await groundLoaded(page, FLANK_GROUND * RELIEF);
 
-    // Back on the smooth globe (choosing a terrain closes the chooser): the sun, day/night and
-    // true scale return.
+    // Back on the smooth globe (choosing a terrain closes the chooser): the sun, day/night, true
+    // scale and the globe's own terms return.
     await chooser.getByRole('radio', { name: 'Smooth Globe terrain' }).click();
     await expect(chooser).toHaveCount(0);
     await expect
       .poll(async () => (await probe(page)).provider, { timeout: 30_000 })
       .toBe('ellipsoid');
     expect(await probe(page)).toMatchObject({
+      ...SMOOTH_GLOBE_TERMS,
       enableLighting: false,
       sunLight: true,
       verticalExaggeration: 1,
