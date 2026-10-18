@@ -5,6 +5,11 @@
  * re-placing every symbol and sampling ring then would rewrite the ring buffer one ring at a time,
  * a GPU write per ring, and on ANGLE Metal that held the GPU, and with it every frame, for ~0.6 s
  * right after the reveal (#443).
+ *
+ * Under World Terrain (terrain draping design, "Per layer under World Terrain": sampling
+ * footprints and observation symbols, #483) each symbol rises by the ground under it with today's
+ * clearance kept, and the sampling footprints drape as the group's own `atlas-footprints` imagery
+ * layer, never part of the surface texture; the rings hide while that layer is set.
  */
 
 import * as Cesium from 'cesium';
@@ -20,6 +25,7 @@ import {
 } from 'cesium';
 
 import type { Observation, ObservationArtifact } from '../contracts';
+import type { FootprintRasterSpec } from '../geometry/raster/types';
 import {
   observationColor,
   observationDomains,
@@ -42,6 +48,7 @@ import {
   type ObservationSurfaceHeights,
 } from './observation-symbols';
 import { surfaceHeightAt, type SurfaceHeightSource } from './surface-heights';
+import type { DrapedImageryLayer } from './types';
 
 export type { ObservationSurfaceHeights } from './observation-symbols';
 
@@ -78,6 +85,18 @@ export interface ObservationPrimitiveGroup {
   /** Re-places the symbols and rings on new heights; the heights already shown are a no-op. */
   setSurfaceHeights(heights: ObservationSurfaceHeights | null): void;
   setEarthOpacity(opacity: number): void;
+  /**
+   * Lifts each symbol by the terrain under it, in observation order (null: the smooth globe, no
+   * lift). A NaN entry keeps that symbol where it is until its ground loads; only symbols whose
+   * ground changed are re-placed. A length other than the observation count throws.
+   */
+  setGroundHeights(h: Float64Array | null): void;
+  /**
+   * Takes ownership of the draped `atlas-footprints` layer (null clears it), destroying the layer
+   * it replaces; the rings hide while one is set. Its α is the fade × style opacity, and it shows
+   * while the collection and the sampling areas both do.
+   */
+  setFootprints(l: DrapedImageryLayer | null): void;
   setOpacity(opacity: number): void;
   setSamplingAreaColor(color: string): void;
   setSizeRange(range: ObservationSizeRange): void;
@@ -204,6 +223,33 @@ export function observationHeightsFromBuffers(
   };
 }
 
+/** Each observation's sampling footprint as interleaved lon, lat (degrees), radius_km, in order. */
+export function footprintCircles(
+  observations: readonly Observation[],
+): Float64Array {
+  const circles = new Float64Array(observations.length * 3);
+  for (const [index, observation] of observations.entries()) {
+    circles[index * 3] = observation.lon;
+    circles[index * 3 + 1] = observation.lat;
+    circles[index * 3 + 2] = observation.radius_km;
+  }
+  return circles;
+}
+
+/** The footprint raster for one observation group; the colour is baked into its texels. */
+export function footprintSpec(
+  artifactKey: string,
+  observations: readonly Observation[],
+  color: string,
+): FootprintRasterSpec {
+  return {
+    artifactKey,
+    circles: footprintCircles(observations),
+    color,
+    layer: 'footprints',
+  };
+}
+
 function samplingAreaMaterial(cssColor: string): Material {
   return Material.fromType('Color', {
     color: Color.fromCssColorString(cssColor).withAlpha(0.9),
@@ -310,6 +356,11 @@ export function buildObservationLayer(
   // The heights every symbol and ring is placed on now.
   let shownHeights = options.heights;
   let styleOpacity = options.opacity;
+  // The terrain under each observation (World Terrain); zeros on the smooth globe.
+  const ground = new Float64Array(symbols.length);
+  let footprints: DrapedImageryLayer | null = null;
+  let samplingAreasShown = options.samplingAreas;
+  let collectionShown = collection.show;
   const uploadColor = new Color();
   const ringSamples: RingSample[][] = [];
   const ringBaseColors: Color[] = [];
@@ -441,34 +492,53 @@ export function buildObservationLayer(
   collection.add(spheres);
 
   const symbolCollections = [hemispheres, points, pins, spheres];
+  const placeSymbol = (index: number) => {
+    const symbol = symbols[index];
+    const placement = observationSurfacePlacement(
+      symbol.anchor,
+      symbol.observation,
+      elevationFactor,
+      ground[index],
+    );
+    if (options.shape === 'circle')
+      points.get(index).position = placement.position;
+    else if (options.shape === 'pin') {
+      pins.get(index).position = placement.position;
+      pins.get(index).alignedAxis = placement.normal;
+    } else if (options.shape === 'hemisphere') {
+      hemispheres.get(index).position = placement.position;
+    } else {
+      spheres.get(index).center = sphereSurfacePlacement(
+        placement,
+        symbol.size,
+      ).center;
+    }
+  };
   const placeAll = () => {
     for (let index = 0; index < rings.length; index += 1)
       rings.get(index).positions = ringPositions(
         ringSamples[index],
         elevationFactor,
       );
-    for (let index = 0; index < symbols.length; index += 1) {
-      const symbol = symbols[index];
-      const placement = observationSurfacePlacement(
-        symbol.anchor,
-        symbol.observation,
-        elevationFactor,
-      );
-      if (options.shape === 'circle')
-        points.get(index).position = placement.position;
-      else if (options.shape === 'pin') {
-        pins.get(index).position = placement.position;
-        pins.get(index).alignedAxis = placement.normal;
-      } else if (options.shape === 'hemisphere') {
-        hemispheres.get(index).position = placement.position;
-      } else {
-        spheres.get(index).center = sphereSurfacePlacement(
-          placement,
-          symbol.size,
-        ).center;
-      }
-    }
+    for (let index = 0; index < symbols.length; index += 1) placeSymbol(index);
   };
+  // The draped footprints stand in for the rings: shown while the group and its sampling areas
+  // are; only `show = false` frees an imagery layer's tiles (α 0 keeps them resident).
+  const showSamplingAreas = () => {
+    rings.show = samplingAreasShown && footprints === null;
+    footprints?.setShown(collectionShown && samplingAreasShown);
+  };
+  // PrimitiveCollection.show is a plain field that Cesium reads each frame. This instance's own
+  // accessor keeps that, and also hides the footprint layer when the group is retired.
+  Object.defineProperty(collection, 'show', {
+    configurable: true,
+    enumerable: true,
+    get: () => collectionShown,
+    set: (shown: boolean) => {
+      collectionShown = shown;
+      showSamplingAreas();
+    },
+  });
   return {
     artifactKey: options.artifactKey,
     collection,
@@ -496,8 +566,28 @@ export function buildObservationLayer(
       }
       placeAll();
     },
+    setGroundHeights(heights: Float64Array | null) {
+      if (heights && heights.length !== ground.length)
+        throw new Error(
+          `Ground heights do not match the ${ground.length} observations of this artifact`,
+        );
+      for (let index = 0; index < ground.length; index += 1) {
+        const metres = heights ? heights[index] : 0;
+        if (!Number.isFinite(metres) || metres === ground[index]) continue;
+        ground[index] = metres;
+        placeSymbol(index);
+      }
+    },
+    setFootprints(layer: DrapedImageryLayer | null) {
+      if (layer !== footprints) footprints?.destroy();
+      footprints = layer;
+      footprints?.setAlpha(fadeOpacity * styleOpacity);
+      showSamplingAreas();
+    },
     setOpacity(opacity: number) {
       fadeOpacity = opacity;
+      // The translucent globe already dims draped imagery, so earth opacity is left out here.
+      footprints?.setAlpha(opacity * styleOpacity);
       for (let index = 0; index < rings.length; index += 1) {
         const material = rings.get(index).material;
         const color = material.uniforms.color;
@@ -570,6 +660,7 @@ export function buildObservationLayer(
               symbol.anchor,
               symbol.observation,
               elevationFactor,
+              ground[index],
             ),
             size,
           );
@@ -589,7 +680,8 @@ export function buildObservationLayer(
       this.setOpacity(fadeOpacity);
     },
     setVisibility(symbolsVisible: boolean, samplingAreas: boolean) {
-      rings.show = samplingAreas;
+      samplingAreasShown = samplingAreas;
+      showSamplingAreas();
       for (const symbolCollection of symbolCollections)
         symbolCollection.show = symbolsVisible;
     },
