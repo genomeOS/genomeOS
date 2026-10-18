@@ -149,7 +149,14 @@ describe('createSurfacePickResolver under World Terrain (#483)', () => {
 
   it('uses neither the ellipsoid, the clearance nor the translucent depth pick', () => {
     const scene = fakeScene();
-    createSurfacePickResolver(scene as never, context())([], WINDOW);
+    // A chunk hit, so a draped branch that fell through to the smooth path would reach the
+    // ellipsoid (as on the smooth globe, below) rather than return before it.
+    expect(
+      createSurfacePickResolver(scene as never, context())(
+        [{ id: surfaceChunkPickId(KEY, 0) }],
+        WINDOW,
+      ),
+    ).toEqual(PICKED);
     expect(scene.camera.pickEllipsoid).not.toHaveBeenCalled();
     expect(scene.pickPosition).not.toHaveBeenCalled();
     expect(scene.pick).not.toHaveBeenCalled();

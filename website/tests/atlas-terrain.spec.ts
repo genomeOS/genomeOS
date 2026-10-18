@@ -1,8 +1,9 @@
 /**
  * Physical terrain end to end (Atlas design §11, interaction design §5.2; #483). World Terrain,
  * chosen through the basemap and terrain chooser, is shaded by the fixed hillshade light rather
- * than the sun and raised by Physical relief ×; the zoom-in button and key stop a kilometre above
- * it; and from the global view it is drawn unlit, with no night side.
+ * than the sun and raised by Physical relief ×, and the smooth globe gets its own lighting terms
+ * back after it; the zoom-in button and key stop a kilometre above it; and from the global view it
+ * is drawn unlit, with no night side.
  *
  * CI has no Cesium ion token, so the e2e build stands a synthetic cone in for World Terrain when a
  * test sets `window.__atlasSyntheticTerrain` (src/atlas/e2e-hooks.ts), and reports the scene
@@ -30,6 +31,18 @@ const FLANK_GROUND =
 const RELIEF = 3;
 const HIDDEN_DATA =
   'World Terrain can hide map data on high ground, and raised relief hides more.';
+
+/**
+ * The smooth globe's own diffuse, shadow, ground atmosphere and water terms: Cesium 1.145's
+ * defaults (Globe.js), with the ground atmosphere styleAtlasScene turns on. The hillshade changes
+ * them under World Terrain and must hand them back.
+ */
+const SMOOTH_GLOBE_TERMS = {
+  lambertDiffuseMultiplier: 0.9,
+  showGroundAtmosphere: true,
+  showWaterEffect: true,
+  vertexShadowDarkness: 0.3,
+};
 
 const START = new URLSearchParams({
   dayNight: 'false',
@@ -81,6 +94,7 @@ test.describe('physical terrain @desktop-chromium', () => {
 
     // The smooth globe keeps the sun, and day/night (off in this URL) decides its lighting.
     expect(await probe(page)).toMatchObject({
+      ...SMOOTH_GLOBE_TERMS,
       enableLighting: false,
       provider: 'ellipsoid',
       sunLight: true,
@@ -101,10 +115,13 @@ test.describe('physical terrain @desktop-chromium', () => {
       .click();
     await expect(page).toHaveURL(/terrain=world-terrain/);
 
-    // World Terrain: lit by the fixed hillshade light, whatever day/night says.
+    // World Terrain: lit by the fixed hillshade light, whatever day/night says, and with the
+    // default layers' surface showing, no ground atmosphere or water effect over it.
     await worldTerrainApplied(page);
     expect(await probe(page)).toMatchObject({
       enableLighting: true,
+      showGroundAtmosphere: false,
+      showWaterEffect: false,
       sunLight: false,
     });
     await expect(dayNight).toBeDisabled();
@@ -128,14 +145,15 @@ test.describe('physical terrain @desktop-chromium', () => {
     // The ground itself is raised, from sea level.
     await groundLoaded(page, FLANK_GROUND * RELIEF);
 
-    // Back on the smooth globe (choosing a terrain closes the chooser): the sun, day/night and
-    // true scale return.
+    // Back on the smooth globe (choosing a terrain closes the chooser): the sun, day/night, true
+    // scale and the globe's own terms return.
     await chooser.getByRole('radio', { name: 'Smooth Globe terrain' }).click();
     await expect(chooser).toHaveCount(0);
     await expect
       .poll(async () => (await probe(page)).provider, { timeout: 30_000 })
       .toBe('ellipsoid');
     expect(await probe(page)).toMatchObject({
+      ...SMOOTH_GLOBE_TERMS,
       enableLighting: false,
       sunLight: true,
       verticalExaggeration: 1,

@@ -6,9 +6,12 @@
  *
  * The #483 repro: the summit must show the inferred surface, seen at nadir and obliquely, at
  * relief 1 and 3. Until the data is draped onto the ground (phase 2) the surface floats at a fixed
- * 650 m, the summit buries it, and the repro is held under `test.fail`. The pick and lighting
- * tests take the same path through `openDrape`, `probe` and `apexOnPage`, so a broken harness
- * fails them rather than hiding under that marker. Desktop only: the phone runs the same scene.
+ * 650 m, the summit buries it, and the repro is held under `test.fail`. A control outside that
+ * marker runs the repro's own check on the smooth globe, where nothing buries the surface, and
+ * needs it to answer true; so the repro's expected failure means the summit hides the surface,
+ * not that the check is blind. The pick and lighting tests take the same path through
+ * `openDrape`, `probe` and `apexOnPage`, so a broken harness fails them too. Desktop only: the
+ * phone runs the same scene.
  */
 
 import { expect, test } from '@playwright/test';
@@ -44,7 +47,14 @@ test.describe('terrain draping @desktop-chromium', () => {
         expect(await surfaceVisibleAtApex(page)).toBe(true);
       });
 
-  test("an oblique pick at the summit names the summit's cell, not the ground behind it", async ({
+  test('the summit check sees the surface on the smooth globe, where nothing buries it', async ({
+    page,
+  }) => {
+    await openDrape(page, drapeQuery('nadir', 1, { terrain: 'smooth-globe' }));
+    expect(await surfaceVisibleAtApex(page)).toBe(true);
+  });
+
+  test("an oblique click at the summit selects the summit's own cell, though the summit buries the surface", async ({
     page,
   }) => {
     await openDrape(page, drapeQuery('oblique', 3));
@@ -54,11 +64,11 @@ test.describe('terrain draping @desktop-chromium', () => {
     const inspector = page.getByRole('complementary', {
       name: 'Selected map cell',
     });
-    // 84390cbffffffff; the ellipsoid on the same ray lies about 50 km on, in 84392b5ffffffff.
+    // 84390cbffffffff, found on the rendered ground. The smooth globe's pick starts from a surface
+    // chunk in the drill pick, and the summit hides every chunk there, so it selected nothing.
     await expect(inspector).toContainText(
       latLngToCell(SYNTHETIC_PEAK.lat, SYNTHETIC_PEAK.lon, 4),
     );
-    await expect(inspector).not.toContainText('84392b5ffffffff');
   });
 
   test('World Terrain sets the hillshade terms, and drops atmosphere and water while the surface shows', async ({

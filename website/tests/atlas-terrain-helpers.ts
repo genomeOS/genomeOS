@@ -143,17 +143,22 @@ export function drapeQuery(
 
 /**
  * Opens the explorer at `query` and waits for the map to be ready, the reveal wave to pass, the
- * camera to settle and the synthetic terrain to reach the globe. The test sets
- * `window.__atlasSyntheticTerrain` first, in an init script.
+ * camera to settle and the query's terrain to reach the globe: the synthetic terrain for World
+ * Terrain, otherwise the ellipsoid. The test sets `window.__atlasSyntheticTerrain` first, in an
+ * init script.
  */
 export async function openDrape(page: Page, query: string): Promise<void> {
+  const provider: TerrainProbe['provider'] =
+    new URLSearchParams(query).get('terrain') === 'world-terrain'
+      ? 'synthetic'
+      : 'ellipsoid';
   await page.goto(`/app/?${query}`);
   await waitForAtlasReady(page);
   await waitForRevealWave(page);
   await cameraSettled(page);
   await expect
     .poll(async () => (await probe(page)).provider, { timeout: 30_000 })
-    .toBe('synthetic');
+    .toBe(provider);
 }
 
 /**
