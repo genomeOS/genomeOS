@@ -36,6 +36,9 @@
  * Bounds are the lines' vertex extent grown by `BOUNDS_MARGIN_DEGREES`; where that passes ±180° it
  * takes every longitude, since its strokes reach the other side. Nothing here is stochastic: a tile
  * repeats byte for byte.
+ *
+ * The segment index (`segment-index.ts`) and the footprint rings (`footprint-rings.ts`) are their
+ * own modules, re-exported here.
  */
 
 import {
@@ -48,6 +51,8 @@ import { h3PolygonParts } from '../polygon-parts';
 import { isSupportedCode } from '../support-codes';
 import { paletteBins, type PaletteBins } from '../surface-buffers';
 import { cellLanes } from '../topology';
+import { FOOTPRINT_RING_POINTS, footprintRings } from './footprint-rings';
+import { buildSegmentIndex, type SegmentIndex } from './segment-index';
 import { tileRectangle } from './tiling';
 import {
   OUTLINE_MIN_LEVEL,
@@ -60,6 +65,17 @@ import {
   type TileRaster,
 } from './types';
 
+export {
+  FOOTPRINT_RING_SEGMENTS,
+  footprintRing,
+  validateFootprintCircles,
+} from './footprint-rings';
+export {
+  buildSegmentIndex,
+  SEGMENT_BUCKET_DEGREES,
+  type SegmentIndex,
+} from './segment-index';
+
 type Rgb = readonly [number, number, number];
 
 /** Whole turns a segment copy is shifted by: the segment itself and its ±360° copies. */
@@ -71,15 +87,8 @@ export const BORDER_WIDTH_TEXELS = 1.65;
 export const FOOTPRINT_WIDTH_TEXELS = 2;
 /** Sampling footprint α, the smooth globe's ring material α. */
 export const FOOTPRINT_ALPHA = 0.9;
-/** Vertices of a footprint ring, as `samplingRingSamples` draws it. */
-export const FOOTPRINT_RING_SEGMENTS = 48;
-/** Side of a segment index bucket, in degrees. */
-export const SEGMENT_BUCKET_DEGREES = 1;
 /** How far border and footprint bounds reach beyond their vertices, in degrees. */
 export const BOUNDS_MARGIN_DEGREES = 1;
-
-/** The sphere `samplingRingSamples` rings footprints on (observation-layer.ts). */
-const EARTH_RADIUS_KM = 6_371.0088;
 
 /** Texels from a line's centre to the edge of its anti-aliased band. */
 function reachTexels(widthTexels: number): number {
@@ -353,154 +362,6 @@ export function rasterOutlineTile(
   return wrote && rgba ? { rgba } : null;
 }
 
-/** Segments of interleaved lon, lat rings by rectangle. */
-export interface SegmentIndex {
-  /** Each segment whose box meets `r`, or `r` shifted ∓360° where it passes ±180°, once and
-   * ascending; `out` is reused when given. Segment v joins vertex v to vertex v + 1 of its ring. A
-   * rectangle with west > east, south > north or a NaN edge is an error, never an empty answer. */
-  segmentsIn(r: DegreeRectangle, out?: number[]): number[];
-}
-
-const BUCKET_COLUMNS = 360 / SEGMENT_BUCKET_DEGREES;
-const BUCKET_ROWS = 180 / SEGMENT_BUCKET_DEGREES;
-
-function bucketColumn(lon: number): number {
-  const column = Math.floor((lon + 180) / SEGMENT_BUCKET_DEGREES);
-  return Math.min(BUCKET_COLUMNS - 1, Math.max(0, column));
-}
-
-function bucketRow(lat: number): number {
-  const row = Math.floor((lat + 90) / SEGMENT_BUCKET_DEGREES);
-  return Math.min(BUCKET_ROWS - 1, Math.max(0, row));
-}
-
-/** Calls `visit(v)` for each segment v of the rings: vertex v to v + 1 within one ring. */
-function forEachSegment(
-  ringOffsets: Uint32Array,
-  visit: (v: number) => void,
-): void {
-  for (let ring = 0; ring + 1 < ringOffsets.length; ring += 1)
-    for (let v = ringOffsets[ring]; v + 1 < ringOffsets[ring + 1]; v += 1)
-      visit(v);
-}
-
-/** The border rings' segments in `SEGMENT_BUCKET_DEGREES` buckets over the world, in CSR form: a
- * segment sits in every bucket its box meets. Every ring must hold at least two vertices, each a
- * finite WGS84 lon, lat, and no segment may jump the antimeridian (more than 180° of longitude). */
-export function buildSegmentIndex(
-  lonLat: Float64Array,
-  ringOffsets: Uint32Array,
-): SegmentIndex {
-  const vertices = lonLat.length / 2;
-  if (
-    !Number.isInteger(vertices) ||
-    ringOffsets.length === 0 ||
-    ringOffsets[0] !== 0 ||
-    ringOffsets[ringOffsets.length - 1] !== vertices
-  )
-    throw new Error(
-      `border rings must run from vertex 0 to the last of ${vertices} lon, lat vertices`,
-    );
-  for (let ring = 0; ring + 1 < ringOffsets.length; ring += 1)
-    if (ringOffsets[ring + 1] < ringOffsets[ring] + 2)
-      throw new Error(`border ring ${ring} has fewer than two vertices`);
-  for (let v = 0; v < vertices; v += 1) {
-    const lon = lonLat[2 * v];
-    const lat = lonLat[2 * v + 1];
-    if (!(Math.abs(lon) <= 180 && Math.abs(lat) <= 90))
-      throw new Error(
-        `border vertex ${v} must be finite WGS84 lon, lat degrees, got ${lon}, ${lat}`,
-      );
-  }
-  const buckets = (v: number, visit: (bucket: number) => void) => {
-    const [lon0, lat0] = [lonLat[2 * v], lonLat[2 * v + 1]];
-    const [lon1, lat1] = [lonLat[2 * v + 2], lonLat[2 * v + 3]];
-    if (Math.abs(lon1 - lon0) > 180)
-      throw new Error(
-        `border segment jumps the antimeridian: vertex ${v} at ${lon0}° to vertex ${v + 1} at ${lon1}°`,
-      );
-    const lastColumn = bucketColumn(Math.max(lon0, lon1));
-    const lastRow = bucketRow(Math.max(lat0, lat1));
-    for (let row = bucketRow(Math.min(lat0, lat1)); row <= lastRow; row += 1)
-      for (
-        let column = bucketColumn(Math.min(lon0, lon1));
-        column <= lastColumn;
-        column += 1
-      )
-        visit(row * BUCKET_COLUMNS + column);
-  };
-  const offsets = new Uint32Array(BUCKET_COLUMNS * BUCKET_ROWS + 1);
-  forEachSegment(ringOffsets, (v) =>
-    buckets(v, (bucket) => {
-      offsets[bucket + 1] += 1;
-    }),
-  );
-  for (let bucket = 0; bucket < BUCKET_COLUMNS * BUCKET_ROWS; bucket += 1)
-    offsets[bucket + 1] += offsets[bucket];
-  const ids = new Uint32Array(offsets[BUCKET_COLUMNS * BUCKET_ROWS]);
-  const fill = offsets.slice(0, -1);
-  forEachSegment(ringOffsets, (v) =>
-    buckets(v, (bucket) => {
-      ids[fill[bucket]] = v;
-      fill[bucket] += 1;
-    }),
-  );
-  // A segment is listed once per query: its stamp holds the query that listed it.
-  const stamp = new Uint32Array(vertices);
-  let query = 0;
-  return {
-    segmentsIn(r, out = []) {
-      if (!(r.west <= r.east && r.south <= r.north))
-        throw new Error(
-          `border segments need a rectangle with west ≤ east and south ≤ north, not ` +
-            `${JSON.stringify(r)}`,
-        );
-      out.length = 0;
-      if (query === 0xffffffff) {
-        stamp.fill(0);
-        query = 0;
-      }
-      query += 1;
-      const south = Math.max(-90, r.south);
-      const north = Math.min(90, r.north);
-      const collect = (westOf: number, eastOf: number) => {
-        const west = Math.max(-180, westOf);
-        const east = Math.min(180, eastOf);
-        if (!(west <= east && south <= north)) return;
-        for (let row = bucketRow(south); row <= bucketRow(north); row += 1)
-          for (
-            let column = bucketColumn(west);
-            column <= bucketColumn(east);
-            column += 1
-          ) {
-            const bucket = row * BUCKET_COLUMNS + column;
-            for (let k = offsets[bucket]; k < offsets[bucket + 1]; k += 1) {
-              const v = ids[k];
-              if (stamp[v] === query) continue;
-              const lon0 = lonLat[2 * v];
-              const lon1 = lonLat[2 * v + 2];
-              const lat0 = lonLat[2 * v + 1];
-              const lat1 = lonLat[2 * v + 3];
-              if (
-                Math.min(lon0, lon1) > east ||
-                Math.max(lon0, lon1) < west ||
-                Math.min(lat0, lat1) > north ||
-                Math.max(lat0, lat1) < south
-              )
-                continue;
-              stamp[v] = query;
-              out.push(v);
-            }
-          }
-      };
-      collect(r.west, r.east);
-      if (r.west < -180) collect(r.west + 360, r.east + 360);
-      if (r.east > 180) collect(r.west - 360, r.east - 360);
-      return out.sort((p, q) => p - q);
-    },
-  };
-}
-
 /** One index per borders copy; building it checks every vertex and segment. */
 const BORDER_INDEX = new WeakMap<NaturalEarthBuffers, SegmentIndex>();
 
@@ -592,121 +453,6 @@ export function rasterBorderTile(
   return wrote ? { rgba } : null;
 }
 
-const FOOTPRINT_CIRCLES_ERROR =
-  'sampling footprints must be lon, lat, radius_km triples with a positive radius';
-
-/** Throws unless `circles` is whole triples of a finite WGS84 lon, lat and a finite radius_km > 0. */
-export function validateFootprintCircles(circles: Float64Array): void {
-  if (circles.length % 3 !== 0)
-    throw new Error(
-      `${FOOTPRINT_CIRCLES_ERROR}; got ${circles.length} numbers`,
-    );
-  for (let k = 0; k < circles.length; k += 3) {
-    const [lon, lat, radiusKm] = [circles[k], circles[k + 1], circles[k + 2]];
-    if (!(
-      Math.abs(lon) <= 180 &&
-      Math.abs(lat) <= 90 &&
-      radiusKm > 0 &&
-      Number.isFinite(radiusKm)
-    ))
-      throw new Error(
-        `${FOOTPRINT_CIRCLES_ERROR}; circle ${k / 3} is ${lon}, ${lat}, ${radiusKm}`,
-      );
-  }
-}
-
-/** The ring `radiusKm` round (lon, lat): `segments` vertices at bearings 2πk / segments from due
- * north, as interleaved lon, lat degrees, implicitly closed. Each vertex's lon lies within 180° of
- * the centre's (`samplingRingSamples`' destination formula). */
-export function footprintRing(
-  lon: number,
-  lat: number,
-  radiusKm: number,
-  segments = FOOTPRINT_RING_SEGMENTS,
-): Float64Array {
-  const angularDistance = radiusKm / EARTH_RADIUS_KM;
-  const lat1 = (lat * Math.PI) / 180;
-  const lon1 = (lon * Math.PI) / 180;
-  const ringOf = new Float64Array(2 * segments);
-  for (let k = 0; k < segments; k += 1) {
-    const bearing = (k / segments) * Math.PI * 2;
-    const lat2 = Math.asin(
-      Math.min(
-        1,
-        Math.max(
-          -1,
-          Math.sin(lat1) * Math.cos(angularDistance) +
-            Math.cos(lat1) * Math.sin(angularDistance) * Math.cos(bearing),
-        ),
-      ),
-    );
-    const lon2 =
-      lon1 +
-      Math.atan2(
-        Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(lat1),
-        Math.cos(angularDistance) - Math.sin(lat1) * Math.sin(lat2),
-      );
-    ringOf[2 * k] = (lon2 * 180) / Math.PI;
-    ringOf[2 * k + 1] = (lat2 * 180) / Math.PI;
-  }
-  return ringOf;
-}
-
-/** A footprint raster's rings, closed and unwrapped along their length, and their extents. */
-interface FootprintRings {
-  count: number;
-  /** `RING_POINTS` points per ring: the vertices, then the first again. */
-  lonLat: Float64Array;
-  /** West, south, east, north of each ring, in its unwrapped longitudes. */
-  boxes: Float64Array;
-}
-
-const RING_POINTS = FOOTPRINT_RING_SEGMENTS + 1;
-/** The longitude difference taken to within 180°. */
-const wrapped = (degrees: number) => degrees - 360 * Math.round(degrees / 360);
-
-/** One ring set per circles array, which is read once: it must not change afterwards. */
-const FOOTPRINT_RINGS = new WeakMap<Float64Array, FootprintRings>();
-
-function footprintRings(circles: Float64Array): FootprintRings {
-  const cached = FOOTPRINT_RINGS.get(circles);
-  if (cached) return cached;
-  validateFootprintCircles(circles);
-  const count = circles.length / 3;
-  const lonLat = new Float64Array(2 * RING_POINTS * count);
-  const boxes = new Float64Array(4 * count);
-  const segments = FOOTPRINT_RING_SEGMENTS;
-  for (let ring = 0; ring < count; ring += 1) {
-    const ringOf = footprintRing(
-      circles[3 * ring],
-      circles[3 * ring + 1],
-      circles[3 * ring + 2],
-    );
-    // Each point's lon lies within 180° of the last one's, so a ring round a pole spans 360°.
-    let lon = wrapped(ringOf[0]);
-    let [west, south, east, north] = [lon, Infinity, lon, -Infinity];
-    for (let point = 0; point < RING_POINTS; point += 1) {
-      const vertex = point % segments;
-      if (point > 0)
-        lon += wrapped(
-          ringOf[2 * vertex] - ringOf[2 * ((vertex + segments - 1) % segments)],
-        );
-      const lat = ringOf[2 * vertex + 1];
-      const at = 2 * (ring * RING_POINTS + point);
-      lonLat[at] = lon;
-      lonLat[at + 1] = lat;
-      west = Math.min(west, lon);
-      east = Math.max(east, lon);
-      south = Math.min(south, lat);
-      north = Math.max(north, lat);
-    }
-    boxes.set([west, south, east, north], 4 * ring);
-  }
-  const rings = { boxes, count, lonLat };
-  FOOTPRINT_RINGS.set(circles, rings);
-  return rings;
-}
-
 /** The footprints' extent, `BOUNDS_MARGIN_DEGREES` beyond their rings; null for no circles. A
  * ring across ±180° or round a pole takes every longitude. */
 export function footprintBounds(circles: Float64Array): DegreeRectangle | null {
@@ -762,8 +508,8 @@ export function rasterFootprintTile(
         rgba,
         a,
         lonLat,
-        ring * RING_POINTS,
-        (ring + 1) * RING_POINTS,
+        ring * FOOTPRINT_RING_POINTS,
+        (ring + 1) * FOOTPRINT_RING_POINTS,
         FOOTPRINT_WIDTH_TEXELS,
         rgb,
         FOOTPRINT_ALPHA,
