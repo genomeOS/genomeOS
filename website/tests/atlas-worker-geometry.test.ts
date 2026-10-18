@@ -28,7 +28,7 @@ import {
   type GeometryWorkerContext,
 } from '../src/atlas/worker/geometry-handlers';
 import { PARITY_DIR, surfaceFixturesIn } from './helpers/atlas-geometry';
-import { encodeRings } from './support/borders-builder';
+import { encodeRings, type RingFeature } from './support/borders-builder';
 import {
   fixtureBytes,
   goldenBytes,
@@ -77,6 +77,21 @@ function harness(cancelWhen: (posted: Posted[]) => boolean = () => false) {
     worker: createGeometryWorker(context),
   };
 }
+
+/** One country: a closed triangle round its label point. */
+const FIXTURE_COUNTRY: RingFeature = {
+  polygons: [
+    [
+      [
+        [36.8, 54.1],
+        [37.5, 54.1],
+        [37.5, 55],
+        [36.8, 54.1],
+      ],
+    ],
+  ],
+  properties: { LABEL_X: 37, LABEL_Y: 54.5, NAME_LONG: 'Fixture' },
+};
 
 function request(gridSha256: string) {
   return {
@@ -294,21 +309,7 @@ describe('geometry worker handlers (fast-load §B.6.3, §B.6.5)', () => {
 
   it('parses Natural Earth and later returns its surface heights', async () => {
     const { fixture, posted, render, worker } = harness();
-    const borders = encodeRings([
-      {
-        polygons: [
-          [
-            [
-              [36.8, 54.1],
-              [37.5, 54.1],
-              [37.5, 55],
-              [36.8, 54.1],
-            ],
-          ],
-        ],
-        properties: { LABEL_X: 37, LABEL_Y: 54.5, NAME_LONG: 'Fixture' },
-      },
-    ]);
+    const borders = encodeRings([FIXTURE_COUNTRY]);
     await worker.handlers['parse-context']({
       bytes: borders.slice().buffer,
       id: 12,
@@ -332,6 +333,26 @@ describe('geometry worker handlers (fast-load §B.6.3, §B.6.5)', () => {
         support: render.support,
         values: render.post_mean,
       }),
+    );
+  });
+
+  it('keeps the parsed Natural Earth copy for the raster runtime', async () => {
+    const { posted, worker } = harness();
+    expect(worker.naturalEarth()).toBeNull();
+    const borders = encodeRings([FIXTURE_COUNTRY]);
+    await worker.handlers['parse-context']({
+      bytes: borders.slice().buffer,
+      id: 12,
+      type: 'parse-context',
+    });
+    const [ready] = ofType(posted, 'context-ready');
+    expect(worker.naturalEarth()).toEqual(ready.message.buffers);
+    // The posted buffers are transferred, so the worker keeps its own copy.
+    expect(worker.naturalEarth()!.lonLat).not.toBe(
+      ready.message.buffers.lonLat,
+    );
+    expect(worker.naturalEarth()!.ringOffsets).not.toBe(
+      ready.message.buffers.ringOffsets,
     );
   });
 

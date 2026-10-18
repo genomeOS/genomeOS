@@ -25,6 +25,7 @@ import type {
   WorkerErrorMessage,
 } from '../src/atlas/worker/protocol';
 import {
+  ATLAS_RASTERISERS,
   createRasterRuntime,
   imageDataBitmap,
   type RasterWorkerContext,
@@ -50,12 +51,18 @@ const OUTLINE_SPEC: OutlineRasterSpec = {
   metric: SURFACE_SPEC.metric,
   palette: SURFACE_SPEC.palette,
 };
-/** One 1 km footprint on `SURFACE_SPEC`'s artifact; no rasteriser draws it yet. */
+/** One 1 km footprint on `SURFACE_SPEC`'s artifact. */
 const FOOTPRINT_SPEC: FootprintRasterSpec = {
   artifactKey: SURFACE_SPEC.artifactKey,
   circles: Float64Array.of(36.8, -1.3, 1),
   color: '#ffffff',
   layer: 'footprints',
+};
+/** One small closed border ring off the coast of West Africa. */
+const tinyBorders: NaturalEarthBuffers = {
+  labels: [],
+  lonLat: Float64Array.of(0, 0, 1, 0, 1, 1, 0, 0),
+  ringOffsets: Uint32Array.of(0, 4),
 };
 
 interface Posted {
@@ -65,6 +72,19 @@ interface Posted {
 
 function fakeRaster(_input: SurfaceRasterInput, a: TileAddress) {
   return a.x === EMPTY_X ? null : FAKE_TILE;
+}
+
+function fakeLines(_input: unknown, a: TileAddress) {
+  return a.x === EMPTY_X ? null : FAKE_TILE;
+}
+
+/** The last message of `type` posted. */
+function last<T extends Posted['m']['type']>(posted: Posted[], type: T) {
+  const found = posted
+    .map(({ m }) => m)
+    .findLast((m): m is Extract<Posted['m'], { type: T }> => m.type === type);
+  if (!found) throw new Error(`no ${type} was posted`);
+  return found;
 }
 
 /**
@@ -107,6 +127,8 @@ export function rasterHarness(
   let gate: Promise<void> | null = null;
   let openGate = () => {};
   const rasterisers = o.rasterisers ?? {
+    borders: vi.fn(fakeLines),
+    footprints: vi.fn(fakeLines),
     outlines: vi.fn(fakeRaster),
     surface: vi.fn(fakeRaster),
   };
@@ -365,7 +387,13 @@ describe('worker raster runtime (terrain draping design, "How existing features 
       if (a.x === 1) throw new Error('fan out of range');
       return fakeRaster(input, a);
     });
-    h = rasterHarness({ rasterisers: { outlines: failing, surface: failing } });
+    h = rasterHarness({
+      rasterisers: {
+        ...h.rasterisers,
+        outlines: failing,
+        surface: failing,
+      },
+    });
     await prepare(h, 7);
     await Promise.all([tile(h, 11, 7, 1), tile(h, 12, 7, 2)]);
     expect(h.posted.slice(1).map(({ m }) => m)).toEqual([
@@ -380,7 +408,7 @@ describe('worker raster runtime (terrain draping design, "How existing features 
     ]);
   });
 
-  it('reports a missing render tier, an unloaded grid, a grid mismatch, an unprepared grid or a layer it cannot raster yet as internal, each by its own guard', async () => {
+  it('reports a missing render tier, an unloaded grid, a grid mismatch, an unprepared grid or borders before the context is parsed as internal, each by its own guard', async () => {
     const key = SURFACE_SPEC.artifactKey;
     // Each case leaves every other input loaded, so only its own guard can refuse it.
     const cases: [(h: Harness) => void, RasterSpec, string][] = [
@@ -407,8 +435,7 @@ describe('worker raster runtime (terrain draping design, "How existing features 
         SURFACE_SPEC,
         'grid test-grid is not loaded',
       ],
-      [() => {}, BORDER_SPEC, 'the borders layer has no rasteriser yet'],
-      [() => {}, FOOTPRINT_SPEC, 'the footprints layer has no rasteriser yet'],
+      [() => {}, BORDER_SPEC, 'Natural Earth context is not parsed'],
     ];
     for (const [setup, spec, message] of cases) {
       h = rasterHarness();
@@ -446,6 +473,127 @@ describe('worker raster runtime (terrain draping design, "How existing features 
       },
     ]);
     expect(h.rasterisers.surface).not.toHaveBeenCalled();
+  });
+
+  it('hands the border rasteriser the parsed borders and the footprint rasteriser the circles, each in its colour', async () => {
+    h = rasterHarness({ naturalEarth: () => tinyBorders });
+    await h.runtime.handlers['prepare-raster']({
+      id: 7,
+      spec: { ...BORDER_SPEC, color: '#ff8000' },
+      type: 'prepare-raster',
+    });
+    await tile(h, 11, 7, 5);
+    expect(h.rasterisers.borders).toHaveBeenCalledWith(
+      { borders: tinyBorders, color: '#ff8000' },
+      { level: 6, x: 5, y: 0 },
+    );
+    await h.runtime.handlers['prepare-raster']({
+      id: 8,
+      spec: FOOTPRINT_SPEC,
+      type: 'prepare-raster',
+    });
+    await tile(h, 12, 8, 6);
+    expect(h.rasterisers.footprints).toHaveBeenCalledWith(
+      { circles: FOOTPRINT_SPEC.circles, color: '#ffffff' },
+      { level: 6, x: 6, y: 0 },
+    );
+    expect(h.posted.map(({ m }) => [m.id, m.type])).toEqual([
+      [7, 'raster-ready'],
+      [11, 'tile-ready'],
+      [8, 'raster-ready'],
+      [12, 'tile-ready'],
+    ]);
+  });
+
+  it('tiles a footprint raster, an empty tile as null', async () => {
+    const { posted, runtime } = rasterHarness({
+      rasterisers: ATLAS_RASTERISERS,
+    });
+    const spec = {
+      artifactKey: 'k',
+      circles: Float64Array.of(-3.709, 40.419, 50),
+      color: '#ff00ff',
+      layer: 'footprints',
+    } as const;
+    await runtime.handlers['prepare-raster']({
+      id: 5,
+      spec,
+      type: 'prepare-raster',
+    });
+    expect(last(posted, 'raster-ready')).toMatchObject({
+      bounds: { north: expect.closeTo(40.419 + 50 / 111.195 + 1, 3) },
+      rasterId: 5,
+    });
+    await runtime.handlers['raster-tile']({
+      id: 6,
+      level: 3,
+      rasterId: 5,
+      type: 'raster-tile',
+      x: 7,
+      y: 2,
+    });
+    expect(last(posted, 'tile-ready').bitmap).not.toBeNull();
+    await runtime.handlers['raster-tile']({
+      id: 7,
+      level: 3,
+      rasterId: 5,
+      type: 'raster-tile',
+      x: 0,
+      y: 0,
+    });
+    expect(last(posted, 'tile-ready').bitmap).toBeNull();
+  });
+
+  it('refuses malformed footprints, and border tiles above their maximum level, as validation errors', async () => {
+    const { posted, runtime } = rasterHarness({
+      naturalEarth: () => tinyBorders,
+      rasterisers: ATLAS_RASTERISERS,
+    });
+    await runtime.handlers['prepare-raster']({
+      id: 8,
+      spec: {
+        artifactKey: 'k',
+        circles: Float64Array.of(1, 2),
+        color: '#ff00ff',
+        layer: 'footprints',
+      },
+      type: 'prepare-raster',
+    });
+    expect(last(posted, 'error')).toMatchObject({
+      code: 'validation',
+      id: 8,
+      message: expect.stringMatching(/lon, lat, radius_km triples/),
+    });
+    await runtime.handlers['prepare-raster']({
+      id: 9,
+      spec: { color: '#ffffff', layer: 'borders', maximumLevel: 10 },
+      type: 'prepare-raster',
+    });
+    expect(last(posted, 'raster-ready')).toMatchObject({ rasterId: 9 });
+    await runtime.handlers['raster-tile']({
+      id: 10,
+      level: 11,
+      rasterId: 9,
+      type: 'raster-tile',
+      x: 0,
+      y: 0,
+    });
+    expect(last(posted, 'error')).toMatchObject({
+      code: 'validation',
+      id: 10,
+      message: expect.stringMatching(/maximum level 10/),
+    });
+    // At its maximum level the border tile is drawn: the ring's south-west corner is in it.
+    await runtime.handlers['raster-tile']({
+      id: 11,
+      level: 10,
+      rasterId: 9,
+      type: 'raster-tile',
+      x: 1024,
+      y: 511,
+    });
+    expect(last(posted, 'tile-ready')).toMatchObject({ id: 11 });
+    expect(last(posted, 'tile-ready').bitmap).not.toBeNull();
   });
 
   it('makes bitmaps unflipped and unpremultiplied, and carries the atlas-raster-v1 marker', async () => {

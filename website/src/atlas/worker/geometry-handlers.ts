@@ -5,8 +5,10 @@
  * `chunk` message per chunk in camera order (anchors ride on the first), a
  * yield between chunks so `cancel` can land, and topology plus the chunk plan
  * cached per grid. Recolour reuses the cached topology and vertex means. The
- * draped rasters share that cache through `prepared` (terrain draping design,
- * "How existing features behave": Worker, #483).
+ * draped rasters share that cache through `prepared`, and the borders copy that
+ * `parse-context` keeps through `naturalEarth` (terrain draping design, "How
+ * existing features behave": Worker; "Per layer under World Terrain": borders,
+ * #483).
  */
 
 import type { DecodedGrid, DecodedRender } from '../gosa/types';
@@ -106,6 +108,9 @@ export interface GeometryWorker {
   prepared(gridSha256: string): PreparedGrid | undefined;
   /** Builds and caches topology and the chunk plan as soon as a grid decodes. */
   warmGrid(id: number, gridSha256: string): void;
+  /** The Natural Earth copy `parse-context` keeps (its posted buffers are transferred); null
+   * before the borders are parsed. The raster runtime draws the draped borders from it. */
+  naturalEarth(): NaturalEarthBuffers | null;
 }
 
 export function createGeometryWorker(
@@ -387,7 +392,8 @@ export function createGeometryWorker(
 
   return {
     handlers,
-    // Reads no `this`, so the raster context may hold it unbound.
+    // These two read no `this`, so the raster context may hold them unbound.
+    naturalEarth: () => naturalEarth,
     prepared: (gridSha256) => {
       const grid = context.grid(gridSha256);
       if (!grid) return undefined;

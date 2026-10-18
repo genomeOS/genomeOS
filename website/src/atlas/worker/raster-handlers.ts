@@ -10,6 +10,13 @@
  * stored its raster is freed by the `release-raster` the client sends after the cancel, since the
  * client drops the late answer.
  *
+ * Borders and footprints ("Per layer under World Terrain": `atlas-borders`, `atlas-footprints`)
+ * need no artifact. A border raster draws the Natural Earth copy the geometry worker kept from
+ * `parse-context`, so before it is parsed the prepare fails as `internal`; it is bounded by every
+ * border, and a tile deeper than its spec's `maximumLevel` fails as `validation`, never as an
+ * empty tile. A footprint raster's circles must be lon, lat, radius_km triples with a positive
+ * radius (`validation` otherwise); it is bounded by their rings.
+ *
  * `raster-tile` joins one first-in, first-out queue, which yields to the event loop after each
  * tile, so a `load-detail` that arrives meanwhile runs before the next tile. A tile whose request
  * was cancelled, or whose raster was released, fails as `cancelled` when it is reached. The
@@ -28,7 +35,14 @@
 import type { NaturalEarthBuffers } from '../geometry/natural-earth';
 import { rasterSurfaceTile } from '../geometry/raster/fill-raster';
 import { buildGridIndex } from '../geometry/raster/grid-index';
-import { rasterOutlineTile } from '../geometry/raster/line-raster';
+import {
+  borderBounds,
+  footprintBounds,
+  rasterBorderTile,
+  rasterFootprintTile,
+  rasterOutlineTile,
+  validateFootprintCircles,
+} from '../geometry/raster/line-raster';
 import {
   RASTER_TILE_SIZE,
   type GridIndex,
@@ -80,8 +94,11 @@ export interface RasterRuntime {
   };
 }
 
-/** The worker's rasterisers: fill and masks, and cell outlines. */
+/** The worker's rasterisers: fill and masks, cell outlines, country borders and sampling
+ * footprints. */
 export const ATLAS_RASTERISERS: Rasterisers = {
+  borders: rasterBorderTile,
+  footprints: rasterFootprintTile,
   outlines: rasterOutlineTile,
   surface: rasterSurfaceTile,
 };
@@ -101,6 +118,13 @@ const BITMAP_OPTIONS: ImageBitmapOptions = {
 
 /** A missing or mismatched input, reported as `internal`. */
 class RasterInputError extends Error {}
+
+/** A malformed request, reported as `validation`. */
+class RasterValidationError extends Error {}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 /** A prepared raster: the bounds of what it draws and its tile drawer. */
 interface PreparedRaster {
@@ -140,8 +164,8 @@ export function createRasterRuntime(
   function failWith(id: number, error: unknown): void {
     fail(
       id,
-      'internal',
-      error instanceof Error ? error.message : String(error),
+      error instanceof RasterValidationError ? 'validation' : 'internal',
+      messageOf(error),
     );
   }
 
@@ -215,11 +239,34 @@ export function createRasterRuntime(
           draw: (a) => rasterisers.outlines(input, a),
         };
       }
-      case 'borders':
-      case 'footprints':
-        throw new RasterInputError(
-          `the ${spec.layer} layer has no rasteriser yet`,
-        );
+      case 'borders': {
+        const borders = c.naturalEarth();
+        if (!borders)
+          throw new RasterInputError('Natural Earth context is not parsed');
+        const { color, maximumLevel } = spec;
+        return {
+          bounds: borderBounds(borders),
+          draw: (a) => {
+            if (a.level > maximumLevel)
+              throw new RasterValidationError(
+                `border tiles stop at maximum level ${maximumLevel}`,
+              );
+            return rasterisers.borders({ borders, color }, a);
+          },
+        };
+      }
+      case 'footprints': {
+        const { circles, color } = spec;
+        try {
+          validateFootprintCircles(circles);
+        } catch (error) {
+          throw new RasterValidationError(messageOf(error));
+        }
+        return {
+          bounds: footprintBounds(circles),
+          draw: (a) => rasterisers.footprints({ circles, color }, a),
+        };
+      }
     }
   }
 

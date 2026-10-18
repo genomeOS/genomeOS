@@ -6,9 +6,10 @@
  * The draped-raster requests (terrain draping design, "When it is active" and "How existing
  * features behave": Worker, #483) import the raster runtime on the first of them, once per worker
  * state, so it stays out of the worker's first load. It reads the geometry worker's cached
- * topology and the same cancellation signals. A failed import fails the requests waiting on it as
- * `internal` (design, "Failure modes": the scene reverts to the smooth globe) and is not kept, so
- * a later raster request imports the runtime again.
+ * topology, its Natural Earth copy for the borders ("Per layer under World Terrain"), and the same
+ * cancellation signals. A failed import fails the requests waiting on it as `internal` (design,
+ * "Failure modes": the scene reverts to the smooth globe) and is not kept, so a later raster
+ * request imports the runtime again.
  */
 
 import type { DecodedGrid } from '../gosa/types';
@@ -82,7 +83,7 @@ function rasterRuntime(context: HandlerContext): Promise<RasterRuntime> {
         {
           gridFor: (artifactKey) => gridOfRender(state, artifactKey),
           isCancelled: (id) => signals.get(id)?.aborted ?? false,
-          naturalEarth: () => null,
+          naturalEarth: worker.naturalEarth,
           now: () => performance.timeOrigin + performance.now(),
           post: (message, transfer) => post(message, transfer),
           prepared: worker.prepared,
