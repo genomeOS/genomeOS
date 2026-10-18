@@ -121,8 +121,8 @@ function strokeSegment(
   rgb: Rgb,
   alpha: number,
 ): boolean {
-  const reach = widthTexels / 2 + 0.5;
-  const grow = widthTexels / 2 + 1;
+  const reach = reachTexels(widthTexels);
+  const grow = reach + 0.5;
   const last = RASTER_TILE_SIZE - 1;
   const firstColumn = Math.max(0, Math.ceil(Math.min(x0, x1) - grow));
   const lastColumn = Math.min(last, Math.floor(Math.max(x0, x1) + grow));
