@@ -16,12 +16,14 @@ import {
   createWorldImageryAsync,
   createWorldTerrainAsync,
   type CesiumWidget,
+  type TerrainProvider,
 } from 'cesium';
 
 import {
   availableBasemaps,
   availableTerrains,
   ION_UNAVAILABLE,
+  terrainOption,
 } from '../earth-style-catalog';
 import type { BasemapId, TerrainId } from '../url-state';
 
@@ -49,6 +51,15 @@ export type ContextWarningListener = (warning: ContextWarningUpdate) => void;
 export interface ContextControllerOptions {
   /** Called with each terrain once its provider is on the globe; the terrain shading follows it. */
   onTerrainApplied?: (terrain: TerrainId) => void;
+  /** Builds the World Terrain provider; defaults to Cesium ion's, with normals and water mask. */
+  worldTerrain?: () => Promise<TerrainProvider>;
+}
+
+function ionWorldTerrain(): Promise<TerrainProvider> {
+  return createWorldTerrainAsync({
+    requestVertexNormals: true,
+    requestWaterMask: true,
+  });
 }
 
 export interface BasemapAppearanceTarget {
@@ -192,7 +203,15 @@ export class ContextController {
   #basemapBrightness = 0.5;
   #basemapOpacity = 1;
   #basemapSequence = 0;
+  // As for basemaps: the requested terrain and its load, and the request whose provider is on
+  // the globe. Scene creation asks for the URL's terrain twice (applySceneStyle and the
+  // explorer's terrain effect); the second reuses the first, so ion is asked once (#483).
+  #terrainRequest: { terrain: TerrainId; result: Promise<boolean> } | null =
+    null;
+  #terrainApplied: { terrain: TerrainId; result: Promise<boolean> } | null =
+    null;
   #terrainSequence = 0;
+  #removeTerrainErrors: (() => void) | null = null;
 
   constructor(
     widget: CesiumWidget,
@@ -276,7 +295,22 @@ export class ContextController {
     }
   }
 
-  async setTerrain(terrain: TerrainId): Promise<boolean> {
+  setTerrain(terrain: TerrainId): Promise<boolean> {
+    if (this.#terrainRequest?.terrain === terrain) {
+      return this.#terrainRequest.result;
+    }
+    const result = this.#loadTerrain(terrain);
+    const request = { result, terrain };
+    this.#terrainRequest = request;
+    void result.then((applied) => {
+      if (applied) this.#terrainApplied = request;
+      else if (this.#terrainRequest === request)
+        this.#terrainRequest = this.#terrainApplied;
+    });
+    return result;
+  }
+
+  async #loadTerrain(terrain: TerrainId): Promise<boolean> {
     const sequence = ++this.#terrainSequence;
     if (!availableTerrains(this.#token)[terrain]) {
       this.#onWarning({
@@ -289,12 +323,10 @@ export class ContextController {
       const provider =
         terrain === 'smooth-globe'
           ? new EllipsoidTerrainProvider()
-          : await createWorldTerrainAsync({
-              requestVertexNormals: true,
-              requestWaterMask: true,
-            });
+          : await (this.#options.worldTerrain ?? ionWorldTerrain)();
       if (sequence !== this.#terrainSequence) return false;
       this.#widget.terrainProvider = provider;
+      this.#watchTerrainErrors(terrain, provider);
       this.#options.onTerrainApplied?.(terrain);
       this.#onWarning({ id: 'terrain', message: null });
       this.#widget.scene.requestRender();
@@ -308,6 +340,25 @@ export class ContextController {
       }
       return false;
     }
+  }
+
+  /**
+   * Tile-level failures of the terrain on the globe (an ion outage after the provider loaded, a
+   * blocked tile request) raise the terrain warning, once per provider; a replaced provider's
+   * failures are no longer heard.
+   */
+  #watchTerrainErrors(terrain: TerrainId, provider: TerrainProvider): void {
+    this.#removeTerrainErrors?.();
+    let warned = false;
+    this.#removeTerrainErrors =
+      provider.errorEvent?.addEventListener(() => {
+        if (warned) return;
+        warned = true;
+        this.#onWarning({
+          id: 'terrain',
+          message: `Some ${terrainOption(terrain).label} tiles could not be loaded, so relief may be missing in places.`,
+        });
+      }) ?? null;
   }
 
   setVisible(visible: boolean): void {
