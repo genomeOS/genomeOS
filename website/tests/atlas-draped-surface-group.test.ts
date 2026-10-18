@@ -13,13 +13,27 @@ import {
   drapedLayerName,
   isDrapedBaseGuard,
 } from '../src/atlas/scene/draped/draped-imagery-layer';
-import { emptyTile } from '../src/atlas/scene/draped/raster-imagery-provider';
-import type {
-  DrapeStatsRecorder,
-  RasterTileSource,
-} from '../src/atlas/scene/types';
-import type { RasterTileBody } from '../src/atlas/worker/protocol';
 import {
+  createDrapedSurfaceGroup,
+  DRAPED_SURFACE_ALPHA,
+} from '../src/atlas/scene/draped/draped-surface-group';
+import {
+  AtlasRasterImageryProvider,
+  emptyTile,
+} from '../src/atlas/scene/draped/raster-imagery-provider';
+import { drapedRuntime } from '../src/atlas/scene/draped/runtime';
+import type {
+  DrapedSurfaceGroupOptions,
+  DrapeStatsRecorder,
+  DrapeWave,
+  RasterImageryProvider,
+  RasterTileSource,
+  RasterWorkerClient,
+} from '../src/atlas/scene/types';
+import type { RasterReady, RasterTileBody } from '../src/atlas/worker/protocol';
+import {
+  deferred,
+  FAKE_BOUNDS,
   FAKE_RECTANGLE,
   fakeDrapedScene,
   fakeProvider,
@@ -29,6 +43,7 @@ import {
   stubCesiumBrowserImageTypes,
   type FakeRasterSource,
 } from './helpers/imagery-fakes';
+import { SURFACE_SPEC } from './helpers/raster-specs';
 
 let scene: ReturnType<typeof fakeDrapedScene>;
 
@@ -454,5 +469,583 @@ describe('drape stats', () => {
     expect(stats.read().residentBytes).toBe(349_525);
     unwatch();
     expect(stats.read().residentBytes).toBe(0);
+  });
+});
+
+describe('DrapedSurfaceGroup', () => {
+  const BITMAP = { height: 256, width: 256 } as unknown as ImageBitmap;
+  const REST: DrapeWave = { progress: () => 1, running: () => false };
+  const FIXED = { color: '#ff0000', mode: 'fixed' } as const;
+
+  let source: FakeRasterSource;
+  let signal: AbortSignal;
+  let OPTIONS: Omit<DrapedSurfaceGroupOptions, 'scene' | 'source' | 'wave'>;
+
+  /** The Atlas layers' names and alphas, bottom to top; the base guard and basemap left out. */
+  function alphas(s: typeof scene): [AtlasImageryLayerName, number][] {
+    return order(s).flatMap((l): [AtlasImageryLayerName, number][] => {
+      const name = drapedLayerName(l);
+      return name ? [[name, l.alpha]] : [];
+    });
+  }
+
+  /** The layers named `name`, bottom to top. */
+  function named(s: typeof scene, name: AtlasImageryLayerName): ImageryLayer[] {
+    return order(s).filter((l) => drapedLayerName(l) === name);
+  }
+
+  function providerOf(layer: ImageryLayer): RasterImageryProvider {
+    return layer.imageryProvider as RasterImageryProvider;
+  }
+
+  function frames(count: number): void {
+    for (let i = 0; i < count; i += 1) scene.preRender.raiseEvent();
+  }
+
+  beforeEach(() => {
+    source = fakeSource();
+    signal = new AbortController().signal;
+    OPTIONS = {
+      artifactKey: SURFACE_SPEC.artifactKey,
+      cellEdges: false,
+      edgeColor: { mode: 'matched' },
+      onError: vi.fn(),
+      surface: SURFACE_SPEC,
+      surfaceOpacity: 0.58,
+    };
+  });
+
+  it('drapes atlas-surface at 0.9 × surface opacity × opacity × progress', async () => {
+    expect(DRAPED_SURFACE_ALPHA).toBe(0.9);
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      scene,
+      source,
+      wave: REST,
+    });
+    expect(group.kind).toBe('draped');
+    expect(group.artifactKey).toBe(SURFACE_SPEC.artifactKey);
+    expect(group.cells).toEqual({ masked: true, supported: true });
+    await group.prepare(signal);
+    expect(source.prepare).toHaveBeenCalledWith(
+      SURFACE_SPEC,
+      expect.any(AbortSignal),
+    );
+    expect(alphas(scene)).toEqual([
+      ['atlas-surface', expect.closeTo(0.9 * 0.58, 9)],
+    ]);
+    group.setOpacity(0.5);
+    expect(group.opacity()).toBe(0.5);
+    expect(alphas(scene)[0][1]).toBeCloseTo(0.9 * 0.58 * 0.5, 9);
+    group.setSurfaceOpacity(1);
+    expect(alphas(scene)[0][1]).toBeCloseTo(0.45, 9);
+  });
+
+  it('fades both layers with the wave on each frame while it runs', async () => {
+    let progress = 0;
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      cellEdges: true,
+      scene,
+      source,
+      wave: { progress: () => progress, running: () => true },
+    });
+    await group.prepare(signal);
+    expect(alphas(scene)).toEqual([
+      ['atlas-surface', 0],
+      ['atlas-outlines', 0],
+    ]);
+    progress = 0.5;
+    scene.preRender.raiseEvent();
+    expect(alphas(scene)).toEqual([
+      ['atlas-surface', expect.closeTo(0.9 * 0.58 * 0.5, 9)],
+      ['atlas-outlines', 0.5],
+    ]);
+    progress = 1;
+    scene.preRender.raiseEvent();
+    expect(alphas(scene)).toEqual([
+      ['atlas-surface', expect.closeTo(0.9 * 0.58, 9)],
+      ['atlas-outlines', 1],
+    ]);
+  });
+
+  it('adds atlas-outlines only once cell edges are on, then toggles them by alpha alone', async () => {
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      scene,
+      source,
+      wave: REST,
+    });
+    await group.prepare(signal);
+    expect(alphas(scene).map(([n]) => n)).toEqual(['atlas-surface']);
+    expect(group.outlinesReady()).toBe(false);
+    await group.setCellEdges(true);
+    expect(source.prepare).toHaveBeenLastCalledWith(
+      {
+        artifactKey: SURFACE_SPEC.artifactKey,
+        edgeColor: { mode: 'matched' },
+        geometry: SURFACE_SPEC.geometry,
+        gridSha256: SURFACE_SPEC.gridSha256,
+        layer: 'outlines',
+        metric: SURFACE_SPEC.metric,
+        palette: SURFACE_SPEC.palette,
+      },
+      expect.any(AbortSignal),
+    );
+    expect(alphas(scene)[1]).toEqual(['atlas-outlines', 1]);
+    await group.setCellEdges(false);
+    expect(alphas(scene)[1]).toEqual(['atlas-outlines', 0]);
+    await group.setCellEdges(true);
+    expect(source.prepare).toHaveBeenCalledTimes(2);
+    expect(alphas(scene)[1]).toEqual(['atlas-outlines', 1]);
+    expect(group.outlinesReady()).toBe(false);
+    scene.globe.tilesLoaded = true;
+    frames(2);
+    expect(group.outlinesReady()).toBe(true);
+  });
+
+  it('keeps outlines independent of surface opacity and hides them with the surface layer', async () => {
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      cellEdges: true,
+      scene,
+      source,
+      wave: REST,
+    });
+    await group.prepare(signal);
+    group.setSurfaceOpacity(0.2);
+    expect(alphas(scene)).toEqual([
+      ['atlas-surface', expect.closeTo(0.18, 9)],
+      ['atlas-outlines', 1],
+    ]);
+    group.setVisibility(false, false);
+    expect(alphas(scene)).toEqual([
+      ['atlas-surface', 0],
+      ['atlas-outlines', 0],
+    ]);
+
+    scene = fakeDrapedScene();
+    const masksOnly = fakeSource();
+    const unsupported = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      cellEdges: true,
+      scene,
+      source: masksOnly,
+      surface: { ...SURFACE_SPEC, cells: { masked: true, supported: false } },
+      wave: REST,
+    });
+    await unsupported.prepare(signal);
+    await unsupported.setCellEdges(true);
+    expect(alphas(scene).map(([n]) => n)).toEqual(['atlas-surface']);
+    expect(masksOnly.prepare).toHaveBeenCalledTimes(1);
+    expect(unsupported.outlinesReady()).toBe(true); // nothing to outline
+  });
+
+  it('replaces its outlines on setOutlineStyle, the old ones drawn until the new are ready', async () => {
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      cellEdges: true,
+      scene,
+      source,
+      wave: REST,
+    });
+    await group.prepare(signal);
+    const [old] = named(scene, 'atlas-outlines');
+    await group.setOutlineStyle(FIXED);
+    expect(source.prepare).toHaveBeenLastCalledWith(
+      expect.objectContaining({ edgeColor: FIXED, layer: 'outlines' }),
+      expect.any(AbortSignal),
+    );
+    const [, incoming] = named(scene, 'atlas-outlines');
+    expect(named(scene, 'atlas-outlines')).toEqual([old, incoming]);
+    expect(alphas(scene)).toEqual([
+      ['atlas-surface', expect.closeTo(0.9 * 0.58, 9)],
+      ['atlas-outlines', 1],
+      ['atlas-outlines', 0],
+    ]);
+    expect(group.outlinesReady()).toBe(false);
+    expect(source.release).not.toHaveBeenCalled();
+    scene.globe.tilesLoaded = true;
+    frames(1);
+    scene.requestRender.mockClear();
+    frames(1); // the new layer turns ready and stops asking: the group asks for the swap frame
+    expect(group.outlinesReady()).toBe(true);
+    expect(named(scene, 'atlas-outlines')).toEqual([old, incoming]);
+    expect(scene.requestRender).toHaveBeenCalled();
+    frames(1);
+    expect(named(scene, 'atlas-outlines')).toEqual([incoming]);
+    expect(alphas(scene)).toEqual([
+      ['atlas-surface', expect.closeTo(0.9 * 0.58, 9)],
+      ['atlas-outlines', 1],
+    ]);
+    expect(source.release.mock.calls).toEqual([[8]]);
+    expect(group.outlinesReady()).toBe(true);
+    await group.setOutlineStyle({ ...FIXED });
+    expect(source.prepare).toHaveBeenCalledTimes(3);
+  });
+
+  it('drops the outlines of a style it has moved past, prepared or not', async () => {
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      cellEdges: true,
+      scene,
+      source,
+      wave: REST,
+    });
+    await group.prepare(signal);
+    const slow = deferred<RasterReady>();
+    source.prepare.mockReturnValueOnce(slow.promise);
+    const first = group.setOutlineStyle(FIXED);
+    const firstSignal = source.prepare.mock.calls[2][1];
+    await group.setOutlineStyle({ color: '#00ff00', mode: 'fixed' });
+    expect(firstSignal.aborted).toBe(true);
+    slow.resolve({ bounds: FAKE_BOUNDS, rasterId: 42 });
+    await first;
+    expect(source.release).toHaveBeenCalledWith(42);
+    expect(named(scene, 'atlas-outlines')).toHaveLength(2);
+    scene.globe.tilesLoaded = true;
+    frames(3);
+    expect(named(scene, 'atlas-outlines')).toHaveLength(1);
+    expect(source.release.mock.calls).toEqual([[42], [8]]);
+  });
+
+  it('drops its outlines on a restyle with edges off, and prepares the new style when they return', async () => {
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      cellEdges: true,
+      scene,
+      source,
+      wave: REST,
+    });
+    await group.prepare(signal);
+    await group.setCellEdges(false);
+    await group.setOutlineStyle(FIXED);
+    expect(named(scene, 'atlas-outlines')).toEqual([]);
+    expect(source.release).toHaveBeenCalledWith(8);
+    expect(source.prepare).toHaveBeenCalledTimes(2);
+    await group.setCellEdges(true);
+    expect(source.prepare).toHaveBeenLastCalledWith(
+      expect.objectContaining({ edgeColor: FIXED, layer: 'outlines' }),
+      expect.any(AbortSignal),
+    );
+    expect(alphas(scene)[1]).toEqual(['atlas-outlines', 1]);
+  });
+
+  it('is ready with its surface layer, and counts one ready chunk after its first drawn tile', async () => {
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      cellEdges: true,
+      scene,
+      source,
+      wave: REST,
+    });
+    expect(group.isReady()).toBe(false);
+    await group.prepare(signal);
+    expect([group.isReady(), group.readyCount(), group.totalCount()]).toEqual([
+      false,
+      0,
+      1,
+    ]);
+    scene.globe.tilesLoaded = true;
+    frames(2);
+    expect([group.isReady(), group.readyCount()]).toEqual([true, 1]);
+    const [surface] = named(scene, 'atlas-surface');
+    const [outlines] = named(scene, 'atlas-outlines');
+    expect(group.readyChunkCount()).toBe(0);
+    providerOf(surface).tileLoaded.raiseEvent(message(0, 0, 3, null));
+    providerOf(outlines).tileLoaded.raiseEvent(message(0, 0, 3, BITMAP, 8));
+    expect(group.readyChunkCount()).toBe(0);
+    providerOf(surface).tileLoaded.raiseEvent(message(1, 0, 3, BITMAP));
+    providerOf(surface).tileLoaded.raiseEvent(message(2, 0, 3, BITMAP));
+    expect(group.readyChunkCount()).toBe(1);
+  });
+
+  it('draws nothing with both cells off, keeping its raster', async () => {
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      scene,
+      source,
+      wave: REST,
+    });
+    await group.prepare(signal);
+    group.setVisibility(false, false);
+    expect(alphas(scene)[0][1]).toBe(0);
+    group.setVisibility(true, true);
+    expect(alphas(scene)[0][1]).toBeCloseTo(0.522, 9);
+    expect(source.release).not.toHaveBeenCalled();
+  });
+
+  it('maps collection.show to setShown and ignores elevation, scene mode and edge holds', async () => {
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      scene,
+      source,
+      wave: REST,
+    });
+    await group.prepare(signal);
+    group.collection.show = false;
+    expect(group.collection.show).toBe(false);
+    expect(named(scene, 'atlas-surface')[0].show).toBe(false);
+    await group.setCellEdges(true); // a layer added while hidden comes in hidden
+    expect(named(scene, 'atlas-outlines')[0].show).toBe(false);
+    group.collection.show = true;
+    expect(order(scene).map((l) => l.show)).toEqual([true, true, true]);
+    const before = alphas(scene);
+    group.setElevationFactor(3);
+    await group.setSceneMode('map');
+    group.setEdgesHeld(true);
+    expect(alphas(scene)).toEqual(before);
+  });
+
+  it("reports its providers' errorEvent through onError", async () => {
+    const onError = vi.fn();
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      cellEdges: true,
+      onError,
+      scene,
+      source,
+      wave: REST,
+    });
+    await group.prepare(signal);
+    const surfaceError = new Error('surface tile');
+    const outlineError = new Error('outline tile');
+    providerOf(named(scene, 'atlas-surface')[0]).errorEvent.raiseEvent(
+      surfaceError,
+    );
+    providerOf(named(scene, 'atlas-outlines')[0]).errorEvent.raiseEvent(
+      outlineError,
+    );
+    expect(onError.mock.calls).toEqual([[surfaceError], [outlineError]]);
+  });
+
+  it('fails its prepare on a raster error while preparing, and reports a later one through onError', async () => {
+    const failing = fakeSource();
+    failing.prepare.mockImplementation(async (spec) => {
+      if (spec.layer === 'outlines') throw new Error('outline raster');
+      return { bounds: FAKE_BOUNDS, rasterId: 7 };
+    });
+    const onError = vi.fn();
+    const preparing = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      cellEdges: true,
+      onError,
+      scene,
+      source: failing,
+      wave: REST,
+    });
+    await expect(preparing.prepare(signal)).rejects.toThrow('outline raster');
+    expect(onError).not.toHaveBeenCalled();
+
+    const prepared = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      onError,
+      scene,
+      source: failing,
+      wave: REST,
+    });
+    await prepared.prepare(signal);
+    await expect(prepared.setCellEdges(true)).resolves.toBeUndefined();
+    expect(onError.mock.calls).toEqual([[new Error('outline raster')]]);
+
+    const surfaceFails = fakeSource();
+    surfaceFails.prepare.mockRejectedValueOnce(new Error('surface raster'));
+    await expect(
+      createDrapedSurfaceGroup({
+        ...OPTIONS,
+        onError,
+        scene,
+        source: surfaceFails,
+        wave: REST,
+      }).prepare(signal),
+    ).rejects.toThrow('surface raster');
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it('adds no layer for a raster with nothing to draw, and is ready at once', async () => {
+    const empty = fakeSource(null);
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      cellEdges: true,
+      scene,
+      source: empty,
+      wave: REST,
+    });
+    await group.prepare(signal);
+    expect(scene.imageryLayers.length).toBe(0);
+    expect(group.isReady()).toBe(true);
+    expect(group.readyChunkCount()).toBe(0);
+    expect(group.outlinesReady()).toBe(true);
+    expect(empty.release.mock.calls).toEqual([[7], [8]]);
+  });
+
+  it('removes both layers and releases both rasters on destroy, and drops a prepare it aborted', async () => {
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      cellEdges: true,
+      scene,
+      source,
+      wave: REST,
+    });
+    await group.prepare(signal);
+    expect(scene.imageryLayers.length).toBe(3); // with the base guard
+    group.destroy();
+    expect(scene.imageryLayers.length).toBe(0);
+    expect(source.release.mock.calls.sort()).toEqual([[7], [8]]);
+    expect(scene.preRender.numberOfListeners).toBe(0);
+    expect(group.isReady()).toBe(false);
+    group.destroy();
+    expect(source.release).toHaveBeenCalledTimes(2);
+    await group.setCellEdges(true);
+    await group.setOutlineStyle(FIXED);
+    expect(source.prepare).toHaveBeenCalledTimes(2);
+
+    const late = fakeSource();
+    const ready = deferred<RasterReady>();
+    late.prepare.mockReturnValueOnce(ready.promise);
+    const aborted = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      scene,
+      source: late,
+      wave: REST,
+    });
+    const preparing = aborted.prepare(signal);
+    const requestSignal = late.prepare.mock.calls[0][1];
+    expect(requestSignal.aborted).toBe(false);
+    aborted.destroy();
+    expect(requestSignal.aborted).toBe(true);
+    ready.resolve({ bounds: FAKE_BOUNDS, rasterId: 11 });
+    await expect(preparing).rejects.toMatchObject({ name: 'AbortError' });
+    expect(late.release.mock.calls).toEqual([[11]]);
+    expect(scene.imageryLayers.length).toBe(0);
+    expect(scene.preRender.numberOfListeners).toBe(0);
+  });
+
+  it('drops a prepare whose own signal aborts, leaving the rest to destroy', async () => {
+    const late = fakeSource();
+    const ready = deferred<RasterReady>();
+    late.prepare.mockReturnValueOnce(ready.promise);
+    const controller = new AbortController();
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      scene,
+      source: late,
+      wave: REST,
+    });
+    const preparing = group.prepare(controller.signal);
+    controller.abort();
+    expect(late.prepare.mock.calls[0][1].aborted).toBe(true);
+    ready.resolve({ bounds: FAKE_BOUNDS, rasterId: 12 });
+    await expect(preparing).rejects.toMatchObject({ name: 'AbortError' });
+    expect(late.release.mock.calls).toEqual([[12]]);
+    expect(scene.imageryLayers.length).toBe(0);
+    group.destroy();
+    expect(scene.preRender.numberOfListeners).toBe(0);
+  });
+
+  it('shows at once when the wave rests (reduced motion, hidden tab)', async () => {
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      cellEdges: true,
+      scene,
+      source,
+      wave: REST,
+    });
+    group.setOpacity(0); // ScientificLayers' cold path: hidden until ready
+    await group.prepare(signal);
+    expect(alphas(scene)).toEqual([
+      ['atlas-surface', 0],
+      ['atlas-outlines', 0],
+    ]);
+    group.setOpacity(1); // ready: no frame needed to show it
+    expect(alphas(scene)).toEqual([
+      ['atlas-surface', expect.closeTo(0.9 * 0.58, 9)],
+      ['atlas-outlines', 1],
+    ]);
+  });
+
+  it('requests no frame at rest once its layers are ready', async () => {
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      cellEdges: true,
+      scene,
+      source,
+      wave: REST,
+    });
+    await group.prepare(signal);
+    scene.globe.tilesLoaded = true;
+    frames(2);
+    expect(group.isReady()).toBe(true);
+    scene.requestRender.mockClear();
+    frames(2);
+    expect(scene.requestRender).not.toHaveBeenCalled();
+  });
+});
+
+describe('drapedRuntime', () => {
+  it('carries the atlas-draped-v1 marker and counts tiles through its raster source', async () => {
+    const client = {
+      prepareRaster: vi.fn(async () => ({ bounds: null, rasterId: 3 })),
+      rasterTile: vi.fn(async (b: RasterTileBody) => ({
+        ...b,
+        bitmap: null,
+        rasterMs: 1,
+      })),
+      releaseRaster: vi.fn(async () => {}),
+    } satisfies RasterWorkerClient;
+    const before = drapedRuntime.stats.read().requested;
+    const rasterSource = drapedRuntime.rasterSource(client);
+    await rasterSource.tile({ level: 3, rasterId: 1, x: 0, y: 0 });
+    expect(drapedRuntime.version).toBe('atlas-draped-v1');
+    expect(drapedRuntime.stats.read().requested).toBe(before + 1);
+    expect(client.rasterTile).toHaveBeenCalledWith({
+      level: 3,
+      rasterId: 1,
+      x: 0,
+      y: 0,
+    });
+    const signal = new AbortController().signal;
+    expect(await rasterSource.prepare(SURFACE_SPEC, signal)).toEqual({
+      bounds: null,
+      rasterId: 3,
+    });
+    expect(client.prepareRaster).toHaveBeenCalledWith(SURFACE_SPEC, signal);
+    rasterSource.release(3);
+    expect(client.releaseRaster).toHaveBeenCalledWith(3);
+  });
+
+  it('warns when the worker cannot release a raster', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const failure = new Error('worker gone');
+    const rasterSource = drapedRuntime.rasterSource({
+      prepareRaster: vi.fn(),
+      rasterTile: vi.fn(),
+      releaseRaster: vi.fn(async () => {
+        throw failure;
+      }),
+    });
+    rasterSource.release(5);
+    await vi.waitFor(() =>
+      expect(warn).toHaveBeenCalledWith(expect.stringMatching(/5/), failure),
+    );
+  });
+
+  it('builds a provider for any raster, a border one stopping at its maximum level', async () => {
+    const signal = new AbortController().signal;
+    const provider = await drapedRuntime.providerFromSpec(
+      fakeSource(),
+      { color: '#ffffff', layer: 'borders', maximumLevel: 10 },
+      signal,
+    );
+    expect(provider).toBeInstanceOf(AtlasRasterImageryProvider);
+    expect(provider.maximumLevel).toBe(10);
+  });
+
+  it('hands out the draped group, the layer adder and the page’s drape stats', () => {
+    expect(drapedRuntime.createDrapedSurfaceGroup).toBe(
+      createDrapedSurfaceGroup,
+    );
+    expect(drapedRuntime.addDrapedImageryLayer).toBe(addDrapedImageryLayer);
+    expect(drapedRuntime.stats).toBe(drapeStats);
   });
 });
