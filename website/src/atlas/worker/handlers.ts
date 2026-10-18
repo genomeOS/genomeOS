@@ -2,6 +2,8 @@
  * The Atlas data worker's complete handler registry (fast-load design §B.6.3): the data-tier
  * handlers plus the geometry handlers, which share the dispatcher's state, port and cancellation.
  * The grid's topology is warmed right after `grid-ready` (§B.6 "topology as soon as the grid arrives").
+ * The draped-raster requests (terrain draping design, "How existing features behave", #483) fail
+ * with an `internal` error until the lazy raster runtime is wired in.
  */
 
 import { DATA_HANDLERS } from './data-handlers';
@@ -54,6 +56,11 @@ export function geometryRuntime(context: HandlerContext): GeometryRuntime {
   return runtime;
 }
 
+/** Every raster request until the raster runtime is wired; the dispatcher reports it as `internal`. */
+function rasterRuntimePending(): never {
+  throw new Error('The Atlas raster runtime is wired in Task 15');
+}
+
 function geometry<K extends GeometryRequestType>(type: K): RequestHandler<K> {
   return async (request, context) => {
     const runtime = geometryRuntime(context);
@@ -80,5 +87,8 @@ export const ATLAS_WORKER_HANDLERS: HandlerRegistry = {
     );
   },
   'parse-context': geometry('parse-context'),
+  'prepare-raster': rasterRuntimePending,
+  'raster-tile': rasterRuntimePending,
   recolour: geometry('recolour'),
+  'release-raster': rasterRuntimePending,
 };

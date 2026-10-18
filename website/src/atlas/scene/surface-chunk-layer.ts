@@ -1,5 +1,6 @@
 /** Worker-built surface chunks as Cesium primitives for Atlas design §11 (spec 2026-10-07 §B.6.5–§B.6.6,
- * and §B.6.7 as amended 2026-10-13 for the reveal wave, #453).
+ * and §B.6.7 as amended 2026-10-13 for the reveal wave, #453), the `chunks` kind of surface group
+ * (terrain draping design, "Per layer under World Terrain", #483).
  *
  * One primitive per chunk carries its supported cells; its masked cells
  * (`unknown` hatch, `prior_dominated` dots per palette bin) are added in the
@@ -47,7 +48,11 @@ import {
   usesVertexColorGamma,
   type ElevatedSurfaceAppearance,
 } from './surface-appearance';
-import type { ScientificPrimitiveGroup, SurfaceChunkPick } from './types';
+import type {
+  ScientificPrimitiveGroup,
+  SurfaceChunkPick,
+  SurfaceGroup,
+} from './types';
 
 const SURFACE_MATERIAL_ALPHA = 0.9;
 const EDGE_FADE_THRESHOLD = 0.05;
@@ -63,15 +68,14 @@ export interface SurfaceChunkGroupOptions {
   wave?: RevealWaveUniforms;
 }
 
-export interface SurfaceChunkGroup extends ScientificPrimitiveGroup {
-  readonly artifactKey: string;
+/** The smooth globe's surface group; `collection` is redeclared, since the two bases differ. */
+export interface SurfaceChunkGroup
+  extends ScientificPrimitiveGroup, SurfaceGroup {
+  readonly kind: 'chunks';
+  collection: PrimitiveCollection;
   readonly edges: EdgeLayer;
   addChunk(surface: SurfaceChunkBuffers, support: SupportChunkBuffers): void;
   chunkCount(): number;
-  readyChunkCount(): number;
-  opacity(): number;
-  /** Hides the cell outlines while a reveal wave runs, whatever else would show them. */
-  setEdgesHeld(held: boolean): void;
 }
 
 interface OpacityMaterial {
@@ -311,6 +315,7 @@ export function createSurfaceChunkGroup(
     artifactKey: options.artifactKey,
     collection,
     edges,
+    kind: 'chunks',
     primitives,
     addChunk(surface, support) {
       const chunk = surface.chunk;

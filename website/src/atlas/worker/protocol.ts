@@ -1,6 +1,7 @@
 /**
  * Typed messages of the Atlas data worker for Atlas design §11 and fast-load design §B.6.3, §B.6.5,
- * §B.6.9. A request is `{ id, type } & WorkerRequestMap[type]`, a response
+ * §B.6.9, and the draped rasters of the terrain draping design, "How existing features behave"
+ * (Worker, #483). A request is `{ id, type } & WorkerRequestMap[type]`, a response
  * `{ id, type } & WorkerResponseMap[type]`. Responses in `TERMINAL_RESPONSES` settle their request;
  * `chunk` and `edges-chunk` are intermediate. Callers build bodies (`*Body`); handlers receive the
  * full requests (`*Request`).
@@ -10,6 +11,11 @@ import type { ArtifactRef, GridEntry } from '../contracts';
 import type { ObservationAnchors } from '../geometry/anchors';
 import type { EdgeChunkBuffers, EdgeColorSpec } from '../geometry/edge-buffers';
 import type { NaturalEarthBuffers } from '../geometry/natural-earth';
+import type {
+  DegreeRectangle,
+  RasterSpec,
+  TileAddress,
+} from '../geometry/raster/types';
 import type { SupportChunkBuffers } from '../geometry/support-buffers';
 import type { SurfaceChunkBuffers } from '../geometry/surface-buffers';
 import type { GosaErrorCode } from '../gosa/container';
@@ -76,6 +82,24 @@ export interface ContextHeights {
   labelHeights: Float32Array;
 }
 
+/** A prepared raster: `rasterId` is the prepare request's id; null bounds means nothing to draw. */
+export interface RasterReady {
+  rasterId: number;
+  bounds: DegreeRectangle | null;
+}
+
+/** One tile of a prepared raster. */
+export interface RasterTileBody extends TileAddress {
+  rasterId: number;
+}
+
+/** A rasterised tile, its bitmap transferred; null is an empty tile. */
+export interface RasterTileMessage extends RasterTileBody {
+  bitmap: ImageBitmap | null;
+  /** Worker milliseconds spent rasterising the tile. */
+  rasterMs: number;
+}
+
 export interface WorkerRequestMap {
   'build-chunks': BuildChunksBody;
   'build-edges': BuildEdgesBody;
@@ -85,7 +109,10 @@ export interface WorkerRequestMap {
   'load-render': { buf: ArrayBuffer; ref: ArtifactRef };
   /** The compact Natural Earth borders (GOBD, §B.10), transferred. */
   'parse-context': { bytes: ArrayBuffer };
+  'prepare-raster': { spec: RasterSpec };
+  'raster-tile': RasterTileBody;
   recolour: RecolourBody;
+  'release-raster': { rasterId: number };
 }
 
 export interface WorkerResponseMap {
@@ -117,7 +144,10 @@ export interface WorkerResponseMap {
   };
   'edges-done': { artifactKey: string; total: number };
   'grid-ready': { grid: DecodedGrid };
+  'raster-ready': RasterReady;
+  'raster-released': { rasterId: number };
   'render-ready': { render: DecodedRender };
+  'tile-ready': RasterTileMessage;
 }
 
 export type WorkerRequestType = keyof WorkerRequestMap;
@@ -214,6 +244,14 @@ export type GeometryResponse =
   | StepTimingMessage
   | WorkerErrorMessage;
 
+export type RasterRequestType =
+  'prepare-raster' | 'raster-tile' | 'release-raster';
+
+export type RasterResponse =
+  | WorkerResponseOf<'raster-ready'>
+  | WorkerResponseOf<'tile-ready'>
+  | WorkerResponseOf<'raster-released'>;
+
 /** Responses that settle their request; any other response type is intermediate. */
 export const TERMINAL_RESPONSES: ReadonlySet<WorkerResponseType> =
   new Set<WorkerResponseType>([
@@ -223,5 +261,8 @@ export const TERMINAL_RESPONSES: ReadonlySet<WorkerResponseType> =
     'detail-ready',
     'edges-done',
     'grid-ready',
+    'raster-ready',
+    'raster-released',
     'render-ready',
+    'tile-ready',
   ]);
