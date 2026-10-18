@@ -1,6 +1,10 @@
-/** Stable basemap and terrain gallery metadata for Atlas design §11. */
+/**
+ * Stable basemap and terrain gallery metadata for Atlas design §11, and how the data is drawn
+ * while it is draped over World Terrain: terrain draping design, "How existing features behave"
+ * (#483).
+ */
 
-import type { ExplorerSceneMode } from './url-state';
+import type { ExplorerSceneMode, SurfaceGeometry } from './url-state';
 
 export interface EarthStyleOption<T extends string> {
   id: T;
@@ -293,6 +297,63 @@ export function resolveElevationView(
 /** Whether a terrain has physical relief; only the smooth globe has none (#483). */
 export function hasPhysicalRelief(terrain: TerrainId): boolean {
   return terrain !== 'smooth-globe';
+}
+
+/** What the elevation controls say while the data is draped (#483). */
+export const DRAPED_ELEVATION_NOTE = 'Not available with World Terrain';
+/** The extruded geometry's label while draped. */
+export const DRAPED_EXTRUDED_LABEL = 'Columns (smooth globe only)';
+/** The extruded geometry's label on the smooth globe. */
+export const EXTRUDED_LABEL = 'Extruded hexagons';
+/** Warning id `'drape'`: a raster or provider failure reverts to the smooth globe (#483). */
+export const DRAPE_FAILED_WARNING =
+  'The map data could not be draped over World Terrain, so the smooth globe is shown instead.';
+
+export interface DrapedView {
+  /** The data height the scene draws: 0 while draped and in the 2D map. */
+  elevationFactor: number;
+  /** The geometry the scene draws: extruded draws as flat hexagons while draped. */
+  geometry: SurfaceGeometry;
+  /** Why data elevation is unavailable, shown beside it; null when it applies. */
+  elevationNote: string | null;
+  /** The extruded option's label. */
+  extrudedLabel: string;
+}
+
+interface DrapedViewInput {
+  /** Whether the data is draped: the scene's or the controls' draped rule. */
+  draped: boolean;
+  elevation: boolean;
+  exaggeration: number;
+  geometry: SurfaceGeometry;
+  view: ExplorerSceneMode;
+}
+
+/**
+ * Draped data lies on the ground: data elevation is off and extruded columns draw as flat
+ * hexagons. The URL keeps the user's elevation, exaggeration and geometry, so returning to the
+ * smooth globe restores them; there, the values are today's.
+ */
+export function resolveDrapedView({
+  draped,
+  elevation,
+  exaggeration,
+  geometry,
+  view,
+}: DrapedViewInput): DrapedView {
+  if (draped)
+    return {
+      elevationFactor: 0,
+      elevationNote: DRAPED_ELEVATION_NOTE,
+      extrudedLabel: DRAPED_EXTRUDED_LABEL,
+      geometry: geometry === 'extruded' ? 'hexagons' : geometry,
+    };
+  return {
+    elevationFactor: elevation && view !== 'map' ? exaggeration : 0,
+    elevationNote: null,
+    extrudedLabel: EXTRUDED_LABEL,
+    geometry,
+  };
 }
 
 export interface TerrainControlState {
