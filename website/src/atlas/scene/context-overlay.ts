@@ -33,7 +33,8 @@
  * 2,500 m above the ground, which a LabelCollection built with the scene re-clamps as terrain tiles
  * load and as Physical relief changes; on the smooth globe their reference is `NONE`, where the
  * scene changes nothing. Per "Failure modes", the first failure of each draped layer goes to
- * `onDrapeFailure`, and the scene reverts to the smooth globe.
+ * `onDrapeFailure`, and the scene reverts to the smooth globe. The scene's teardown calls
+ * `destroy()` before the globe's, which releases the border layers and their worker raster.
  */
 
 import {
@@ -217,6 +218,7 @@ export class ContextOverlay {
   #borderCss = '#ffffff';
   #borderOpacity = 0.5;
   readonly #borders: BorderDrape;
+  #destroyed = false;
 
   constructor(options: ContextOverlayOptions) {
     this.#options = options;
@@ -426,9 +428,21 @@ export class ContextOverlay {
     }
   }
 
+  /**
+   * Releases the draped borders while the globe's imagery layers are still live (unmount, "Retry
+   * globe"): Cesium's teardown destroys no imagery provider, and the data worker outlives the
+   * scene, so their raster would stay in it. A layer still preparing is dropped when it resolves.
+   * Nothing is built, shown or reported after; the primitives go with the CesiumWidget.
+   */
+  destroy(): void {
+    if (this.#destroyed) return;
+    this.#destroyed = true;
+    this.#borders.retire();
+  }
+
   /** CesiumWidget.destroy() destroys the scene's primitives, this collection among them. */
   #isDestroyed(): boolean {
-    return this.collection.isDestroyed();
+    return this.#destroyed || this.collection.isDestroyed();
   }
 
   #throwIfDestroyed(): void {

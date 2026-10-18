@@ -64,8 +64,11 @@ const harness = vi.hoisted(() => ({
   /** The options the scene gave the context overlay, and the overlay's draped calls. */
   overlayOptions: undefined as ContextOverlayOptions | undefined,
   overlay: {
+    destroy: vi.fn(),
     setDraped: vi.fn((_runtime: DrapedRuntime | null) => Promise.resolve()),
   },
+  /** The CesiumWidget's teardown. */
+  globeDestroy: vi.fn(),
   highlight: { setGround: vi.fn() },
   /** The ScientificLayers the scene made: its ground re-samples. */
   layers: { resampleGround: vi.fn() },
@@ -169,7 +172,7 @@ vi.mock('../src/atlas/scene/globe-widget', () => ({
       resize: vi.fn(),
       render: vi.fn(),
     },
-    destroy: vi.fn(),
+    destroy: harness.globeDestroy,
   }),
 }));
 vi.mock('../src/atlas/scene/context-controller', () => ({
@@ -211,6 +214,7 @@ vi.mock('../src/atlas/scene/context-overlay', () => ({
     constructor(options: ContextOverlayOptions) {
       harness.overlayOptions = options;
     }
+    destroy = harness.overlay.destroy;
     load = () => new Promise(() => {});
     setDraped = harness.overlay.setDraped;
     setElevationFactor = () => {};
@@ -325,7 +329,9 @@ beforeEach(() => {
   harness.overlayOptions = undefined;
   harness.postRender.clear();
   harness.globe.tileLoadProgressEvent.clear();
+  harness.overlay.destroy.mockClear();
   harness.overlay.setDraped.mockClear();
+  harness.globeDestroy.mockClear();
   harness.highlight.setGround.mockClear();
   harness.layers.resampleGround.mockClear();
   harness.rebuilds = 0;
@@ -705,6 +711,20 @@ describe('draped context and relief (#483)', () => {
       expect.arrayContaining([expect.objectContaining({ id: 'drape' })]),
     );
     warn.mockRestore();
+  });
+
+  // Review Focus 1: Cesium's teardown destroys no imagery provider, and the worker outlives the
+  // scene, so the overlay releases its border rasters while the imagery layers are still live.
+  it('releases the draped borders with the scene, before the globe goes', async () => {
+    const controller = scene();
+    void controller.setTerrain('world-terrain');
+    await flushTasks();
+    controller.destroy();
+    controller.destroy();
+    expect(harness.overlay.destroy).toHaveBeenCalledTimes(1);
+    expect(harness.overlay.destroy.mock.invocationCallOrder[0]).toBeLessThan(
+      harness.globeDestroy.mock.invocationCallOrder[0],
+    );
   });
 
   it('stops relief resampling once the scene is destroyed', async () => {

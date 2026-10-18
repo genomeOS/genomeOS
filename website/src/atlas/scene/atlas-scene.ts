@@ -824,6 +824,7 @@ class CesiumAtlasScene implements AtlasSceneController {
     this.#elevationSequence += 1;
     this.#renderLoop.stop();
     this.#layers.destroy();
+    this.#overlay.destroy(); // the borders' rasters too: Cesium's teardown destroys no provider
     this.#removeDrapeStats?.();
     this.#wave.destroy();
     this.#removeMarks();

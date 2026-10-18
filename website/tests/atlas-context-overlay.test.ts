@@ -1242,6 +1242,60 @@ describe('Natural Earth context on World Terrain', () => {
     expect(runtime.addDrapedImageryLayer).not.toHaveBeenCalled();
   });
 
+  // Review Focus 1: Cesium's teardown destroys no imagery provider, and the data worker outlives
+  // the scene ("Retry globe"), so the overlay releases its border rasters itself.
+  it('destroys its border layers with the scene, one still waiting for its tiles among them', async () => {
+    const { overlay, scene } = setup();
+    await overlay.load('borders.bin');
+    const { layers, providers, runtime } = fakeDrapedRuntime();
+    await overlay.setDraped(runtime);
+    overlay.setBorderStyle('#00ff00', 0.5);
+    await flushTasks();
+    expect(layers).toHaveLength(2);
+    overlay.destroy();
+    overlay.destroy();
+    expect(
+      layers.map(({ destroy, provider }) => [
+        destroy.mock.calls.length,
+        provider.destroy.mock.calls.length,
+      ]),
+    ).toEqual([
+      [1, 1],
+      [1, 1],
+    ]);
+    // Nothing more is built, shown or reported.
+    layers[1].ready = true;
+    scene.postRender.raiseEvent();
+    overlay.setBorderStyle('#0000ff', 0.5);
+    overlay.setVisible(false);
+    await overlay.setDraped(null);
+    await overlay.setDraped(fakeDrapedRuntime().runtime);
+    await flushTasks();
+    expect([providers.length, layers[1].alpha, layers[0].shown]).toEqual([
+      2,
+      0,
+      true,
+    ]);
+  });
+
+  it('destroys the provider of a border layer still preparing when the scene goes', async () => {
+    const { onDrapeFailure, overlay } = setup();
+    await overlay.load('borders.bin');
+    const { runtime } = fakeDrapedRuntime();
+    const pending = Promise.withResolvers<FakeRasterProvider>();
+    vi.mocked(runtime.providerFromSpec).mockReturnValueOnce(
+      pending.promise as never,
+    );
+    const draping = overlay.setDraped(runtime);
+    overlay.destroy();
+    const provider = fakeRasterProvider();
+    pending.resolve(provider);
+    await draping;
+    expect(provider.destroy).toHaveBeenCalledTimes(1);
+    expect(runtime.addDrapedImageryLayer).not.toHaveBeenCalled();
+    expect(onDrapeFailure).not.toHaveBeenCalled();
+  });
+
   it('reports the first failure of the border raster', async () => {
     const failing = setup();
     await failing.overlay.load('borders.bin');
