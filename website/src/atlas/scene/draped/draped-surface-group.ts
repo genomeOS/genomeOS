@@ -21,9 +21,16 @@
  *   restyle keeps the outgoing surface opaque until it is retired. A style moved past before it
  *   was ready is dropped; a restyle with edges off drops the outlines, and the new style is
  *   prepared when they return.
- * - Readiness: `isReady` once the surface layer is ready (Cesium has loaded its tiles at alpha 0);
- *   `readyChunkCount` is 1 from the first drawn surface tile, so a cold reveal with nothing in
- *   view runs no wave; `outlinesReady` once the outlines are prepared and their layer is ready.
+ * - Readiness: `isReady` once the layers the fade will draw have loaded (Cesium has loaded their
+ *   tiles at alpha 0) and drawn their pre-warm frame ("Failure modes": first-draw shader compile
+ *   hitch). Those are the surface layer while a cell set is on at a surface opacity above 0, and
+ *   the outlines while cell edges are on over supported cells, beside whatever the fade draws
+ *   over; the surface layer must load either way. The first `isReady` that finds them loaded
+ *   pre-warms them together, in one frame, and the group asks for the frame that reads it ready.
+ *   A group pre-warms once: a later edge or cell toggle is instant, so its compile is latency,
+ *   not a jump in a fade. `readyChunkCount` is 1 from the first drawn surface tile, so a cold
+ *   reveal with nothing in view runs no wave; `outlinesReady` once the outlines are prepared and
+ *   their layer is ready.
  * - No silent gaps: a raster that fails while `prepare` runs rejects it, a later one and every
  *   provider `errorEvent` go to `onError`, and the scene reverts to the smooth globe. `destroy`
  *   aborts every prepare in flight (a raster arriving after it is released at once), removes the
@@ -293,10 +300,51 @@ export function createDrapedSurfaceGroup(
       (layer): layer is HeldLayer => layer != null,
     );
 
-  const isReady = () =>
-    !destroyed &&
-    surface !== null &&
-    (surface.layer === null || surface.layer.draped.isReady());
+  /** The pre-warm of the layers the fade will draw: not begun, running, or done. */
+  let warmth: 'cold' | 'warming' | 'warm' = 'cold';
+
+  /** The layers the fade will draw once every layer it waits on has loaded; else null. */
+  const loadedFadeLayers = (): DrapedImageryLayer[] | null => {
+    if (surface === null) return null;
+    const drawn: DrapedImageryLayer[] = [];
+    if (surface.layer) {
+      if (!surface.layer.draped.isReady()) return null;
+      if (!hidden && DRAPED_SURFACE_ALPHA * surfaceOpacity > 0)
+        drawn.push(surface.layer.draped);
+    }
+    if (!hidden && cellEdges && cells.supported) {
+      // A style swap still in flight draws the old outlines; wait for the ones that stay.
+      if (!outline?.prepared || retiring) return null;
+      if (outline.layer) {
+        if (!outline.layer.draped.isReady()) return null;
+        drawn.push(outline.layer.draped);
+      }
+    }
+    return drawn;
+  };
+
+  /** Pre-warms the fade's layers the first time they are all loaded. */
+  const warmWhenLoaded = () => {
+    if (destroyed || warmth !== 'cold') return;
+    const drawn = loadedFadeLayers();
+    if (drawn === null) return;
+    if (drawn.length === 0) {
+      warmth = 'warm';
+      return;
+    }
+    warmth = 'warming';
+    void Promise.all(drawn.map((layer) => layer.prewarm())).then(() => {
+      if (destroyed) return;
+      warmth = 'warm';
+      // Readiness is read after a frame, and a layer left alone asked for none.
+      scene.requestRender();
+    });
+  };
+
+  const isReady = () => {
+    warmWhenLoaded();
+    return !destroyed && warmth === 'warm';
+  };
 
   return {
     artifactKey: o.artifactKey,
