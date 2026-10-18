@@ -13,8 +13,9 @@
  * The draped surface's behaviour ("How existing features behave", "2D and Columbus"): a cold load
  * that asks for World Terrain drapes without building chunks first; the data stays visible and
  * pickable after each morph; a palette restyle swaps the draped layer, and the outlines toggle
- * neither waits nor asks the worker for tiles; and the smooth globe brings the chunks, data
- * elevation and extruded columns back.
+ * neither waits nor asks the worker for tiles; the smooth globe brings the chunks, data
+ * elevation and extruded columns back; and Honmoon draws its contour lines into the draped surface
+ * ("Build phases" item 4).
  *
  * The context and observations on the peak ("Per layer under World Terrain", "Exaggeration"): at
  * Physical relief 6 and then 10, a sphere standing on the ground above the summit is picked and
@@ -34,6 +35,7 @@ import {
   changedShare,
   clickAbove,
   drapeQuery,
+  drapeSettled,
   openDrape,
   openTerrainChooser,
   pixelsAround,
@@ -309,6 +311,32 @@ test.describe('terrain draping @desktop-chromium', () => {
     await expect(
       page.locator('#atlas-surface-geometry option[value="extruded"]'),
     ).toHaveText('Extruded hexagons');
+  });
+
+  test('Honmoon draws its contours on the draped surface', async ({ page }) => {
+    // The posterior SD: its 2/36 contour crosses the summit's cell. The fixture's posterior mean
+    // stays between its first and second contours for 1,000 km round the apex, so its Honmoon
+    // draws no line in the patch.
+    const shot = async (geometry: string, metric = 'post_sd') => {
+      await openDrape(
+        page,
+        drapeQuery('nadir', 1, {
+          geometry,
+          height: '400000',
+          metric,
+          palette: 'rainbow',
+        }),
+      );
+      await drapeSettled(page);
+      return summitPatch(page, await apexOnPage(page), 160);
+    };
+    const triangles = await shot('triangles');
+    const honmoon = await shot('honmoon');
+    expect(await changedShare(page, triangles, honmoon)).toBeGreaterThan(0.2);
+    // Without contours both Honmoon patches are the same faint fill (a share of 0); with them, the
+    // line and its halo cross the patch (about 0.23), where the mean's Honmoon leaves the ground.
+    const noLine = await shot('honmoon', 'post_mean');
+    expect(await changedShare(page, noLine, honmoon)).toBeGreaterThan(0.1);
   });
 });
 

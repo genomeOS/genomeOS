@@ -1354,6 +1354,26 @@ describe('draped surface (#483)', () => {
     });
   });
 
+  it.each([
+    ['honmoon', true],
+    ['honmoon-fill', true],
+    ['triangles', false],
+    ['hexagons', false],
+  ] as const)(
+    'asks the draped surface for Honmoon contours with %s: %s',
+    (geometry, contours) => {
+      const surface = columnarSurface([
+        { h3: CELL, post_mean: 0.5, post_sd: 0.1, support: 'observed' },
+      ]);
+      expect(
+        drapedSurfaceSpec({ artifactKey: surface.artifactKey }, surface, {
+          ...harness({ draped: true }).style,
+          geometry,
+        }).contours,
+      ).toBe(contours);
+    },
+  );
+
   it('starts the cold fade at the first isReady, from opacity 0', async () => {
     const h = harness(
       { draped: true, reducedMotion: false },

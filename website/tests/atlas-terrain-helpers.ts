@@ -12,7 +12,8 @@
  * atmosphere (terrain draping design, "Per layer under World Terrain"), which changes the summit's
  * pixels even while the terrain buries the surface. Through `window.__atlasWindowOf` they also
  * find any point a given height above the rendered ground on the page, to click a grounded symbol
- * above the summit or read the pixels of a draped footprint.
+ * above the summit or read the pixels of a draped footprint. `drapeSettled` waits, with
+ * `window.__atlasDrapeStats`, until no draped tile is still being drawn.
  */
 
 import { expect, type Locator, type Page } from '@playwright/test';
@@ -50,6 +51,26 @@ export async function cameraSettled(page: Page): Promise<void> {
           return read ? !read().flying && !read().moving : false;
         }),
       { timeout: 30_000 },
+    )
+    .toBe(true);
+}
+
+/**
+ * The draped data has settled: the camera is at rest, every tile in view has loaded and no
+ * draped tile is still being rasterised (`window.__atlasDrapeStats`'s queue is empty).
+ */
+export async function drapeSettled(page: Page): Promise<void> {
+  await cameraSettled(page);
+  await probe(page);
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () =>
+            window.__atlasTerrainProbe!().tilesLoaded &&
+            window.__atlasDrapeStats?.().queueDepth === 0,
+        ),
+      { message: 'the draped tiles in view have loaded', timeout: 60_000 },
     )
     .toBe(true);
 }
