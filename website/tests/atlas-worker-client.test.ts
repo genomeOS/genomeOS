@@ -7,7 +7,9 @@ import {
   startAtlasWorker,
   type StepTiming,
 } from '../src/atlas/worker/client';
+import type { HandlerRegistry } from '../src/atlas/worker/dispatcher';
 import { ATLAS_WORKER_HANDLERS } from '../src/atlas/worker/handlers';
+import { SURFACE_SPEC } from './helpers/raster-specs';
 import {
   goldenBytes,
   goldenCatalog,
@@ -152,6 +154,51 @@ describe('AtlasWorkerClient', () => {
       chunk: null,
       step: 'decode-grid',
     });
+  });
+
+  it('settles prepare, tile and release on their terminal raster responses', async () => {
+    const handlers: HandlerRegistry = {
+      ...ATLAS_WORKER_HANDLERS,
+      'prepare-raster': (r, c) =>
+        c.post({
+          bounds: null,
+          id: r.id,
+          rasterId: r.id,
+          type: 'raster-ready',
+        }),
+      'raster-tile': (r, c) =>
+        c.post({
+          bitmap: null,
+          id: r.id,
+          level: r.level,
+          rasterId: r.rasterId,
+          rasterMs: 0.5,
+          type: 'tile-ready',
+          x: r.x,
+          y: r.y,
+        }),
+      'release-raster': (r, c) =>
+        c.post({ id: r.id, rasterId: r.rasterId, type: 'raster-released' }),
+    };
+    const { client: atlas } = client(new InProcessWorker(handlers));
+    const ready = await atlas.prepareRaster(SURFACE_SPEC);
+    expect(ready).toEqual({ bounds: null, rasterId: expect.any(Number) });
+    expect(
+      await atlas.rasterTile({
+        level: 3,
+        rasterId: ready.rasterId,
+        x: 9,
+        y: 2,
+      }),
+    ).toMatchObject({
+      bitmap: null,
+      level: 3,
+      rasterId: ready.rasterId,
+      rasterMs: 0.5,
+      x: 9,
+      y: 2,
+    });
+    await expect(atlas.releaseRaster(ready.rasterId)).resolves.toBeUndefined();
   });
 
   it('fails every pending request when the worker crashes', async () => {

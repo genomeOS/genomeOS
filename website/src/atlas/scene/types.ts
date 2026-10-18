@@ -1,8 +1,26 @@
-/** Shared Cesium scene contracts for Atlas design §11. */
+/**
+ * Shared Cesium scene contracts for Atlas design §11, with the draped-layer contracts of the
+ * terrain draping design, "Per layer under World Terrain" (#483), declared here so the lazy draped
+ * modules and their callers compile against one interface.
+ */
 
-import type { Primitive, PrimitiveCollection } from 'cesium';
+import type {
+  Event,
+  ImageryLayer,
+  ImageryProvider,
+  Primitive,
+  PrimitiveCollection,
+  Scene,
+} from 'cesium';
 
 import type { ObservationArtifact } from '../contracts';
+import type { EdgeColorSpec } from '../geometry/edge-buffers';
+import type {
+  AtlasImageryLayerName,
+  DegreeRectangle,
+  RasterSpec,
+  SurfaceRasterSpec,
+} from '../geometry/raster/types';
 import type { LoadTask } from '../load-order';
 import type { SurfaceArtifact as SurfaceColumns } from '../surface-columns';
 import type {
@@ -22,8 +40,14 @@ import type {
   TerrainId,
 } from '../url-state';
 import type { AtlasWorkerClient } from '../worker/client';
+import type {
+  RasterReady,
+  RasterTileBody,
+  RasterTileMessage,
+} from '../worker/protocol';
 import type { ContextWarning } from './context-controller';
 import type { ObservationPick } from './observation-layer';
+import type { FadeableGroup } from './scene-transition';
 
 /** A resolved surface pick: the cell row of the artifact whose chunk was picked. */
 export type SurfacePick = {
@@ -57,6 +81,31 @@ export interface ScientificPrimitiveGroup {
   setElevationFactor(factor: number, force?: boolean): void;
   setSceneMode(mode: ExplorerSceneMode): Promise<void>;
   setVisibility(surface: boolean, support: boolean): void;
+}
+
+/**
+ * A displayed inferred surface, as ScientificLayers drives it through its epochs, cache and
+ * `animateSwap`: worker-built chunk primitives on the smooth globe, or draped imagery layers under
+ * World Terrain (terrain draping design, "Per layer under World Terrain").
+ */
+export interface SurfaceGroup
+  extends
+    FadeableGroup,
+    Pick<
+      ScientificPrimitiveGroup,
+      | 'setSurfaceOpacity'
+      | 'setVisibility'
+      | 'setCellEdges'
+      | 'setElevationFactor'
+      | 'setSceneMode'
+    > {
+  readonly kind: 'chunks' | 'draped';
+  readonly artifactKey: string;
+  totalCount(): number;
+  readyChunkCount(): number;
+  opacity(): number;
+  /** Hides the cell outlines while a reveal wave runs, whatever else would show them. */
+  setEdgesHeld(held: boolean): void;
 }
 export type ContextStatus = 'loading' | 'ready' | 'fallback';
 export type AtlasMark =
@@ -207,4 +256,120 @@ export interface AtlasSceneController extends ArtifactSceneApi {
    */
   onRenderError(listener: (error: unknown) => void): () => void;
   destroy(): void;
+}
+
+/** The worker client's raster requests, which the draped runtime is handed. */
+export interface RasterWorkerClient extends Pick<
+  AtlasWorkerClient,
+  'prepareRaster' | 'rasterTile' | 'releaseRaster'
+> {}
+
+/** Where draped providers get their tiles: the worker client, or the stats recorder around it. */
+export interface RasterTileSource {
+  prepare(s: RasterSpec, signal: AbortSignal): Promise<RasterReady>;
+  tile(b: RasterTileBody): Promise<RasterTileMessage>;
+  release(id: number): void;
+}
+
+/** The scene members the draped layers use. */
+export type DrapedScene = Pick<
+  Scene,
+  'globe' | 'imageryLayers' | 'preRender' | 'postRender' | 'requestRender'
+>;
+
+/**
+ * A worker-backed imagery provider. `bounds` is the drawn data's extent (null: nothing to draw);
+ * `tileLoaded` fires for each delivered tile, since worker tiles bypass Cesium's RequestScheduler
+ * and so request no render of their own.
+ */
+export type RasterImageryProvider = ImageryProvider & {
+  readonly bounds: DegreeRectangle | null;
+  readonly tileLoaded: Event<(message: RasterTileMessage) => void>;
+  destroy(): void;
+  isDestroyed(): boolean;
+};
+
+/** One Atlas imagery layer, kept in `ATLAS_IMAGERY_LAYER_ORDER` above the basemap. */
+export interface DrapedImageryLayer {
+  readonly name: AtlasImageryLayerName;
+  readonly layer: ImageryLayer;
+  setAlpha(a: number): void;
+  setShown(s: boolean): void;
+  /** True once the globe has loaded its tiles. */
+  isReady(): boolean;
+  destroy(): void;
+}
+
+export interface DrapedImageryLayerOptions {
+  scene: DrapedScene;
+  provider: RasterImageryProvider;
+  name: AtlasImageryLayerName;
+  alpha: number;
+}
+
+export type AddDrapedImageryLayer = (
+  o: DrapedImageryLayerOptions,
+) => DrapedImageryLayer;
+
+/** The reveal timeline a draped group fades in on. */
+export interface DrapeWave {
+  progress(): number;
+  running(): boolean;
+}
+
+export interface DrapedSurfaceGroupOptions {
+  artifactKey: string;
+  scene: DrapedScene;
+  source: RasterTileSource;
+  surface: SurfaceRasterSpec;
+  edgeColor: EdgeColorSpec;
+  cellEdges: boolean;
+  surfaceOpacity: number;
+  wave: DrapeWave;
+  /** A raster or provider failure; the scene reverts to the smooth globe. */
+  onError(e: unknown): void;
+}
+
+/** The surface under World Terrain: the `atlas-surface` and `atlas-outlines` imagery layers. */
+export interface DrapedSurfaceGroup extends SurfaceGroup {
+  readonly kind: 'draped';
+  readonly cells: SurfaceRasterSpec['cells'];
+  readonly collection: { show: boolean };
+  prepare(signal: AbortSignal): Promise<void>;
+  setOutlineStyle(c: EdgeColorSpec): Promise<void>;
+  outlinesReady(): boolean;
+  isReady(): boolean;
+  destroy(): void;
+}
+
+/** Tile counts, raster times and resident imagery bytes for the World Terrain budgets. */
+export interface DrapeStats {
+  requested: number;
+  delivered: number;
+  empty: number;
+  queueDepth: number;
+  /** Raster time per tile at level ≥ 3; `upperMs` 0.5, 1, 2, 4, 8, 16, Infinity. */
+  rasterMs: { upperMs: readonly number[]; counts: number[] };
+  /** Non-empty cached tiles × `RESIDENT_TILE_BYTES`. */
+  residentBytes: number;
+}
+
+export interface DrapeStatsRecorder {
+  source(inner: RasterTileSource): RasterTileSource;
+  watchLayer(layer: ImageryLayer): () => void;
+  read(): DrapeStats;
+}
+
+/** The lazily imported draped runtime (`scene/draped/runtime`). */
+export interface DrapedRuntime {
+  readonly version: 'atlas-draped-v1';
+  createDrapedSurfaceGroup(o: DrapedSurfaceGroupOptions): DrapedSurfaceGroup;
+  addDrapedImageryLayer: AddDrapedImageryLayer;
+  providerFromSpec(
+    src: RasterTileSource,
+    spec: RasterSpec,
+    signal: AbortSignal,
+  ): Promise<RasterImageryProvider>;
+  rasterSource(w: RasterWorkerClient): RasterTileSource;
+  stats: DrapeStatsRecorder;
 }
