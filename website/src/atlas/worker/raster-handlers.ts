@@ -19,13 +19,16 @@
  *
  * Every failure is posted as an error, never an empty tile (design, "Failure modes"); a failed
  * tile does not stop the queue. Bitmaps keep the rows south-first, unpremultiplied and without
- * colour conversion, as Cesium blends imagery as straight alpha. The rasterisers are injected, so
- * the queue is tested apart from the drawing. This module loads only through `import()`; its
+ * colour conversion, as Cesium blends imagery as straight alpha. The rasterisers are injected
+ * (`ATLAS_RASTERISERS` in the worker), so the queue is tested apart from the drawing. This module
+ * loads only through the worker registry's `import()` on the first raster request; its
  * `'atlas-raster-v1'` marker stays out of the worker's first load. Nothing here is stochastic.
  */
 
 import type { NaturalEarthBuffers } from '../geometry/natural-earth';
+import { rasterSurfaceTile } from '../geometry/raster/fill-raster';
 import { buildGridIndex } from '../geometry/raster/grid-index';
+import { rasterOutlineTile } from '../geometry/raster/line-raster';
 import {
   RASTER_TILE_SIZE,
   type GridIndex,
@@ -76,6 +79,12 @@ export interface RasterRuntime {
     [K in RasterRequestType]: (request: WorkerRequestOf<K>) => Promise<void>;
   };
 }
+
+/** The worker's rasterisers: fill and masks, and cell outlines. */
+export const ATLAS_RASTERISERS: Rasterisers = {
+  outlines: rasterOutlineTile,
+  surface: rasterSurfaceTile,
+};
 
 /** Outlines are drawn on supported cells only. */
 const OUTLINE_CELLS: SurfaceRasterSpec['cells'] = {

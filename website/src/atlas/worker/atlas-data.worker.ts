@@ -1,6 +1,8 @@
 /**
- * Atlas data worker entry for Atlas design §11 and fast-load design §B.6.3: Cesium-free, no dynamic
- * import(). All logic lives in importable modules that vitest tests directly.
+ * Atlas data worker entry for Atlas design §11 and fast-load design §B.6.3: Cesium-free; its one
+ * `import()` loads the raster runtime on the first raster request (terrain draping design, "Per
+ * layer under World Terrain", #483). All logic lives in importable modules that vitest tests
+ * directly.
  */
 
 import { createDispatcher } from './dispatcher';

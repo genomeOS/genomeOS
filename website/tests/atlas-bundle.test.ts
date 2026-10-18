@@ -163,6 +163,21 @@ describe('Atlas client bundle', () => {
     ).toBe(true);
   });
 
+  it("keeps the raster runtime out of the worker's first load", () => {
+    // Terrain draping design, "When it is active": draped code loads lazily in the worker too.
+    const worker = readdirSync(assets).find((name) =>
+      /^atlas-data\.worker[-.].+\.js$/.test(name),
+    )!;
+    for (const file of staticGraph(worker))
+      expect(code(file).includes('atlas-raster-v1'), file).toBe(false);
+    expect(
+      readdirSync(assets).some(
+        (name) =>
+          name.endsWith('.js') && code(name).includes('atlas-raster-v1'),
+      ),
+    ).toBe(true);
+  });
+
   it('modulepreloads the lazy scene chunk and its static imports from the /app/ head', () => {
     const html = appHtml();
     const head = html.slice(0, html.indexOf('</head>'));
