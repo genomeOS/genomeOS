@@ -18,8 +18,10 @@ import { meshInputFor } from './helpers/mesh-input';
 import {
   forEachTexel,
   KENYA_CELLS,
+  poleCells,
   rasterInputFor,
   rowOfCellAt,
+  texel,
   tileContaining,
   type TestCell,
 } from './helpers/raster-fixtures';
@@ -154,5 +156,24 @@ describe('support mask texels (terrain draping design, #483)', () => {
     // lines and the cells between them; dots and the ground between them
     for (const alpha of [204, 49]) expect(hatch).toContain(alpha);
     for (const alpha of [232, 130]) expect(dots).toContain(alpha);
+  });
+
+  it('masks a cell that holds a pole all the way round, out to the pole', () => {
+    // The polar branch: h3PolygonParts' parts, with central-difference derivatives.
+    const a = { level: 3, x: 8, y: 0 }; // lon 0..22.5, lat 67.5..90
+    for (const support of ['unknown', 'prior_dominated'] as const) {
+      const input = rasterInputFor(
+        poleCells().map((cell) => ({ ...cell, support })),
+        { geometry: 'hexagons' },
+      );
+      const top = rasterSurfaceTile(input, a)!;
+      const [low, high] = support === 'unknown' ? [49, 204] : [130, 232];
+      for (let column = 0; column < 256; column += 1) {
+        const rgba = texel(top, column, 255);
+        if (support === 'unknown') expect(rgba.slice(0, 3)).toEqual(HATCH_RGB);
+        expect(rgba[3]).toBeGreaterThanOrEqual(low);
+        expect(rgba[3]).toBeLessThanOrEqual(high);
+      }
+    }
   });
 });
