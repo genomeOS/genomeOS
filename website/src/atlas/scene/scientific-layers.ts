@@ -26,6 +26,7 @@ import {
 } from 'cesium';
 
 import type { ObservationArtifact } from '../contracts';
+import { isSupportedCode } from '../geometry/support-codes';
 import type { SurfaceArtifact } from '../surface-columns';
 import type {
   EdgeColorMode,
@@ -280,6 +281,8 @@ export class ScientificLayers {
         hidden.push(incomingObservations.collection);
       return {
         artifactKey: displayed.artifactKey,
+        draped: false,
+        drawn: this.#drawn(() => displayed.group, displayed.surface),
         hidden,
         surface: displayed.surface,
       };
@@ -288,10 +291,24 @@ export class ScientificLayers {
     return revealing?.surface
       ? {
           artifactKey: revealing.epoch.artifactKey,
+          draped: false,
+          drawn: this.#drawn(() => revealing.epoch.group, revealing.surface),
           hidden: [],
           surface: revealing.surface,
         }
       : null;
+  }
+
+  /** Whether the layers draw `row` at call time: its cell layer is on and the group shown. */
+  #drawn(group: () => LiveGroup | null, surface: SurfaceArtifact) {
+    return (row: number): boolean => {
+      const live = group();
+      if (!live || !shown(live)) return false;
+      const { layers } = this.#options.style();
+      return isSupportedCode(surface.support[row])
+        ? layers.surface
+        : layers.support;
+    };
   }
 
   /**

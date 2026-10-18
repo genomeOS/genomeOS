@@ -1,4 +1,4 @@
-import { cellToLatLng } from 'h3-js';
+import { cellToLatLng, gridDisk } from 'h3-js';
 import {
   Cartesian2,
   Cartesian3,
@@ -31,7 +31,7 @@ import type {
   AtlasMark,
   ObservationPresentation,
 } from '../src/atlas/scene/types';
-import type { SurfaceArtifact } from '../src/atlas/surface-columns';
+import { rowForH3, type SurfaceArtifact } from '../src/atlas/surface-columns';
 import type {
   BuildChunksBody,
   ChunkMessage,
@@ -541,6 +541,46 @@ describe('cold progressive reveal', () => {
     expect(h.layers.pickTarget()).toMatchObject({
       artifactKey: keyOf('g6pd-deficiency'),
     });
+  });
+});
+
+describe('pick target under World Terrain (#483)', () => {
+  it('draws supported rows with the surface layer and masked rows with the support layer', async () => {
+    const h = harness();
+    const [masked] = gridDisk(CELL, 1).filter((cell) => cell !== CELL);
+    const surface = columnarSurface(
+      [
+        { h3: CELL, post_mean: 0.5, post_sd: 0.1, support: 'observed' },
+        { h3: masked, post_mean: 0.5, post_sd: 0.1, support: 'unknown' },
+      ],
+      { id: 'hbs-rs334' },
+    );
+    const done = h.layers.setArtifact(
+      h.load('hbs-rs334', Promise.resolve(surface)),
+    );
+    await h.pump();
+    await done;
+    const target = h.layers.pickTarget()!;
+    const drawn = () =>
+      [CELL, masked].map((cell) => target.drawn(rowForH3(surface, cell)!));
+    expect(target.draped).toBe(false);
+    expect(drawn()).toEqual([true, true]);
+    h.style.layers = { ...DEFAULT_LAYERS, support: false };
+    expect(drawn()).toEqual([true, false]);
+    h.style.layers = { ...DEFAULT_LAYERS, surface: false };
+    expect(drawn()).toEqual([false, true]);
+  });
+
+  it('draws nothing while the displayed group is faded out or hidden', async () => {
+    const h = harness();
+    await h.show('hbs-rs334');
+    const target = h.layers.pickTarget()!;
+    const group = built.surfaces.at(-1)!;
+    group.setOpacity(0);
+    expect(target.drawn(0)).toBe(false);
+    group.setOpacity(1);
+    group.collection.show = false;
+    expect(target.drawn(0)).toBe(false);
   });
 });
 
