@@ -1480,6 +1480,21 @@ describe('draped surface (#483)', () => {
     expect(groups[0].opacity()).toBe(1);
   });
 
+  it('neither touches nor rebuilds a removed draped surface on a layer toggle', async () => {
+    // Its cell values failed validation: a toggle must not bring it back.
+    const h = harness({ draped: true }, {}, { draped: async () => runtime });
+    await showDraped(h, 'hbs');
+    h.layers.removeSurface(keyOf('hbs'));
+    expect(groups[0].destroy).toHaveBeenCalledTimes(1);
+    groups[0].setVisibility.mockClear();
+    h.style.layers = { ...h.style.layers, support: false };
+    h.layers.setVisibility(h.style.layers, true);
+    await h.pump();
+    expect(groups).toHaveLength(1);
+    expect(groups[0].setVisibility).not.toHaveBeenCalled();
+    expect(h.worker.buildChunks).not.toHaveBeenCalled();
+  });
+
   it('reports a failed raster and settles with the rebuild it starts', async () => {
     const failures: unknown[] = [];
     const h = harness(

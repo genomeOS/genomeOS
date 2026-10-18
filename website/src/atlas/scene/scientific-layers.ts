@@ -632,6 +632,8 @@ export class ScientificLayers {
     const group = displayed?.group;
     if (!displayed || displayed.artifactKey !== artifactKey || !group) return;
     displayed.group = null;
+    const epoch = this.#epoch; // a toggle may not reach, or rebuild, the removed group (#483)
+    if (epoch?.group === group) epoch.group = epoch.cells = null;
     this.#surfaces.delete(group);
     this.#dispose(group);
     this.#options.marks.clear('values-ready');
