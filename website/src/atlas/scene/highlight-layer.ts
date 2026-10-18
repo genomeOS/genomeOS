@@ -8,10 +8,10 @@
 import {
   Cartesian3,
   Cartographic,
-  Math as CesiumMath,
   Color,
   type Globe,
   Material,
+  Math as CesiumMath,
   PointPrimitive,
   PointPrimitiveCollection,
   Polyline,
