@@ -356,7 +356,8 @@ export function rasterOutlineTile(
 /** Segments of interleaved lon, lat rings by rectangle. */
 export interface SegmentIndex {
   /** Each segment whose box meets `r`, or `r` shifted ∓360° where it passes ±180°, once and
-   * ascending; `out` is reused when given. Segment v joins vertex v to vertex v + 1 of its ring. */
+   * ascending; `out` is reused when given. Segment v joins vertex v to vertex v + 1 of its ring. A
+   * rectangle with west > east, south > north or a NaN edge is an error, never an empty answer. */
   segmentsIn(r: DegreeRectangle, out?: number[]): number[];
 }
 
@@ -449,6 +450,11 @@ export function buildSegmentIndex(
   let query = 0;
   return {
     segmentsIn(r, out = []) {
+      if (!(r.west <= r.east && r.south <= r.north))
+        throw new Error(
+          `border segments need a rectangle with west ≤ east and south ≤ north, not ` +
+            `${JSON.stringify(r)}`,
+        );
       out.length = 0;
       if (query === 0xffffffff) {
         stamp.fill(0);

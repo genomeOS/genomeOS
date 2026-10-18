@@ -470,6 +470,25 @@ describe('draped borders (P3)', () => {
     ).toEqual([]);
   });
 
+  it('refuses a query rectangle that is inverted or not a number, as the grid index does', () => {
+    const index = buildSegmentIndex(
+      Float64Array.of(10, 10, 12, 10),
+      Uint32Array.of(0, 2),
+    );
+    for (const r of [
+      { east: 9, north: 11, south: 9, west: 13 },
+      { east: 13, north: 9, south: 11, west: 9 },
+      { east: 13, north: Number.NaN, south: 9, west: 9 },
+    ])
+      expect(() => index.segmentsIn(r), JSON.stringify(r)).toThrow(
+        /west ≤ east and south ≤ north/,
+      );
+    // Off the world is not malformed: nothing is there.
+    expect(
+      index.segmentsIn({ east: 13, north: 95, south: 91, west: 9 }),
+    ).toEqual([]);
+  });
+
   it('refuses border vertices that are not WGS84 degrees, and rings of fewer than two vertices', () => {
     const tile = { level: 0, x: 1, y: 0 };
     for (const borders of [
