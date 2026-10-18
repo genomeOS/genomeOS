@@ -60,6 +60,12 @@ export interface TerrainProbe {
    */
   imageryLayers: string[];
   /**
+   * Every imagery layer on the globe's collection, bottom to top, shown or not and at any alpha:
+   * by its Atlas name, `'guard'` for the draped base guard, `'basemap'` for any other layer. So a
+   * test sees a layer added at alpha 0, and that none is left behind once the data leaves.
+   */
+  layerStack: string[];
+  /**
    * The globe's hillshade and tint terms (terrain draping design, "Per layer under World
    * Terrain").
    */

@@ -6,9 +6,10 @@
  * HbS Spain survey, where the e2e fixture supports every nearby cell, so data drapes over relief.
  * The test reads the scene through `window.__atlasTerrainProbe`, which also lists the shown
  * imagery layers by their Atlas names (terrain draping design, "Per layer under World Terrain"),
- * so a test sees whether the data is draped. Only the e2e build loads this module: the hook imports
- * it dynamically behind `PUBLIC_ATLAS_E2E_HOOKS`, so no production chunk carries it, nor the draped
- * imagery-layer module it names the layers with.
+ * so a test sees whether the data is draped, and every layer on the globe, hidden or at alpha 0.
+ * Only the e2e build loads this module: the hook imports it dynamically behind
+ * `PUBLIC_ATLAS_E2E_HOOKS`, so no production chunk carries it, nor the draped imagery-layer module
+ * it names the layers with.
  */
 
 import {
@@ -28,7 +29,10 @@ import {
   SYNTHETIC_PEAK,
   type TerrainProbe,
 } from '../e2e-hooks';
-import { drapedLayerName } from './draped/draped-imagery-layer';
+import {
+  drapedLayerName,
+  isDrapedBaseGuard,
+} from './draped/draped-imagery-layer';
 
 export { SYNTHETIC_CONE, SYNTHETIC_PEAK } from '../e2e-hooks';
 
@@ -141,6 +145,15 @@ function shownImageryLayers(layers: ImageryLayerCollection): string[] {
   return shown;
 }
 
+/** Every imagery layer on the collection, bottom to top, whatever its show and alpha. */
+function imageryLayerStack(layers: ImageryLayerCollection): string[] {
+  return Array.from({ length: layers.length }, (_, index) => {
+    const layer = layers.get(index);
+    if (isDrapedBaseGuard(layer)) return 'guard';
+    return drapedLayerName(layer) ?? 'basemap';
+  });
+}
+
 /** Publishes `window.__atlasTerrainProbe` for this widget; returns its removal. */
 export function publishTerrainProbe(widget: CesiumWidget): () => void {
   const read = (): TerrainProbe => {
@@ -161,6 +174,7 @@ export function publishTerrainProbe(widget: CesiumWidget): () => void {
       groundHeight: globe.getHeight(position) ?? null,
       imageryLayers,
       lambertDiffuseMultiplier: globe.lambertDiffuseMultiplier,
+      layerStack: imageryLayerStack(scene.imageryLayers),
       provider:
         terrainProvider instanceof CustomHeightmapTerrainProvider
           ? 'synthetic'

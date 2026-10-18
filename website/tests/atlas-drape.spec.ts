@@ -40,11 +40,16 @@ function chunkAdds(page: Page): Promise<number> {
   );
 }
 
-/** How many `atlas-surface` layers the probe lists: two while a restyle cross-fades. */
-async function surfaceLayers(page: Page): Promise<number> {
-  return (await probe(page)).imageryLayers.filter(
-    (name) => name === 'atlas-surface',
-  ).length;
+/**
+ * How many `atlas-surface` layers the probe lists: drawn (two while a restyle cross-fades), or on
+ * the globe at all, hidden or at alpha 0.
+ */
+async function surfaceLayers(
+  page: Page,
+  list: 'imageryLayers' | 'layerStack' = 'imageryLayers',
+): Promise<number> {
+  return (await probe(page))[list].filter((name) => name === 'atlas-surface')
+    .length;
 }
 
 test.describe('terrain draping @desktop-chromium', () => {
@@ -189,6 +194,8 @@ test.describe('terrain draping @desktop-chromium', () => {
       )
       .toBeGreaterThanOrEqual(0.5);
     await expect.poll(() => surfaceLayers(page), { timeout: 30_000 }).toBe(1);
+    // Retired, not hidden: a hidden layer keeps no tiles, so nothing keeps it.
+    expect(await surfaceLayers(page, 'layerStack')).toBe(1);
 
     const outlines = page.getByRole('checkbox', {
       exact: true,
@@ -257,6 +264,8 @@ test.describe('terrain draping @desktop-chromium', () => {
     await expect
       .poll(async () => (await probe(page)).imageryLayers, { timeout: 30_000 })
       .toEqual(['basemap']);
+    // No Atlas layer is left on the smooth globe, hidden or at alpha 0, nor the base guard.
+    expect((await probe(page)).layerStack).toEqual(['basemap']);
     await expect.poll(() => chunkAdds(page)).toBeGreaterThan(0);
     await expect(page.locator('#atlas-statistical-elevation')).toBeEnabled();
     await expect(

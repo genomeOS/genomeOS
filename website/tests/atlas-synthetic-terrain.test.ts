@@ -216,6 +216,7 @@ describe('publishTerrainProbe', () => {
       groundHeight: 5_000,
       imageryLayers: [],
       lambertDiffuseMultiplier: 0.9,
+      layerStack: [],
       provider: 'ellipsoid',
       showGroundAtmosphere: false,
       showWaterEffect: false,
@@ -277,7 +278,7 @@ describe('publishTerrainProbe', () => {
     expect(page.__atlasTerrainProbe).toBeUndefined();
   });
 
-  it('lists the shown imagery layers bottom to top and says whether the surface is draped', () => {
+  it('lists the shown imagery layers and every layer bottom to top, and says whether the surface is draped', () => {
     const page = {} as Window;
     vi.stubGlobal('window', page);
     vi.spyOn(SceneTransforms, 'worldToWindowCoordinates').mockReturnValue(
@@ -303,6 +304,8 @@ describe('publishTerrainProbe', () => {
     expect(window.__atlasTerrainProbe!()).toMatchObject({
       draped: true,
       imageryLayers: ['basemap', 'atlas-surface'],
+      // Every layer on the collection, the base guard and the layer at alpha 0 included.
+      layerStack: ['basemap', 'guard', 'atlas-surface', 'atlas-outlines'],
     });
 
     // Bottom to top, each shown layer at alpha > 0; a hidden or transparent surface is not draped.
@@ -317,6 +320,7 @@ describe('publishTerrainProbe', () => {
     expect(page.__atlasTerrainProbe!()).toMatchObject({
       draped: false,
       imageryLayers: ['atlas-outlines'],
+      layerStack: ['basemap', 'guard', 'atlas-surface', 'atlas-outlines'],
     });
     surface.setShown(true);
     surface.setAlpha(0);
@@ -330,6 +334,7 @@ describe('publishTerrainProbe', () => {
     expect(page.__atlasTerrainProbe!()).toMatchObject({
       draped: false,
       imageryLayers: ['basemap'],
+      layerStack: ['basemap'],
     });
     unpublish();
   });

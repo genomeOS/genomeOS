@@ -43,6 +43,9 @@ const BUDGETS = {
 /** How long the report waits for a draped milestone before it records none. */
 const MILESTONE_TIMEOUT_MS = 60_000;
 
+/** How long the restyle measurement waits, well inside the test's 180 s, before it records none. */
+const RESTYLE_TIMEOUT_MS = 30_000;
+
 /** What the init script records in the page, frame by frame. */
 interface DrapeTimes {
   /** `performance.now()` of the first frame with World Terrain on the globe. */
@@ -115,8 +118,10 @@ async function coldLoadDraped(page: Page): Promise<Report> {
 }
 
 /**
- * From the palette change to one `atlas-surface` layer again, after the cross-fade showed two,
- * with every tile in view loaded.
+ * From the palette change to one `atlas-surface` layer again, after the new one was added beside
+ * the old, with every tile in view loaded. The probe's `layerStack` lists the incoming layer from
+ * its add at alpha 0, so a sample need not land inside the 300 ms cross-fade, which a slow first
+ * swap frame can end at once.
  */
 async function restyleMs(page: Page): Promise<Report> {
   await expandExplorerSheet(page);
@@ -133,22 +138,22 @@ async function restyleMs(page: Page): Promise<Report> {
     (timeoutMs) =>
       new Promise<number | null>((resolve) => {
         const started = performance.now();
-        let crossFaded = false;
+        let added = false;
         const sample = () => {
           const probe = window.__atlasTerrainProbe!();
-          const surfaces = probe.imageryLayers.filter(
+          const surfaces = probe.layerStack.filter(
             (name) => name === 'atlas-surface',
           ).length;
-          if (surfaces > 1) crossFaded = true;
+          if (surfaces > 1) added = true;
           const now = performance.now();
-          if (crossFaded && surfaces === 1 && probe.tilesLoaded)
+          if (added && surfaces === 1 && probe.tilesLoaded)
             resolve(now - started);
           else if (now - started > timeoutMs) resolve(null);
           else requestAnimationFrame(sample);
         };
         requestAnimationFrame(sample);
       }),
-    MILESTONE_TIMEOUT_MS,
+    RESTYLE_TIMEOUT_MS,
   );
   await page.locator('#atlas-surface-palette').selectOption('viridis');
   const measured = await done;
