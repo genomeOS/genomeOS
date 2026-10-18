@@ -49,6 +49,9 @@ INCLUDE = (
     "validation",
 )
 
+#: The 994 MAP HbS surveys the 2026-09-16 golden-test-1 run fit, as that run serialized them (#45).
+PARITY_INPUT = "hbs-piel-parity-2026-09-16"
+
 CPIC_RECORD = "sources/cpic/v1.60.0/SOURCE.json"
 CURATED_RECORD = "sources/curated/SOURCE.json"
 ARTIFACT_DATA_SOURCES = {"map-": "map", "afnd-": "afnd"}
@@ -85,8 +88,16 @@ REVIEWED_SOURCES: dict[str, dict[str, Any]] = {
         ),
         "url": "https://data.malariaatlas.org/",
         "terms": {
-            "status": dr.NOT_CHECKED,
-            "note": "No terms check for the MAP survey layers is recorded in this repository.",
+            "status": "no_restriction_found",
+            "checked_at": "2026-10-18",
+            "terms_url": "https://malariaatlas.org/open-access-policy/",
+            "recorded_in": "docs/research/hbs-piel-parity-2026-09-16.md",
+            "note": (
+                "MAP's open-access policy covers all its survey data, HbS and G6PD layers alike: the "
+                "data are not owned by MAP, public survey data have no restrictions to access or use, "
+                "and users are asked to cite the original sources. The owner approved open "
+                "redistribution of the HbS survey rows on 2026-10-18 (the 2026-09-16 parity input)."
+            ),
         },
         "non_commercial": False,
     },
@@ -179,6 +190,7 @@ def _artifact_sources(data_root: Path, path: str) -> tuple[str, ...]:
 _RULES: tuple[tuple[Callable[[str], bool], Callable[[Path, str], tuple[str, ...]]], ...] = (
     (lambda path: path.startswith(dr.ARTIFACT_PREFIX), _artifact_sources),
     (lambda path: path.startswith("validation/crossval_"), lambda root, path: ("map",)),
+    (lambda path: path.startswith(f"validation/{PARITY_INPUT}/"), lambda root, path: ("map",)),
     (lambda path: path.startswith("validation/b0h-timing-"), lambda root, path: ("genomeos",)),
     (lambda path: path == "raw/afnd_populations.tsv", lambda root, path: ("afnd",)),
     (lambda path: path.startswith("sources/cpic/"), lambda root, path: ("cpic",)),

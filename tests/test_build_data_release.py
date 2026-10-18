@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from genomeos.publication import data_release as dr
+from genomeos.publication.commercial_use import COMMERCIAL_USE_FINDINGS
 from scripts import build_data_release as build
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +37,7 @@ def tree(tmp_path: Path) -> Path:
     _write(root, "store/catalog-metadata.json", b"{}")
     _write(root, "validation/crossval_summary.json", b"{}")
     _write(root, "validation/b0h-timing-20260910-01/report.json", b"{}")
+    _write(root, f"validation/{build.PARITY_INPUT}/piel-comparable-observations.tsv", b"variant_id\n")
     _write(root, "raw/afnd_populations.tsv", b"pop_id\tpopulation\n")
     _write(root, "registry/variant_normalization.tsv", b"variant_id\n")
     _write(root, "registry/curated-v1-candidate.1/MANIFEST.json", b"{}")
@@ -58,6 +60,8 @@ def test_build_hashes_every_included_file_and_maps_sources(tree: Path) -> None:
     assert objects["store/artifacts/hla__a-02-01__v2__afnd-2026-08/manifest.json"]["sources"] == ["afnd"]
     assert objects["validation/crossval_summary.json"]["sources"] == ["map"]
     assert objects["validation/b0h-timing-20260910-01/report.json"]["sources"] == ["genomeos"]
+    parity = f"validation/{build.PARITY_INPUT}/piel-comparable-observations.tsv"
+    assert objects[parity]["sources"] == ["map"]
     assert objects["sources/curated/SOURCE.json"]["sources"] == ["clinvar", "genereviews"]
     registry = objects["registry/curated-v1-candidate.1/MANIFEST.json"]
     assert registry["sources"] == ["clinvar", "cpic", "genereviews"]
@@ -85,7 +89,10 @@ def test_terms_are_copied_from_the_committed_records(tree: Path) -> None:
     assert sources["clinvar"]["terms"]["status"] == curated["ClinVar"]["reuse_status"]
     assert sources["clinvar"]["non_commercial"] is False
     assert sources["afnd"]["terms"]["recorded_in"].endswith("/issues/117")
-    assert sources["map"]["terms"]["status"] == dr.NOT_CHECKED
+    assert sources["map"]["terms"]["status"] in COMMERCIAL_USE_FINDINGS
+    assert sources["map"]["terms"]["status"] != dr.NOT_CHECKED
+    assert sources["map"]["terms"]["terms_url"] == "https://malariaatlas.org/open-access-policy/"
+    assert (ROOT / sources["map"]["terms"]["recorded_in"]).is_file()
     assert sources["worldpop"]["terms"]["status"] == dr.NOT_CHECKED
 
 
