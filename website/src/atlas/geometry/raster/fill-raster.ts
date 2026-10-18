@@ -4,8 +4,12 @@
  *
  * Supported rows draw first, when `cells.supported`: the cell centre fanned to its topology
  * corners, as `buildSmoothChunk` and `buildFlatChunk` mesh them. Smooth geometries interpolate the
- * chunk's vertex colours barycentrically in degrees; hexagons take the palette-bin colour; both
- * Honmoon geometries draw the Honmoon fill (rgb × 0.55, α 0.28) until contours arrive. Masked rows
+ * chunk's vertex colours barycentrically in degrees; hexagons take the palette-bin colour. With
+ * `contours`, the Honmoon geometries ("honmoon contours from an analytic gradient") also
+ * interpolate the chunk's vertex values and shade each texel with `honmoonTexel`, the smooth-globe
+ * fragment's `fwidth` replaced by the value's change over one texel: the fan triangle's exact
+ * gradient, which `triangle-scan.ts` hands each texel, or at a pole its central difference.
+ * Without, both draw the Honmoon fill (rgb × 0.55, α 0.28). Masked rows
  * draw second, when `cells.masked`, over anything below (masks win): the cell boundary fanned round
  * the cell centre, or a pole-holding cell's `h3PolygonParts` parts, as `flatCellBuffers` meshes
  * them, in the `Grid` hatch (unknown) or the `Dot` pattern of the prior bin colour
@@ -16,14 +20,20 @@
  * along shared edges, across ±180° and at the poles. A row is skipped when the grid index's box
  * for it (`rowBox`) holds no texel centre of the tile.
  *
- * Presentation only: no value is invented and no row is dropped, and a support code outside the
- * four throws. A tile with nothing drawn is null. Cesium-free and deterministic: the data worker
- * runs it and repeats give identical bytes.
+ * Presentation only: no value is invented and no row is dropped; a support code outside the four
+ * throws, and so do contours on a geometry without them. A tile with no texel of α > 0 is null, as
+ * line-only Honmoon between its lines is. Contours read only the normalised value, never terrain
+ * height. Cesium-free and deterministic: the data worker runs it and repeats give identical bytes.
  */
 
 import { h3BoundaryDegrees, h3PolygonParts } from '../polygon-parts';
 import { stAt, stFrameOf, type StFrame } from '../support-buffers';
-import { isSmoothGeometry, paletteBins, vertexMeans } from '../surface-buffers';
+import {
+  honmoonModeForGeometry,
+  isSmoothGeometry,
+  paletteBins,
+  vertexMeans,
+} from '../surface-buffers';
 import {
   isSupportedCode,
   PRIOR_DOMINATED_CODE,
@@ -37,6 +47,7 @@ import {
   linearStops,
   normalizedValue,
 } from '../../visual-encoding';
+import { honmoonTexel, type HonmoonMode } from './contours';
 import { rowBox } from './grid-index';
 import { dotTexel, hatchTexel } from './mask-texels';
 import {
@@ -80,6 +91,25 @@ const honmoonFillTexel: TexelWriter = (rgba, offset, v) => {
   rgba[offset + 3] = HONMOON_ALPHA_BYTE;
 };
 
+/** A contour texel's interpolated sRGB in [0, 1], as `v_surfaceColor`. */
+const contourColour = new Float64Array(3);
+
+/** Honmoon contours from attributes (r, g, b bytes, normalised value): the value's change over
+ * one texel, `|dColumn| + |dRow|`, stands in for the shader's `fwidth`. */
+function contourWriter(mode: HonmoonMode): TexelWriter {
+  return (rgba, offset, v, dColumn, dRow) => {
+    for (let c = 0; c < 3; c += 1) contourColour[c] = v[c] / 255;
+    honmoonTexel(
+      contourColour,
+      v[3],
+      Math.abs(dColumn[3]) + Math.abs(dRow[3]),
+      mode,
+      rgba,
+      offset,
+    );
+  };
+}
+
 const st: [number, number] = [0, 0];
 const stStep: [number, number] = [0, 0];
 
@@ -100,11 +130,16 @@ function dotWriter(rgb: readonly [number, number, number]): TexelWriter {
 }
 
 /** What every supported row of one tile reads: smooth geometries take the chunk's vertex colours,
- * flat ones their palette bin. */
+ * flat ones their palette bin, and contours the chunk's vertex values too. */
 interface FillStyle {
-  /** Writes the centre's and then each corner's colour bytes of `row`, whose corners are `ids`,
-   * into `out`. */
+  /** Writes the centre's and then each corner's attributes of `row`, whose corners are `ids`, into
+   * `out`: colour bytes, then with contours the normalised value. */
   colours(row: number, ids: readonly number[], out: number[]): void;
+  /** Attributes per vertex: 3, or 4 with contours. */
+  dims: number;
+  /** Contours read the value's change over one texel, which a pole-holding row computes only when
+   * asked. */
+  derivatives: boolean;
   write: TexelWriter;
 }
 
@@ -133,11 +168,8 @@ function cornerColours(
   return entry;
 }
 
-function fillStyleOf(i: SurfaceRasterInput): FillStyle {
-  const write =
-    i.geometry === 'honmoon' || i.geometry === 'honmoon-fill'
-      ? honmoonFillTexel
-      : fillTexel;
+/** `mode` is the geometry's Honmoon mode when contours are drawn, else 0. */
+function fillStyleOf(i: SurfaceRasterInput, mode: 0 | HonmoonMode): FillStyle {
   if (!isSmoothGeometry(i.geometry)) {
     const bins = paletteBins(i, 'supported');
     return {
@@ -145,17 +177,21 @@ function fillStyleOf(i: SurfaceRasterInput): FillStyle {
         const colour = bins.colors.get(bins.binOfRow[row])!;
         for (let v = 0; v <= ids.length; v += 1) out.push(...colour);
       },
-      write,
+      derivatives: false,
+      dims: 3,
+      write: fillTexel,
     };
   }
+  const honmoon = honmoonModeForGeometry(i.geometry) !== 0;
+  const contours = mode !== 0;
   const stops = linearStops(i.palette);
   const means = vertexMeans(i).values;
   const corners = cornerColours(means, i.palette);
   return {
     colours: (row, ids, out) => {
-      out.push(
-        ...colorBytesAtStops(stops, normalizedValue(i.values[row], i.domain)),
-      );
+      const value = normalizedValue(i.values[row], i.domain);
+      out.push(...colorBytesAtStops(stops, value));
+      if (contours) out.push(value);
       for (const id of ids) {
         if (corners.known[id] === 0) {
           corners.rgb.set(colorBytesAtStops(stops, means[id]), id * 3);
@@ -166,9 +202,16 @@ function fillStyleOf(i: SurfaceRasterInput): FillStyle {
           corners.rgb[id * 3 + 1],
           corners.rgb[id * 3 + 2],
         );
+        if (contours) out.push(means[id]);
       }
     },
-    write,
+    derivatives: contours,
+    dims: contours ? 4 : 3,
+    write: contours
+      ? contourWriter(mode)
+      : honmoon
+        ? honmoonFillTexel
+        : fillTexel,
   };
 }
 
@@ -195,8 +238,8 @@ function drawFill(
   }
   const mesh: Mesh = {
     attrs: [],
-    derivatives: false,
-    dims: 3,
+    derivatives: style.derivatives,
+    dims: style.dims,
     lat,
     lon,
     triangles: fanTriangles(count),
@@ -282,12 +325,21 @@ function drawMask(
   drawPolar(t, ring, mesh, centre[1] > 0, write);
 }
 
-/** The surface tile at `a`: supported fill, then masks over it; null when nothing is drawn. */
+/** True when some texel of `rgba` has α > 0. */
+function anyVisible(rgba: Uint8ClampedArray): boolean {
+  for (let alpha = 3; alpha < rgba.length; alpha += 4)
+    if (rgba[alpha] > 0) return true;
+  return false;
+}
+
+/** The surface tile at `a`: supported fill or contours, then masks over it; null when no texel
+ * has α > 0. */
 export function rasterSurfaceTile(
   i: SurfaceRasterInput,
   a: TileAddress,
 ): TileRaster | null {
-  if (i.contours && i.geometry !== 'honmoon' && i.geometry !== 'honmoon-fill')
+  const honmoonMode = honmoonModeForGeometry(i.geometry);
+  if (i.contours && honmoonMode === 0)
     throw new Error(
       'Honmoon contours need the honmoon or honmoon-fill geometry',
     );
@@ -297,7 +349,7 @@ export function rasterSurfaceTile(
   // a code outside the four is a schema violation, never a silently skipped row
   for (const row of rows) supportName(i.support[row]);
   if (i.cells.supported) {
-    const style = fillStyleOf(i);
+    const style = fillStyleOf(i, i.contours ? honmoonMode : 0);
     for (const row of rows)
       if (isSupportedCode(i.support[row])) drawFill(t, i, row, style);
   }
@@ -310,5 +362,5 @@ export function rasterSurfaceTile(
         drawMask(t, i, row, dotWriter(prior.colors.get(prior.binOfRow[row])!));
     }
   }
-  return t.written ? { rgba: t.rgba } : null;
+  return t.written && anyVisible(t.rgba) ? { rgba: t.rgba } : null;
 }
