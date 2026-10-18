@@ -19,7 +19,9 @@
  *
  * Relief (`scene.verticalExaggeration`) raises the ground only where there is physical relief to
  * raise and the view is not the flat 2D map (`effectiveRelief`). It is a different control from
- * the data's elevation, which scales the scientific layers and never the ground.
+ * the data's elevation, which scales the scientific layers and never the ground. A relief change
+ * also empties the terrain tiles' caches of ground positions (`forgetClampedGround`), so what
+ * Cesium clamps to the ground, the country labels, follows the relief ("Exaggeration", #483).
  */
 
 import {
@@ -111,6 +113,31 @@ interface Hillshade {
   height: number | undefined;
 }
 
+/**
+ * The loaded terrain tiles, reached through Cesium 1.145's private quadtree (Globe.js `_surface`),
+ * which its typings leave out; pinned in atlas-cesium-internals.test.ts.
+ */
+interface LoadedTerrainTiles {
+  _surface: {
+    forEachLoadedTile(
+      visit: (tile: { clearPositionCache(): void }) => void,
+    ): void;
+  };
+}
+
+/**
+ * Empties each loaded terrain tile's cache of ground positions. In the frame that re-exaggerates
+ * the tiles, Cesium re-clamps whatever is clamped to the ground, the country labels among them, but
+ * takes each position from that cache when it holds one (QuadtreePrimitive.js:1449-1456), picked
+ * at the old relief, and the re-exaggeration leaves the cache alone (GlobeSurfaceTile.js:415-466):
+ * the labels would stay on the old ground. Emptied with the change, the re-clamp picks the new one.
+ */
+function forgetClampedGround(globe: ShadingScene['globe']): void {
+  (globe as unknown as LoadedTerrainTiles)._surface.forEachLoadedTile((tile) =>
+    tile.clearPositionCache(),
+  );
+}
+
 const scratchCentre = new Cartesian2();
 const scratchTarget = new Cartesian3();
 const scratchHead = new Cartesian3();
@@ -153,6 +180,7 @@ export class TerrainShading {
       // Heights are exaggerated from sea level, as in Cesium's vertical-exaggeration example.
       this.#scene.verticalExaggeration = exaggeration;
       this.#scene.verticalExaggerationRelativeHeight = 0;
+      forgetClampedGround(this.#scene.globe);
     }
     this.#scene.requestRender();
   }

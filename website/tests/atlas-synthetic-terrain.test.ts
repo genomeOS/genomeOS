@@ -6,11 +6,15 @@ import path from 'node:path';
 
 import {
   Cartesian2,
+  Cartesian3,
   Cartographic,
   CustomHeightmapTerrainProvider,
+  Ellipsoid,
   EllipsoidTerrainProvider,
   ImageryLayerCollection,
+  LabelCollection,
   Math as CesiumMath,
+  PrimitiveCollection,
   SceneTransforms,
   SunLight,
   type CesiumWidget,
@@ -166,7 +170,10 @@ describe('SYNTHETIC_PEAK on the e2e fixture', () => {
   });
 });
 
-/** A widget over the cone, with a real ImageryLayerCollection under `scene.imageryLayers`. */
+/**
+ * A widget over the cone, with a real ImageryLayerCollection under `scene.imageryLayers` and a real
+ * PrimitiveCollection under `scene.primitives`.
+ */
 function fakeWidget(terrainProvider: unknown = new EllipsoidTerrainProvider()) {
   return {
     camera: {
@@ -190,12 +197,22 @@ function fakeWidget(terrainProvider: unknown = new EllipsoidTerrainProvider()) {
       imageryLayers: new ImageryLayerCollection(),
       light: new SunLight() as unknown,
       preRender: new FakeEvent(),
+      primitives: new PrimitiveCollection(),
       requestRender: vi.fn(),
       verticalExaggeration: 2,
       verticalExaggerationRelativeHeight: 0,
     },
     terrainProvider,
   };
+}
+
+/** The DOM Cesium's Label reads in Node to parse its font (Label.js:46-86). */
+function stubLabelFontDom(): void {
+  vi.stubGlobal('document', {
+    body: { appendChild: () => {}, removeChild: () => {} },
+    createElement: () => ({ style: {} }),
+    defaultView: { getComputedStyle: () => ({ getPropertyValue: () => '' }) },
+  });
 }
 
 describe('publishTerrainProbe', () => {
@@ -276,6 +293,46 @@ describe('publishTerrainProbe', () => {
     });
     unpublish();
     expect(page.__atlasTerrainProbe).toBeUndefined();
+  });
+
+  it('projects a point above the rendered ground for the browser test, and unpublishes it', () => {
+    const page = {} as Window;
+    vi.stubGlobal('window', page);
+    const widget = fakeWidget(createSyntheticTerrain());
+    widget.scene.globe.getHeight.mockReturnValue(6_000);
+    const toWindow = vi
+      .spyOn(SceneTransforms, 'worldToWindowCoordinates')
+      .mockReturnValue(new Cartesian2(12, 34));
+    const unpublish = publishTerrainProbe(widget as unknown as CesiumWidget);
+    expect(page.__atlasWindowOf!(-3.709, 40.419, 7_650)).toEqual({
+      x: 12,
+      y: 34,
+    });
+    expect(
+      Ellipsoid.WGS84.cartesianToCartographic(toWindow.mock.calls[0][1]).height,
+    ).toBeCloseTo(13_650, 3);
+    widget.scene.globe.getHeight.mockReturnValue(undefined);
+    expect(page.__atlasWindowOf!(-3.709, 40.419, 7_650)).toBeNull();
+    unpublish();
+    expect(page.__atlasWindowOf).toBeUndefined();
+    expect(page.__atlasLabelClearance).toBeUndefined();
+  });
+
+  it('reports how far a label stands above the rendered ground', () => {
+    stubLabelFontDom();
+    const page = {} as Window;
+    vi.stubGlobal('window', page);
+    const widget = fakeWidget(createSyntheticTerrain());
+    const labels = new LabelCollection();
+    labels.add({
+      position: Cartesian3.fromDegrees(-3.464718, 40.090953, 24_000),
+      text: 'Spain',
+    });
+    widget.scene.primitives.add(new PrimitiveCollection()).add(labels);
+    widget.scene.globe.getHeight.mockReturnValue(21_500);
+    publishTerrainProbe(widget as unknown as CesiumWidget);
+    expect(page.__atlasLabelClearance!('Spain')).toBeCloseTo(2_500, 3);
+    expect(page.__atlasLabelClearance!('Kenya')).toBeNull();
   });
 
   it('lists the shown imagery layers and every layer bottom to top, and says whether the surface is draped', () => {

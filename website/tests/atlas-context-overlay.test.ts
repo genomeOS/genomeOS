@@ -4,11 +4,14 @@ import {
   BufferPolylineMaterial,
   Cartesian3,
   DeveloperError,
+  Ellipsoid,
+  HeightReference,
   HorizontalOrigin,
   type Label,
   LabelCollection,
   PolylineCollection,
   PrimitiveCollection,
+  SceneMode,
   VerticalOrigin,
 } from 'cesium';
 import { readFileSync } from 'node:fs';
@@ -23,8 +26,14 @@ import {
   LABEL_READY_MAX_FRAMES,
 } from '../src/atlas/scene/context-overlay';
 import { countryLabelHeight } from '../src/atlas/scene/geographic-overlay';
+import { whenLayerReady } from '../src/atlas/scene/scene-transition';
 import type { ContextHeights } from '../src/atlas/worker/protocol';
 import { stubCesiumBrowserImageTypes } from './helpers/cesium-stubs';
+import {
+  fakeDrapedRuntime,
+  fakeRasterProvider,
+  type FakeRasterProvider,
+} from './helpers/draped-fakes';
 import { FakeEvent, flushTasks } from './helpers/scene-fakes';
 
 const parsed = {
@@ -38,6 +47,8 @@ interface SetupOptions {
   /** Resolves the worker's heights; by default 1,000 m under every vertex and 500 m under every label. */
   heights?: () => Promise<ContextHeights>;
   now?: () => number;
+  /** Leaves the overlay its own Cesium LabelCollection, built with the scene. */
+  realLabels?: boolean;
   slice?: { sliceMs?: number; yieldFn: () => Promise<void> };
 }
 
@@ -50,12 +61,28 @@ function setup(
   const context = config.context ?? parsed;
   type AddedLabel = Pick<
     Label,
-    'horizontalOrigin' | 'position' | 'text' | 'verticalOrigin'
+    | 'heightReference'
+    | 'horizontalOrigin'
+    | 'position'
+    | 'text'
+    | 'verticalOrigin'
   >;
   const added: AddedLabel[] = [];
   const labels = {
-    add({ horizontalOrigin, position, text, verticalOrigin }: AddedLabel) {
-      const label = { horizontalOrigin, position, text, verticalOrigin };
+    add({
+      heightReference,
+      horizontalOrigin,
+      position,
+      text,
+      verticalOrigin,
+    }: AddedLabel) {
+      const label = {
+        heightReference,
+        horizontalOrigin,
+        position,
+        text,
+        verticalOrigin,
+      };
       added.push(label);
       return label;
     },
@@ -83,30 +110,68 @@ function setup(
       contextParsed = true;
       return context;
     }),
+    prepareRaster: vi.fn(),
+    rasterTile: vi.fn(),
+    releaseRaster: vi.fn(),
   };
   const primitives = new PrimitiveCollection();
   const scene = {
+    // What a Cesium LabelCollection built with the scene reads to clamp a label: the ground is
+    // 1,000 m everywhere (Billboard._updateClamping, Billboard.js:1121-1200).
+    ellipsoid: Ellipsoid.WGS84,
+    frameState: { mode: SceneMode.SCENE3D },
+    getHeight: () => 1_000,
+    globe: {},
+    imageryLayers: {},
     postRender: new FakeEvent(),
+    preRender: new FakeEvent(),
     primitives,
     // A destroyed Cesium Scene throws here too; CesiumWidget.destroy() destroys the primitives with it.
     requestRender: vi.fn(() => {
       if (primitives.isDestroyed())
         throw new DeveloperError('This object was destroyed');
     }),
+    updateHeight: () => () => {},
   };
   const addCredit = vi.fn();
   const removeCredit = vi.fn();
+  const onDrapeFailure = vi.fn();
   const overlay = new ContextOverlay({
     addCredit,
-    createLabels: () => labels as never,
+    createLabels: config.realLabels ? undefined : () => labels as never,
     fetchBytes: fetchBytes ?? undefined,
     now: config.now,
+    onDrapeFailure,
     removeCredit,
-    scene,
+    scene: scene as never,
     slice: config.slice ?? { yieldFn: () => Promise.resolve() },
     worker: worker as never,
   });
-  return { added, addCredit, labels, overlay, removeCredit, scene, worker };
+  return {
+    added,
+    addCredit,
+    labels,
+    onDrapeFailure,
+    overlay,
+    removeCredit,
+    scene,
+    worker,
+  };
+}
+
+/** The DOM Cesium's Label reads in Node to parse its font (Label.js:46-86). */
+function stubLabelFontDom(): void {
+  vi.stubGlobal('document', {
+    body: { appendChild: () => {}, removeChild: () => {} },
+    createElement: () => ({ style: {} }),
+    defaultView: { getComputedStyle: () => ({ getPropertyValue: () => '' }) },
+  });
+}
+
+function childrenOf(overlay: ContextOverlay): unknown[] {
+  return Array.from({ length: overlay.collection.length }, (_, index) =>
+    overlay.collection.get(index),
+  );
 }
 
 function bufferOf(overlay: ContextOverlay): BufferPolylineCollection {
@@ -986,5 +1051,354 @@ describe('compact borders in the post-reveal load order (§B.6.9, §B.10)', () =
     expect(decoded!.lonLat).toEqual(direct.lonLat);
     expect(decoded!.labels).toEqual(direct.labels);
     expect(decoded!.labels.length).toBeGreaterThan(200);
+  });
+});
+
+describe('Natural Earth context on World Terrain', () => {
+  it('drapes the borders as atlas-borders at the country opacity, and hides the lines', async () => {
+    const { onDrapeFailure, overlay } = setup();
+    await overlay.load('borders.bin');
+    overlay.setBorderStyle('#ff0000', 0.4);
+    const { layers, providers, runtime } = fakeDrapedRuntime();
+    await overlay.setDraped(runtime);
+    expect(providers.map(({ spec }) => spec)).toEqual([
+      { color: '#ff0000', layer: 'borders', maximumLevel: 11 },
+    ]);
+    expect(layers).toMatchObject([
+      { alpha: 0.4, name: 'atlas-borders', shown: true },
+    ]);
+    expect(bufferOf(overlay).show).toBe(false);
+    expect(onDrapeFailure).not.toHaveBeenCalled();
+  });
+
+  it('clamps every label 2,500 m above the ground while draped, and lets go when undraped', async () => {
+    const { added, overlay } = setup();
+    await overlay.load('borders.bin');
+    await overlay.setDraped(fakeDrapedRuntime().runtime);
+    for (const label of added) {
+      expect(label.heightReference).toBe(HeightReference.RELATIVE_TO_GROUND);
+      expect(
+        Ellipsoid.WGS84.cartesianToCartographic(label.position).height,
+      ).toBeCloseTo(2_500, 3);
+    }
+    await overlay.setDraped(null);
+    for (const label of added)
+      expect(label.heightReference).toBe(HeightReference.NONE);
+  });
+
+  it('clamps a real Cesium label to the ground: it is built with the scene', async () => {
+    stubLabelFontDom();
+    const { overlay } = setup(undefined, { realLabels: true }); // scene.getHeight → 1,000 m
+    await overlay.load('borders.bin');
+    await overlay.setDraped(fakeDrapedRuntime().runtime);
+    const labels = childrenOf(overlay).find(
+      (c) => c instanceof LabelCollection,
+    ) as LabelCollection;
+    const clamped = (
+      labels.get(0) as unknown as { _clampedPosition: Cartesian3 }
+    )._clampedPosition; // Label.js:1134
+    expect(Ellipsoid.WGS84.cartesianToCartographic(clamped).height).toBeCloseTo(
+      3_500,
+      3,
+    );
+  });
+
+  it('drapes on load when draped first, and never builds the lines', async () => {
+    const { overlay } = setup();
+    const { providers, runtime } = fakeDrapedRuntime();
+    await overlay.setDraped(runtime);
+    expect(providers).toHaveLength(0);
+    await overlay.load('borders.bin');
+    expect(providers).toHaveLength(1);
+    expect(
+      childrenOf(overlay).some(
+        (c) =>
+          c instanceof BufferPolylineCollection ||
+          c instanceof PolylineCollection,
+      ),
+    ).toBe(false);
+  });
+
+  it('changes the border opacity at once, and swaps in a recoloured layer once it is ready', async () => {
+    const { overlay, scene } = setup();
+    await overlay.load('borders.bin');
+    const { layers, providers, runtime } = fakeDrapedRuntime();
+    overlay.setBorderStyle('#ffffff', 0.5);
+    await overlay.setDraped(runtime);
+    overlay.setBorderStyle('#ffffff', 0.7);
+    expect([providers.length, layers[0].alpha]).toEqual([1, 0.7]);
+    overlay.setBorderStyle('#00ff00', 0.7);
+    await flushTasks();
+    expect(providers[1].spec).toMatchObject({
+      color: '#00ff00',
+      layer: 'borders',
+    });
+    expect([layers[1].alpha, layers[0].destroy.mock.calls.length]).toEqual([
+      0, 0,
+    ]);
+    layers[1].ready = true;
+    scene.postRender.raiseEvent();
+    await flushTasks();
+    expect([layers[1].alpha, layers[0].destroy.mock.calls.length]).toEqual([
+      0.7, 1,
+    ]);
+  });
+
+  it('drops a recoloured layer still waiting for its tiles when the terrain goes smooth', async () => {
+    const { overlay, scene } = setup();
+    await overlay.load('borders.bin');
+    const { layers, runtime } = fakeDrapedRuntime();
+    await overlay.setDraped(runtime);
+    overlay.setBorderStyle('#00ff00', 0.5);
+    await flushTasks();
+    expect(layers).toHaveLength(2);
+    await overlay.setDraped(null);
+    layers[1].ready = true;
+    scene.postRender.raiseEvent();
+    await flushTasks();
+    // Each layer destroyed once, its provider with it, and the waiting one never shown.
+    expect(
+      layers.map(({ destroy, provider }) => [
+        destroy.mock.calls.length,
+        provider.destroy.mock.calls.length,
+      ]),
+    ).toEqual([
+      [1, 1],
+      [1, 1],
+    ]);
+    expect(layers[1].alpha).toBe(0);
+  });
+
+  it('drops a recoloured layer retired in the frame it became ready, raising nothing', async () => {
+    const { overlay, scene } = setup();
+    await overlay.load('borders.bin');
+    const { layers, runtime } = fakeDrapedRuntime();
+    await overlay.setDraped(runtime);
+    overlay.setBorderStyle('#00ff00', 0.5);
+    await flushTasks();
+    expect(layers).toHaveLength(2);
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      layers[1].ready = true;
+      // A listener after the wait's own, in the same frame: the terrain goes smooth.
+      scene.postRender.addEventListener(() => void overlay.setDraped(null));
+      scene.postRender.raiseEvent();
+      await flushTasks();
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
+    expect(layers.map(({ destroy }) => destroy.mock.calls.length)).toEqual([
+      1, 1,
+    ]);
+    expect(layers[1].alpha).toBe(0);
+  });
+
+  it('hides the draped borders with the countries layer, freeing their tiles', async () => {
+    const { overlay } = setup();
+    await overlay.load('borders.bin');
+    const { layers, runtime } = fakeDrapedRuntime();
+    await overlay.setDraped(runtime);
+    overlay.setVisible(false);
+    expect(layers[0].shown).toBe(false);
+    overlay.setVisible(true);
+    expect(layers[0].shown).toBe(true);
+  });
+
+  // A hidden layer is never ready: asking for frames until it is would render without end.
+  it('waits for a recoloured layer without rendering while the countries layer is hidden', async () => {
+    const { overlay, scene } = setup();
+    await overlay.load('borders.bin');
+    const { layers, runtime } = fakeDrapedRuntime();
+    await overlay.setDraped(runtime);
+    overlay.setVisible(false);
+    overlay.setBorderStyle('#00ff00', 0.5);
+    await flushTasks();
+    expect(layers.map(({ alpha, shown }) => [alpha, shown])).toEqual([
+      [0.5, false],
+      [0, false],
+    ]);
+    scene.requestRender.mockClear();
+    for (let frame = 0; frame < 3; frame += 1) scene.postRender.raiseEvent();
+    expect(scene.requestRender).not.toHaveBeenCalled();
+    overlay.setVisible(true);
+    layers[1].ready = true;
+    scene.postRender.raiseEvent();
+    await flushTasks();
+    expect([layers[1].alpha, layers[0].destroy.mock.calls.length]).toEqual([
+      0.5, 1,
+    ]);
+  });
+
+  it('keeps the lines hidden across a view switch while draped, and returns to them when undraped', async () => {
+    const { overlay } = setup();
+    await overlay.load('borders.bin');
+    const { layers, runtime } = fakeDrapedRuntime();
+    await overlay.setDraped(runtime);
+    await overlay.setSceneMode('map');
+    expect(
+      childrenOf(overlay).some(
+        (c) => c instanceof PolylineCollection && c.show,
+      ),
+    ).toBe(false);
+    await overlay.setSceneMode('globe');
+    await overlay.setDraped(null);
+    expect([
+      layers[0].destroy.mock.calls.length,
+      bufferOf(overlay).show,
+    ]).toEqual([1, true]);
+  });
+
+  it('drops a border layer still preparing when a newer call supersedes it', async () => {
+    const { overlay } = setup();
+    await overlay.load('borders.bin');
+    const { runtime } = fakeDrapedRuntime();
+    const pending = Promise.withResolvers<FakeRasterProvider>();
+    vi.mocked(runtime.providerFromSpec).mockReturnValueOnce(
+      pending.promise as never,
+    );
+    const first = overlay.setDraped(runtime);
+    await overlay.setDraped(null);
+    const provider = fakeRasterProvider();
+    pending.resolve(provider);
+    await first;
+    expect(provider.destroy).toHaveBeenCalledTimes(1);
+    expect(runtime.addDrapedImageryLayer).not.toHaveBeenCalled();
+  });
+
+  // Review Focus 1: Cesium's teardown destroys no imagery provider, and the data worker outlives
+  // the scene ("Retry globe"), so the overlay releases its border rasters itself.
+  it('destroys its border layers with the scene, one still waiting for its tiles among them', async () => {
+    const { overlay, scene } = setup();
+    await overlay.load('borders.bin');
+    const { layers, providers, runtime } = fakeDrapedRuntime();
+    await overlay.setDraped(runtime);
+    overlay.setBorderStyle('#00ff00', 0.5);
+    await flushTasks();
+    expect(layers).toHaveLength(2);
+    overlay.destroy();
+    overlay.destroy();
+    expect(
+      layers.map(({ destroy, provider }) => [
+        destroy.mock.calls.length,
+        provider.destroy.mock.calls.length,
+      ]),
+    ).toEqual([
+      [1, 1],
+      [1, 1],
+    ]);
+    // Nothing more is built, shown or reported.
+    layers[1].ready = true;
+    scene.postRender.raiseEvent();
+    overlay.setBorderStyle('#0000ff', 0.5);
+    overlay.setVisible(false);
+    await overlay.setDraped(null);
+    await overlay.setDraped(fakeDrapedRuntime().runtime);
+    await flushTasks();
+    expect([providers.length, layers[1].alpha, layers[0].shown]).toEqual([
+      2,
+      0,
+      true,
+    ]);
+  });
+
+  it('destroys the provider of a border layer still preparing when the scene goes', async () => {
+    const { onDrapeFailure, overlay } = setup();
+    await overlay.load('borders.bin');
+    const { runtime } = fakeDrapedRuntime();
+    const pending = Promise.withResolvers<FakeRasterProvider>();
+    vi.mocked(runtime.providerFromSpec).mockReturnValueOnce(
+      pending.promise as never,
+    );
+    const draping = overlay.setDraped(runtime);
+    overlay.destroy();
+    const provider = fakeRasterProvider();
+    pending.resolve(provider);
+    await draping;
+    expect(provider.destroy).toHaveBeenCalledTimes(1);
+    expect(runtime.addDrapedImageryLayer).not.toHaveBeenCalled();
+    expect(onDrapeFailure).not.toHaveBeenCalled();
+  });
+
+  it('reports the first failure of the border raster', async () => {
+    const failing = setup();
+    await failing.overlay.load('borders.bin');
+    const broken = fakeDrapedRuntime();
+    const error = new Error('raster worker failed');
+    vi.mocked(broken.runtime.providerFromSpec).mockRejectedValueOnce(error);
+    await failing.overlay.setDraped(broken.runtime);
+    expect(failing.onDrapeFailure).toHaveBeenCalledWith(error);
+
+    const { onDrapeFailure, overlay } = setup();
+    await overlay.load('borders.bin');
+    const { providers, runtime } = fakeDrapedRuntime();
+    await overlay.setDraped(runtime);
+    const tileError = { message: 'tile 3/9/2 failed' };
+    providers[0].errorEvent.raiseEvent(tileError);
+    providers[0].errorEvent.raiseEvent(tileError);
+    expect(onDrapeFailure.mock.calls).toEqual([[tileError]]);
+  });
+
+  it('ignores the data elevation while draped', async () => {
+    const { added, overlay, worker } = setup();
+    await overlay.load('borders.bin');
+    await overlay.setDraped(fakeDrapedRuntime().runtime);
+    overlay.setSurface('artifact', 'post_mean');
+    overlay.setElevationFactor(2, true);
+    expect(worker.contextHeights).not.toHaveBeenCalled();
+    expect(
+      Ellipsoid.WGS84.cartesianToCartographic(added[0].position).height,
+    ).toBeCloseTo(2_500, 3);
+  });
+});
+
+describe('whenLayerReady', () => {
+  it('resolves on the first frame the layer is ready, asking for frames', async () => {
+    const postRender = new FakeEvent(),
+      requestRender = vi.fn();
+    let ready = false;
+    const done = vi.fn();
+    void whenLayerReady(
+      { isReady: () => ready },
+      { postRender, requestRender },
+      new AbortController().signal,
+    ).then(done);
+    postRender.raiseEvent();
+    await flushTasks();
+    expect(done).not.toHaveBeenCalled();
+    ready = true;
+    postRender.raiseEvent();
+    await flushTasks();
+    expect([done.mock.calls.length, postRender.numberOfListeners]).toEqual([
+      1, 0,
+    ]);
+    expect(requestRender).toHaveBeenCalled();
+  });
+
+  it('asks for one frame and then only listens: the layer asks for those its readiness needs', async () => {
+    const postRender = new FakeEvent(),
+      requestRender = vi.fn();
+    void whenLayerReady(
+      { isReady: () => false },
+      { postRender, requestRender },
+      new AbortController().signal,
+    );
+    expect(requestRender).toHaveBeenCalledTimes(1);
+    for (let frame = 0; frame < 3; frame += 1) postRender.raiseEvent();
+    expect(requestRender).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects with an AbortError once aborted', async () => {
+    const abort = new AbortController(),
+      postRender = new FakeEvent();
+    const waiting = whenLayerReady(
+      { isReady: () => false },
+      { postRender, requestRender: vi.fn() },
+      abort.signal,
+    );
+    abort.abort();
+    await expect(waiting).rejects.toMatchObject({ name: 'AbortError' });
+    expect(postRender.numberOfListeners).toBe(0);
   });
 });

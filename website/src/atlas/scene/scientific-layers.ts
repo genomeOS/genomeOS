@@ -17,16 +17,14 @@
  * outlines are built only once a wave has passed and are held hidden while
  * one runs.
  *
- * Under World Terrain (terrain draping design, "Per layer under World
- * Terrain" and "How existing features behave", #483) the surface is a draped
- * imagery group, driven through the same epochs, cache and swaps: a cold one
- * fades in on the wave's timeline once its tiles are loaded, a restyle
- * cross-fades over an outgoing layer held opaque, a toggle that changes the
- * cells baked into its texture rebuilds it, and a raster failure reverts the
- * globe through `onDrapeFailure`. Cesium frees a hidden layer's tiles, so a
- * draped group is cached only while displayed or incoming: one that leaves the
- * view is destroyed, and the cache drops one whose raster failed. The per-kind
- * operations are in `surface-groups.ts`.
+ * Under World Terrain (terrain draping design, "Per layer under World Terrain" and "How existing
+ * features behave", #483) the surface is a draped imagery group, driven through the same epochs,
+ * cache and swaps: a cold one fades in on the wave's timeline once its tiles are loaded, a restyle
+ * cross-fades over an outgoing layer held opaque, a toggle that changes the cells baked into its
+ * texture rebuilds it, and a raster failure reverts the globe through `onDrapeFailure`. A draped
+ * group is cached only while displayed or incoming (Cesium frees a hidden layer's tiles), and never
+ * once its raster failed. Per-kind operations are in `surface-groups.ts`; through
+ * `observation-drapes.ts` the observation groups in view stand on the ground and drape footprints.
  */
 
 import type { PrimitiveCollection, Scene } from 'cesium';
@@ -44,8 +42,10 @@ import type {
 import type { Metric, PaletteId } from '../visual-encoding';
 import type { AtlasWorkerClient } from '../worker/client';
 import { LayerCache } from './layer-cache';
+import { ObservationDrapes } from './observation-drapes';
 import {
   buildObservationLayer,
+  observationKeyFor,
   type ObservationPrimitiveGroup,
   type ObservationSurfaceHeights,
 } from './observation-layer';
@@ -65,8 +65,8 @@ import {
   edgeStyleKey,
   isAbortError,
   isDrapedGroup,
-  observationKeyFor,
   opaqueUntilRetired,
+  sharedRasterSource,
   streamChunks,
   surfaceKeyFor,
   switchAtOnce,
@@ -88,7 +88,6 @@ import type {
   DrapedRuntime,
   DrapedSurfaceGroup,
   ObservationPresentation,
-  RasterTileSource,
   RasterWorkerClient,
   SceneProgressListener,
   SurfaceGroup,
@@ -129,6 +128,7 @@ export type ScientificScene = Pick<
   | 'canvas'
   | 'globe'
   | 'imageryLayers'
+  | 'morphComplete'
   | 'postRender'
   | 'preRender'
   | 'preUpdate'
@@ -207,7 +207,8 @@ export class ScientificLayers {
   readonly #edgeStyles = new WeakMap<SurfaceGroup, string>();
   /** Every draped group not yet disposed: their worker rasters outlive the scene otherwise. */
   readonly #draped = new Set<DrapedSurfaceGroup>();
-  #rasterSource: RasterTileSource | null = null;
+  /** The footprints and ground heights of the observation groups in view, while draped. */
+  readonly #drapes: ObservationDrapes;
   readonly #ids = new Map<LiveGroup, string>();
   readonly #valuesReady = new Set<string>();
   readonly #removeMarkListener: () => void;
@@ -242,11 +243,16 @@ export class ScientificLayers {
       lookAt: () => viewLookAt(options.scene),
       marks: options.marks,
       perf: this.#perf,
+      rasterSource: sharedRasterSource(options.worker),
       scene: options.scene,
       style: () => options.style(),
       wave: options.wave,
       worker: options.worker,
     };
+    this.#drapes = new ObservationDrapes({
+      ...options,
+      rasterSource: this.#host.rasterSource,
+    });
     options.marks.setProbe(() => this.#probe());
     options.marks.setDisplayed(() =>
       [...this.#ids].filter(([group]) => shown(group)).map(([, id]) => id),
@@ -554,6 +560,7 @@ export class ScientificLayers {
     for (const group of this.#observationGroupsInView()) {
       group.setStyleOpacity(style.opacity);
       group.setSamplingAreaColor(style.samplingAreaColor);
+      this.#drapes.restyle(group, style.samplingAreaColor);
       group.setSizeRange(style.sizeRange);
       group.setVisibility(layers.observations, style.samplingAreas);
     }
@@ -638,12 +645,18 @@ export class ScientificLayers {
     this.#options.scene.requestRender();
   }
 
+  /** Re-samples the ground under the draped observations in view (#483). */
+  resampleGround(final?: boolean): void {
+    this.#drapes.resample(final);
+  }
+
   destroy(): void {
     this.#destroyed = true;
     this.#build?.abort();
     this.#edgeBuild?.abort();
     this.#removeMarkListener();
     this.#removeWaveListener();
+    this.#drapes.destroy();
     // Their worker rasters would outlive the scene, which destroys no imagery provider (#483).
     for (const group of this.#draped) group.destroy();
     this.#draped.clear();
@@ -694,19 +707,11 @@ export class ScientificLayers {
     let group = this.#observations.get(key);
     if (!group) {
       group = buildObservationLayer(observations, {
+        ...presentation,
         artifactKey: load.artifactKey,
-        colorVariable: presentation.colorVariable,
         elevation: style.elevationFactor > 0,
         exaggeration: style.elevationFactor,
-        gradient: presentation.gradient,
         heights: null,
-        opacity: presentation.opacity,
-        samplingAreaColor: presentation.samplingAreaColor,
-        samplingAreas: presentation.samplingAreas,
-        shape: presentation.shape,
-        sizeRange: presentation.sizeRange,
-        sizeVariable: presentation.sizeVariable,
-        solidColor: presentation.solidColor,
       });
       this.#observations.set(key, group);
       this.#ids.set(group, load.artifactId);
@@ -717,6 +722,10 @@ export class ScientificLayers {
     group.setElevationFactor(style.elevationFactor, true);
     group.setEarthOpacity(style.earthOpacity);
     group.setStyleOpacity(presentation.opacity);
+    this.#drapes.sync(group, observations.observations, load.artifactKey, {
+      draped: style.draped,
+      samplingAreaColor: presentation.samplingAreaColor,
+    });
     return group;
   }
 
@@ -734,12 +743,10 @@ export class ScientificLayers {
       throw new DrapeFailure(error);
     }
     if (signal.aborted) throw new SupersededBuild();
-    this.#rasterSource ??= runtime.rasterSource(this.#options.worker);
     const group = createDrapedGroup(this.#host, runtime, {
       inView: (candidate) => !this.#destroyed && this.#inView(candidate),
       load,
       onFailure: (error) => this.#drapeFailed(group, error),
-      source: this.#rasterSource,
       style,
       surface,
     });
@@ -970,6 +977,7 @@ export class ScientificLayers {
       epoch.observationGroup.collection.show = false;
     }
     if (this.#epoch === epoch) this.#epoch = null;
+    this.#drapes.retain(this.#observationGroupsInView());
     // Superseded or failed, this epoch's reveal is no longer what picks resolve against.
     if (this.#revealing?.epoch === epoch) this.#revealing = null;
     this.#options.scene.requestRender();
@@ -998,10 +1006,11 @@ export class ScientificLayers {
 
   #dispose(group: AnySurfaceGroup | ObservationPrimitiveGroup): void {
     this.#ids.delete(group);
-    if (!('kind' in group))
+    if (!('kind' in group)) {
+      this.#drapes.release(group); // while its collection, which the removal destroys, is live
       this.#options.scene.primitives.remove(group.collection);
-    // destroy() has already destroyed every draped group it held.
-    else if (!isDrapedGroup(group) || this.#draped.delete(group))
+    } else if (!isDrapedGroup(group) || this.#draped.delete(group))
+      // destroy() has already destroyed every draped group it held.
       disposeSurfaceGroup(this.#options.scene, group);
   }
 
@@ -1013,6 +1022,7 @@ export class ScientificLayers {
       this.#observations.prune(displayed.observationGroup, (group) =>
         this.#dispose(group),
       );
+    this.#drapes.retain(this.#observationGroupsInView());
   }
 
   #raiseOverlays(observationGroup: ObservationPrimitiveGroup | null): void {

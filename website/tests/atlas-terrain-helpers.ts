@@ -10,7 +10,9 @@
  * summit on the page, and tell whether the inferred surface shows there. That last check changes
  * the surface opacity rather than toggling the layer: a toggle also switches the globe's ground
  * atmosphere (terrain draping design, "Per layer under World Terrain"), which changes the summit's
- * pixels even while the terrain buries the surface.
+ * pixels even while the terrain buries the surface. Through `window.__atlasWindowOf` they also
+ * find any point a given height above the rendered ground on the page, to click a grounded symbol
+ * above the summit or read the pixels of a draped footprint.
  */
 
 import { expect, type Locator, type Page } from '@playwright/test';
@@ -190,6 +192,22 @@ function summitLoaded({
 }
 
 /**
+ * Waits until the summit's own ground has loaded at the probe's relief (`summitLoaded`), the rule
+ * `apexOnPage` uses. The whole globe's `tilesLoaded` is no gate here: under CI's software WebGL the
+ * oblique view's tiles out to the horizon can outlast the test, and read just after a relief change
+ * it can still hold from the frame before the change, while the summit stands at the new relief
+ * only once that change has re-exaggerated its tile.
+ */
+export async function summitOnGround(page: Page): Promise<void> {
+  await expect
+    .poll(async () => summitLoaded(await probe(page)), {
+      message: 'the summit stands at its height for this relief',
+      timeout: 60_000,
+    })
+    .toBe(true);
+}
+
+/**
  * Where `SYNTHETIC_PEAK`'s summit stands on the rendered (exaggerated) ground, in page CSS px,
  * once its own ground has loaded (`summitLoaded`) or every tile in view has. Under CI's software
  * WebGL the oblique view's tiles out to the horizon can outlast the test, and they never move the
@@ -325,4 +343,97 @@ export async function surfaceVisibleAtApex(page: Page): Promise<boolean> {
   await setSurfaceOpacity(page, 1);
   const full = await summitPatch(page, at);
   return (await changedShare(page, faint, full)) >= VISIBLE_SHARE;
+}
+
+/**
+ * Where the point `metres` above the rendered (exaggerated) ground at (`lon`, `lat`) shows on the
+ * page, in page CSS px: `window.__atlasWindowOf`'s canvas position plus the canvas's offset. Null
+ * until that ground has loaded, or off screen.
+ */
+export async function windowOf(
+  page: Page,
+  lon: number,
+  lat: number,
+  metres: number,
+): Promise<Point | null> {
+  return page.evaluate(
+    ({ lat, lon, metres }) => {
+      const at = window.__atlasWindowOf!(lon, lat, metres);
+      if (at === null) return null;
+      const { left, top } = document
+        .querySelector('.atlas-scene canvas')!
+        .getBoundingClientRect();
+      return { x: left + at.x, y: top + at.y };
+    },
+    { lat, lon, metres },
+  );
+}
+
+/**
+ * Clicks the point `metres` above the rendered ground at `SYNTHETIC_PEAK`'s apex, once its ground
+ * has loaded, after checking that the point lies inside the scene's canvas.
+ */
+export async function clickAbove(page: Page, metres: number): Promise<void> {
+  const found: { at: Point | null } = { at: null };
+  await expect
+    .poll(
+      async () => {
+        found.at = await windowOf(
+          page,
+          SYNTHETIC_PEAK.lon,
+          SYNTHETIC_PEAK.lat,
+          metres,
+        );
+        return found.at !== null;
+      },
+      {
+        message: `${metres} m above the summit is on screen`,
+        timeout: 30_000,
+      },
+    )
+    .toBe(true);
+  const at = found.at!;
+  const box = (await page.locator('.atlas-scene canvas').boundingBox())!;
+  expect(at.x, 'inside the canvas, across').toBeGreaterThanOrEqual(box.x);
+  expect(at.x, 'inside the canvas, across').toBeLessThan(box.x + box.width);
+  expect(at.y, 'inside the canvas, down').toBeGreaterThanOrEqual(box.y);
+  expect(at.y, 'inside the canvas, down').toBeLessThan(box.y + box.height);
+  await page.mouse.click(at.x, at.y);
+}
+
+/**
+ * The page's pixels in the square of side `2 × radius + 1` CSS px centred on `at`, row by row, as
+ * `[r, g, b]` (0 to 255), decoded in the page as `changedShare` decodes its patches.
+ */
+export async function pixelsAround(
+  page: Page,
+  at: Point,
+  radius: number,
+): Promise<[number, number, number][]> {
+  const size = 2 * radius + 1;
+  const png = await page.screenshot({
+    clip: {
+      height: size,
+      width: size,
+      x: Math.round(at.x) - radius,
+      y: Math.round(at.y) - radius,
+    },
+    scale: 'css',
+  });
+  return page.evaluate(async (base64) => {
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+    const bitmap = await createImageBitmap(
+      new Blob([bytes], { type: 'image/png' }),
+      { colorSpaceConversion: 'none', premultiplyAlpha: 'none' },
+    );
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const context = canvas.getContext('2d')!;
+    context.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+    const pixels: [number, number, number][] = [];
+    for (let offset = 0; offset < data.length; offset += 4)
+      pixels.push([data[offset], data[offset + 1], data[offset + 2]]);
+    return pixels;
+  }, png.toString('base64'));
 }

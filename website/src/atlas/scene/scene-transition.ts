@@ -4,6 +4,10 @@
  * deadline counts visible time only (RF1), as the chunk scheduler's stall timeout does. Under World
  * Terrain (terrain draping design, "How existing features behave", #483) the worker prepares a
  * draped raster whether or not the tab is shown, so the wait for its tiles may begin hidden.
+ * `whenLayerReady` waits the same way for one draped imagery layer (terrain draping design, "Per
+ * layer under World Terrain"): a recoloured border or footprint layer, added at α 0, replaces the
+ * shown one only once the globe has loaded its tiles or the layer's 3 s cap has passed. The layer
+ * drives the frames of that wait, so one hidden with its layer waits without rendering.
  */
 
 import type { Scene } from 'cesium';
@@ -12,6 +16,7 @@ import {
   DOCUMENT_VISIBILITY,
   type VisibilitySource,
 } from './reveal-wave-driver';
+import type { DrapedImageryLayer } from './types';
 
 export interface SceneHost {
   scene: Pick<Scene, 'postRender' | 'primitives' | 'requestRender'>;
@@ -151,6 +156,40 @@ export function waitForReady(
     signal?.addEventListener('abort', onAbort, { once: true });
     extendDeadline();
     viewer.scene.requestRender();
+  });
+}
+
+/**
+ * Resolves after the first rendered frame at which `layer` is ready. It asks for one frame and then
+ * only listens: a shown layer asks for the frames its readiness needs, and a hidden one, never
+ * ready, asks for none, so a wait for a hidden layer renders nothing until the layer is shown
+ * again. An abort rejects with an AbortError. Either way its one `postRender` listener is removed.
+ */
+export function whenLayerReady(
+  layer: Pick<DrapedImageryLayer, 'isReady'>,
+  scene: {
+    postRender: { addEventListener(listener: () => void): () => void };
+    requestRender(): void;
+  },
+  signal: AbortSignal,
+): Promise<void> {
+  if (signal.aborted) return Promise.reject(abortedWait());
+  return new Promise((resolve, reject) => {
+    const settle = () => {
+      remove();
+      signal.removeEventListener('abort', onAbort);
+    };
+    const onAbort = () => {
+      settle();
+      reject(abortedWait());
+    };
+    const remove = scene.postRender.addEventListener(() => {
+      if (!layer.isReady()) return;
+      settle();
+      resolve();
+    });
+    signal.addEventListener('abort', onAbort, { once: true });
+    scene.requestRender();
   });
 }
 

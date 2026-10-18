@@ -1,12 +1,19 @@
 /** The scene's physical-terrain wiring (Atlas design §11; #483): the real scene class over a mocked
  * CesiumWidget, context controller and terrain shading, as in `atlas-scene-load-order.test.ts`.
  * The draping block follows the scene's draped rule (terrain draping design, "When it is active",
- * "How existing features behave" and "Failure modes"). */
+ * "How existing features behave" and "Failure modes"); the draped context block, the overlay, the
+ * highlight and the ground following the data and the relief ("Per layer under World Terrain",
+ * "Exaggeration"). */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DRAPE_FAILED_WARNING } from '../src/atlas/earth-style-catalog';
 import { createAtlasScene } from '../src/atlas/scene/atlas-scene';
+// Every World Terrain request imports the draped runtime: loaded once here, the mocked module is
+// in the registry before any test, so a scene's import settles within the test that made it.
+import '../src/atlas/scene/draped/runtime';
 import type { ContextWarning } from '../src/atlas/scene/context-controller';
+import type { ContextOverlayOptions } from '../src/atlas/scene/context-overlay';
+import { GROUND_RESAMPLE_MS } from '../src/atlas/scene/ground-heights';
 import { DEFAULT_LAYERS } from '../src/atlas/scene/scene-policy';
 import type { ScientificLayersOptions } from '../src/atlas/scene/scientific-layers';
 import type { SurfacePickContext } from '../src/atlas/scene/surface-pick';
@@ -24,7 +31,47 @@ interface TerrainRequest {
   resolve(applied: boolean): void;
 }
 
+/** An event the test raises itself, as Cesium raises the scene's and the globe's. */
+const { raisable } = vi.hoisted(() => ({
+  raisable() {
+    const listeners = new Set<(...args: unknown[]) => void>();
+    return {
+      addEventListener(listener: (...args: unknown[]) => void) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      raise(...args: unknown[]) {
+        for (const listener of [...listeners]) listener(...args);
+      },
+      /** Forgets the listeners of earlier tests' scenes. */
+      clear() {
+        listeners.clear();
+      },
+    };
+  },
+}));
+
 const harness = vi.hoisted(() => ({
+  /** The fake scene's globe, a sentinel the scene hands the highlight while draped. */
+  globe: {
+    getHeight: () => harness.camera.ground,
+    tileLoadProgressEvent: raisable(),
+  },
+  /** The fake scene's `postRender`, raised by the test as a rendered frame. */
+  postRender: raisable(),
+  /** The draped runtime the mocked runtime module exports. */
+  drapedRuntime: undefined as unknown as DrapedRuntime,
+  /** The options the scene gave the context overlay, and the overlay's draped calls. */
+  overlayOptions: undefined as ContextOverlayOptions | undefined,
+  overlay: {
+    destroy: vi.fn(),
+    setDraped: vi.fn((_runtime: DrapedRuntime | null) => Promise.resolve()),
+  },
+  /** The CesiumWidget's teardown. */
+  globeDestroy: vi.fn(),
+  highlight: { setGround: vi.fn() },
+  /** The ScientificLayers the scene made: its ground re-samples. */
+  layers: { resampleGround: vi.fn() },
   /** The fake camera's height and the ground under it, and its zoom calls. */
   camera: { ground: 0 as number | undefined, height: 29_600 },
   zooms: [] as ['in' | 'out', number][],
@@ -54,7 +101,7 @@ const harness = vi.hoisted(() => ({
     });
   },
   /** The options the scene gave ScientificLayers, its rebuilds and the factors it was given. */
-  layers: undefined as ScientificLayersOptions | undefined,
+  layersOptions: undefined as ScientificLayersOptions | undefined,
   rebuilds: 0,
   factors: [] as number[],
   /** The drape stats reader the scene published, and the spy that unpublishes it. */
@@ -75,12 +122,13 @@ const { runtimeFactory, STATS } = vi.hoisted(() => {
     requested: 2,
     residentBytes: 349_525,
   };
-  const runtime = { stats: { read: () => stats }, version: 'atlas-draped-v1' };
+  harness.drapedRuntime = {
+    stats: { read: () => stats },
+    version: 'atlas-draped-v1',
+  } as unknown as DrapedRuntime;
   return {
     STATS: stats,
-    runtimeFactory: vi.fn(() => ({
-      drapedRuntime: runtime as unknown as DrapedRuntime,
-    })),
+    runtimeFactory: vi.fn(() => ({ drapedRuntime: harness.drapedRuntime })),
   };
 });
 
@@ -99,8 +147,9 @@ vi.mock('../src/atlas/scene/globe-widget', () => ({
   createGlobeWidget: () => ({
     widget: {
       scene: {
-        globe: { getHeight: () => harness.camera.ground },
+        globe: harness.globe,
         mode: 3,
+        postRender: harness.postRender,
         primitives: { add: vi.fn() },
         renderError: fakeEvent(),
         requestRender: vi.fn(),
@@ -123,7 +172,7 @@ vi.mock('../src/atlas/scene/globe-widget', () => ({
       resize: vi.fn(),
       render: vi.fn(),
     },
-    destroy: vi.fn(),
+    destroy: harness.globeDestroy,
   }),
 }));
 vi.mock('../src/atlas/scene/context-controller', () => ({
@@ -162,7 +211,12 @@ vi.mock('../src/atlas/scene/terrain-shading', () => ({
 }));
 vi.mock('../src/atlas/scene/context-overlay', () => ({
   ContextOverlay: class {
+    constructor(options: ContextOverlayOptions) {
+      harness.overlayOptions = options;
+    }
+    destroy = harness.overlay.destroy;
     load = () => new Promise(() => {});
+    setDraped = harness.overlay.setDraped;
     setElevationFactor = () => {};
     setSceneMode = () => Promise.resolve();
     setVisible = () => {};
@@ -174,13 +228,14 @@ vi.mock('../src/atlas/scene/scientific-layers', async (importOriginal) => ({
   >()),
   ScientificLayers: class {
     constructor(options: ScientificLayersOptions) {
-      harness.layers = options;
+      harness.layersOptions = options;
     }
     destroy = () => {};
     rebuild = () => {
       harness.rebuilds += 1;
       return Promise.resolve();
     };
+    resampleGround = harness.layers.resampleGround;
     setCellEdges = () => Promise.resolve();
     setEdgeStyle = () => Promise.resolve();
     setElevationFactor = (factor: number) => harness.factors.push(factor);
@@ -215,6 +270,7 @@ vi.mock('../src/atlas/scene/highlight-layer', () => ({
   HighlightLayer: class {
     collection = {};
     setElevationStyle = () => {};
+    setGround = harness.highlight.setGround;
   },
 }));
 vi.mock('../src/atlas/scene/camera', async (importOriginal) => ({
@@ -252,6 +308,11 @@ function frame(): void {
   for (const callback of frames.splice(0)) callback(0);
 }
 
+/** Fake timeouts and clock; `requestAnimationFrame` stays the stub `frame()` runs. */
+function useFakeClock(): void {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+}
+
 beforeEach(() => {
   harness.camera.ground = 0;
   harness.camera.height = 29_600;
@@ -264,7 +325,15 @@ beforeEach(() => {
   harness.updates.length = 0;
   harness.terrainRequests.length = 0;
   harness.terrain.length = 0;
-  harness.layers = undefined;
+  harness.layersOptions = undefined;
+  harness.overlayOptions = undefined;
+  harness.postRender.clear();
+  harness.globe.tileLoadProgressEvent.clear();
+  harness.overlay.destroy.mockClear();
+  harness.overlay.setDraped.mockClear();
+  harness.globeDestroy.mockClear();
+  harness.highlight.setGround.mockClear();
+  harness.layers.resampleGround.mockClear();
   harness.rebuilds = 0;
   harness.factors.length = 0;
   harness.drapeStatsRead = undefined;
@@ -277,6 +346,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -400,7 +470,7 @@ describe('draping (#483)', () => {
 
   it("drapes on the requested terrain at once, so the URL's World Terrain builds no chunks first", () => {
     void atlas.setTerrain('world-terrain');
-    expect(harness.layers!.style().draped).toBe(true);
+    expect(harness.layersOptions!.style().draped).toBe(true);
     expect(rebuilds()).toBe(1);
   });
 
@@ -408,7 +478,7 @@ describe('draping (#483)', () => {
     void atlas.setTerrain('world-terrain');
     harness.terrain[0].resolve(false);
     await flushTasks();
-    expect(harness.layers!.style().draped).toBe(false);
+    expect(harness.layersOptions!.style().draped).toBe(false);
     expect(rebuilds()).toBe(2);
   });
 
@@ -425,13 +495,13 @@ describe('draping (#483)', () => {
       '#b9f5ff',
       'extruded',
     );
-    expect(harness.layers!.style().geometry).toBe('hexagons');
+    expect(harness.layersOptions!.style().geometry).toBe('hexagons');
     harness.terrain[0].resolve(true);
     void atlas.setTerrain('smooth-globe');
     harness.terrain[1].resolve(true);
     await flushTasks();
     expect(harness.factors.at(-1)).toBe(3);
-    expect(harness.layers!.style().geometry).toBe('extruded');
+    expect(harness.layersOptions!.style().geometry).toBe('extruded');
   });
 
   it('reverts to the smooth globe with the drape warning when a raster fails, until the next choice', () => {
@@ -440,13 +510,13 @@ describe('draping (#483)', () => {
     atlas.onWarning((w) => warnings.push(w));
     void atlas.setTerrain('world-terrain');
     const error = new Error('tile');
-    harness.layers!.onDrapeFailure(error);
+    harness.layersOptions!.onDrapeFailure(error);
     expect(harness.terrainRequests).toEqual(['world-terrain', 'smooth-globe']);
     expect(warnings.at(-1)).toContainEqual({
       id: 'drape',
       message: DRAPE_FAILED_WARNING,
     });
-    expect(harness.layers!.style().draped).toBe(false);
+    expect(harness.layersOptions!.style().draped).toBe(false);
     // Never silent: the failure itself is logged.
     expect(warn.mock.calls.some((call) => call.includes(error))).toBe(true);
     void atlas.setTerrain('world-terrain');
@@ -461,13 +531,13 @@ describe('draping (#483)', () => {
     // The superseded smooth globe reaches the globe first: the newest request still drapes.
     harness.terrain[1].resolve(true);
     await flushTasks();
-    expect(harness.layers!.style().draped).toBe(true);
+    expect(harness.layersOptions!.style().draped).toBe(true);
     expect(rebuilds()).toBe(3);
     harness.terrain[2].resolve(true);
     await flushTasks();
     harness.terrain[0].resolve(false);
     await flushTasks();
-    expect(harness.layers!.style().draped).toBe(true);
+    expect(harness.layersOptions!.style().draped).toBe(true);
     expect(rebuilds()).toBe(3);
   });
 
@@ -477,7 +547,10 @@ describe('draping (#483)', () => {
     vi.doMock('../src/atlas/scene/draped/runtime', runtimeFactory);
     runtimeFactory.mockClear();
     expect(runtimeFactory).not.toHaveBeenCalled();
-    const [a, b] = [harness.layers!.draped(), harness.layers!.draped()];
+    const [a, b] = [
+      harness.layersOptions!.draped(),
+      harness.layersOptions!.draped(),
+    ];
     expect(a).toBe(b);
     await a;
     expect(runtimeFactory).toHaveBeenCalledTimes(1);
@@ -493,7 +566,7 @@ describe('draping (#483)', () => {
     void atlas.setTerrain('world-terrain');
     harness.terrain[1].resolve(true); // the smooth globe, superseded, is on the globe for now
     await flushTasks();
-    expect(harness.layers!.style().draped).toBe(true);
+    expect(harness.layersOptions!.style().draped).toBe(true);
     expect(rebuilds()).toBe(3);
   });
 
@@ -503,10 +576,10 @@ describe('draping (#483)', () => {
     });
     vi.doMock('../src/atlas/scene/draped/runtime', offline);
     // Vitest wraps the factory's error in its own.
-    await expect(harness.layers!.draped()).rejects.toThrow();
+    await expect(harness.layersOptions!.draped()).rejects.toThrow();
     expect(harness.removeDrapeStats).not.toHaveBeenCalled();
     vi.doMock('../src/atlas/scene/draped/runtime', runtimeFactory);
-    await expect(harness.layers!.draped()).resolves.toMatchObject({
+    await expect(harness.layersOptions!.draped()).resolves.toMatchObject({
       version: 'atlas-draped-v1',
     });
     expect(offline).toHaveBeenCalledTimes(1);
@@ -517,7 +590,7 @@ describe('draping (#483)', () => {
   it('rebuilds once for the URL terrain the explorer asks for twice at scene creation', () => {
     void atlas.setTerrain('world-terrain');
     void atlas.setTerrain('world-terrain');
-    expect(harness.layers!.style().draped).toBe(true);
+    expect(harness.layersOptions!.style().draped).toBe(true);
     expect(rebuilds()).toBe(1);
   });
 
@@ -528,7 +601,7 @@ describe('draping (#483)', () => {
     void atlas.setTerrain('world-terrain');
     void atlas.setTerrain('smooth-globe');
     const error = new Error('a tile of the outgoing surface');
-    harness.layers!.onDrapeFailure(error);
+    harness.layersOptions!.onDrapeFailure(error);
     expect(harness.terrainRequests).toEqual(['world-terrain', 'smooth-globe']);
     expect(warnings.at(-1)!.some(({ id }) => id === 'drape')).toBe(false);
     expect(warn.mock.calls.some((call) => call.includes(error))).toBe(true);
@@ -541,8 +614,149 @@ describe('draping (#483)', () => {
     atlas.destroy();
     harness.terrain[0].resolve(false);
     await flushTasks();
-    harness.layers!.onDrapeFailure(new Error('late tile'));
+    harness.layersOptions!.onDrapeFailure(new Error('late tile'));
     expect(harness.terrainRequests).toEqual(['world-terrain']);
     expect(rebuilds()).toBe(1);
+  });
+});
+
+// Terrain draping design, "Per layer under World Terrain" and "Exaggeration": the context overlay,
+// the highlight and the ground under the observations follow the draped data and the relief.
+describe('draped context and relief (#483)', () => {
+  it('drapes the context overlay and the highlight with the data, and lets them go on the smooth globe', async () => {
+    const controller = scene();
+    void controller.setTerrain('world-terrain');
+    await flushTasks();
+    expect(harness.overlay.setDraped).toHaveBeenLastCalledWith(
+      harness.drapedRuntime,
+    );
+    expect(harness.highlight.setGround).toHaveBeenLastCalledWith(harness.globe);
+    void controller.setTerrain('smooth-globe');
+    await flushTasks();
+    expect(harness.overlay.setDraped).toHaveBeenLastCalledWith(null);
+    expect(harness.highlight.setGround).toHaveBeenLastCalledWith(null);
+  });
+
+  it('hands the overlay nothing from a flip the smooth globe has already superseded', async () => {
+    const controller = scene();
+    void controller.setTerrain('world-terrain');
+    void controller.setTerrain('smooth-globe');
+    await flushTasks();
+    expect(harness.overlay.setDraped.mock.calls).toEqual([[null]]);
+    expect(harness.highlight.setGround).toHaveBeenLastCalledWith(null);
+  });
+
+  it('resamples the ground after the frame that applies relief, and once more when the slider rests', async () => {
+    useFakeClock();
+    const controller = scene();
+    void controller.setTerrain('world-terrain');
+    await vi.advanceTimersByTimeAsync(0);
+    harness.highlight.setGround.mockClear();
+    controller.setRelief(3);
+    frame(); // the relief frame: TerrainShading sets scene.verticalExaggeration
+    // Cesium re-exaggerates loaded tiles in the next render (GlobeSurfaceTileProvider.js:555-575).
+    expect(harness.layers.resampleGround).not.toHaveBeenCalled();
+    harness.postRender.raise();
+    expect(harness.layers.resampleGround.mock.calls).toEqual([[false]]);
+    vi.advanceTimersByTime(GROUND_RESAMPLE_MS);
+    harness.postRender.raise();
+    expect(harness.layers.resampleGround.mock.calls).toEqual([[false], [true]]);
+    expect(harness.highlight.setGround).toHaveBeenLastCalledWith(harness.globe);
+    vi.useRealTimers();
+  });
+
+  it('leaves the smooth globe alone when relief is set', () => {
+    const controller = scene();
+    controller.setRelief(3);
+    frame();
+    harness.postRender.raise();
+    expect(harness.layers.resampleGround).not.toHaveBeenCalled();
+  });
+
+  it('re-grounds the highlight as World Terrain tiles load, at most every 50 ms and once the queue empties', () => {
+    useFakeClock();
+    const controller = scene();
+    const tiles = harness.globe.tileLoadProgressEvent;
+    tiles.raise(4); // the smooth globe: the highlight keeps its own heights
+    expect(harness.highlight.setGround).not.toHaveBeenCalled();
+    void controller.setTerrain('world-terrain');
+    harness.highlight.setGround.mockClear();
+    tiles.raise(6);
+    tiles.raise(5); // within GROUND_RESAMPLE_MS of the last
+    expect(harness.highlight.setGround.mock.calls).toEqual([[harness.globe]]);
+    tiles.raise(0); // the queue is empty: final
+    expect(harness.highlight.setGround).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(GROUND_RESAMPLE_MS);
+    tiles.raise(3);
+    expect(harness.highlight.setGround).toHaveBeenCalledTimes(3);
+    void controller.setTerrain('smooth-globe');
+    harness.highlight.setGround.mockClear();
+    vi.advanceTimersByTime(GROUND_RESAMPLE_MS);
+    tiles.raise(2);
+    tiles.raise(0);
+    expect(harness.highlight.setGround).not.toHaveBeenCalled();
+    controller.destroy();
+  });
+
+  it('reverts to the smooth globe when the borders cannot be draped', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = scene();
+    const warnings = vi.fn();
+    controller.onWarning(warnings);
+    // A failure counts while the scene drapes (Task 16's rule); on the smooth globe it is logged.
+    void controller.setTerrain('world-terrain');
+    harness.overlayOptions!.onDrapeFailure!(new Error('raster worker failed'));
+    expect(harness.terrainRequests.at(-1)).toBe('smooth-globe');
+    expect(warnings).toHaveBeenLastCalledWith(
+      expect.arrayContaining([expect.objectContaining({ id: 'drape' })]),
+    );
+    warn.mockRestore();
+  });
+
+  it('cancels a relief resample still pending when the terrain goes smooth', async () => {
+    useFakeClock();
+    const controller = scene();
+    void controller.setTerrain('world-terrain');
+    await vi.advanceTimersByTimeAsync(0);
+    controller.setRelief(3);
+    frame(); // the relief frame: its resample waits for the next render
+    void controller.setTerrain('smooth-globe');
+    await vi.advanceTimersByTimeAsync(0);
+    harness.postRender.raise();
+    vi.advanceTimersByTime(GROUND_RESAMPLE_MS);
+    harness.postRender.raise();
+    expect(harness.layers.resampleGround).not.toHaveBeenCalled();
+    // The highlight keeps its own heights on the smooth globe.
+    expect(harness.highlight.setGround).toHaveBeenLastCalledWith(null);
+    vi.useRealTimers();
+  });
+
+  // Review Focus 1: Cesium's teardown destroys no imagery provider, and the worker outlives the
+  // scene, so the overlay releases its border rasters while the imagery layers are still live.
+  it('releases the draped borders with the scene, before the globe goes', async () => {
+    const controller = scene();
+    void controller.setTerrain('world-terrain');
+    await flushTasks();
+    controller.destroy();
+    controller.destroy();
+    expect(harness.overlay.destroy).toHaveBeenCalledTimes(1);
+    expect(harness.overlay.destroy.mock.invocationCallOrder[0]).toBeLessThan(
+      harness.globeDestroy.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('stops relief resampling once the scene is destroyed', async () => {
+    useFakeClock();
+    const controller = scene();
+    void controller.setTerrain('world-terrain');
+    await vi.advanceTimersByTimeAsync(0);
+    controller.setRelief(3);
+    frame();
+    controller.destroy();
+    harness.postRender.raise();
+    vi.advanceTimersByTime(GROUND_RESAMPLE_MS);
+    harness.postRender.raise();
+    expect(harness.layers.resampleGround).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });

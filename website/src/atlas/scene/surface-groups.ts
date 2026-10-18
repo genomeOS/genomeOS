@@ -14,13 +14,13 @@
  *   only a raster failure does.
  * - In a restyle swap the outgoing draped layer stays opaque until it is retired, so the incoming
  *   one cross-fades over it rather than both letting the ground show through.
- * - The caches' keys and a dataset switch's same-frame swap, shared by both kinds, live here too, so
- *   that ScientificLayers stays within its line cap.
+ * - The surface cache's key and a dataset switch's same-frame swap, shared by both kinds, live here
+ *   too, so that ScientificLayers stays within its line cap.
  */
 
 import { Ellipsoid, Math as CesiumMath } from 'cesium';
 
-import type { ObservationArtifact } from '../contracts';
+import type { Observation, ObservationArtifact } from '../contracts';
 import type { EdgeColorSpec } from '../geometry/edge-buffers';
 import type {
   DrapedGeometry,
@@ -53,8 +53,8 @@ import type {
   ArtifactLoad,
   DrapedRuntime,
   DrapedSurfaceGroup,
-  ObservationPresentation,
   RasterTileSource,
+  RasterWorkerClient,
   SceneProgressListener,
   SurfaceGroup,
 } from './types';
@@ -72,6 +72,8 @@ export interface SurfaceGroupHost {
   readonly frameBudgetMs: number;
   /** Marker heights per surface group, from its stream's anchors; draped groups have none. */
   readonly heights: WeakMap<SurfaceGroup, ObservationSurfaceHeights>;
+  /** The one raster source over the worker that every draped layer of these layers reads. */
+  rasterSource(runtime: DrapedRuntime): RasterTileSource;
   style(): ScientificStyle;
   lookAt(): LookAt;
 }
@@ -117,6 +119,14 @@ export class DrapeFailure extends Error {
   }
 }
 
+/** A raster source over `worker`, made by the first runtime that asks and shared from then on. */
+export function sharedRasterSource(
+  worker: RasterWorkerClient,
+): (runtime: DrapedRuntime) => RasterTileSource {
+  let source: RasterTileSource | null = null;
+  return (runtime) => (source ??= runtime.rasterSource(worker));
+}
+
 export function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
@@ -147,21 +157,6 @@ export function surfaceKeyFor(
   return [artifactKey, style.metric, style.palette, style.geometry, kind].join(
     ':',
   );
-}
-
-/** An observation group's cache key: what its primitives bake in. */
-export function observationKeyFor(
-  artifactKey: string,
-  style: ObservationPresentation,
-): string {
-  return [
-    artifactKey,
-    style.shape,
-    style.colorVariable,
-    style.solidColor,
-    ...style.gradient,
-    style.sizeVariable,
-  ].join(':');
 }
 
 export function edgeStyleKey(
@@ -298,7 +293,6 @@ export function createDrapedGroup(
     load: ArtifactLoad;
     surface: SurfaceArtifact;
     style: ScientificStyle;
-    source: RasterTileSource;
     inView(group: DrapedSurfaceGroup): boolean;
     onFailure(error: unknown): void;
   },
@@ -315,7 +309,7 @@ export function createDrapedGroup(
       input.onFailure(error);
     },
     scene: host.scene,
-    source: input.source,
+    source: host.rasterSource(runtime),
     surface: drapedSurfaceSpec(load, input.surface, style),
     surfaceOpacity: style.surfaceOpacity,
     wave: host.wave,
@@ -326,8 +320,9 @@ export function createDrapedGroup(
   return group;
 }
 
+/** Interleaved lon, lat (degrees) of each observation, in order; null with no observations. */
 export function observationPoints(
-  observations: ObservationArtifact | null,
+  observations: { readonly observations: readonly Observation[] } | null,
 ): Float64Array | null {
   return observations
     ? Float64Array.from(

@@ -14,7 +14,14 @@
  * that asks for World Terrain drapes without building chunks first; the data stays visible and
  * pickable after each morph; a palette restyle swaps the draped layer, and the outlines toggle
  * neither waits nor asks the worker for tiles; and the smooth globe brings the chunks, data
- * elevation and extruded columns back. Desktop only: the phone runs the same scene.
+ * elevation and extruded columns back.
+ *
+ * The context and observations on the peak ("Per layer under World Terrain", "Exaggeration"): at
+ * Physical relief 6 and then 10, a sphere standing on the ground above the summit is picked and
+ * Spain's country label stays 2,500 m above the peak's flank; the sampling footprints and the
+ * borders drape as their own imagery layers, in the draping design's order, a footprint ring
+ * shows on the summit's ground, and every Atlas layer leaves with World Terrain. Desktop only:
+ * the phone runs the same scene.
  */
 
 import { expect, test, type Page } from '@playwright/test';
@@ -25,12 +32,16 @@ import {
   apexOnPage,
   cameraSettled,
   changedShare,
+  clickAbove,
   drapeQuery,
   openDrape,
   openTerrainChooser,
+  pixelsAround,
   probe,
+  summitOnGround,
   summitPatch,
   surfaceVisibleAtApex,
+  windowOf,
 } from './atlas-terrain-helpers';
 
 /** `performance` marks of surface chunks the page added: none while the data is draped. */
@@ -78,6 +89,13 @@ async function settledRequests(page: Page): Promise<number> {
   return last;
 }
 
+/**
+ * The Spain surveys' sampling footprints drape onto the summit too, and in the oblique view the
+ * apex survey's 1.8 km ring crosses the summit patch: off, so the surface checks see the surface
+ * alone and a probe lists only the surface.
+ */
+const NO_FOOTPRINTS = { samplingAreas: 'false' } as const;
+
 test.describe('terrain draping @desktop-chromium', () => {
   test.beforeEach(async ({ page }) => {
     test.setTimeout(150_000);
@@ -91,14 +109,17 @@ test.describe('terrain draping @desktop-chromium', () => {
       test(`#483 repro: the summit shows the surface (${view}, relief ${relief})`, async ({
         page,
       }) => {
-        await openDrape(page, drapeQuery(view, relief));
+        await openDrape(page, drapeQuery(view, relief, NO_FOOTPRINTS));
         expect(await surfaceVisibleAtApex(page)).toBe(true);
       });
 
   test('the summit check sees the surface on the smooth globe, where nothing buries it', async ({
     page,
   }) => {
-    await openDrape(page, drapeQuery('nadir', 1, { terrain: 'smooth-globe' }));
+    await openDrape(
+      page,
+      drapeQuery('nadir', 1, { ...NO_FOOTPRINTS, terrain: 'smooth-globe' }),
+    );
     expect(await surfaceVisibleAtApex(page)).toBe(true);
   });
 
@@ -152,7 +173,10 @@ test.describe('terrain draping @desktop-chromium', () => {
     // Context on, so the basemap is shown and the probe sees the surface above it.
     await openDrape(
       page,
-      drapeQuery('nadir', 1, { layers: 'surface,support,context' }),
+      drapeQuery('nadir', 1, {
+        ...NO_FOOTPRINTS,
+        layers: 'surface,support,context',
+      }),
     );
     expect(await probe(page)).toMatchObject({
       draped: true,
@@ -285,5 +309,151 @@ test.describe('terrain draping @desktop-chromium', () => {
     await expect(
       page.locator('#atlas-surface-geometry option[value="extruded"]'),
     ).toHaveText('Extruded hexagons');
+  });
+});
+
+// Values pinned by unit tests (observation-symbols, line-raster).
+const SYMBOL_CLEARANCE = 650 + 7_000;
+const SPHERE_RADIUS = 12_000; // obsShape=sphere, obsSize=fixed, pointMin=pointMax=12 → 12 × 1,000 m
+const RING = { lat: 40.454, lon: -3.7302, radiusKm: 12.6156626101008 }; // map-surveys:892, 4.3 km from the apex
+const ORDER = [
+  'atlas-surface',
+  'atlas-outlines',
+  'atlas-borders',
+  'atlas-footprints',
+];
+const atlasLayers = (names: string[]) =>
+  names.filter((name) => name.startsWith('atlas-'));
+const ALL_LAYERS = 'surface,observations,support,context,countries';
+
+/**
+ * Clicks the sphere standing on the ground above the summit until the observation panel names
+ * Spain (map-surveys:1135, :966 or :892, all within 5 km). The symbols re-sample their ground as
+ * tiles load and after each relief frame, so a click made before they reach it is tried again.
+ */
+async function pickSummitSphere(page: Page): Promise<void> {
+  const observation = page.getByRole('complementary', {
+    name: 'Selected observation',
+  });
+  await expect(async () => {
+    await clickAbove(page, SYMBOL_CLEARANCE + SPHERE_RADIUS);
+    await expect(observation).toContainText('Spain', { timeout: 2_000 });
+  }).toPass({ timeout: 60_000 });
+  await page.keyboard.press('Escape');
+  await expect(observation).toBeHidden();
+}
+
+/** Spain's label anchor is 42 km from the apex, on the peak's flank: 2,500 m above its ground. */
+async function spainLabelClamped(page: Page): Promise<void> {
+  await expect
+    .poll(() => page.evaluate(() => window.__atlasLabelClearance!('Spain')), {
+      timeout: 60_000,
+    })
+    .toBeGreaterThanOrEqual(2_499);
+}
+
+test.describe('context and observations on World Terrain @desktop-chromium', () => {
+  test.beforeEach(async ({ page }) => {
+    test.setTimeout(150_000);
+    await page.addInitScript(() => {
+      window.__atlasSyntheticTerrain = true;
+    });
+  });
+
+  // The end state of a relief change: the symbols and labels stand on the new ground. That they
+  // re-sample only after the frame that applies the change (Review Focus 4) is pinned by unit tests
+  // (atlas-scene-terrain, atlas-ground-heights): here tile loads re-sample them as well.
+  test('symbols and labels stand above the summit at Physical relief 6, and follow it to 10', async ({
+    page,
+  }) => {
+    // 120 km south of the apex, 160 km up, looking 42° down: the summit spheres and Spain's label
+    // are in view, and the view stops short of the horizon, whose tiles keep CI's software WebGL
+    // rendering for minutes. A sphere left on the relief-6 ground lies 24 km under the point
+    // clicked at relief 10, about 20 km off the ray: missed.
+    await openDrape(
+      page,
+      drapeQuery('oblique', 6, {
+        height: '160000',
+        lat: String(SYNTHETIC_PEAK.lat - 120 / 111.195),
+        layers: ALL_LAYERS,
+        obsShape: 'sphere',
+        obsSize: 'fixed',
+        pitch: '-42',
+        pointMax: '12',
+        pointMin: '12',
+      }),
+    );
+    await expect.poll(async () => (await probe(page)).draped).toBe(true);
+    await summitOnGround(page);
+    // At 6× the 36 km summit buries today's spheres (centre 19.65 km); a grounded one is picked here.
+    await pickSummitSphere(page);
+    await spainLabelClamped(page);
+
+    // The chooser opens from the Map controls.
+    await page.locator('summary').filter({ hasText: /^Map$/ }).click();
+    const chooser = await openTerrainChooser(page);
+    await chooser.getByLabel('Physical relief ×').fill('10');
+    await expect(page).toHaveURL(/relief=10(&|$)/);
+    await page.keyboard.press('Escape');
+    await expect
+      .poll(async () => (await probe(page)).verticalExaggeration)
+      .toBe(10);
+    // Fresh after the relief frame: the summit's tile now stands at 10 × its height.
+    await summitOnGround(page);
+    await pickSummitSphere(page); // the 60 km summit: the spheres followed it
+    await spainLabelClamped(page);
+  });
+
+  test('sampling footprints and borders drape onto the summit, and leave with World Terrain', async ({
+    page,
+  }) => {
+    // Straight down from 120 km at relief 6; the smallest circles (12 px), no surface, so the
+    // 12.6 km ring's north point is clear.
+    await openDrape(
+      page,
+      drapeQuery('nadir', 6, {
+        height: '120000',
+        layers: 'observations,context,countries',
+        obsShape: 'circle',
+        obsSize: 'fixed',
+        pointMax: '12',
+        pointMin: '12',
+        samplingAreas: 'true',
+        samplingColor: '#ff00ff',
+      }),
+    );
+    await expect
+      .poll(async () => atlasLayers((await probe(page)).imageryLayers), {
+        timeout: 30_000,
+      })
+      .toEqual(expect.arrayContaining(['atlas-borders', 'atlas-footprints']));
+    const names = atlasLayers((await probe(page)).imageryLayers);
+    expect(names).toEqual(ORDER.filter((name) => names.includes(name)));
+    await expect
+      .poll(async () => (await probe(page)).tilesLoaded, { timeout: 30_000 })
+      .toBe(true);
+    // Today's rings sit 4 km above sea level, under the ~33 km ground there; the draped ring lies on it.
+    const north = await windowOf(
+      page,
+      RING.lon,
+      RING.lat + RING.radiusKm / 111.195,
+      0,
+    );
+    expect(
+      (await pixelsAround(page, north!, 2)).some(
+        ([r, g, b]) => r >= 150 && b >= 150 && g <= 110,
+      ),
+    ).toBe(true);
+
+    await page.locator('summary').filter({ hasText: /^Map$/ }).click();
+    const chooser = await openTerrainChooser(page);
+    await chooser.getByRole('radio', { name: 'Smooth Globe terrain' }).click();
+    await expect
+      .poll(async () => (await probe(page)).provider, { timeout: 30_000 })
+      .toBe('ellipsoid');
+    // No Atlas layer is left on the smooth globe, hidden or at alpha 0, nor the base guard.
+    await expect
+      .poll(async () => (await probe(page)).layerStack, { timeout: 30_000 })
+      .toEqual(['basemap']);
   });
 });

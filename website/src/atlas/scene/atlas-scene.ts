@@ -16,7 +16,12 @@
  * once the newest request settles, the terrain it left on the globe decides. While draped, data
  * elevation is off and extruded draws as hexagons, the URL keeping both. The draped runtime is
  * imported on the first draped build. A raster failure reverts to the smooth globe with the
- * `'drape'` warning ("Failure modes"), which the next terrain choice clears. */
+ * `'drape'` warning ("Failure modes"), which the next terrain choice clears.
+ *
+ * The context follows ("Per layer under World Terrain", "Exaggeration"): draped, the overlay drapes
+ * the borders and clamps the labels, and the highlight stands on the ground as tiles load; a border
+ * failure reverts too. A relief change re-samples the ground under the observations and the
+ * highlight after the frame that applies it, every 50 ms in a drag and once more at rest. */
 
 import { SceneMode, type CesiumWidget } from 'cesium';
 
@@ -64,6 +69,12 @@ import {
 import { ContextOverlay } from './context-overlay';
 import { installGlobeOffset, type GlobeOffset } from './globe-offset';
 import { createGlobeWidget, type GlobeWidget } from './globe-widget';
+import {
+  createReliefResampler,
+  onTileLoads,
+  throttleResample,
+  type ReliefResampler,
+} from './ground-heights';
 import { HighlightLayer } from './highlight-layer';
 import {
   bindAtlasPicking,
@@ -193,6 +204,15 @@ class CesiumAtlasScene implements AtlasSceneController {
   #drapedRuntime: Promise<DrapedRuntime> | null = null;
   /** Unpublishes the e2e build's drape stats reader; undefined until the runtime loads. */
   #removeDrapeStats: (() => void) | undefined;
+  /** The newest draped-context flip; an older one's runtime reaches nothing. */
+  #contextSequence = 0;
+  /** While draped, stops re-grounding the highlight as tiles load. */
+  #removeTileFollow: (() => void) | null = null;
+  readonly #reliefResampler: ReliefResampler;
+  /** Re-grounds a shown highlight, at most every `GROUND_RESAMPLE_MS` unless final. */
+  readonly #groundHighlight = throttleResample(() =>
+    this.#highlightLayer.setGround(this.#widget.scene.globe),
+  );
   #reducedMotion: boolean;
 
   constructor(container: HTMLElement, options: AtlasSceneOptions) {
@@ -215,8 +235,14 @@ class CesiumAtlasScene implements AtlasSceneController {
     );
     this.#terrainShading = new TerrainShading(this.#widget.scene);
     this.#syntheticTerrain = syntheticTerrainTestHook(this.#widget);
+    this.#reliefResampler = createReliefResampler(this.#widget.scene, (final) =>
+      this.#resampleGround(final),
+    );
     this.#reliefFrame = createFrameThrottle(
-      (relief: number) => this.#terrainShading.update({ relief }),
+      (relief: number) => {
+        this.#terrainShading.update({ relief });
+        this.#followRelief();
+      },
       (callback) => requestAnimationFrame(callback),
     );
     this.#contextController = new ContextController(
@@ -236,6 +262,7 @@ class CesiumAtlasScene implements AtlasSceneController {
         this.#widget.creditDisplay.removeStaticCredit(credit),
       scene: this.#widget.scene,
       worker: options.worker,
+      onDrapeFailure: (error) => this.#onDrapeFailure(error),
     });
     this.#naturalEarthUrl = options.naturalEarthUrl;
     styleAtlasScene(this.#widget);
@@ -422,7 +449,7 @@ class CesiumAtlasScene implements AtlasSceneController {
     return result;
   }
 
-  /** A change rebuilds the surface in the other kind and moves the data height to suit. */
+  /** A change rebuilds the surface in the other kind, and moves the data height and context. */
   #setDrapeTerrain(next: boolean): void {
     if (this.#drapeTerrain === next) return;
     this.#drapeTerrain = next;
@@ -435,6 +462,43 @@ class CesiumAtlasScene implements AtlasSceneController {
         ),
       );
     void this.setElevation(this.#elevation, this.#exaggeration);
+    void this.#drapeContext(next);
+  }
+
+  /**
+   * Draped, the highlight stands on the ground as tiles load and the overlay drapes the borders;
+   * smooth, both get their own heights back. Only the newest flip reaches the overlay, and a
+   * runtime that cannot be imported reverts to the smooth globe. Never rejects.
+   */
+  async #drapeContext(draped: boolean): Promise<void> {
+    const flip = ++this.#contextSequence;
+    const { globe } = this.#widget.scene;
+    this.#removeTileFollow?.();
+    this.#removeTileFollow = draped
+      ? onTileLoads(globe, this.#groundHighlight)
+      : null;
+    if (!draped) this.#reliefResampler.cancel();
+    this.#highlightLayer.setGround(draped ? globe : null);
+    let runtime: DrapedRuntime | null = null;
+    try {
+      if (draped) runtime = await this.#loadDrapedRuntime();
+    } catch (error) {
+      if (flip === this.#contextSequence) this.#onDrapeFailure(error);
+      return;
+    }
+    if (flip === this.#contextSequence && !this.#destroyed)
+      await this.#overlay.setDraped(runtime);
+  }
+
+  /** Draped, a relief frame re-samples the ground after the next render, and once more at rest. */
+  #followRelief(): void {
+    if (this.#drapeTerrain) this.#reliefResampler.changed();
+  }
+
+  /** The ground under the draped observations and the highlight, re-read after a relief frame. */
+  #resampleGround(final: boolean): void {
+    this.#layers.resampleGround(final);
+    this.#groundHighlight(final);
   }
 
   /** The draped runtime, imported once (#483); an import that failed is tried again next time. */
@@ -760,6 +824,7 @@ class CesiumAtlasScene implements AtlasSceneController {
     this.#elevationSequence += 1;
     this.#renderLoop.stop();
     this.#layers.destroy();
+    this.#overlay.destroy(); // the borders' rasters too: Cesium's teardown destroys no provider
     this.#removeDrapeStats?.();
     this.#wave.destroy();
     this.#removeMarks();
@@ -771,6 +836,8 @@ class CesiumAtlasScene implements AtlasSceneController {
     this.#syntheticTerrain?.destroy();
     this.#removeRenderError();
     this.#reliefFrame.cancel();
+    this.#reliefResampler.cancel();
+    this.#removeTileFollow?.();
     this.#contextController.destroy();
     this.#terrainShading.destroy();
     this.#globeOffset.destroy();

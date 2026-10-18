@@ -47,6 +47,27 @@ function harness(handlers: HandlerRegistry = ATLAS_WORKER_HANDLERS) {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+/** Settles until request `id` has its terminal message; the first raster request imports the
+ * raster runtime, which can take more than one macrotask. */
+async function settleUntil(
+  sent: { message: WorkerOutbound }[],
+  id: number,
+): Promise<void> {
+  for (let round = 0; round < 200 && !terminal(sent, id); round += 1)
+    await settle();
+}
+
+/** The Natural Earth borders the Atlas ships, as `parse-context` receives them. */
+function neBorderBytes(): ArrayBuffer {
+  const bytes = readFileSync(
+    path.resolve(
+      import.meta.dirname,
+      '../public/data/atlas/ne-50m-admin-0.borders.bin',
+    ),
+  );
+  return toBuffer(new Uint8Array(bytes));
+}
+
 function terminal(sent: { message: WorkerOutbound }[], id: number) {
   return sent
     .map(({ message }) => message)
@@ -278,6 +299,32 @@ describe('Atlas worker dispatcher', () => {
     expect(terminal(sent, 7)).toMatchObject({
       code: 'cancelled',
       type: 'error',
+    });
+  });
+
+  it('prepares a border raster once the worker has parsed the borders', async () => {
+    const { dispatch, sent } = harness();
+    const spec = {
+      color: '#ffffff',
+      layer: 'borders',
+      maximumLevel: 11,
+    } as const;
+    dispatch({ id: 1, spec, type: 'prepare-raster' });
+    await settleUntil(sent, 1);
+    expect(terminal(sent, 1)).toMatchObject({
+      code: 'internal',
+      message: 'Natural Earth context is not parsed',
+      type: 'error',
+    });
+    dispatch({ bytes: neBorderBytes(), id: 2, type: 'parse-context' });
+    await settleUntil(sent, 2);
+    expect(terminal(sent, 2)?.type).toBe('context-ready');
+    dispatch({ id: 3, spec, type: 'prepare-raster' });
+    await settleUntil(sent, 3);
+    expect(terminal(sent, 3)).toMatchObject({
+      bounds: { east: 180, south: -90, west: -180 },
+      rasterId: 3,
+      type: 'raster-ready',
     });
   });
 
