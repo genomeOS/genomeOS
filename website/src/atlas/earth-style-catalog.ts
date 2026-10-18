@@ -314,3 +314,58 @@ export function dayNightControl(terrain: TerrainId): TerrainControlState {
       }
     : { disabled: false, note: null };
 }
+
+/** The relief slider and `relief` URL parameter: true scale to tenfold, in half steps (#483). */
+export const RELIEF_RANGE = [1, 10] as const;
+export const RELIEF_STEP = 0.5;
+
+interface ReliefInput {
+  relief: number;
+  terrain: TerrainId;
+  view: ExplorerSceneMode;
+}
+
+/**
+ * The vertical exaggeration the scene draws: the chosen relief where there is physical relief to
+ * raise, true scale on the smooth globe and in the flat 2D map.
+ */
+export function effectiveRelief({
+  relief,
+  terrain,
+  view,
+}: ReliefInput): number {
+  return hasPhysicalRelief(terrain) && view !== 'map' ? relief : 1;
+}
+
+export interface ReliefControlState extends TerrainControlState {
+  /** What raised relief costs while it is drawn; null otherwise. */
+  warning: string | null;
+}
+
+/**
+ * Relief exaggerates the ground only. The data layers sit at fixed heights until they are draped
+ * onto the terrain (#483's second change), so raised relief can rise through them; the warning
+ * says so while it can happen.
+ */
+export function reliefControl(input: ReliefInput): ReliefControlState {
+  if (!hasPhysicalRelief(input.terrain))
+    return {
+      disabled: true,
+      note: 'Choose World Terrain to raise the relief.',
+      warning: null,
+    };
+  if (input.view === 'map')
+    return {
+      disabled: true,
+      note: 'The 2D map is flat; switch to Globe or Perspective to raise the relief.',
+      warning: null,
+    };
+  return {
+    disabled: false,
+    note: null,
+    warning:
+      effectiveRelief(input) > 1
+        ? 'Raised relief can hide map data on high ground.'
+        : null,
+  };
+}

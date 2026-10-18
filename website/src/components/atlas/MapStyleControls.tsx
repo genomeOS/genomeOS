@@ -23,6 +23,7 @@ interface MapStyleControlsProps {
   onDayNightLighting: (value: boolean) => void;
   onEarthOpacity: (value: number) => void;
   onOceanColor: (value: string) => void;
+  onRelief: (value: number) => void;
   onTerrain: (value: TerrainId) => void;
   onView: (view: ExplorerSceneMode) => void;
 }
@@ -39,6 +40,7 @@ export function MapStyleControls({
   onDayNightLighting,
   onEarthOpacity,
   onOceanColor,
+  onRelief,
   onTerrain,
   onView,
 }: MapStyleControlsProps) {
@@ -52,8 +54,11 @@ export function MapStyleControls({
         basemap={state.basemap}
         capabilities={capabilities}
         disabled={disabled}
+        relief={state.relief}
         terrain={state.terrain}
+        view={state.view}
         onBasemap={onBasemap}
+        onRelief={onRelief}
         onTerrain={onTerrain}
       />
 

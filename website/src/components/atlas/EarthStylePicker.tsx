@@ -20,8 +20,10 @@ import {
   type TerrainId,
 } from '../../atlas/earth-style-catalog';
 import type { SceneCapabilities } from '../../atlas/scene/atlas-scene';
+import type { ExplorerSceneMode } from '../../atlas/url-state';
 import { BrandText } from './BrandText';
 import { InfoTip } from './InfoTip';
+import { ReliefControl } from './ReliefControl';
 import { clampPickerTop, siteHeaderBottom } from './site-header';
 import { useEscapeLayer } from './useEscapeStack';
 
@@ -29,8 +31,11 @@ interface EarthStylePickerProps {
   basemap: BasemapId;
   capabilities: SceneCapabilities;
   disabled: boolean;
+  relief: number;
   terrain: TerrainId;
+  view: ExplorerSceneMode;
   onBasemap: (value: BasemapId) => void;
+  onRelief: (value: number) => void;
   onTerrain: (value: TerrainId) => void;
 }
 
@@ -69,8 +74,11 @@ export function EarthStylePicker({
   basemap,
   capabilities,
   disabled,
+  relief,
   terrain,
+  view,
   onBasemap,
+  onRelief,
   onTerrain,
 }: EarthStylePickerProps) {
   const dialogId = useId();
@@ -326,6 +334,16 @@ export function EarthStylePicker({
                   galleryButton(option, 'terrain'),
                 )}
               </div>
+              <ReliefControl
+                disabled={disabled}
+                relief={relief}
+                // A terrain this build cannot load leaves the smooth globe on.
+                terrain={
+                  capabilities.terrains[terrain] ? terrain : 'smooth-globe'
+                }
+                view={view}
+                onRelief={onRelief}
+              />
             </section>
           </div>,
           document.body,

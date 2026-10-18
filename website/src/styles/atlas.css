@@ -1042,6 +1042,37 @@ html.atlas-page .site-header--compact .site-header__inner {
   line-height: 1.3;
 }
 
+.atlas-control-note--warning {
+  color: #f4c86a;
+}
+
+/* Relief ×, under the terrain choices of the basemap and terrain chooser (#483). */
+.atlas-relief {
+  margin-top: 0.6rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.atlas-relief__title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.7rem;
+  color: #dce9f7;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.atlas-relief input {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--color-ion);
+}
+
+.atlas-relief .atlas-control-note {
+  margin: 0;
+}
+
 .atlas-country-border-style {
   padding: 0.6rem;
   display: grid;

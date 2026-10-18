@@ -39,7 +39,11 @@ import { ContextOverlay } from './context-overlay';
 import { installGlobeOffset, type GlobeOffset } from './globe-offset';
 import { createGlobeWidget, type GlobeWidget } from './globe-widget';
 import { HighlightLayer } from './highlight-layer';
-import { bindAtlasPicking } from './picking';
+import {
+  bindAtlasPicking,
+  createFrameThrottle,
+  type FrameThrottle,
+} from './picking';
 import { RenderLoop } from './render-loop';
 import {
   createRevealWave,
@@ -121,6 +125,8 @@ class CesiumAtlasScene implements AtlasSceneController {
   readonly #removeMarks: () => void;
   readonly #contextController: ContextController;
   readonly #terrainShading: TerrainShading;
+  /** Slider-driven relief, applied at most once per animation frame. */
+  readonly #reliefFrame: FrameThrottle<number>;
   readonly #overlay: ContextOverlay;
   readonly #highlightLayer: HighlightLayer;
   readonly #marks: MarkTracker;
@@ -169,6 +175,10 @@ class CesiumAtlasScene implements AtlasSceneController {
       options.markTarget ?? null,
     );
     this.#terrainShading = new TerrainShading(this.#widget.scene);
+    this.#reliefFrame = createFrameThrottle(
+      (relief: number) => this.#terrainShading.update({ relief }),
+      (callback) => requestAnimationFrame(callback),
+    );
     this.#contextController = new ContextController(
       this.#widget,
       options.cesiumToken ?? '',
@@ -424,6 +434,10 @@ class CesiumAtlasScene implements AtlasSceneController {
     this.#widget.scene.requestRender();
   }
 
+  setRelief(relief: number): void {
+    this.#reliefFrame.queue(relief);
+  }
+
   setEarthOpacity(opacity: number): void {
     this.#earthOpacity = Math.min(1, Math.max(0.15, opacity));
     applyEarthOpacity(this.#widget.scene.globe, this.#earthOpacity);
@@ -479,6 +493,7 @@ class CesiumAtlasScene implements AtlasSceneController {
       perspective: SceneMode.COLUMBUS_VIEW,
     }[mode];
     this.#mode = mode;
+    this.#terrainShading.update({ mode });
     if (this.#widget.scene.mode !== target) {
       this.#widget.camera.cancelFlight();
       await this.#layers.setSceneMode('perspective');
@@ -607,6 +622,7 @@ class CesiumAtlasScene implements AtlasSceneController {
     this.#removeMoveEnd();
     this.#cameraMotion?.destroy();
     this.#removeRenderError();
+    this.#reliefFrame.cancel();
     this.#terrainShading.destroy();
     this.#globeOffset.destroy();
     this.#globe.destroy();

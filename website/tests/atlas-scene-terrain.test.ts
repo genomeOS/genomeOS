@@ -123,12 +123,22 @@ function scene() {
   });
 }
 
+const frames: FrameRequestCallback[] = [];
+
+/** Runs the animation frames requested so far. */
+function frame(): void {
+  for (const callback of frames.splice(0)) callback(0);
+}
+
 beforeEach(() => {
   harness.contextOptions = undefined;
   harness.setAppearance.length = 0;
   harness.shadingDestroyed = 0;
   harness.updates.length = 0;
-  vi.stubGlobal('requestAnimationFrame', () => 1);
+  frames.length = 0;
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
+    frames.push(callback),
+  );
   vi.stubGlobal('cancelAnimationFrame', () => {});
 });
 
@@ -153,5 +163,25 @@ describe('scene terrain wiring (#483)', () => {
   it('tears the shading down with the scene', () => {
     scene().destroy();
     expect(harness.shadingDestroyed).toBe(1);
+  });
+
+  it('applies relief once per frame, with the latest slider value', () => {
+    const controller = scene();
+    controller.setRelief(2);
+    controller.setRelief(2.5);
+    controller.setRelief(3);
+    expect(harness.updates).not.toContainEqual(
+      expect.objectContaining({ relief: expect.anything() }),
+    );
+    frame();
+    expect(harness.updates.filter((change) => 'relief' in change)).toEqual([
+      { relief: 3 },
+    ]);
+  });
+
+  it('tells the shading the view, so the 2D map stays at true scale', async () => {
+    const controller = scene();
+    await controller.setSceneMode('globe', true);
+    expect(harness.updates).toContainEqual({ mode: 'globe' });
   });
 });

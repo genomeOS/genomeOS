@@ -61,6 +61,7 @@ interface ExplorerControlsProps {
   onMetric: (metric: Metric) => void;
   onLayer: (layer: LayerId, visible: boolean) => void;
   onView: (view: ExplorerSceneMode) => void;
+  onRelief: (value: number) => void;
   onTerrain: (value: TerrainId) => void;
   onSurfacePalette: (value: PaletteId) => void;
   onSurfaceOpacity: (value: number) => void;
@@ -126,6 +127,7 @@ export function ExplorerControls({
   onMetric,
   onLayer,
   onView,
+  onRelief,
   onTerrain,
   onSurfacePalette,
   onSurfaceOpacity,
@@ -343,6 +345,7 @@ export function ExplorerControls({
             onDayNightLighting={onDayNightLighting}
             onEarthOpacity={onEarthOpacity}
             onOceanColor={onOceanColor}
+            onRelief={onRelief}
             onTerrain={onTerrain}
             onView={onView}
           />

@@ -156,12 +156,13 @@ export function InferredSurfaceControls({
             Statistical elevation
           </label>
           <InfoTip label="statistical elevation">
-            Raises supported cells using the displayed metric; it is not
-            physical topography.
+            Raises supported cells by the displayed metric, so the height is a
+            data value. It never moves the ground: physical relief is Relief ×,
+            under Map → Basemap &amp; terrain.
           </InfoTip>
         </div>
         <label className="atlas-field atlas-field--range">
-          <span>{state.exaggeration.toFixed(1)}× height</span>
+          <span>{state.exaggeration.toFixed(1)}× data height</span>
           <input
             type="range"
             min="0.25"
@@ -170,9 +171,14 @@ export function InferredSurfaceControls({
             value={state.exaggeration}
             disabled={!state.elevation}
             onChange={(event) => onExaggeration(Number(event.target.value))}
-            aria-label="Height exaggeration"
+            aria-label="Data height exaggeration"
+            aria-describedby="atlas-data-height-note"
           />
         </label>
+        <p className="atlas-control-note" id="atlas-data-height-note">
+          Scales the data values, not the ground. For mountains, use Relief ×
+          under Map.
+        </p>
       </div>
     </div>
   );

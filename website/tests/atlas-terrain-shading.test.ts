@@ -260,3 +260,34 @@ describe('TerrainShading lighting', () => {
     expect(preRender.numberOfListeners).toBe(0);
   });
 });
+
+describe('TerrainShading relief (#483)', () => {
+  it('leaves the scene at true scale until relief is set', () => {
+    const { scene } = fakeScene();
+    new TerrainShading(scene).update({ terrain: 'world-terrain' });
+    expect(scene.verticalExaggeration).toBe(1);
+  });
+
+  it('exaggerates World Terrain from sea level and requests a frame', () => {
+    const { scene } = fakeScene();
+    scene.verticalExaggerationRelativeHeight = 500;
+    const shading = new TerrainShading(scene);
+    shading.update({ relief: 3, terrain: 'world-terrain' });
+    expect(scene.verticalExaggeration).toBe(3);
+    expect(scene.verticalExaggerationRelativeHeight).toBe(0);
+    expect(scene.requestRender).toHaveBeenCalled();
+  });
+
+  it('draws the smooth globe and the 2D map at true scale', () => {
+    const { scene } = fakeScene();
+    const shading = new TerrainShading(scene);
+    shading.update({ mode: 'globe', relief: 4, terrain: 'world-terrain' });
+    expect(scene.verticalExaggeration).toBe(4);
+    shading.update({ mode: 'map' });
+    expect(scene.verticalExaggeration).toBe(1);
+    shading.update({ mode: 'perspective' });
+    expect(scene.verticalExaggeration).toBe(4);
+    shading.update({ terrain: 'smooth-globe' });
+    expect(scene.verticalExaggeration).toBe(1);
+  });
+});

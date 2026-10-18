@@ -7,6 +7,10 @@
  * moved, it is re-aimed in place, so it costs nothing while the view is still and requests no
  * frame of its own (the globe renders on demand). Nothing here touches the scene until the first
  * `update`, and the smooth globe never subscribes to a frame event.
+ *
+ * Relief (`scene.verticalExaggeration`) raises the ground only where there is physical relief to
+ * raise and the view is not the flat 2D map (`effectiveRelief`). It is a different control from
+ * the data's elevation, which scales the scientific layers and never the ground.
  */
 
 import {
@@ -19,7 +23,8 @@ import {
   type Light,
 } from 'cesium';
 
-import type { TerrainId } from '../url-state';
+import { effectiveRelief } from '../earth-style-catalog';
+import type { ExplorerSceneMode, TerrainId } from '../url-state';
 import {
   HILLSHADE_AZIMUTH_DEGREES,
   HILLSHADE_INTENSITY,
@@ -44,6 +49,8 @@ export interface ShadingScene {
   };
   canvas: { clientWidth: number; clientHeight: number };
   preRender: { addEventListener(listener: () => void): () => void };
+  verticalExaggeration: number;
+  verticalExaggerationRelativeHeight: number;
   requestRender(): void;
 }
 
@@ -51,6 +58,9 @@ export interface TerrainPresentation {
   /** The terrain on the globe: the one the context controller applied, not merely requested. */
   terrain: TerrainId;
   dayNight: boolean;
+  /** The chosen vertical exaggeration of the relief (the `relief` URL parameter). */
+  relief: number;
+  mode: ExplorerSceneMode;
 }
 
 interface Hillshade {
@@ -71,6 +81,8 @@ export class TerrainShading {
   readonly #scene: ShadingScene;
   #presentation: TerrainPresentation = {
     dayNight: true,
+    mode: 'globe',
+    relief: 1,
     terrain: 'smooth-globe',
   };
   #hillshade: Hillshade | null = null;
@@ -87,6 +99,13 @@ export class TerrainShading {
     if (lighting.light === 'hillshade') this.#installHillshade();
     else this.#removeHillshade();
     this.#scene.globe.enableLighting = lighting.enableLighting;
+    const { mode, relief, terrain } = this.#presentation;
+    const exaggeration = effectiveRelief({ relief, terrain, view: mode });
+    if (this.#scene.verticalExaggeration !== exaggeration) {
+      // Heights are exaggerated from sea level, as in Cesium's vertical-exaggeration example.
+      this.#scene.verticalExaggeration = exaggeration;
+      this.#scene.verticalExaggerationRelativeHeight = 0;
+    }
     this.#scene.requestRender();
   }
 

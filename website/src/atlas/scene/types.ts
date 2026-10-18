@@ -165,6 +165,12 @@ export interface AtlasSceneController extends ArtifactSceneApi {
     basemapBrightness: number,
     dayNightLighting: boolean,
   ): void;
+  /**
+   * Vertical exaggeration of physical terrain (`scene.verticalExaggeration`, from sea level), in
+   * `RELIEF_RANGE`. It applies only to World Terrain outside the 2D map, and never scales the
+   * data: that is `setElevation`'s exaggeration (#483).
+   */
+  setRelief(relief: number): void;
   setEarthOpacity(opacity: number): void;
   setOceanColor(color: string): void;
   setCountryBorderStyle(color: string, opacity: number): void;
