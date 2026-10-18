@@ -107,6 +107,22 @@ describe('Honmoon contour texels (#483)', () => {
 
   it("clamps the derivative to the shader's fwidth range", () => {
     expect(HONMOON_DERIVATIVE_CLAMP).toEqual([0.006, 0.22]);
+    const c = [0.2, 0.6, 0.9];
+    for (const mode of [1, 2] as const) {
+      // 0.01 of a band from a line: in the narrowest line's halo, beyond any narrower one's
+      const near = (18 + 0.01) / 36;
+      const narrowest = texel(c, near, 0.006 / 36, mode);
+      expect(narrowest[3]).toBeGreaterThan(mode === 2 ? 71 : 0);
+      expect(texel(c, near, 0, mode)).toEqual(narrowest);
+      expect(texel(c, near, 0.003 / 36, mode)).toEqual(narrowest);
+      expect(texel(c, near, 0.012 / 36, mode)).not.toEqual(narrowest);
+      // 0.3 of a band from a line: in the widest line's halo, short of a wider one's core
+      const far = (18 + 0.3) / 36;
+      const widest = texel(c, far, 0.22 / 36, mode);
+      expect(texel(c, far, 1, mode)).toEqual(widest);
+      expect(texel(c, far, 0.44 / 36, mode)).toEqual(widest);
+      expect(texel(c, far, 0.11 / 36, mode)).not.toEqual(widest);
+    }
   });
 
   it('gives the plane through three vertices, and none for collinear ones', () => {
