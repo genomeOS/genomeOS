@@ -228,6 +228,7 @@ function fakeFootprints() {
     isReady: () => true,
     layer: {} as never,
     name: 'atlas-footprints' as const,
+    prewarm: () => Promise.resolve(),
     shown: true,
     setAlpha(a: number) {
       this.alpha = a;
