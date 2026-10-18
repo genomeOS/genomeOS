@@ -1,8 +1,12 @@
-/** Accessible explorer controls for Atlas design §11. */
+/**
+ * Accessible explorer controls for Atlas design §11. The surface controls follow the terrain on
+ * the globe: terrain draping design, "How existing features behave" (#483).
+ */
 
 import { createPortal } from 'react-dom';
 
 import type { AtlasCatalog, ExternalInfo } from '../../atlas/contracts';
+import { hasPhysicalRelief } from '../../atlas/earth-style-catalog';
 import type {
   ObservationColorVariable,
   ObservationShape,
@@ -362,6 +366,7 @@ export function ExplorerControls({
         <div className="atlas-control-sheet__body">
           <InferredSurfaceControls
             disabled={disabled}
+            draped={hasPhysicalRelief(appliedTerrain)}
             state={state}
             onEdgeColorMode={onEdgeColorMode}
             onEdgeFixedColor={onEdgeFixedColor}

@@ -1,5 +1,10 @@
-/** Inferred-surface presentation controls for Atlas design §11. */
+/**
+ * Inferred-surface presentation controls for Atlas design §11. While the data is draped over
+ * World Terrain, data elevation is unavailable and extruded draws as hexagons: terrain draping
+ * design, "How existing features behave" (#483).
+ */
 
+import { resolveDrapedView } from '../../atlas/earth-style-catalog';
 import type {
   EdgeColorMode,
   ExplorerState,
@@ -10,6 +15,8 @@ import { InfoTip } from './InfoTip';
 
 interface InferredSurfaceControlsProps {
   disabled: boolean;
+  /** Whether the data is draped: physical relief on the globe (#483). */
+  draped: boolean;
   state: ExplorerState;
   onEdgeColorMode: (value: EdgeColorMode) => void;
   onEdgeFixedColor: (value: string) => void;
@@ -32,6 +39,7 @@ const PALETTES: readonly [PaletteId, string][] = [
 
 export function InferredSurfaceControls({
   disabled,
+  draped,
   state,
   onEdgeColorMode,
   onEdgeFixedColor,
@@ -41,6 +49,13 @@ export function InferredSurfaceControls({
   onPalette,
   onSurfaceOpacity,
 }: InferredSurfaceControlsProps) {
+  const { elevationNote, extrudedLabel } = resolveDrapedView({
+    draped,
+    elevation: state.elevation,
+    exaggeration: state.exaggeration,
+    geometry: state.surfaceGeometry,
+    view: state.view,
+  });
   return (
     <div className="atlas-control-grid atlas-control-grid--surface">
       <div className="atlas-field">
@@ -87,7 +102,7 @@ export function InferredSurfaceControls({
         >
           <option value="triangles">Smooth triangles</option>
           <option value="hexagons">Flat hexagons</option>
-          <option value="extruded">Extruded hexagons</option>
+          <option value="extruded">{extrudedLabel}</option>
           <option value="honmoon">Honmoon</option>
           <option value="honmoon-fill">Honmoon (fill)</option>
         </select>
@@ -151,6 +166,10 @@ export function InferredSurfaceControls({
               id="atlas-statistical-elevation"
               type="checkbox"
               checked={state.elevation}
+              disabled={draped}
+              aria-describedby={
+                elevationNote ? 'atlas-data-height-draped' : undefined
+              }
               onChange={(event) => onElevation(event.target.checked)}
             />
             Statistical elevation
@@ -169,12 +188,21 @@ export function InferredSurfaceControls({
             max="5"
             step="0.25"
             value={state.exaggeration}
-            disabled={!state.elevation}
+            disabled={draped || !state.elevation}
             onChange={(event) => onExaggeration(Number(event.target.value))}
             aria-label="Data height exaggeration"
-            aria-describedby="atlas-data-height-note"
+            aria-describedby={
+              elevationNote
+                ? 'atlas-data-height-draped atlas-data-height-note'
+                : 'atlas-data-height-note'
+            }
           />
         </label>
+        {elevationNote && (
+          <p className="atlas-control-note" id="atlas-data-height-draped">
+            {elevationNote}
+          </p>
+        )}
         <p className="atlas-control-note" id="atlas-data-height-note">
           Scales the data values, not the ground. For mountains, use Physical
           relief × under Map.
