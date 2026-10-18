@@ -186,7 +186,9 @@ export class BorderDrape {
       // Superseded: whatever aborted it released its layer.
       return;
     }
-    entry.layer!.setAlpha(this.#options.style().opacity);
+    // Released later in the frame that found it ready, after the wait had settled.
+    if (entry.abort.signal.aborted || !entry.layer) return;
+    entry.layer.setAlpha(this.#options.style().opacity);
     this.#release(this.#shown);
     this.#next = null;
     this.#shown = entry;

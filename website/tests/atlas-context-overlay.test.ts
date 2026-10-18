@@ -1169,6 +1169,32 @@ describe('Natural Earth context on World Terrain', () => {
     expect(layers[1].alpha).toBe(0);
   });
 
+  it('drops a recoloured layer retired in the frame it became ready, raising nothing', async () => {
+    const { overlay, scene } = setup();
+    await overlay.load('borders.bin');
+    const { layers, runtime } = fakeDrapedRuntime();
+    await overlay.setDraped(runtime);
+    overlay.setBorderStyle('#00ff00', 0.5);
+    await flushTasks();
+    expect(layers).toHaveLength(2);
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      layers[1].ready = true;
+      // A listener after the wait's own, in the same frame: the terrain goes smooth.
+      scene.postRender.addEventListener(() => void overlay.setDraped(null));
+      scene.postRender.raiseEvent();
+      await flushTasks();
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
+    expect(layers.map(({ destroy }) => destroy.mock.calls.length)).toEqual([
+      1, 1,
+    ]);
+    expect(layers[1].alpha).toBe(0);
+  });
+
   it('hides the draped borders with the countries layer, freeing their tiles', async () => {
     const { overlay } = setup();
     await overlay.load('borders.bin');
