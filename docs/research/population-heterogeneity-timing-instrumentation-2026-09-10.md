@@ -409,11 +409,13 @@ runner. It must not be applied as a success filter to other experiments.
 
 SHA256 of the exact file:
 `ce51a8c89281f3256ab6a6cf885b625be67ed86668cb5d5a98cdcc3ef18bbc78`.
-To inspect the committed evidence, set only `ROOT` to this checkout's
-`data/validation/b0h-timing-20260910-01` and `REPO` to the checkout root;
+To inspect the retained evidence, fetch it first (it is in the public data store since
+2026-10-17, #468: `python scripts/fetch_data.py --prefix validation/b0h-timing-20260910-01`), then
+set only `ROOT` to this checkout's `data/validation/b0h-timing-20260910-01` and `REPO` to the
+checkout root;
 retain the scientific SHA. The original literals are kept here for provenance.
 Run with the locked Python/NumPy environment. Output should reproduce the
-[inspection extraction](../../data/validation/b0h-timing-20260910-01-inspection.json),
+inspection extraction (`data/validation/b0h-timing-20260910-01-inspection.json`),
 including the per-file hashes of the 98 original output files.
 
 ```python

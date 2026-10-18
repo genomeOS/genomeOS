@@ -133,7 +133,7 @@ def write_dist(root: Path, artifact_base: str, catalog: dict[str, Any] | None = 
 
 
 FAKE_GCLOUD = Path(__file__).with_name("fake_gcloud.py")
-MUTATING_VERBS = {"create", "update", "add-iam-policy-binding", "cp"}
+MUTATING_VERBS = {"create", "update", "add-iam-policy-binding", "remove-iam-policy-binding", "cp"}
 
 
 @dataclass(frozen=True)
