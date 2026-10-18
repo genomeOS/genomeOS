@@ -1,8 +1,8 @@
 /**
  * Physical terrain end to end (Atlas design §11, interaction design §5.2; #483). World Terrain,
  * chosen through the basemap and terrain chooser, is shaded by the fixed hillshade light rather
- * than the sun, raised by Physical relief ×, and the zoom-in button and key stop a kilometre above
- * it.
+ * than the sun and raised by Physical relief ×; the zoom-in button and key stop a kilometre above
+ * it; and from the global view it is drawn unlit, with no night side.
  *
  * CI has no Cesium ion token, so the e2e build stands a synthetic cone in for World Terrain when a
  * test sets `window.__atlasSyntheticTerrain` (src/atlas/e2e-hooks.ts), and reports the scene
@@ -82,19 +82,32 @@ async function openTerrainChooser(page: Page) {
   return dialog;
 }
 
+/** Opens the explorer at `query`, with the synthetic cone standing in for World Terrain. */
+async function openExplorer(page: Page, query: string): Promise<void> {
+  await page.addInitScript(() => {
+    window.__atlasSyntheticTerrain = true;
+  });
+  await page.goto(`/app/?${query}`);
+  await expect(page.locator('[data-atlas-ready="true"]')).toBeVisible({
+    timeout: 45_000,
+  });
+  await cameraSettled(page);
+}
+
+async function worldTerrainApplied(page: Page): Promise<void> {
+  await expect
+    .poll(async () => (await probe(page)).provider, { timeout: 30_000 })
+    .toBe('synthetic');
+}
+
+// Three tests rather than one flow: under CI's software WebGL each page load and terrain switch
+// costs tens of seconds, and one long flow overran a single test's budget.
 test.describe('physical terrain @desktop-chromium', () => {
-  test('World Terrain is hillshaded, raised by Physical relief × and floors the zoom', async ({
+  test('World Terrain is hillshaded and raised by Physical relief ×, chosen in the chooser', async ({
     page,
   }) => {
-    test.setTimeout(150_000);
-    await page.addInitScript(() => {
-      window.__atlasSyntheticTerrain = true;
-    });
-    await page.goto(`/app/?${START}`);
-    await expect(page.locator('[data-atlas-ready="true"]')).toBeVisible({
-      timeout: 45_000,
-    });
-    await cameraSettled(page);
+    test.setTimeout(180_000);
+    await openExplorer(page, START);
 
     // The smooth globe keeps the sun, and day/night (off in this URL) decides its lighting.
     expect(await probe(page)).toMatchObject({
@@ -119,9 +132,7 @@ test.describe('physical terrain @desktop-chromium', () => {
     await expect(page).toHaveURL(/terrain=world-terrain/);
 
     // World Terrain: lit by the fixed hillshade light, whatever day/night says.
-    await expect
-      .poll(async () => (await probe(page)).provider, { timeout: 30_000 })
-      .toBe('synthetic');
+    await worldTerrainApplied(page);
     expect(await probe(page)).toMatchObject({
       enableLighting: true,
       sunLight: false,
@@ -144,9 +155,31 @@ test.describe('physical terrain @desktop-chromium', () => {
       .poll(async () => (await probe(page)).verticalExaggeration)
       .toBe(RELIEF);
     expect((await probe(page)).verticalExaggerationRelativeHeight).toBe(0);
-    await page.keyboard.press('Escape');
-    await expect(chooser).toHaveCount(0);
     // The ground itself is raised, from sea level.
+    await groundLoaded(page, FLANK_GROUND * RELIEF);
+
+    // Back on the smooth globe (choosing a terrain closes the chooser): the sun, day/night and
+    // true scale return.
+    await chooser.getByRole('radio', { name: 'Smooth Globe terrain' }).click();
+    await expect(chooser).toHaveCount(0);
+    await expect
+      .poll(async () => (await probe(page)).provider, { timeout: 30_000 })
+      .toBe('ellipsoid');
+    expect(await probe(page)).toMatchObject({
+      enableLighting: false,
+      sunLight: true,
+      verticalExaggeration: 1,
+    });
+    await expect(dayNight).toBeEnabled();
+  });
+
+  test('the zoom-in button and + key stop a kilometre above raised World Terrain', async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    await openExplorer(page, `${START}&terrain=world-terrain&relief=${RELIEF}`);
+    await worldTerrainApplied(page);
+    expect((await probe(page)).verticalExaggeration).toBe(RELIEF);
     const ground = await groundLoaded(page, FLANK_GROUND * RELIEF);
 
     // From 60 km a step is 50 km, which went 2 km underground before #483.
@@ -172,30 +205,18 @@ test.describe('physical terrain @desktop-chromium', () => {
     expect(cameraHeight - (groundHeight ?? ground)).toBeGreaterThanOrEqual(
       ZOOM_FLOOR_METRES - 1,
     );
+  });
 
-    // From the global view the hillshade has faded out: World Terrain is drawn unlit, with no
-    // night side, and still not by the sun (#483 review).
-    await page.getByRole('button', { name: 'Home' }).click();
-    await cameraSettled(page);
-    expect(await probe(page)).toMatchObject({
-      enableLighting: false,
-      provider: 'synthetic',
-      sunLight: false,
-    });
-    expect((await probe(page)).cameraHeight).toBeGreaterThan(3_000_000);
-
-    // Back on the smooth globe: the sun, day/night and true scale return.
-    chooser = await openTerrainChooser(page);
-    await chooser.getByRole('radio', { name: 'Smooth Globe terrain' }).click();
-    await expect
-      .poll(async () => (await probe(page)).provider, { timeout: 30_000 })
-      .toBe('ellipsoid');
-    expect(await probe(page)).toMatchObject({
-      enableLighting: false,
-      sunLight: true,
-      verticalExaggeration: 1,
-    });
-    await expect(dayNight).toBeEnabled();
+  test('World Terrain seen from the global view is unlit, with no night side', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    // The default view: the hillshade has faded out, and the sun still has no say (#483 review).
+    await openExplorer(page, 'terrain=world-terrain');
+    await worldTerrainApplied(page);
+    const far = await probe(page);
+    expect(far.cameraHeight).toBeGreaterThan(3_000_000);
+    expect(far).toMatchObject({ enableLighting: false, sunLight: false });
   });
 
   test('the Keys help says how to tilt, inside the controls panel', async ({
