@@ -6,17 +6,19 @@
  *
  * CI has no Cesium ion token, so the e2e build stands a synthetic cone in for World Terrain when a
  * test sets `window.__atlasSyntheticTerrain` (src/atlas/e2e-hooks.ts), and reports the scene
- * through `window.__atlasTerrainProbe`. Desktop only: the chooser and the camera buttons are the
- * same components on a phone, behind the bottom sheet.
+ * through `window.__atlasTerrainProbe`, read with the helpers this spec shares with the drape spec
+ * (atlas-terrain-helpers.ts; terrain draping design, "Test plan"). Desktop only: the chooser and
+ * the camera buttons are the same components on a phone, behind the bottom sheet.
  */
 
 import { expect, test, type Page } from '@playwright/test';
 
+import { SYNTHETIC_CONE } from '../src/atlas/e2e-hooks';
 import {
-  SYNTHETIC_CONE,
-  type CameraMotion,
-  type TerrainProbe,
-} from '../src/atlas/e2e-hooks';
+  cameraSettled,
+  openTerrainChooser,
+  probe,
+} from './atlas-terrain-helpers';
 
 /** `ZOOM_FLOOR_METRES` (src/atlas/scene/camera.ts; its unit test pins the value). */
 const ZOOM_FLOOR_METRES = 1_000;
@@ -38,29 +40,6 @@ const START = new URLSearchParams({
   pitch: '-90',
 }).toString();
 
-async function probe(page: Page): Promise<TerrainProbe> {
-  await expect
-    .poll(() => page.evaluate(() => typeof window.__atlasTerrainProbe))
-    .toBe('function');
-  return page.evaluate(() => window.__atlasTerrainProbe!());
-}
-
-/** The camera has finished the explorer's flight to the linked view. */
-async function cameraSettled(page: Page): Promise<void> {
-  await expect
-    .poll(
-      () =>
-        page.evaluate(() => {
-          const read = (
-            window as Window & { __atlasCameraMotion?: () => CameraMotion }
-          ).__atlasCameraMotion;
-          return read ? !read().flying && !read().moving : false;
-        }),
-      { timeout: 30_000 },
-    )
-    .toBe(true);
-}
-
 /** Waits until the ground under the camera has loaded at `expected` metres (± 2%). */
 async function groundLoaded(page: Page, expected: number): Promise<number> {
   await expect
@@ -71,15 +50,6 @@ async function groundLoaded(page: Page, expected: number): Promise<number> {
   const { groundHeight } = await probe(page);
   expect(groundHeight!).toBeLessThan(expected * 1.02);
   return groundHeight!;
-}
-
-async function openTerrainChooser(page: Page) {
-  await page
-    .getByRole('button', { name: 'Choose basemap and terrain' })
-    .click();
-  const dialog = page.getByRole('dialog', { name: 'Basemap and terrain' });
-  await expect(dialog).toBeVisible();
-  return dialog;
 }
 
 /** Opens the explorer at `query`, with the synthetic cone standing in for World Terrain. */
