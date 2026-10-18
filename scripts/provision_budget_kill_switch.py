@@ -204,7 +204,7 @@ def ensure_function(
 
     drift = drift_of(current)
     if drift:
-        iam.mutate(gcloud, deploy_args(project, bucket, account, budget_id, digest))
+        iam.mutate_after_propagation(gcloud, deploy_args(project, bucket, account, budget_id, digest))
         report.append(f"function {FUNCTION}: deployed ({'; '.join(drift)})")
         current = gcloud.describe(describe)
         if not gcloud.dry_run:

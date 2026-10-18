@@ -20,7 +20,8 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable, Mapping, Sequence
+import time
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
 
 from scripts.atlas_web_gcloud import Gcloud, GcloudError, GcloudResult
@@ -51,6 +52,30 @@ def mutate(gcloud: Gcloud, arguments: Sequence[str]) -> GcloudResult:
     if result.returncode != 0:
         raise ProvisionError(f"{Gcloud.display(arguments)} failed: {result.stderr.strip()}")
     return result
+
+
+#: IAM is eventually consistent: a custom role or service account created moments ago can be refused
+#: by a binding for a minute or more ("Role (…) does not exist in the resource's hierarchy" on the
+#: first live run, 2026-10-17). Only these messages are retried; any other failure is final.
+_PROPAGATING = re.compile(
+    r"does not exist in the resource's hierarchy|Service account .+ does not exist", re.IGNORECASE
+)
+PROPAGATION_DELAYS_S = (10, 20, 30, 30, 30, 30)
+
+
+def mutate_after_propagation(
+    gcloud: Gcloud, arguments: Sequence[str], sleep: Callable[[float], None] = time.sleep
+) -> GcloudResult:
+    """``mutate``, retrying only while a just-created role or account is still propagating."""
+    for delay in (*PROPAGATION_DELAYS_S, None):
+        result = gcloud.mutate(arguments)
+        if result.returncode == 0:
+            return result
+        if delay is None or not _PROPAGATING.search(result.stderr):
+            break
+        print(f"waiting {delay}s for IAM to propagate: {result.stderr.strip().splitlines()[-1]}")
+        sleep(delay)
+    raise ProvisionError(f"{Gcloud.display(arguments)} failed: {result.stderr.strip()}")
 
 
 def listing(gcloud: Gcloud, arguments: Sequence[str]) -> list[dict[str, Any]]:
@@ -148,7 +173,7 @@ def ensure_member(
         if role in held:
             report.append(f"IAM on {label}: {member} already has {role}")
             continue
-        mutate(gcloud, [*add, f"--member={member}", f"--role={role}"])
+        mutate_after_propagation(gcloud, [*add, f"--member={member}", f"--role={role}"])
         report.append(f"IAM on {label}: {member} granted {role}")
 
 

@@ -14,7 +14,10 @@ from typing import Any
 import pytest
 
 from genomeos.publication import data_release as dr
+from scripts import gcp_identity as iam
 from scripts import provision_budget_kill_switch as provision
+from scripts.atlas_web_gcloud import GcloudResult
+from scripts.provision_atlas_web_bucket import ProvisionError
 from tests.atlas_web_fixtures import install_fake_gcloud
 
 PROJECT = "example-project"
@@ -343,3 +346,47 @@ def test_the_source_digest_covers_exactly_the_function_files(tmp_path: Path) -> 
     (source / "extra.py").write_text("", encoding="utf-8")
     with pytest.raises(provision.ProvisionError, match="extra.py"):
         provision.source_digest(tmp_path)
+
+
+class _Flaky:
+    """A Gcloud stand-in whose mutations fail with ``stderr`` ``fails`` times, then succeed."""
+
+    def __init__(self, fails: int, stderr: str) -> None:
+        self.fails, self.stderr, self.calls = fails, stderr, 0
+
+    def mutate(self, arguments):
+        self.calls += 1
+        if self.calls <= self.fails:
+            return GcloudResult(1, "", self.stderr)
+        return GcloudResult(0, "", "")
+
+
+PROPAGATING = (
+    "ERROR: (gcloud.storage.buckets.add-iam-policy-binding) HTTPError 400: Role "
+    "(projects/p/roles/budgetKillSwitch) does not exist in the resource's hierarchy."
+)
+
+
+def test_a_binding_waits_for_a_just_created_role_to_propagate() -> None:
+    slept: list[float] = []
+    flaky = _Flaky(2, PROPAGATING)
+    iam.mutate_after_propagation(flaky, ["storage", "buckets", "add-iam-policy-binding"], sleep=slept.append)
+    assert flaky.calls == 3
+    assert slept == list(iam.PROPAGATION_DELAYS_S[:2])
+
+
+def test_any_other_failure_is_final_without_waiting() -> None:
+    slept: list[float] = []
+    flaky = _Flaky(1, "ERROR: HTTPError 403: permission denied")
+    with pytest.raises(ProvisionError, match="permission denied"):
+        iam.mutate_after_propagation(flaky, ["x"], sleep=slept.append)
+    assert flaky.calls == 1 and slept == []
+
+
+def test_propagation_retries_are_bounded() -> None:
+    slept: list[float] = []
+    flaky = _Flaky(99, PROPAGATING)
+    with pytest.raises(ProvisionError, match="resource's hierarchy"):
+        iam.mutate_after_propagation(flaky, ["x"], sleep=slept.append)
+    assert flaky.calls == len(iam.PROPAGATION_DELAYS_S) + 1
+    assert slept == list(iam.PROPAGATION_DELAYS_S)
