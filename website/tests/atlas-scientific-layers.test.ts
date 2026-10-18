@@ -35,6 +35,7 @@ import {
   type ScientificLayersOptions,
   type ScientificStyle,
 } from '../src/atlas/scene/scientific-layers';
+import { drapedSurfaceSpec } from '../src/atlas/scene/surface-groups';
 import type {
   ArtifactLoad,
   AtlasMark,
@@ -1309,9 +1310,7 @@ describe('draped surface (#483)', () => {
     expect(runtime.rasterSource).toHaveBeenCalledWith(h.worker);
   });
 
-  it('drapes extruded as hexagons and draws the cells whose layers are on', async () => {
-    const { drapedSurfaceSpec } =
-      await import('../src/atlas/scene/surface-groups');
+  it('drapes extruded as hexagons and draws the cells whose layers are on', () => {
     const h = harness({ draped: true, geometry: 'extruded' });
     const surface = surfaceFor('hbs');
     const spec = drapedSurfaceSpec({ artifactKey: keyOf('hbs') }, surface, {
