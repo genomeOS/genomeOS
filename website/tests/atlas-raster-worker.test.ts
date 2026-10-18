@@ -10,7 +10,9 @@ import { planChunks } from '../src/atlas/geometry/chunks';
 import type { NaturalEarthBuffers } from '../src/atlas/geometry/natural-earth';
 import { buildGridIndex } from '../src/atlas/geometry/raster/grid-index';
 import type {
+  FootprintRasterSpec,
   OutlineRasterSpec,
+  RasterSpec,
   Rasterisers,
   SurfaceRasterInput,
   TileAddress,
@@ -47,6 +49,13 @@ const OUTLINE_SPEC: OutlineRasterSpec = {
   layer: 'outlines',
   metric: SURFACE_SPEC.metric,
   palette: SURFACE_SPEC.palette,
+};
+/** One 1 km footprint on `SURFACE_SPEC`'s artifact; no rasteriser draws it yet. */
+const FOOTPRINT_SPEC: FootprintRasterSpec = {
+  artifactKey: SURFACE_SPEC.artifactKey,
+  circles: Float64Array.of(36.8, -1.3, 1),
+  color: '#ffffff',
+  layer: 'footprints',
 };
 
 interface Posted {
@@ -371,32 +380,72 @@ describe('worker raster runtime (terrain draping design, "How existing features 
     ]);
   });
 
-  it('reports a missing render tier, an unloaded grid, a grid mismatch or a layer it cannot raster yet as internal', async () => {
-    for (const spec of [
-      { ...SURFACE_SPEC, artifactKey: 'absent' },
-      { ...SURFACE_SPEC, gridSha256: 'other' },
-      BORDER_SPEC,
-    ]) {
-      h.posted.length = 0;
+  it('reports a missing render tier, an unloaded grid, a grid mismatch, an unprepared grid or a layer it cannot raster yet as internal, each by its own guard', async () => {
+    const key = SURFACE_SPEC.artifactKey;
+    // Each case leaves every other input loaded, so only its own guard can refuse it.
+    const cases: [(h: Harness) => void, RasterSpec, string][] = [
+      [
+        () => {},
+        { ...SURFACE_SPEC, artifactKey: 'absent' },
+        'render tier absent is not loaded',
+      ],
+      [
+        (h) => h.grids.clear(),
+        SURFACE_SPEC,
+        `the grid of render tier ${key} is not loaded`,
+      ],
+      [
+        // Grid 'other' is loaded too, but the render tier was decoded against 'test-grid'.
+        (h) => h.grids.set('other', { ...h.grid, gridSha256: 'other' }),
+        { ...SURFACE_SPEC, gridSha256: 'other' },
+        `render tier ${key} was decoded against grid test-grid, not other`,
+      ],
+      [
+        (h) => {
+          h.context.prepared = () => undefined;
+        },
+        SURFACE_SPEC,
+        'grid test-grid is not loaded',
+      ],
+      [() => {}, BORDER_SPEC, 'the borders layer has no rasteriser yet'],
+      [() => {}, FOOTPRINT_SPEC, 'the footprints layer has no rasteriser yet'],
+    ];
+    for (const [setup, spec, message] of cases) {
+      h = rasterHarness();
+      setup(h);
       await h.runtime.handlers['prepare-raster']({
         id: 3,
         spec,
         type: 'prepare-raster',
       });
-      expect(h.posted[0].m).toMatchObject({
-        code: 'internal',
-        id: 3,
-        type: 'error',
-      });
+      expect(h.posted.map(({ m }) => m)).toEqual([
+        { code: 'internal', gosaCode: null, id: 3, message, type: 'error' },
+      ]);
     }
-    h.grids.clear(); // the render tier is loaded, its grid is not
-    h.posted.length = 0;
-    await prepare(h, 3);
-    expect(h.posted[0].m).toMatchObject({
-      code: 'internal',
-      id: 3,
-      type: 'error',
-    });
+  });
+
+  it('fails a prepare cancelled before it runs as cancelled, and keeps no raster for it', async () => {
+    h.cancelled.add(7);
+    await prepare(h, 7);
+    h.cancelled.clear();
+    await tile(h, 11, 7);
+    expect(h.posted.map(({ m }) => m)).toEqual([
+      {
+        code: 'cancelled',
+        gosaCode: null,
+        id: 7,
+        message: 'request superseded',
+        type: 'error',
+      },
+      {
+        code: 'cancelled',
+        gosaCode: null,
+        id: 11,
+        message: 'raster 7 is released or was never prepared',
+        type: 'error',
+      },
+    ]);
+    expect(h.rasterisers.surface).not.toHaveBeenCalled();
   });
 
   it('makes bitmaps unflipped and unpremultiplied, and carries the atlas-raster-v1 marker', async () => {

@@ -387,7 +387,7 @@ export function createGeometryWorker(
 
   return {
     handlers,
-    // An arrow, so the raster context can hold it unbound.
+    // Reads no `this`, so the raster context may hold it unbound.
     prepared: (gridSha256) => {
       const grid = context.grid(gridSha256);
       if (!grid) return undefined;
