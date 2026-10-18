@@ -79,6 +79,7 @@ vi.mock('../src/atlas/scene/context-controller', () => ({
 }));
 vi.mock('../src/atlas/scene/context-overlay', () => ({
   ContextOverlay: class {
+    destroy = () => {};
     load = (
       url: string,
       onFetched: () => void = () => {},
