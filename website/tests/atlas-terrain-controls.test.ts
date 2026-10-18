@@ -140,14 +140,21 @@ describe('relief control (#483)', () => {
     ).toMatch(/2D map/);
   });
 
-  it('warns only while raised relief is actually drawn', () => {
-    const warning = /hide map data on high ground/;
-    expect(
-      reliefControl({ relief: 2, terrain: 'world-terrain', view: 'globe' })
-        .warning,
-    ).toMatch(warning);
+  it('warns that World Terrain can hide map data wherever its height is drawn, even at 1×', () => {
+    // #483 point 3: at true scale the terrain already buries the 650 m surface in the Ethiopian
+    // highlands and the Himalaya; raised relief buries more.
+    const warning =
+      'World Terrain can hide map data on high ground, and raised relief hides more.';
+    for (const [relief, view] of [
+      [1, 'globe'],
+      [3, 'globe'],
+      [1, 'perspective'],
+    ] as const)
+      expect(
+        reliefControl({ relief, terrain: 'world-terrain', view }).warning,
+      ).toBe(warning);
+    // The smooth globe has no height, and the 2D map draws none.
     for (const [relief, terrain, view] of [
-      [1, 'world-terrain', 'globe'],
       [2, 'smooth-globe', 'globe'],
       [2, 'world-terrain', 'map'],
     ] as const)
@@ -166,9 +173,11 @@ describe('relief control (#483)', () => {
     );
   }
 
-  it('renders a labelled "Relief ×" slider over its range', () => {
+  it('renders a labelled "Physical relief ×" slider over its range', () => {
     const html = relief('world-terrain', 'globe', 2.5);
-    expect(html).toContain('Relief ×');
+    expect(html).toMatch(
+      /<label[^>]*for="atlas-relief"[^>]*>Physical relief ×</,
+    );
     expect(html).toContain('2.5×');
     const slider = tagWithId(html, 'atlas-relief');
     expect(slider).toContain('type="range"');
@@ -178,6 +187,20 @@ describe('relief control (#483)', () => {
     expect(slider).toContain('value="2.5"');
     expect(slider).not.toContain('disabled=""');
     expect(html).toMatch(/hide map data on high ground/);
+  });
+
+  it('announces the warning and describes the slider with it', () => {
+    const html = relief('world-terrain', 'globe', 1);
+    expect(tagWithId(html, 'atlas-relief')).toContain(
+      'aria-describedby="atlas-relief-help atlas-relief-warning"',
+    );
+    // A live region that is always present, so the warning is announced when it appears.
+    expect(html).toMatch(
+      /<div role="status"[^>]*><p[^>]*id="atlas-relief-warning"[^>]*>World Terrain can hide map data/,
+    );
+    expect(relief('smooth-globe', 'globe', 1)).toMatch(
+      /<div role="status"[^>]*><\/div>/,
+    );
   });
 
   it.each<[TerrainId, ExplorerSceneMode]>([
@@ -215,6 +238,6 @@ describe('data elevation control wording (#483)', () => {
     expect(html).toContain('aria-label="Data height exaggeration"');
     expect(html).toContain('× data height');
     expect(html).toMatch(/not the ground/);
-    expect(html).toMatch(/Relief ×/);
+    expect(html).toMatch(/Physical relief ×/);
   });
 });

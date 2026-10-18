@@ -1062,7 +1062,7 @@ html.atlas-page .site-header--compact .site-header__inner {
   color: #f4c86a;
 }
 
-/* Relief ×, under the terrain choices of the basemap and terrain chooser (#483). */
+/* Physical relief ×, under the terrain choices of the basemap and terrain chooser (#483). */
 .atlas-relief {
   margin-top: 0.6rem;
   display: grid;

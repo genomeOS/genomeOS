@@ -1,7 +1,8 @@
 /**
  * Physical terrain end to end (Atlas design §11, interaction design §5.2; #483). World Terrain,
  * chosen through the basemap and terrain chooser, is shaded by the fixed hillshade light rather
- * than the sun, raised by Relief ×, and the zoom-in button and key stop a kilometre above it.
+ * than the sun, raised by Physical relief ×, and the zoom-in button and key stop a kilometre above
+ * it.
  *
  * CI has no Cesium ion token, so the e2e build stands a synthetic cone in for World Terrain when a
  * test sets `window.__atlasSyntheticTerrain` (src/atlas/e2e-hooks.ts), and reports the scene
@@ -25,6 +26,8 @@ const FLANK_LAT = SYNTHETIC_CONE.lat - FLANK_KM / 111.195;
 const FLANK_GROUND =
   SYNTHETIC_CONE.peakMetres * (1 - FLANK_KM / SYNTHETIC_CONE.radiusKm);
 const RELIEF = 3;
+const HIDDEN_DATA =
+  'World Terrain can hide map data on high ground, and raised relief hides more.';
 
 const START = new URLSearchParams({
   dayNight: 'false',
@@ -80,7 +83,7 @@ async function openTerrainChooser(page: Page) {
 }
 
 test.describe('physical terrain @desktop-chromium', () => {
-  test('World Terrain is hillshaded, raised by Relief × and floors the zoom', async ({
+  test('World Terrain is hillshaded, raised by Physical relief × and floors the zoom', async ({
     page,
   }) => {
     test.setTimeout(150_000);
@@ -108,7 +111,8 @@ test.describe('physical terrain @desktop-chromium', () => {
     });
     await expect(dayNight).toBeEnabled();
     let chooser = await openTerrainChooser(page);
-    await expect(chooser.getByLabel('Relief ×')).toBeDisabled();
+    await expect(chooser.getByLabel('Physical relief ×')).toBeDisabled();
+    await expect(chooser.getByText(HIDDEN_DATA)).toHaveCount(0);
     await chooser
       .getByRole('radio', { name: 'Cesium World Terrain terrain' })
       .click();
@@ -129,13 +133,13 @@ test.describe('physical terrain @desktop-chromium', () => {
     await groundLoaded(page, FLANK_GROUND);
 
     chooser = await openTerrainChooser(page);
-    const relief = chooser.getByLabel('Relief ×');
+    const relief = chooser.getByLabel('Physical relief ×');
     await expect(relief).toBeEnabled();
+    // At true scale too, World Terrain's high ground can hide the data, and the control says so.
+    await expect(chooser.getByRole('status')).toHaveText(HIDDEN_DATA);
     await relief.fill(String(RELIEF));
     await expect(page).toHaveURL(new RegExp(`relief=${RELIEF}(&|$)`));
-    await expect(
-      chooser.getByText('Raised relief can hide map data on high ground.'),
-    ).toBeVisible();
+    await expect(chooser.getByRole('status')).toHaveText(HIDDEN_DATA);
     await expect
       .poll(async () => (await probe(page)).verticalExaggeration)
       .toBe(RELIEF);

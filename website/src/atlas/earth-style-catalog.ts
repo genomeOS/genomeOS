@@ -338,14 +338,16 @@ export function effectiveRelief({
 }
 
 export interface ReliefControlState extends TerrainControlState {
-  /** What raised relief costs while it is drawn; null otherwise. */
+  /** What drawn terrain costs the map data; null when no terrain height is drawn. */
   warning: string | null;
 }
 
 /**
  * Relief exaggerates the ground only. The data layers sit at fixed heights until they are draped
- * onto the terrain (#483's second change), so raised relief can rise through them; the warning
- * says so while it can happen.
+ * onto the terrain (#483's second change), so wherever World Terrain's height is drawn, even at
+ * true scale, high ground can rise through them (#483 point 3: the 650 m surface disappears in
+ * the Ethiopian highlands and the Himalaya), and raised relief rises through more. The warning
+ * says so whenever that can happen, so data cut away by the ground is not read as missing data.
  */
 export function reliefControl(input: ReliefInput): ReliefControlState {
   if (!hasPhysicalRelief(input.terrain))
@@ -364,8 +366,6 @@ export function reliefControl(input: ReliefInput): ReliefControlState {
     disabled: false,
     note: null,
     warning:
-      effectiveRelief(input) > 1
-        ? 'Raised relief can hide map data on high ground.'
-        : null,
+      'World Terrain can hide map data on high ground, and raised relief hides more.',
   };
 }

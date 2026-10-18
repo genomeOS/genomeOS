@@ -157,7 +157,7 @@ export function InferredSurfaceControls({
           </label>
           <InfoTip label="statistical elevation">
             Raises supported cells by the displayed metric, so the height is a
-            data value. It never moves the ground: physical relief is Relief ×,
+            data value. It never moves the ground: that is Physical relief ×,
             under Map → Basemap &amp; terrain.
           </InfoTip>
         </div>
@@ -176,8 +176,8 @@ export function InferredSurfaceControls({
           />
         </label>
         <p className="atlas-control-note" id="atlas-data-height-note">
-          Scales the data values, not the ground. For mountains, use Relief ×
-          under Map.
+          Scales the data values, not the ground. For mountains, use Physical
+          relief × under Map.
         </p>
       </div>
     </div>

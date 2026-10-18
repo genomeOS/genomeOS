@@ -1,5 +1,5 @@
 /**
- * The physical-terrain "Relief ×" slider, under the terrain choices of the basemap and terrain
+ * The physical-terrain "Physical relief ×" slider, under the terrain choices of the basemap and terrain
  * chooser, for Atlas design §11 and interaction design §5.2 (#483).
  *
  * Relief exaggerates the ground only. Interaction design §5.2 keeps physical terrain and
@@ -33,11 +33,14 @@ export function ReliefControl({
   onRelief,
 }: ReliefControlProps) {
   const control = reliefControl({ relief, terrain, view });
-  const describedBy = control.note ? 'atlas-relief-note' : 'atlas-relief-help';
+  const describedBy = [
+    control.note ? 'atlas-relief-note' : 'atlas-relief-help',
+    ...(control.warning ? ['atlas-relief-warning'] : []),
+  ].join(' ');
   return (
     <div className="atlas-relief">
       <div className="atlas-relief__title">
-        <label htmlFor="atlas-relief">Relief ×</label>
+        <label htmlFor="atlas-relief">Physical relief ×</label>
         <span>{relief.toFixed(1)}×</span>
       </div>
       <input
@@ -61,11 +64,17 @@ export function ReliefControl({
           Exaggerates the ground only, never the data.
         </p>
       )}
-      {control.warning && (
-        <p className="atlas-control-note atlas-control-note--warning">
-          {control.warning}
-        </p>
-      )}
+      {/* Always present, so a screen reader announces the warning when it appears. */}
+      <div role="status">
+        {control.warning && (
+          <p
+            className="atlas-control-note atlas-control-note--warning"
+            id="atlas-relief-warning"
+          >
+            {control.warning}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
