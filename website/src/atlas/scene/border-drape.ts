@@ -7,10 +7,11 @@
  * `atlas-borders` imagery layer at α = the country opacity. Hidden with the countries layer, the
  * layer is not shown rather than at α 0, so it frees its tiles. The colour is baked into the raster,
  * so a colour change adds a new layer at α 0 and retires the shown one only once the globe has its
- * tiles (`whenLayerReady`); an opacity change is instant. A layer still preparing when a newer
- * request supersedes it is dropped, its provider destroyed. A raster or provider failure is never an
- * empty layer: the first failure of each layer still in use is reported, and the scene reverts to the
- * smooth globe. Only the types of the lazy draped modules are imported.
+ * tiles (`whenLayerReady`); with the countries hidden that wait renders nothing until they show
+ * again. An opacity change is instant. A layer still preparing when a newer request supersedes it
+ * is dropped, its provider destroyed. A raster or provider failure is never an empty layer: the
+ * first failure of each layer still in use is reported, and the scene reverts to the smooth globe.
+ * Only the types of the lazy draped modules are imported.
  */
 
 import type { BorderRasterSpec } from '../geometry/raster/types';

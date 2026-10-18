@@ -6,7 +6,8 @@
  * draped raster whether or not the tab is shown, so the wait for its tiles may begin hidden.
  * `whenLayerReady` waits the same way for one draped imagery layer (terrain draping design, "Per
  * layer under World Terrain"): a recoloured border or footprint layer, added at α 0, replaces the
- * shown one only once the globe has loaded its tiles or the layer's 3 s cap has passed.
+ * shown one only once the globe has loaded its tiles or the layer's 3 s cap has passed. The layer
+ * drives the frames of that wait, so one hidden with its layer waits without rendering.
  */
 
 import type { Scene } from 'cesium';
@@ -159,9 +160,10 @@ export function waitForReady(
 }
 
 /**
- * Resolves after the first rendered frame at which `layer` is ready, requesting a frame after each
- * one until then, since a draped layer's tile loads request none of their own. An abort rejects
- * with an AbortError. Either way its one `postRender` listener is removed.
+ * Resolves after the first rendered frame at which `layer` is ready. It asks for one frame and then
+ * only listens: a shown layer asks for the frames its readiness needs, and a hidden one, never
+ * ready, asks for none, so a wait for a hidden layer renders nothing until the layer is shown
+ * again. An abort rejects with an AbortError. Either way its one `postRender` listener is removed.
  */
 export function whenLayerReady(
   layer: Pick<DrapedImageryLayer, 'isReady'>,
@@ -182,10 +184,7 @@ export function whenLayerReady(
       reject(abortedWait());
     };
     const remove = scene.postRender.addEventListener(() => {
-      if (!layer.isReady()) {
-        scene.requestRender();
-        return;
-      }
+      if (!layer.isReady()) return;
       settle();
       resolve();
     });

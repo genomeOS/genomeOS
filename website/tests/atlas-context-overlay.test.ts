@@ -1206,6 +1206,31 @@ describe('Natural Earth context on World Terrain', () => {
     expect(layers[0].shown).toBe(true);
   });
 
+  // A hidden layer is never ready: asking for frames until it is would render without end.
+  it('waits for a recoloured layer without rendering while the countries layer is hidden', async () => {
+    const { overlay, scene } = setup();
+    await overlay.load('borders.bin');
+    const { layers, runtime } = fakeDrapedRuntime();
+    await overlay.setDraped(runtime);
+    overlay.setVisible(false);
+    overlay.setBorderStyle('#00ff00', 0.5);
+    await flushTasks();
+    expect(layers.map(({ alpha, shown }) => [alpha, shown])).toEqual([
+      [0.5, false],
+      [0, false],
+    ]);
+    scene.requestRender.mockClear();
+    for (let frame = 0; frame < 3; frame += 1) scene.postRender.raiseEvent();
+    expect(scene.requestRender).not.toHaveBeenCalled();
+    overlay.setVisible(true);
+    layers[1].ready = true;
+    scene.postRender.raiseEvent();
+    await flushTasks();
+    expect([layers[1].alpha, layers[0].destroy.mock.calls.length]).toEqual([
+      0.5, 1,
+    ]);
+  });
+
   it('keeps the lines hidden across a view switch while draped, and returns to them when undraped', async () => {
     const { overlay } = setup();
     await overlay.load('borders.bin');
@@ -1349,6 +1374,19 @@ describe('whenLayerReady', () => {
       1, 0,
     ]);
     expect(requestRender).toHaveBeenCalled();
+  });
+
+  it('asks for one frame and then only listens: the layer asks for those its readiness needs', async () => {
+    const postRender = new FakeEvent(),
+      requestRender = vi.fn();
+    void whenLayerReady(
+      { isReady: () => false },
+      { postRender, requestRender },
+      new AbortController().signal,
+    );
+    expect(requestRender).toHaveBeenCalledTimes(1);
+    for (let frame = 0; frame < 3; frame += 1) postRender.raiseEvent();
+    expect(requestRender).toHaveBeenCalledTimes(1);
   });
 
   it('rejects with an AbortError once aborted', async () => {
