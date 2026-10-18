@@ -7,8 +7,11 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   afterNextRender,
   createGroundHeights,
+  createReliefResampler,
   GROUND_RESAMPLE_MS,
+  onTileLoads,
   sampleGroundHeights,
+  throttleResample,
 } from '../src/atlas/scene/ground-heights';
 import { FakeEvent } from './helpers/scene-fakes';
 
@@ -198,5 +201,96 @@ describe('afterNextRender', () => {
     afterNextRender({ postRender, requestRender: vi.fn() }, run)();
     postRender.raiseEvent();
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe('onTileLoads', () => {
+  it('resamples as the tile queue changes, final once it is empty, until removed', () => {
+    const globe = { tileLoadProgressEvent: new ProgressEvent() };
+    const resample = vi.fn();
+    const remove = onTileLoads(globe as never, resample);
+    globe.tileLoadProgressEvent.raiseEvent(3);
+    globe.tileLoadProgressEvent.raiseEvent(0);
+    remove();
+    globe.tileLoadProgressEvent.raiseEvent(1);
+    expect(resample.mock.calls).toEqual([[false], [true]]);
+  });
+});
+
+describe('throttleResample', () => {
+  it('drops a call within 50 ms of the last that ran, unless it is final', () => {
+    const clock = { now: 0 };
+    const run = vi.fn();
+    const resample = throttleResample(run, () => clock.now);
+    resample();
+    clock.now = GROUND_RESAMPLE_MS - 1;
+    resample();
+    resample(true);
+    clock.now += GROUND_RESAMPLE_MS - 1;
+    resample();
+    clock.now += 1;
+    resample();
+    expect(run.mock.calls).toEqual([[false], [true], [false]]);
+  });
+
+  it('counts from the given start, as a fresh sample', () => {
+    const clock = { now: 10 };
+    const run = vi.fn();
+    const resample = throttleResample(run, () => clock.now, clock.now);
+    resample();
+    clock.now = 10 + GROUND_RESAMPLE_MS;
+    resample();
+    expect(run.mock.calls).toEqual([[false]]);
+  });
+});
+
+// Cesium re-exaggerates loaded tiles in the frame after `verticalExaggeration` changes
+// (GlobeSurfaceTileProvider.js:555-575), so each re-sample waits for a rendered frame.
+describe('createReliefResampler', () => {
+  it('resamples after the frame that follows each change, and once more, final, when the changes rest', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const postRender = new FakeEvent(),
+      requestRender = vi.fn(),
+      resample = vi.fn();
+    const relief = createReliefResampler(
+      { postRender, requestRender },
+      resample,
+    );
+    relief.changed();
+    relief.changed(); // a second change before the frame renders: one re-sample
+    expect(resample).not.toHaveBeenCalled();
+    postRender.raiseEvent();
+    expect(resample.mock.calls).toEqual([[false]]);
+    vi.advanceTimersByTime(GROUND_RESAMPLE_MS - 1);
+    relief.changed(); // still dragging: the final waits for the slider to rest
+    postRender.raiseEvent();
+    vi.advanceTimersByTime(GROUND_RESAMPLE_MS - 1);
+    postRender.raiseEvent();
+    expect(resample.mock.calls).toEqual([[false], [false]]);
+    vi.advanceTimersByTime(1);
+    expect(resample).toHaveBeenCalledTimes(2); // and then for its frame
+    postRender.raiseEvent();
+    postRender.raiseEvent();
+    expect(resample.mock.calls).toEqual([[false], [false], [true]]);
+    expect(requestRender).toHaveBeenCalledTimes(4);
+    vi.useRealTimers();
+  });
+
+  it('resamples nothing once cancelled', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const postRender = new FakeEvent(),
+      resample = vi.fn();
+    const relief = createReliefResampler(
+      { postRender, requestRender: vi.fn() },
+      resample,
+    );
+    relief.changed();
+    relief.cancel();
+    postRender.raiseEvent();
+    vi.advanceTimersByTime(GROUND_RESAMPLE_MS);
+    postRender.raiseEvent();
+    expect(resample).not.toHaveBeenCalled();
+    expect(postRender.numberOfListeners).toBe(0);
+    vi.useRealTimers();
   });
 });

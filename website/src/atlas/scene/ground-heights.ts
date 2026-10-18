@@ -20,7 +20,9 @@
  * Cesium re-exaggerates the loaded tile meshes inside the frame after `verticalExaggeration`
  * changes, so until that frame renders `getHeight` still returns the old relief. `afterNextRender`
  * asks for that frame and runs its callback once the frame has rendered, which is when the scene
- * re-samples after a relief change.
+ * re-samples after a relief change; `createReliefResampler` arms it for each relief frame, and
+ * once more, final, when the slider rests. `throttleResample` is the 50 ms rule, which the scene
+ * also applies to the highlight it grounds.
  */
 
 import {
@@ -114,14 +116,9 @@ export function createGroundHeights(
   const current = sampleGroundHeights(globe, points);
   const next = new Float64Array(current.length);
   const listeners = new Set<(h: Float64Array) => void>();
-  let last = now();
   let destroyed = false;
 
-  const resample = (final = false): void => {
-    if (destroyed) return;
-    const time = now();
-    if (!final && time - last < GROUND_RESAMPLE_MS) return;
-    last = time;
+  const sample = (): void => {
     sampleGroundHeights(globe, points, next);
     let changed = false;
     for (let i = 0; i < next.length; i += 1) {
@@ -134,12 +131,13 @@ export function createGroundHeights(
     current.set(next);
     for (const listener of [...listeners]) listener(current);
   };
+  // The sample at creation counts as the last one.
+  const throttled = throttleResample(sample, now, now());
+  const resample = (final = false): void => {
+    if (!destroyed) throttled(final);
+  };
 
-  const removeTileProgress = globe.tileLoadProgressEvent.addEventListener(
-    (length: number) => {
-      resample(length === 0);
-    },
-  );
+  const removeTileProgress = onTileLoads(globe, resample);
   const removeMorphComplete = scene.morphComplete.addEventListener(() => {
     resample(true);
   });
@@ -162,6 +160,19 @@ export function createGroundHeights(
       listeners.clear();
     },
   };
+}
+
+/**
+ * Calls `resample` each time the globe's tile load queue changes length, `final` once it is empty.
+ * Returns the remover.
+ */
+export function onTileLoads(
+  globe: Pick<Globe, 'tileLoadProgressEvent'>,
+  resample: (final: boolean) => void,
+): () => void {
+  return globe.tileLoadProgressEvent.addEventListener((queued: number) =>
+    resample(queued === 0),
+  );
 }
 
 /**
@@ -188,5 +199,60 @@ export function afterNextRender(
     if (!pending) return;
     pending = false;
     remove();
+  };
+}
+
+/**
+ * `run`, called with `final`, except a call that is not final within `GROUND_RESAMPLE_MS` of the
+ * last one that ran, which is dropped. `last` is when the last run was, if one came before.
+ */
+export function throttleResample(
+  run: (final: boolean) => void,
+  now: () => number = () => performance.now(),
+  last = Number.NEGATIVE_INFINITY,
+): (final?: boolean) => void {
+  return (final = false) => {
+    const time = now();
+    if (!final && time - last < GROUND_RESAMPLE_MS) return;
+    last = time;
+    run(final);
+  };
+}
+
+/** Re-samples the ground after relief changes; see `createReliefResampler`. */
+export interface ReliefResampler {
+  /** A relief frame has set a new exaggeration. */
+  changed(): void;
+  /** Drops the re-samples still pending. */
+  cancel(): void;
+}
+
+/**
+ * After each relief change, `resample(false)` once the next frame has rendered it; once the changes
+ * have rested for `GROUND_RESAMPLE_MS`, `resample(true)` after the frame that follows. A change
+ * replaces the re-sample still waiting for its frame.
+ */
+export function createReliefResampler(
+  scene: Parameters<typeof afterNextRender>[0],
+  resample: (final: boolean) => void,
+): ReliefResampler {
+  let cancelRender: (() => void) | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const cancel = (): void => {
+    cancelRender?.();
+    cancelRender = null;
+    clearTimeout(timer);
+    timer = undefined;
+  };
+  return {
+    changed() {
+      cancel();
+      cancelRender = afterNextRender(scene, () => resample(false));
+      timer = setTimeout(() => {
+        cancelRender?.();
+        cancelRender = afterNextRender(scene, () => resample(true));
+      }, GROUND_RESAMPLE_MS);
+    },
+    cancel,
   };
 }
