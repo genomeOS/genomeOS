@@ -4,10 +4,15 @@
  * misbehave: a layer at alpha 0 draws no texture, a hidden layer frees its tiles, alpha is a plain
  * number the tile shader reads, the imagery cache layout that resident bytes count, the flipped
  * decode that south-first bitmaps match, and the base-layer rule the draped base guard answers.
+ * Also the cache of ground positions a relief change leaves stale ("Exaggeration"), which the
+ * terrain shading empties so the labels clamped to the ground follow Physical relief.
  */
 
 import * as Cesium from 'cesium';
 import {
+  Cartesian3,
+  Cartographic,
+  GeographicTilingScheme,
   ImageryLayer,
   ImageryLayerCollection,
   ImageryProvider,
@@ -43,6 +48,33 @@ const tileProvider = (
     GlobeSurfaceTileProvider: { prototype: TileProviderInternals };
   }
 ).GlobeSurfaceTileProvider.prototype;
+
+/** A terrain quadtree tile's private cache of ground positions and its clamped positions. */
+interface QuadtreeTileInternals {
+  readonly customData: Set<{ level: number }>;
+  getPositionCacheEntry(c: Cartographic, sse: number): unknown;
+  setPositionCacheEntry(c: Cartographic, sse: number, value: unknown): void;
+  clearPositionCache(): void;
+}
+interface TerrainInternals {
+  QuadtreeTile: new (options: {
+    level: number;
+    tilingScheme: GeographicTilingScheme;
+    x: number;
+    y: number;
+  }) => QuadtreeTileInternals;
+  QuadtreePrimitive: { prototype: { forEachLoadedTile: unknown } };
+  GlobeSurfaceTile: new () => {
+    mesh: unknown;
+    vertexArray: unknown;
+    updateExaggeration(
+      tile: QuadtreeTileInternals,
+      frameState: object,
+      quadtree: object,
+    ): void;
+  };
+}
+const terrain = Cesium as unknown as TerrainInternals;
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -133,5 +165,54 @@ describe('Cesium 1.145 internals the draped layers rely on (#483)', () => {
       flipY: true,
       preferImageBitmap: true,
     });
+  });
+
+  it('re-clamps the ground after a relief change from each tile’s cached positions, which only clearPositionCache empties', () => {
+    const tile = new terrain.QuadtreeTile({
+      level: 0,
+      tilingScheme: new GeographicTilingScheme(),
+      x: 0,
+      y: 0,
+    });
+    const anchor = Cartographic.fromDegrees(-3.464718, 40.090953);
+    const picked = new Cartesian3(1, 2, 3); // the ground picked at the old relief
+    tile.setPositionCacheEntry(anchor, 2, picked);
+    const clamped = { level: 7 }; // a label clamped to this tile's ground
+    tile.customData.add(clamped);
+    const surfaceTile = new terrain.GlobeSurfaceTile();
+    const updateExaggeration = vi.fn();
+    surfaceTile.vertexArray = {};
+    surfaceTile.mesh = {
+      encoding: {
+        exaggeration: 6,
+        exaggerationRelativeHeight: 0,
+        hasGeodeticSurfaceNormals: true,
+      },
+      updateExaggeration,
+    };
+    const quadtree = { _tileToUpdateHeights: [] as unknown[] };
+    surfaceTile.updateExaggeration(
+      tile,
+      { verticalExaggeration: 10, verticalExaggerationRelativeHeight: 0 },
+      quadtree,
+    );
+    // The tile is queued to update every clamped position from level -1, and its mesh re-exaggerated,
+    expect(quadtree._tileToUpdateHeights).toEqual([tile]);
+    expect(clamped.level).toBe(-1);
+    expect(updateExaggeration).toHaveBeenCalledWith(10, 0);
+    // but its cache still holds the old ground, which the update reads before it picks the mesh.
+    expect(tile.getPositionCacheEntry(anchor, 2)).toBe(picked);
+    expect(cesiumSource('Scene/QuadtreePrimitive.js')).toMatch(
+      /const cachedData = tile\.getPositionCacheEntry\([^)]*\);\s*if \(defined\(cachedData\)\) \{\s*\/\/ cache hit\s*position = cachedData;/,
+    );
+    tile.clearPositionCache();
+    expect(tile.getPositionCacheEntry(anchor, 2)).toBeUndefined();
+    // The loaded tiles are reached through the globe's quadtree.
+    expect(cesiumSource('Scene/Globe.js')).toMatch(
+      /this\._surface = new QuadtreePrimitive\(/,
+    );
+    expect(typeof terrain.QuadtreePrimitive.prototype.forEachLoadedTile).toBe(
+      'function',
+    );
   });
 });

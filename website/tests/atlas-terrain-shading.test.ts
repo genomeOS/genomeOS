@@ -206,10 +206,20 @@ function fakeScene(target = { lat: 27.98, lon: 86.9 }, height = 200_000) {
     ),
     positionWC: Cartesian3.fromDegrees(target.lon, target.lat, height),
   };
+  /** The loaded terrain tiles, each with its cache of ground positions (QuadtreeTile.js). */
+  const tiles = [
+    { clearPositionCache: vi.fn() },
+    { clearPositionCache: vi.fn() },
+  ];
   const scene = {
     camera,
     canvas: { clientHeight: 600, clientWidth: 800 },
     globe: {
+      // Cesium's private quadtree of terrain tiles (Globe.js `_surface`).
+      _surface: {
+        forEachLoadedTile: (visit: (tile: (typeof tiles)[number]) => void) =>
+          tiles.forEach(visit),
+      },
       dynamicAtmosphereLightingFromSun: false,
       enableLighting: true,
       lambertDiffuseMultiplier: 0.9,
@@ -232,7 +242,7 @@ function fakeScene(target = { lat: 27.98, lon: 86.9 }, height = 200_000) {
     camera.positionWC = Cartesian3.fromDegrees(lon, lat, toHeight);
     preRender.raiseEvent();
   };
-  return { camera, moveTo, preRender, scene, sun };
+  return { camera, moveTo, preRender, scene, sun, tiles };
 }
 
 function expectDirection(
@@ -566,6 +576,23 @@ describe('TerrainShading relief (#483)', () => {
     expect(scene.verticalExaggeration).toBe(3);
     expect(scene.verticalExaggerationRelativeHeight).toBe(0);
     expect(scene.requestRender).toHaveBeenCalled();
+  });
+
+  it('forgets the ground positions the terrain tiles cached at the old relief, so labels clamped to the ground re-clamp onto the new ground', () => {
+    const { scene, tiles } = fakeScene();
+    const cleared = () =>
+      tiles.map((tile) => tile.clearPositionCache.mock.calls.length);
+    const shading = new TerrainShading(scene);
+    shading.update({ terrain: 'world-terrain' }); // relief 1: the ground has not moved
+    expect(cleared()).toEqual([0, 0]);
+    shading.update({ relief: 6 });
+    expect(cleared()).toEqual([1, 1]);
+    shading.update({ dayNight: false }); // the relief stays at 6
+    expect(cleared()).toEqual([1, 1]);
+    shading.update({ relief: 10 });
+    expect(cleared()).toEqual([2, 2]);
+    shading.update({ terrain: 'smooth-globe' }); // back to true scale
+    expect(cleared()).toEqual([3, 3]);
   });
 
   it('draws the smooth globe and the 2D map at true scale', () => {
