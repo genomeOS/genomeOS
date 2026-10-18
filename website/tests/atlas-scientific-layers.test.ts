@@ -1993,6 +1993,31 @@ describe('observations on World Terrain', () => {
     ]);
   });
 
+  // Cesium loads a shown layer's tiles at α 0; only `show = false` spares them.
+  it('hands footprints nothing shows over at once and hidden, so they load no tiles', async () => {
+    const h = harness({
+      draped: true,
+      observationStyle: {
+        ...DEFAULT_OBSERVATIONS,
+        samplingAreas: false,
+        shape: 'circle',
+      },
+    });
+    await h.show('a');
+    const [footprints] = footprintsOf(h);
+    expect([footprints.ready, footprints.shown, ringsOf(h).show]).toEqual([
+      false,
+      false,
+      false,
+    ]);
+    expect(footprints.alpha).toBe(h.style.observationStyle.opacity);
+    h.layers.setObservationAppearance(
+      { ...h.style.observationStyle, samplingAreas: true },
+      h.style.layers,
+    );
+    expect([footprints.shown, ringsOf(h).show]).toEqual([true, false]);
+  });
+
   it('lifts draped observations by the ground, and follows it as terrain tiles load', async () => {
     const h = harness({ draped: true });
     h.ground.value = 4_000;

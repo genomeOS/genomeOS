@@ -97,6 +97,8 @@ export interface ObservationPrimitiveGroup {
    * while the collection and the sampling areas both do.
    */
   setFootprints(l: DrapedImageryLayer | null): void;
+  /** Whether footprints handed over now would show: the collection and the sampling areas do. */
+  footprintsShown(): boolean;
   setOpacity(opacity: number): void;
   setSamplingAreaColor(color: string): void;
   setSizeRange(range: ObservationSizeRange): void;
@@ -602,6 +604,7 @@ export function buildObservationLayer(
       footprints?.setAlpha(fadeOpacity * styleOpacity);
       showSamplingAreas();
     },
+    footprintsShown: () => collectionShown && samplingAreasShown,
     setOpacity(opacity: number) {
       fadeOpacity = opacity;
       // The translucent globe already dims draped imagery, so earth opacity is left out here.

@@ -11,8 +11,10 @@
  * - Footprints: the worker rasterises the group's circles in its sampling colour as the
  *   `atlas-footprints` imagery layer, never part of the surface texture. The layer is added at
  *   α 0 and handed to the group, which then hides its rings, once the globe has its tiles
- *   (`whenLayerReady`): the rings stay until the ground shows the footprints. The colour is baked
- *   into the raster, so a new colour builds a new layer and the old one stays until it is
+ *   (`whenLayerReady`): the rings stay until the ground shows the footprints. Footprints the group
+ *   would not show (sampling areas off, or the group hidden) are handed over at once, so the group
+ *   hides them before they load a tile: Cesium loads a shown layer's tiles at α 0. The colour is
+ *   baked into the raster, so a new colour builds a new layer and the old one stays until it is
  *   replaced. A build still preparing when a newer one, the smooth globe or a release supersedes
  *   it is dropped, its provider destroyed.
  * - Failures: a raster or provider failure is never an empty layer. The first failure of each
@@ -216,9 +218,12 @@ export class ObservationDrapes {
       // The layer owns its provider from here: destroying the layer destroys it.
       provider = null;
       scene.requestRender();
-      await whenLayerReady(build.layer, scene, signal);
-      // Released later in the frame that found it ready, after the wait had settled.
-      if (signal.aborted) return;
+      // Nothing would show them: the group hides them now, before any frame loads their tiles.
+      if (group.footprintsShown()) {
+        await whenLayerReady(build.layer, scene, signal);
+        // Released later in the frame that found it ready, after the wait had settled.
+        if (signal.aborted) return;
+      }
       entry.shown?.abort.abort();
       entry.shown = build;
       entry.next = null;

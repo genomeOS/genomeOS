@@ -275,6 +275,15 @@ describe('observations on World Terrain', () => {
     expect(spheres.get(0).center).toBe(center); // not re-placed
   });
 
+  it('reads its footprints as shown only while the collection and the sampling areas both are', () => {
+    const group = layer({ samplingAreas: false });
+    expect(group.footprintsShown()).toBe(false);
+    group.setVisibility(true, true);
+    expect(group.footprintsShown()).toBe(true);
+    group.collection.show = false;
+    expect(group.footprintsShown()).toBe(false);
+  });
+
   it("hides the rings behind a draped footprint layer driven by the group's opacity and visibility", () => {
     const group = layer();
     const rings = group.collection.get(0) as PolylineCollection;
