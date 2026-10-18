@@ -108,6 +108,9 @@ export const OUTLINE_WIDTH_TEXELS = [1.5, 2] as const;
 /** The `atlas-surface` layer's own α factor. The layer scales its whole texture by it, so the mask
  * texels, which the chunk path draws unscaled, store their material α divided by it. */
 export const DRAPED_SURFACE_ALPHA = 0.9;
+/** The alpha a pre-warm draws a layer at for one frame: drawn, so its texture counts, yet unseen
+ * (`DrapedImageryLayer.prewarm`). */
+export const PREWARM_ALPHA = 0.001;
 
 /** Grid rows by rectangle, with ±360° copies of rows that cross the antimeridian. */
 export interface GridIndex {

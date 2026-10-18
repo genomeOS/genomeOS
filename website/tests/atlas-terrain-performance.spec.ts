@@ -12,15 +12,32 @@
  *
  * The tour, the same in both projects (the phone's page CPU slowed ×4, and it must be a coarse
  * pointer, or it would measure the desktop's policy): HbS over the synthetic peak on the smooth
- * globe, every layer on; World Terrain chosen in the chooser (data visible); an orbit (frame
- * rate); three zoom-ins; Physical relief 1 → 3, whose ground resampling the long frames include; a
- * palette and then a Honmoon restyle (each to `tilesLoaded`); and Home. An init script samples
- * the resident Atlas imagery every frame for its peak and records the long animation frames.
+ * globe, every layer on; World Terrain chosen in the chooser (data visible: the surface's fade has
+ * begun, past the one pre-warm frame that draws it unseen); an orbit (frame rate, NaN if the drag
+ * left the camera where it was, since an idle page counts frames at its display rate); three
+ * zoom-ins; Physical relief 1 → 3, whose ground resampling the long frames include; a palette and
+ * then a Honmoon restyle (each to `tilesLoaded`); and Home. An init script samples the resident
+ * Atlas imagery every frame for its peak and records the long animation frames.
+ *
+ * Each step waits for the draped data to settle first. A hardware run must settle. Under a
+ * software renderer, whose frames take about a second each in CI, a settle that runs out of time
+ * is recorded instead and the tour goes on: the timing budgets are skipped there, and a view whose
+ * tiles never all loaded leaves the peak resident imagery only a lower bound, which the tour then
+ * reports as NaN rather than let it pass.
+ *
+ * Density: the e2e fixture's grids hold 256 cells, where production's res-4 grid holds 77,844 over
+ * almost all land, and only non-empty tiles are resident (`scene/draped/drape-stats.ts`), so the
+ * fixture's peak is a lower bound for production. The decision on the mobile fallbacks rests on
+ * this tour at production density: the e2e build over the public bucket. The e2e build carries
+ * its hooks only with the fixture catalog's path (#453), so such a run puts
+ * `public/data/atlas/catalog.json` in that file for one local build, never committed (both hold
+ * HbS `v3/map-2026-08`).
  */
 
 import { expect, test, type Page } from '@playwright/test';
 
 import { SYNTHETIC_PEAK } from '../src/atlas/e2e-hooks';
+import { PREWARM_ALPHA } from '../src/atlas/geometry/raster/types';
 import {
   expandExplorerSheet,
   setSheetState,
@@ -32,11 +49,13 @@ import {
   cameraSettled,
   drapeQuery,
   drapeSettled,
+  drapeUnsettled,
   openTerrainChooser,
   probe,
 } from './atlas-terrain-helpers';
 import {
   TERRAIN_BUDGETS,
+  isSoftwareRenderer,
   terrainBudgetFailures,
   type TerrainPerformanceMetrics,
   type TerrainProfile,
@@ -45,8 +64,23 @@ import {
 /** How long the tour waits for a draped milestone before it records none (NaN). */
 const MILESTONE_TIMEOUT_MS = 60_000;
 
-/** The orbit: 160 px across in 20 steps, counting frames over 1.2 s, as atlas-performance does. */
-const ORBIT = { countMs: 1_200, dx: 160, dy: 40, steps: 20 } as const;
+/**
+ * The orbit: 160 px across in 20 steps, counting frames over 1.2 s, as atlas-performance does. A
+ * turn of the camera below `minDegrees` (about 1 km) means the drag missed the globe.
+ */
+const ORBIT = {
+  countMs: 1_200,
+  dx: 160,
+  dy: 40,
+  minDegrees: 0.01,
+  steps: 20,
+} as const;
+
+/**
+ * Under a software renderer, how long the tour waits for each settle, and for all of them
+ * together, before it records one as missed.
+ */
+const SOFTWARE_SETTLE = { eachMs: 60_000, totalMs: 300_000 } as const;
 
 /** What the init script keeps in the page. */
 type TourWindow = Window & {
@@ -85,20 +119,22 @@ async function lowerSheet(page: Page): Promise<void> {
 }
 
 /**
- * From the World Terrain choice in the chooser to the first frame with the surface draped and a
- * tile delivered, as the phase 2 report measured it; NaN if that frame never came.
+ * From the World Terrain choice in the chooser to the first frame with a tile delivered and the
+ * surface drawn above `PREWARM_ALPHA`: its fade has begun. The phase 2 report took the first frame
+ * with the surface draped, which since the pre-warm is the one frame a new layer draws unseen to
+ * compile its shader, before its fade. NaN if that frame never came.
  */
 async function switchToWorldTerrain(page: Page): Promise<number> {
   await openSection(page, 'Map');
   const chooser = await openTerrainChooser(page);
   const visible = page.evaluate(
-    (timeoutMs) =>
+    ({ prewarmAlpha, timeoutMs }) =>
       new Promise<number>((resolve) => {
         const started = performance.now();
         const sample = () => {
           const elapsed = performance.now() - started;
           if (
-            window.__atlasTerrainProbe?.().draped &&
+            (window.__atlasTerrainProbe?.().surfaceAlpha ?? 0) > prewarmAlpha &&
             (window.__atlasDrapeStats?.().delivered ?? 0) > 0
           )
             resolve(elapsed);
@@ -107,7 +143,7 @@ async function switchToWorldTerrain(page: Page): Promise<number> {
         };
         requestAnimationFrame(sample);
       }),
-    MILESTONE_TIMEOUT_MS,
+    { prewarmAlpha: PREWARM_ALPHA, timeoutMs: MILESTONE_TIMEOUT_MS },
   );
   await chooser
     .getByRole('radio', { name: 'Cesium World Terrain terrain' })
@@ -120,10 +156,16 @@ async function switchToWorldTerrain(page: Page): Promise<number> {
 
 /**
  * Animation frames per second over 1.2 s while the globe is dragged 160 px across: by mouse, or
- * on the phone by one finger.
+ * on the phone by one finger, and how far that turned the camera. The rate is NaN if the drag
+ * left the camera where it was: then nothing orbited, and an idle page counts frames at its
+ * display rate.
  */
-async function orbitFps(page: Page, profile: TerrainProfile): Promise<number> {
+async function orbit(
+  page: Page,
+  profile: TerrainProfile,
+): Promise<{ fps: number; turnedDegrees: number }> {
   await lowerSheet(page);
+  const before = await probe(page);
   const box = (await page.locator('.atlas-scene canvas').boundingBox())!;
   // On the phone, above the peeking sheet.
   const from = {
@@ -153,7 +195,16 @@ async function orbitFps(page: Page, profile: TerrainProfile): Promise<number> {
     await page.mouse.move(to.x, to.y, { steps: ORBIT.steps });
     await page.mouse.up();
   }
-  return counted;
+  const fps = await counted;
+  const after = await probe(page);
+  const turnedDegrees = Math.hypot(
+    after.cameraLon - before.cameraLon,
+    after.cameraLat - before.cameraLat,
+  );
+  return {
+    fps: turnedDegrees >= ORBIT.minDegrees ? fps : Number.NaN,
+    turnedDegrees,
+  };
 }
 
 /** Presses one of the camera controls by name. */
@@ -212,20 +263,51 @@ async function restyleMs(
   return done;
 }
 
-/** The renderer, the long frames, the raster histogram and the peak resident imagery. */
+/** `UNMASKED_RENDERER_WEBGL`, or 'unknown'. */
+async function rendererOf(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const gl = document.createElement('canvas').getContext('webgl');
+    const debug = gl?.getExtension('WEBGL_debug_renderer_info');
+    return gl && debug
+      ? String(gl.getParameter(debug.UNMASKED_RENDERER_WEBGL))
+      : 'unknown';
+  });
+}
+
+/**
+ * Settles the draped data between the tour's steps: `drapeSettled` on a hardware renderer. On a
+ * software renderer, a settle that runs out of time (`SOFTWARE_SETTLE`) is added to `missed`
+ * instead, and the tour goes on.
+ */
+function tourSettler(page: Page, software: boolean) {
+  const missed: string[] = [];
+  let leftMs: number = SOFTWARE_SETTLE.totalMs;
+  return {
+    missed,
+    async settle(step: string): Promise<void> {
+      if (!software) return drapeSettled(page);
+      const started = Date.now();
+      const held = await drapeUnsettled(
+        page,
+        Math.min(SOFTWARE_SETTLE.eachMs, leftMs),
+      );
+      leftMs = Math.max(0, leftMs - (Date.now() - started));
+      if (held !== null) missed.push(`${step}: ${held}`);
+    },
+  };
+}
+
+/** The long frames, the raster histogram and the peak resident imagery. */
 async function pageMeasures(
   page: Page,
 ): Promise<
   Pick<
     TerrainPerformanceMetrics,
-    'longFramesMs' | 'peakResidentBytes' | 'rasterMs' | 'renderer'
+    'longFramesMs' | 'peakResidentBytes' | 'rasterMs'
   >
 > {
   return page.evaluate(() => {
     const tour = window as never as TourWindow;
-    const canvas = document.createElement('canvas');
-    const gl = canvas.getContext('webgl');
-    const debug = gl?.getExtension('WEBGL_debug_renderer_info');
     const { rasterMs } = window.__atlasDrapeStats!();
     return {
       longFramesMs: [...tour.__atlasLongFrames],
@@ -234,10 +316,6 @@ async function pageMeasures(
         counts: [...rasterMs.counts],
         upperMs: [...rasterMs.upperMs],
       },
-      renderer:
-        gl && debug
-          ? String(gl.getParameter(debug.UNMASKED_RENDERER_WEBGL))
-          : 'unknown',
     };
   });
 }
@@ -291,27 +369,29 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
   await waitForAtlasReady(page);
   await waitForRevealWave(page);
   await cameraSettled(page);
+  const renderer = await rendererOf(page);
+  const { missed, settle } = tourSettler(page, isSoftwareRenderer(renderer));
   await page.evaluate(() => {
     (window as never as TourWindow).__atlasLongFrames.length = 0;
   });
 
   // 2. World Terrain, from the chooser.
   const dataVisibleMs = await switchToWorldTerrain(page);
-  await drapeSettled(page);
+  await settle('World Terrain');
 
   // 3. An orbit.
-  const fps = await orbitFps(page, profile);
-  await drapeSettled(page);
+  const orbited = await orbit(page, profile);
+  await settle('orbit');
 
   // 4. Three zoom-ins.
-  for (let press = 0; press < 3; press += 1) {
+  for (let press = 1; press <= 3; press += 1) {
     await pressCameraControl(page, 'Zoom in');
-    await drapeSettled(page);
+    await settle(`zoom in ${press}`);
   }
 
   // 5. Physical relief 1 → 3: the ground heights resample, inside the long frames.
   await setRelief(page, 3);
-  await drapeSettled(page);
+  await settle('relief 3');
 
   // 6. A palette restyle, then a geometry restyle to Honmoon.
   const restyles = [
@@ -324,23 +404,24 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
       page.locator('#atlas-surface-geometry').selectOption('honmoon'),
     ),
   ];
-  await drapeSettled(page);
+  await settle('restyles');
 
   // 7. Home.
   await pressCameraControl(page, 'Home');
-  await drapeSettled(page);
+  await settle('Home');
 
-  // 8. What the tour measured.
+  // 8. What the tour measured; with a settle missed, the peak is only a lower bound.
   const measured = await pageMeasures(page);
   const metrics: TerrainPerformanceMetrics = {
     profile,
-    renderer: measured.renderer,
+    renderer,
     dataVisibleMs,
     restyleMs: restyles,
-    orbitFps: fps,
+    orbitFps: orbited.fps,
     longFramesMs: measured.longFramesMs,
     rasterMs: measured.rasterMs,
-    peakResidentBytes: measured.peakResidentBytes,
+    peakResidentBytes:
+      missed.length === 0 ? measured.peakResidentBytes : Number.NaN,
   };
   const json = reportJson(metrics);
   console.log(`atlas terrain performance (${testInfo.project.name}): ${json}`);
@@ -348,6 +429,10 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
     `atlas terrain budgets (${testInfo.project.name}): ${reportJson({
       budgets: TERRAIN_BUDGETS[profile],
       outside: terrainBudgetFailures(metrics),
+      // Software renderers only: the settles that ran out of time, and the peak they leave.
+      missedSettles: missed,
+      sampledPeakResidentBytes: measured.peakResidentBytes,
+      orbitTurnedDegrees: orbited.turnedDegrees,
       // The tiles behind the numbers, as they stand at the end of the tour.
       tiles: await page.evaluate(() => {
         const { delivered, empty, requested, residentBytes } =

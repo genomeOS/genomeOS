@@ -301,7 +301,7 @@ class CesiumAtlasScene implements AtlasSceneController {
       if (mark === 'surface-visible') this.#startContext();
     });
     this.#unbindKeyboard = bindKeyboardCamera(this.#widget, container);
-    this.#cameraMotion = cameraMotionTestHook(this.#widget.camera);
+    this.#cameraMotion = cameraMotionTestHook(this.#widget.scene);
     this.#removeMoveEnd = this.#widget.camera.moveEnd.addEventListener(() => {
       const state = cameraState(this.#widget);
       if (!state) return;

@@ -51,6 +51,7 @@ import {
 
 import {
   ATLAS_IMAGERY_LAYER_ORDER,
+  PREWARM_ALPHA,
   RASTER_TILE_SIZE,
   type AtlasImageryLayerName,
 } from '../../geometry/raster/types';
@@ -61,8 +62,7 @@ import { emptyTile } from './raster-imagery-provider';
 /** A new layer reads ready this long after its add, whether or not the globe has loaded. */
 export const DRAPED_READY_CAP_MS = 3_000;
 
-/** The alpha a pre-warm draws a layer at for one frame: drawn, so its texture counts, yet unseen. */
-export const PREWARM_ALPHA = 0.001;
+export { PREWARM_ALPHA };
 
 /** Frames after the add before `globe.tilesLoaded` counts. */
 const READY_FRAMES = 2;

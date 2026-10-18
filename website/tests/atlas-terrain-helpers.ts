@@ -13,7 +13,8 @@
  * pixels even while the terrain buries the surface. Through `window.__atlasWindowOf` they also
  * find any point a given height above the rendered ground on the page, to click a grounded symbol
  * above the summit or read the pixels of a draped footprint. `drapeSettled` waits, with
- * `window.__atlasDrapeStats`, until no draped tile is still being drawn.
+ * `window.__atlasDrapeStats`, until no draped tile is still being drawn; `drapeUnsettled` waits
+ * as long, up to a deadline, and says what was still pending.
  */
 
 import { expect, type Locator, type Page } from '@playwright/test';
@@ -55,24 +56,55 @@ export async function cameraSettled(page: Page): Promise<void> {
     .toBe(true);
 }
 
+/** How long `drapeSettled` waits for the draped data to settle before it fails. */
+export const DRAPE_SETTLE_MS = 90_000;
+
 /**
- * The draped data has settled: the camera is at rest, every tile in view has loaded and no
- * draped tile is still being rasterised (`window.__atlasDrapeStats`'s queue is empty).
+ * Waits up to `timeoutMs` for the draped data to settle: the camera at rest
+ * (`window.__atlasCameraMotion`), every tile in view loaded (`globe.tilesLoaded`) and no draped
+ * tile still being rasterised (`window.__atlasDrapeStats`'s queue empty), all in one read. Null
+ * once it has; otherwise what still held it back when the time ran out.
  */
+export async function drapeUnsettled(
+  page: Page,
+  timeoutMs: number,
+): Promise<string | null> {
+  return page.evaluate(
+    (timeoutMs) =>
+      new Promise<string | null>((resolve) => {
+        const started = performance.now();
+        const pending = (): string | null => {
+          const motion = window.__atlasCameraMotion?.();
+          if (!motion) return 'no camera motion is published';
+          if (motion.flying) return 'the camera is flying';
+          if (motion.moving) return 'the camera is moving';
+          const terrain = window.__atlasTerrainProbe?.();
+          if (!terrain) return 'no terrain probe is published';
+          if (!terrain.tilesLoaded) return 'the tiles in view are loading';
+          const stats = window.__atlasDrapeStats?.();
+          if (!stats) return 'no drape stats are published';
+          return stats.queueDepth === 0
+            ? null
+            : `${stats.queueDepth} draped tiles are being rasterised`;
+        };
+        const check = () => {
+          const held = pending();
+          if (held === null || performance.now() - started >= timeoutMs)
+            resolve(held);
+          else setTimeout(check, 100);
+        };
+        check();
+      }),
+    timeoutMs,
+  );
+}
+
+/** The draped data has settled (`drapeUnsettled`) within `DRAPE_SETTLE_MS`, or the test fails. */
 export async function drapeSettled(page: Page): Promise<void> {
-  await cameraSettled(page);
-  await probe(page);
-  await expect
-    .poll(
-      () =>
-        page.evaluate(
-          () =>
-            window.__atlasTerrainProbe!().tilesLoaded &&
-            window.__atlasDrapeStats?.().queueDepth === 0,
-        ),
-      { message: 'the draped tiles in view have loaded', timeout: 60_000 },
-    )
-    .toBe(true);
+  expect(
+    await drapeUnsettled(page, DRAPE_SETTLE_MS),
+    'the camera is at rest and the draped tiles in view have loaded',
+  ).toBeNull();
 }
 
 /** Opens the 'Basemap and terrain' dialog and returns it. */
