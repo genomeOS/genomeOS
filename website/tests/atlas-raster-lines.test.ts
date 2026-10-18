@@ -256,4 +256,34 @@ describe('draped cell outlines (#483)', () => {
     expect(texel(strokeOf(west), 0, 100)[3]).toBe(255);
     expect(texel(strokeOf({ level: 8, x: 256, y: 127 }), 0, 100)[3]).toBe(0);
   });
+
+  it('unwraps an end any number of turns away at once, an end 180° away keeping its side', () => {
+    const east = tileContaining(90, 10, 3); // lon 90..112.5
+    const west = tileContaining(-90, 10, 3); // lon -90..-67.5
+    /** The α the segment lon0 → lon1 leaves mid-tile, along row 100's latitude. */
+    const along = (a: TileAddress, lon0: number, lon1: number) => {
+      const raster = { rgba: new Uint8ClampedArray(256 * 256 * 4) };
+      const { lat } = texelCentre(a, 0, 100);
+      strokePolyline(
+        raster,
+        a,
+        [lon0, lat, lon1, lat],
+        0,
+        2,
+        2,
+        [255, 255, 255],
+        1,
+      );
+      return texel(raster, 128, 100)[3];
+    };
+    expect([along(east, 0, 180), along(west, 0, 180)]).toEqual([255, 0]);
+    expect([along(east, 0, -180), along(west, 0, -180)]).toEqual([0, 255]);
+    expect([along(east, 0, 540), along(west, 0, 540)]).toEqual([255, 0]);
+    expect([along(east, 0, -540), along(west, 0, -540)]).toEqual([0, 255]);
+    // Ten billion turns away, found in one step: a turn a step takes seconds.
+    const started = performance.now();
+    expect(along(east, 10, 120 + 360 * 1e10)).toBe(255);
+    expect(along(west, -10, -120 - 360 * 1e10)).toBe(255);
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
 });

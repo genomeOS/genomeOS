@@ -159,6 +159,7 @@ function strokeInto(
   const span = east - west;
   // How far, in degrees, a stroke may lie outside the tile and still reach into it.
   const margin = ((widthTexels / 2 + 1) * span) / RASTER_TILE_SIZE;
+  // Tiling's `toTexel` frame, inlined so the segment loop allocates nothing.
   const toColumn = (lon: number) =>
     ((lon - west) * RASTER_TILE_SIZE) / span - 0.5;
   const toRow = (lat: number) =>
@@ -183,10 +184,15 @@ function strokeInto(
       Math.min(lat0, lat1) - margin > north
     )
       continue;
-    // Whole turns that bring the end within 180° of the start.
-    let endTurns = 0;
-    while (lon1 + 360 * endTurns - lon0 > 180) endTurns -= 1;
-    while (lon1 + 360 * endTurns - lon0 < -180) endTurns += 1;
+    // Whole turns that bring the end within 180° of the start, in one step however far it lies;
+    // an end exactly 180° away keeps its side.
+    const reach = lon1 - lon0;
+    const endTurns =
+      reach > 180
+        ? -Math.ceil((reach - 180) / 360)
+        : reach < -180
+          ? Math.ceil((-180 - reach) / 360)
+          : 0;
     for (const turns of COPY_TURNS) {
       const start = lon0 + 360 * turns;
       const end = lon1 + 360 * (endTurns + turns);
