@@ -1,6 +1,7 @@
 /** Physical-terrain shading: the hillshade light policy and its scene controller (Atlas design
  * §11, interaction design §5.2; #483). */
 import {
+  Cartesian2,
   Cartesian3,
   Cartographic,
   DirectionalLight,
@@ -9,11 +10,15 @@ import {
 } from 'cesium';
 import { describe, expect, it, vi } from 'vitest';
 
+import { ShiftedPerspectiveFrustum } from '../src/atlas/scene/globe-offset';
 import {
   HILLSHADE_AZIMUTH_DEGREES,
   HILLSHADE_ELEVATION_DEGREES,
+  HILLSHADE_FADE_METRES,
+  HILLSHADE_SHADOW_DARKNESS,
   hillshadeDirection,
   hillshadeElevationDegrees,
+  hillshadeShading,
   terrainLighting,
 } from '../src/atlas/scene/scene-policy';
 import { TerrainShading } from '../src/atlas/scene/terrain-shading';
@@ -112,12 +117,47 @@ describe('hillshadeElevationDegrees', () => {
   });
 });
 
+describe('hillshadeShading (#483 review: no fake night from far out)', () => {
+  it("shades fully up to 1,000 km, with Cesium's own shadow darkness", () => {
+    expect(HILLSHADE_FADE_METRES).toEqual([1_000_000, 3_000_000]);
+    expect(HILLSHADE_SHADOW_DARKNESS).toBe(0.3);
+    for (const height of [-50, 0, 1_000, 17_000, 200_000, 1_000_000])
+      expect(hillshadeShading(height)).toEqual({
+        enableLighting: true,
+        shadowDarkness: 0.3,
+      });
+  });
+
+  it('fades the shading out between 1,000 and 3,000 km', () => {
+    let previous = 0.3;
+    for (const height of [1.5e6, 2e6, 2.5e6, 2.999e6]) {
+      const { enableLighting, shadowDarkness } = hillshadeShading(height);
+      expect(enableLighting).toBe(true);
+      expect(shadowDarkness).toBeGreaterThan(previous);
+      expect(shadowDarkness).toBeLessThan(1);
+      previous = shadowDarkness;
+    }
+    expect(hillshadeShading(2e6).shadowDarkness).toBeCloseTo(0.65, 12);
+  });
+
+  it('draws World Terrain unlit from 3,000 km out, the whole-world 2D map included', () => {
+    // 1.65e7: the desktop home view. 1.9e7: Cesium's 2D camera height is the width of the map
+    // shown, about 19,000 km for the whole-world map.
+    for (const height of [3e6, 1.65e7, 1.9e7, Number.NaN])
+      expect(hillshadeShading(height)).toEqual({
+        enableLighting: false,
+        shadowDarkness: 1,
+      });
+  });
+});
+
 function fakeScene(target = { lat: 27.98, lon: 86.9 }, height = 200_000) {
   const sun = new SunLight();
   const preRender = new FakeEvent();
   const camera = {
     directionWC: new Cartesian3(0, 0, -1),
-    pickEllipsoid: vi.fn(() =>
+    frustum: undefined as unknown,
+    pickEllipsoid: vi.fn((_window: Cartesian2) =>
       Cartesian3.fromDegrees(target.lon, target.lat, 0),
     ),
     positionCartographic: Cartographic.fromDegrees(
@@ -130,7 +170,11 @@ function fakeScene(target = { lat: 27.98, lon: 86.9 }, height = 200_000) {
   const scene = {
     camera,
     canvas: { clientHeight: 600, clientWidth: 800 },
-    globe: { dynamicAtmosphereLightingFromSun: false, enableLighting: true },
+    globe: {
+      dynamicAtmosphereLightingFromSun: false,
+      enableLighting: true,
+      vertexShadowDarkness: 0.3,
+    },
     light: sun as SunLight | DirectionalLight,
     preRender,
     requestRender: vi.fn(),
@@ -220,6 +264,55 @@ describe('TerrainShading lighting', () => {
     );
   });
 
+  it('aims at the ground drawn on the view axis, beside the controls panel (#452)', () => {
+    const { camera, moveTo, scene } = fakeScene();
+    // The desktop globe is drawn shifted right of the canvas centre, by an eighth of 800 px.
+    const frustum = new ShiftedPerspectiveFrustum();
+    frustum.projectionShift = 0.25;
+    camera.frustum = frustum;
+    new TerrainShading(scene).update({ terrain: 'world-terrain' });
+    moveTo(38.75, 9.03);
+    const [centre] = camera.pickEllipsoid.mock.lastCall!;
+    expect(centre.x).toBe(500);
+    expect(centre.y).toBe(300);
+  });
+
+  it('fades the hillshade with height, and draws World Terrain unlit from far out', () => {
+    const { moveTo, scene } = fakeScene();
+    const shading = new TerrainShading(scene);
+    shading.update({ dayNight: true, terrain: 'world-terrain' });
+    expect(scene.globe.enableLighting).toBe(true);
+    expect(scene.globe.vertexShadowDarkness).toBe(0.3);
+    const light = scene.light;
+
+    moveTo(86.9, 27.98, 2_000_000);
+    expect(scene.globe.enableLighting).toBe(true);
+    expect(scene.globe.vertexShadowDarkness).toBeCloseTo(0.65, 12);
+
+    // The home view: no light-facing side, so no night the user cannot switch off.
+    moveTo(40, 10, 16_500_000);
+    expect(scene.globe.enableLighting).toBe(false);
+    expect(scene.globe.vertexShadowDarkness).toBe(1);
+    // Still World Terrain's light, not the sun: day/night does not apply to it.
+    expect(scene.light).toBe(light);
+    shading.update({ dayNight: true });
+    expect(scene.globe.enableLighting).toBe(false);
+
+    moveTo(86.9, 27.98, 200_000);
+    expect(scene.globe.enableLighting).toBe(true);
+    expect(scene.globe.vertexShadowDarkness).toBe(0.3);
+  });
+
+  it('follows a 2D zoom, which changes the camera height but not its position', () => {
+    const { camera, preRender, scene } = fakeScene();
+    new TerrainShading(scene).update({ mode: 'map', terrain: 'world-terrain' });
+    expect(scene.globe.enableLighting).toBe(true);
+    // In 2D Cesium reports the width of the map shown as the camera height.
+    camera.positionCartographic = Cartographic.fromDegrees(86.9, 27.98, 1.9e7);
+    preRender.raiseEvent();
+    expect(scene.globe.enableLighting).toBe(false);
+  });
+
   it('falls back to the point under the camera when the view misses the Earth', () => {
     const { camera, moveTo, scene } = fakeScene();
     const shading = new TerrainShading(scene);
@@ -230,16 +323,21 @@ describe('TerrainShading lighting', () => {
   });
 
   it('restores the sun and the day/night setting when terrain goes back to smooth', () => {
-    const { preRender, scene, sun } = fakeScene();
+    const { moveTo, preRender, scene, sun } = fakeScene();
     scene.globe.dynamicAtmosphereLightingFromSun = true;
+    scene.globe.vertexShadowDarkness = 0.4;
     const shading = new TerrainShading(scene);
     shading.update({ dayNight: false, terrain: 'world-terrain' });
     expect(scene.globe.dynamicAtmosphereLightingFromSun).toBe(false);
+    moveTo(86.9, 27.98, 2_000_000);
     shading.update({ terrain: 'smooth-globe' });
     expect(scene.light).toBe(sun);
     expect(scene.globe.enableLighting).toBe(false);
     expect(scene.globe.dynamicAtmosphereLightingFromSun).toBe(true);
+    expect(scene.globe.vertexShadowDarkness).toBe(0.4);
     expect(preRender.numberOfListeners).toBe(0);
+    shading.update({ dayNight: true });
+    expect(scene.globe.enableLighting).toBe(true);
   });
 
   it('keeps the hillshade when day/night changes under terrain', () => {

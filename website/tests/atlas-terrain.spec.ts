@@ -169,6 +169,17 @@ test.describe('physical terrain @desktop-chromium', () => {
       ZOOM_FLOOR_METRES - 1,
     );
 
+    // From the global view the hillshade has faded out: World Terrain is drawn unlit, with no
+    // night side, and still not by the sun (#483 review).
+    await page.getByRole('button', { name: 'Home' }).click();
+    await cameraSettled(page);
+    expect(await probe(page)).toMatchObject({
+      enableLighting: false,
+      provider: 'synthetic',
+      sunLight: false,
+    });
+    expect((await probe(page)).cameraHeight).toBeGreaterThan(3_000_000);
+
     // Back on the smooth globe: the sun, day/night and true scale return.
     chooser = await openTerrainChooser(page);
     await chooser.getByRole('radio', { name: 'Smooth Globe terrain' }).click();

@@ -3,10 +3,14 @@
  *
  * The smooth globe keeps Cesium's real-time sun, lit only when day/night is on, exactly as before.
  * World Terrain is lit by a fixed hillshade light (`terrainLighting`, scene-policy.ts) from the
- * north-west of the view target. The light follows the target: on each rendered frame whose camera
- * moved, it is re-aimed in place, so it costs nothing while the view is still and requests no
- * frame of its own (the globe renders on demand). Nothing here touches the scene until the first
- * `update`, and the smooth globe never subscribes to a frame event.
+ * north-west of the view target: the ground drawn on the view axis, which on the desktop is the
+ * centre of the open area beside the controls panel (`viewCentre`, globe-offset.ts). The light
+ * follows the target: on each rendered frame whose camera moved, it is re-aimed in place, so it
+ * costs nothing while the view is still and requests no frame of its own (the globe renders on
+ * demand). The same frame fades the shading with the camera's height (`hillshadeShading`), so
+ * World Terrain seen from far out, or as the whole-world 2D map, has no night side. Nothing here
+ * touches the scene until the first `update`, and the smooth globe never subscribes to a frame
+ * event.
  *
  * Relief (`scene.verticalExaggeration`) raises the ground only where there is physical relief to
  * raise and the view is not the flat 2D map (`effectiveRelief`). It is a different control from
@@ -25,19 +29,27 @@ import {
 
 import { effectiveRelief } from '../earth-style-catalog';
 import type { ExplorerSceneMode, TerrainId } from '../url-state';
+import { viewCentre } from './globe-offset';
 import {
   HILLSHADE_AZIMUTH_DEGREES,
   HILLSHADE_INTENSITY,
   hillshadeDirection,
   hillshadeElevationDegrees,
+  hillshadeShading,
   terrainLighting,
 } from './scene-policy';
 
 /** The parts of a Cesium Scene the shading reads and writes. */
 export interface ShadingScene {
   light: Light;
-  globe: { enableLighting: boolean; dynamicAtmosphereLightingFromSun: boolean };
+  globe: {
+    enableLighting: boolean;
+    dynamicAtmosphereLightingFromSun: boolean;
+    vertexShadowDarkness: number;
+  };
   camera: {
+    /** A shifted frustum draws the view axis right of the canvas centre (globe-offset.ts). */
+    readonly frustum?: unknown;
     readonly positionCartographic: Cartographic;
     readonly positionWC: Cartesian3;
     readonly directionWC: Cartesian3;
@@ -68,10 +80,16 @@ interface Hillshade {
   /** What the hillshade replaced, restored when the globe is smooth again. */
   sun: Light;
   fromSun: boolean;
+  shadowDarkness: number;
   removeFollow: () => void;
-  /** The camera the light was last aimed from; undefined forces the next aim. */
+  /**
+   * The camera the light was last aimed from; undefined forces the next aim. The height counts
+   * apart from the position: a 2D zoom changes only the width of the map, which Cesium reports
+   * as the camera's height.
+   */
   position: Cartesian3 | undefined;
   direction: Cartesian3 | undefined;
+  height: number | undefined;
 }
 
 const scratchCentre = new Cartesian2();
@@ -96,9 +114,12 @@ export class TerrainShading {
     if (this.#destroyed) return;
     this.#presentation = { ...this.#presentation, ...change };
     const lighting = terrainLighting(this.#presentation);
+    // The hillshade's own frame sets the lighting, by the camera's height (#follow).
     if (lighting.light === 'hillshade') this.#installHillshade();
-    else this.#removeHillshade();
-    this.#scene.globe.enableLighting = lighting.enableLighting;
+    else {
+      this.#removeHillshade();
+      this.#scene.globe.enableLighting = lighting.enableLighting;
+    }
     const { mode, relief, terrain } = this.#presentation;
     const exaggeration = effectiveRelief({ relief, terrain, view: mode });
     if (this.#scene.verticalExaggeration !== exaggeration) {
@@ -121,6 +142,7 @@ export class TerrainShading {
     const hillshade: Hillshade = {
       direction: undefined,
       fromSun: scene.globe.dynamicAtmosphereLightingFromSun,
+      height: undefined,
       light: new DirectionalLight({
         // Replaced by the first aim, below; Cesium refuses a zero direction.
         direction: Cartesian3.UNIT_Z,
@@ -128,6 +150,7 @@ export class TerrainShading {
       }),
       position: undefined,
       removeFollow: scene.preRender.addEventListener(() => this.#follow()),
+      shadowDarkness: scene.globe.vertexShadowDarkness,
       sun: scene.light,
     };
     this.#hillshade = hillshade;
@@ -143,17 +166,24 @@ export class TerrainShading {
     hillshade.removeFollow();
     this.#scene.light = hillshade.sun;
     this.#scene.globe.dynamicAtmosphereLightingFromSun = hillshade.fromSun;
+    this.#scene.globe.vertexShadowDarkness = hillshade.shadowDarkness;
     this.#hillshade = null;
   }
 
-  /** Re-aims the light when the camera moved since the last aim; otherwise does nothing. */
+  /**
+   * Re-aims the light and re-fades the shading when the camera moved since the last aim;
+   * otherwise does nothing.
+   */
   #follow(): void {
     const hillshade = this.#hillshade;
     if (!hillshade) return;
-    const camera = this.#scene.camera;
+    const scene = this.#scene;
+    const camera = scene.camera;
+    const height = camera.positionCartographic.height;
     if (
       hillshade.position &&
       hillshade.direction &&
+      hillshade.height === height &&
       Cartesian3.equals(hillshade.position, camera.positionWC) &&
       Cartesian3.equals(hillshade.direction, camera.directionWC)
     )
@@ -166,9 +196,12 @@ export class TerrainShading {
       camera.directionWC,
       hillshade.direction,
     );
-    const { clientHeight, clientWidth } = this.#scene.canvas;
+    hillshade.height = height;
+    const shading = hillshadeShading(height);
+    scene.globe.enableLighting = shading.enableLighting;
+    scene.globe.vertexShadowDarkness = shading.shadowDarkness;
     const centre = camera.pickEllipsoid(
-      Cartesian2.fromElements(clientWidth / 2, clientHeight / 2, scratchCentre),
+      viewCentre(scene, scratchCentre),
       Ellipsoid.WGS84,
       scratchTarget,
     );
@@ -180,7 +213,7 @@ export class TerrainShading {
       CesiumMath.toDegrees(target.longitude),
       CesiumMath.toDegrees(target.latitude),
       HILLSHADE_AZIMUTH_DEGREES,
-      hillshadeElevationDegrees(camera.positionCartographic.height),
+      hillshadeElevationDegrees(height),
     );
     Cartesian3.fromElements(x, y, z, hillshade.light.direction);
   }
