@@ -1239,6 +1239,35 @@ describe('draped surface (#483)', () => {
     ({ groups, runtime } = fakeDrapedRuntime());
   });
 
+  /**
+   * Gives the harness's stubbed `document` a visibility the test flips, firing `visibilitychange`
+   * like a browser (the scene's readiness waits read the document's).
+   */
+  function stubTabVisibility(
+    initial: 'hidden' | 'visible',
+  ): (state: 'hidden' | 'visible') => void {
+    const listeners = new Set<() => void>();
+    const page = Object.assign(globalThis.document as object, {
+      addEventListener(type: string, listener: () => void) {
+        if (type === 'visibilitychange') listeners.add(listener);
+      },
+      removeEventListener(type: string, listener: () => void) {
+        if (type === 'visibilitychange') listeners.delete(listener);
+      },
+      visibilityState: initial,
+    });
+    return (state) => {
+      page.visibilityState = state;
+      for (const listener of [...listeners]) listener();
+    };
+  }
+
+  /** Runs what is queued under fake timers, as `pump` does with real ones, but draws no frame. */
+  async function settleUnderFakeTimers(): Promise<void> {
+    for (let index = 0; index < 12; index += 1)
+      await vi.advanceTimersByTimeAsync(0);
+  }
+
   /** Shows `id` draped: its raster prepared, its tiles loaded and its fade run to the end. */
   async function showDraped(h: Harness, id: string): Promise<void> {
     const done = h.layers.setArtifact(h.load(id));
@@ -1581,6 +1610,135 @@ describe('draped surface (#483)', () => {
       error,
     );
     warn.mockRestore();
+  });
+
+  // Review Focus 3: a hidden tab renders no frame, so nothing there can be seen to be ready (RF1).
+  it('waits out a hidden tab before a cold draped surface is ready, and fails nothing', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const onDrapeFailure = vi.fn();
+      const h = harness(
+        { draped: true },
+        {},
+        { draped: async () => runtime, onDrapeFailure },
+      );
+      const setVisibility = stubTabVisibility('hidden');
+      let outcome: unknown = 'pending';
+      const done = h.layers.setArtifact(h.load('hbs')).then(
+        () => (outcome = 'shown'),
+        (error: unknown) => (outcome = error),
+      );
+      await settleUnderFakeTimers();
+      // The worker prepares the raster whether or not the tab is shown.
+      groups[0].prepared.resolve();
+      await settleUnderFakeTimers();
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(outcome).toBe('pending');
+      expect(groups[0].collection.show).toBe(true);
+
+      setVisibility('visible');
+      groups[0].ready = true;
+      h.frame();
+      await settleUnderFakeTimers();
+      await done;
+      expect(outcome).toBe('shown');
+      expect(groups[0].opacity()).toBe(1);
+      expect(h.commits).toEqual([keyOf('hbs')]);
+      expect(onDrapeFailure).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reverts nothing for outlines that a hidden tab or destroy() leaves waiting', async () => {
+    const onDrapeFailure = vi.fn();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const h = harness(
+      { draped: true },
+      {},
+      { draped: async () => runtime, onDrapeFailure },
+    );
+    await showDraped(h, 'hbs');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const setVisibility = stubTabVisibility('visible');
+      h.style.cellEdges = true;
+      const edges = h.layers.setCellEdges(true);
+      await settleUnderFakeTimers();
+      expect(groups[0].setCellEdges).toHaveBeenLastCalledWith(true);
+      setVisibility('hidden');
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(onDrapeFailure).not.toHaveBeenCalled();
+
+      setVisibility('visible');
+      await vi.advanceTimersByTimeAsync(10_000);
+      // "Retry globe" destroys the layers while the outlines' tiles are still loading.
+      h.layers.destroy();
+      await edges;
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(onDrapeFailure).not.toHaveBeenCalled();
+      expect(h.emitted).not.toContain('edges-ready');
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+      warn.mockRestore();
+    }
+  });
+
+  it('leaves edges-ready to the newest outline request when an older one settles last', async () => {
+    const h = harness({ draped: true }, {}, { draped: async () => runtime });
+    await showDraped(h, 'hbs');
+    groups[0].outlines = true;
+    const hiding = deferred<void>();
+    groups[0].setCellEdges.mockImplementationOnce(() => hiding.promise);
+    h.style.cellEdges = false;
+    const off = h.layers.setCellEdges(false);
+    h.style.cellEdges = true;
+    await h.layers.setCellEdges(true);
+    hiding.resolve();
+    await off;
+    h.frame();
+    expect(h.attributes.get('data-atlas-edges-ready')).toBe('true');
+  });
+
+  it('reads edges-ready with the surface layer off, there being no outlines to draw', async () => {
+    const h = harness(
+      {
+        cellEdges: true,
+        draped: true,
+        layers: { ...DEFAULT_LAYERS, support: true, surface: false },
+      },
+      {},
+      { draped: async () => runtime },
+    );
+    await showDraped(h, 'hbs');
+    h.frame();
+    expect(groups[0].cells).toEqual({ masked: true, supported: false });
+    expect(groups[0].setCellEdges).toHaveBeenLastCalledWith(true);
+    expect(h.emitted).toContain('edges-ready');
+    expect(h.attributes.get('data-atlas-edges-ready')).toBe('true');
+  });
+
+  it('reports no raster failure that lands after destroy', async () => {
+    const onDrapeFailure = vi.fn();
+    let failImport!: (error: unknown) => void;
+    const h = harness(
+      { draped: true },
+      {},
+      {
+        draped: () =>
+          new Promise<DrapedRuntime>((_, reject) => {
+            failImport = reject;
+          }),
+        onDrapeFailure,
+      },
+    );
+    const done = h.layers.setArtifact(h.load('hbs'));
+    await h.pump();
+    h.layers.destroy();
+    failImport(new Error('runtime chunk'));
+    await expect(done).resolves.toBeUndefined();
+    expect(onDrapeFailure).not.toHaveBeenCalled();
   });
 
   it('destroys a superseded draped group that was never shown', async () => {

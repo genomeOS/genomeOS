@@ -1,6 +1,17 @@
-/** Render-ready synchronization and visual swaps for Atlas design §11 (spec 2026-10-07 §B.6.8). */
+/** Render-ready synchronization and visual swaps for Atlas design §11 (spec 2026-10-07 §B.6.8).
+ *
+ * Readiness is read after each rendered frame, and a hidden tab renders none, so a wait's idle
+ * deadline counts visible time only (RF1), as the chunk scheduler's stall timeout does. Under World
+ * Terrain (terrain draping design, "How existing features behave", #483) the worker prepares a
+ * draped raster whether or not the tab is shown, so the wait for its tiles may begin hidden.
+ */
 
 import type { Scene } from 'cesium';
+
+import {
+  DOCUMENT_VISIBILITY,
+  type VisibilitySource,
+} from './reveal-wave-driver';
 
 export interface SceneHost {
   scene: Pick<Scene, 'postRender' | 'primitives' | 'requestRender'>;
@@ -65,11 +76,29 @@ export function transitionProgress(
   return linear * linear * (3 - 2 * linear);
 }
 
+export interface ReadyWaitOptions {
+  /** Ends the wait with an AbortError, leaving the group as it is. */
+  signal?: AbortSignal;
+  /** Defaults to the document's. */
+  visibility?: VisibilitySource;
+}
+
+function abortedWait(): DOMException {
+  return new DOMException('The readiness wait was aborted', 'AbortError');
+}
+
+/**
+ * Resolves once `group` is ready after a rendered frame. With no readiness progress in
+ * `GEOMETRY_IDLE_TIMEOUT_MS` of visible time it hides the group and rejects: no timer runs while
+ * the tab is hidden, and showing it again starts a whole window.
+ */
 export function waitForReady(
   viewer: SceneHost,
   group: FadeableGroup,
   onProgress?: (progress: number) => void,
+  { signal, visibility = DOCUMENT_VISIBILITY }: ReadyWaitOptions = {},
 ): Promise<void> {
+  if (signal?.aborted) return Promise.reject(abortedWait());
   const totalCount = group.totalCount?.() ?? Math.max(group.readyCount(), 1);
   const report = () =>
     onProgress?.(
@@ -85,15 +114,27 @@ export function waitForReady(
     const stopWaiting = () => {
       clearTimeout(timeout);
       remove();
+      removeVisibility();
+      signal?.removeEventListener('abort', onAbort);
     };
     const failIfStalled = () => {
       group.collection.show = false;
       stopWaiting();
       reject(new Error('Cesium geometry build timed out'));
     };
+    const onAbort = () => {
+      stopWaiting();
+      reject(abortedWait());
+    };
     const extendDeadline = () => {
       clearTimeout(timeout);
-      timeout = globalThis.setTimeout(failIfStalled, GEOMETRY_IDLE_TIMEOUT_MS);
+      timeout = undefined;
+      if (visibility.isHidden()) return;
+      timeout = globalThis.setTimeout(
+        // A page frozen while hidden may fire its timer late, on return.
+        () => (visibility.isHidden() ? extendDeadline() : failIfStalled()),
+        GEOMETRY_IDLE_TIMEOUT_MS,
+      );
     };
     const remove = viewer.scene.postRender.addEventListener(() => {
       const nextReadyCount = group.readyCount();
@@ -106,6 +147,8 @@ export function waitForReady(
       stopWaiting();
       resolve();
     });
+    const removeVisibility = visibility.onChange(extendDeadline);
+    signal?.addEventListener('abort', onAbort, { once: true });
     extendDeadline();
     viewer.scene.requestRender();
   });

@@ -9,6 +9,9 @@
  * - A draped group reads a surface raster spec. Extruded drapes as hexagons, since data elevation
  *   is off under World Terrain, and the cell layers that are on choose the cells baked into its
  *   texture, so a toggle that changes them rebuilds it. Honmoon contours are not drawn yet.
+ * - A draped group's outlines are waited on only while it is in view. A group drawing no supported
+ *   cell has none, so they are ready at once, and a stalled wait warns but never reverts the globe:
+ *   only a raster failure does.
  * - In a restyle swap the outgoing draped layer stays opaque until it is retired, so the incoming
  *   one cross-fades over it rather than both letting the ground show through.
  */
@@ -33,7 +36,7 @@ import {
   type ObservationSurfaceHeights,
 } from './observation-layer';
 import { REVEAL_ATTRIBUTE, type MarkTracker } from './scene-marks';
-import type { FadeableGroup } from './scene-transition';
+import { waitForReady, type FadeableGroup } from './scene-transition';
 import type {
   ScientificLayersOptions,
   ScientificScene,
@@ -129,6 +132,26 @@ export function edgeColorOf(
     : { color: style.edgeFixedColor, mode: 'fixed' };
 }
 
+/** A surface group's cache key; a draped one's also names the cells baked into its texture. */
+export function surfaceKeyFor(
+  artifactKey: string,
+  style: ScientificStyle,
+): string {
+  const { layers } = style;
+  const kind = style.draped
+    ? `draped:${+layers.surface}${+layers.support}`
+    : 'chunks';
+  return [artifactKey, style.metric, style.palette, style.geometry, kind].join(
+    ':',
+  );
+}
+
+export function edgeStyleKey(
+  style: Pick<ScientificStyle, 'edgeColorMode' | 'edgeFixedColor'>,
+): string {
+  return `${style.edgeColorMode}:${style.edgeFixedColor}`;
+}
+
 /** The cells a draped surface draws: supported ones with the surface layer, masked with support. */
 export function drapedCells(
   layers: Pick<LayerVisibility, 'support' | 'surface'>,
@@ -169,17 +192,35 @@ export function opaqueUntilRetired(group: SurfaceGroup): FadeableGroup {
   };
 }
 
+/** A draped group's outlines are drawn: ready, or none to draw with its supported cells off. */
+export function drapedOutlinesReady(group: DrapedSurfaceGroup): boolean {
+  return !group.cells.supported || group.outlinesReady();
+}
+
 /**
- * A draped group's outlines as `waitForReady` waits on them. Their collection is detached, so a
- * stalled wait, which hides what it waited on, never hides the surface.
+ * Waits until a draped group's outlines are drawn, resolving true if the group is still in view.
+ * The group leaving the view, or `signal`, ends the wait with false. A wait that stalls is not a
+ * raster failure, so it only warns, and the collection it would hide is detached from the surface.
  */
-export function drapedOutlines(group: DrapedSurfaceGroup): FadeableGroup {
-  return {
+export function waitForDrapedOutlines(
+  { scene }: Pick<SurfaceGroupHost, 'scene'>,
+  group: DrapedSurfaceGroup,
+  { inView, signal }: { inView(): boolean; signal: AbortSignal },
+): Promise<boolean> {
+  const outlines: FadeableGroup = {
     collection: { show: true },
-    isReady: () => group.outlinesReady(),
-    readyCount: () => +group.outlinesReady(),
+    isReady: () => !inView() || drapedOutlinesReady(group),
+    readyCount: () => +drapedOutlinesReady(group),
     setOpacity() {},
   };
+  return waitForReady({ scene }, outlines, undefined, { signal }).then(
+    () => inView(),
+    (error: unknown) => {
+      if (!isAbortError(error))
+        console.warn('Cell outlines did not become ready.', error);
+      return false;
+    },
+  );
 }
 
 export function disposeSurfaceGroup(

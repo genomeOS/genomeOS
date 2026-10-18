@@ -58,13 +58,16 @@ import {
   disposeSurfaceGroup,
   DrapeFailure,
   drapedCells,
-  drapedOutlines,
+  drapedOutlinesReady,
   edgeColorOf,
+  edgeStyleKey,
   isAbortError,
   isDrapedGroup,
   opaqueUntilRetired,
   streamChunks,
+  surfaceKeyFor,
   viewLookAt,
+  waitForDrapedOutlines,
   type AnySurfaceGroup,
   type DisplayedSurface,
   type SurfaceGroupHost,
@@ -190,16 +193,6 @@ function shown(group: LiveGroup): boolean {
   return group.collection.show && group.opacity() > 0;
 }
 
-function surfaceKeyFor(artifactKey: string, style: ScientificStyle): string {
-  const { layers } = style;
-  const kind = style.draped
-    ? `draped:${+layers.surface}${+layers.support}`
-    : 'chunks';
-  return [artifactKey, style.metric, style.palette, style.geometry, kind].join(
-    ':',
-  );
-}
-
 function observationKeyFor(
   artifactKey: string,
   style: ObservationPresentation,
@@ -212,10 +205,6 @@ function observationKeyFor(
     ...style.gradient,
     style.sizeVariable,
   ].join(':');
-}
-
-function edgeStyleKey(style: ScientificStyle): string {
-  return `${style.edgeColorMode}:${style.edgeFixedColor}`;
 }
 
 export class ScientificLayers {
@@ -486,9 +475,11 @@ export class ScientificLayers {
       }
       epoch.streamDone = true;
       this.#options.scene.requestRender();
-      await waitForReady({ scene: this.#options.scene }, group, (value) =>
-        progress?.({ detail: 'Preparing surface geometry', progress: value }),
-      );
+      const report = (value: number) =>
+        progress?.({ detail: 'Preparing surface geometry', progress: value });
+      await waitForReady({ scene: this.#options.scene }, group, report, {
+        signal: abort.signal,
+      });
       assertCurrent();
       // A cold draped surface fades in from here; with no tile drawn there is nothing to fade.
       if (cold && isDrapedGroup(group)) {
@@ -517,7 +508,9 @@ export class ScientificLayers {
       )
         return true;
       if (error instanceof DrapeFailure) {
-        // The scene reverts to the smooth globe, whose rebuild of this request settles this call.
+        // Nothing reverts once destroyed. Otherwise the scene reverts to the smooth globe, whose
+        // rebuild of this request settles this call.
+        if (this.#destroyed) return true;
         if (sequence === this.#sequence)
           this.#options.onDrapeFailure?.(error.cause);
         if (sequence !== this.#sequence) return true;
@@ -900,7 +893,9 @@ export class ScientificLayers {
     marks.clear('edges-ready');
     if (
       style.cellEdges &&
-      (isDrapedGroup(group) ? group.outlinesReady() : group.edges.isBuilt()) &&
+      (isDrapedGroup(group)
+        ? drapedOutlinesReady(group)
+        : group.edges.isBuilt()) &&
       this.#edgeStyles.get(group) === edgeStyleKey(style)
     )
       marks.queue('edges-ready');
@@ -950,7 +945,8 @@ export class ScientificLayers {
 
   /**
    * A draped group's outlines (#483): their colour follows the style, then they show or hide, and
-   * `edges-ready` follows their layer. No wave holds them: they fade in with the surface.
+   * `edges-ready` follows their layer. No wave holds them: they fade in with the surface. A newer
+   * edge request or `destroy()` ends the wait for their tiles; only a raster failure reverts.
    */
   async #drapedEdges(
     group: DrapedSurfaceGroup,
@@ -958,6 +954,9 @@ export class ScientificLayers {
   ): Promise<void> {
     const style = this.#options.style();
     const key = edgeStyleKey(style);
+    this.#edgeBuild?.abort();
+    const { signal } = (this.#edgeBuild = new AbortController());
+    const inView = () => !this.#destroyed && this.#displayed?.group === group;
     try {
       if (this.#edgeStyles.get(group) !== key) {
         this.#edgeStyles.set(group, key);
@@ -965,19 +964,18 @@ export class ScientificLayers {
         await group.setOutlineStyle(edgeColorOf(style));
       }
       await group.setCellEdges(visible);
-      if (!visible) this.#options.marks.clear('edges-ready');
-      // With the supported cells off there are no outlines to wait for.
-      if (!visible || !group.cells.supported) return;
-      await waitForReady({ scene: this.#options.scene }, drapedOutlines(group));
-      if (this.#displayed?.group === group)
-        this.#options.marks.queue('edges-ready');
     } catch (error) {
       if (isAbortError(error)) return;
       console.warn('Cell outlines could not be built.', error);
       // An outline raster is a raster: its failure reverts the globe too.
-      if (this.#displayed?.group === group)
-        this.#options.onDrapeFailure?.(error);
+      if (inView()) this.#options.onDrapeFailure?.(error);
+      return;
     }
+    // A newer request owns the marks now.
+    if (signal.aborted) return;
+    if (!visible) return this.#options.marks.clear('edges-ready');
+    if (await waitForDrapedOutlines(this.#host, group, { inView, signal }))
+      this.#options.marks.queue('edges-ready');
   }
 
   #discard(epoch: Epoch, partial: AnySurfaceGroup | null): void {

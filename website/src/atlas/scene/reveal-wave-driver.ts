@@ -133,11 +133,16 @@ function measureWave(
   }
 }
 
-const DOCUMENT_VISIBILITY: VisibilitySource = {
+/** The page's visibility; one without a `document` event target never changes. */
+export const DOCUMENT_VISIBILITY: VisibilitySource = {
   isHidden: () =>
     typeof document !== 'undefined' && document.visibilityState === 'hidden',
   onChange(listener) {
-    if (typeof document === 'undefined') return () => {};
+    if (
+      typeof document === 'undefined' ||
+      typeof document.addEventListener !== 'function'
+    )
+      return () => {};
     document.addEventListener('visibilitychange', listener);
     return () => document.removeEventListener('visibilitychange', listener);
   },
