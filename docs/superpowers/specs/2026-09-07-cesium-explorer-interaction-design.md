@@ -250,9 +250,24 @@ the smooth globe and its sun in charge. A **Physical relief ×** control (the `r
 parameter, 1–10 in steps of 0.5, default 1) sets Cesium's vertical exaggeration of the terrain
 from sea level (`verticalExaggerationRelativeHeight` is 0 and has no control). It is physical
 terrain, separate from scientific elevation's exaggeration, and does not apply to the smooth globe
-or the 2D map. Until the scientific layers are draped onto the terrain, World Terrain can hide
-them on high ground even at true scale, and raised relief hides more; the control says so whenever
-World Terrain's height is drawn.
+or the 2D map.
+
+_Amended 2026-10-18 (#483, draping implemented)._ Under World Terrain the scientific layers are
+draped onto the ground. The data worker rasterises the surface with its support masks, the cell
+outlines, the country borders and the sampling footprints into geographic image tiles, which
+Cesium drapes over the terrain as four imagery layers; the observation symbols, the labels and the
+selection highlight stand on the rendered ground and follow it as tiles load and as Physical
+relief changes. High ground therefore no longer hides map data at any relief, and the relief
+control no longer warns that it can. Honmoon draws its contour lines into the draped surface,
+ported from the smooth globe's shader with each fan triangle's analytic value gradient in place of
+the screen-space derivative; line-only Honmoon shows the basemap between its lines, as on the
+smooth globe. A 1 s fade replaces the radial reveal wave, and each new draped surface first draws
+one unseen frame at α 0.001, so Cesium compiles the globe shader before the fade rather than
+during it. Resident Atlas imagery is budgeted at 160 MiB on desktops and 96 MiB on touch screens
+(coarse pointers). No fallback was needed: the phone's measured peak stayed well inside 96 MiB,
+so phones keep Cesium's default tile cache, outlines in their own layer, borders to level 11, and
+World Terrain itself. The World Terrain budgets are asserted on hardware GPUs; on a software
+renderer only the memory budget is.
 
 The GitHub Actions secret `CESIUM_TOKEN` is exposed to Astro as a public build variable only for
 the Pages build. A browser token is necessarily readable by the browser, so it is treated as a

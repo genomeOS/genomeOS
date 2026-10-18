@@ -1,9 +1,12 @@
 /**
- * The World Terrain budgets of the draped data: one tour per project, measured and reported
+ * The World Terrain budgets of the draped data: one tour per project, measured and asserted
  * (terrain draping design, "Performance budget and measurement" and "Build phases" item 4; Atlas
- * design §11; #483). Report-only for now: the tour's numbers, above all each project's peak
- * resident Atlas imagery, decide which of the mobile fallbacks are needed, and the budgets become
- * assertions on hardware GPUs once they are in place.
+ * design §11; #483). On a hardware GPU every budget is asserted. On a software renderer (CI's
+ * SwiftShader) the timing budgets are skipped, and an annotation says so, while the peak
+ * resident Atlas imagery, a count of tiles rather than a timing, is asserted on every renderer:
+ * phase 4 decision 4 of the plan, its one departure from the spec, which skips every terrain
+ * budget there (pending the owner's sign-off). The phone's peak needed none of the mobile
+ * fallbacks.
  *
  * CI has no Cesium ion token, so the e2e build stands its synthetic terrain in for World Terrain
  * (src/atlas/e2e-hooks.ts) and publishes the drape stats as `window.__atlasDrapeStats`. So this
@@ -23,7 +26,8 @@
  * software renderer, whose frames take about a second each in CI, a settle that runs out of time
  * is recorded instead and the tour goes on: the timing budgets are skipped there, and a view whose
  * tiles never all loaded leaves the peak resident imagery only a lower bound, which the tour then
- * reports as NaN rather than let it pass.
+ * reports as NaN: the memory budget fails, naming the settles that ran out, rather than pass on
+ * a lower bound.
  *
  * Density: the e2e fixture's grids hold 256 cells, where production's res-4 grid holds 77,844 over
  * almost all land, and only non-empty tiles are resident (`scene/draped/drape-stats.ts`), so the
@@ -445,8 +449,19 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
     body: json,
     contentType: 'application/json',
   });
-  // Report-only until the budgets are asserted: here, only that the draped tiles arrived.
   expect(
     (await page.evaluate(() => window.__atlasDrapeStats!())).delivered,
+    'the draped tiles arrived',
   ).toBeGreaterThan(0);
+  if (isSoftwareRenderer(metrics.renderer))
+    testInfo.annotations.push({
+      type: 'timing budgets skipped',
+      description: `software renderer: ${metrics.renderer}`,
+    });
+  expect(
+    terrainBudgetFailures(metrics),
+    missed.length === 0
+      ? `inside the ${profile} budgets`
+      : `inside the ${profile} budgets; settles that ran out of time: ${missed.join('; ')}`,
+  ).toEqual([]);
 });
