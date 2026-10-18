@@ -15,6 +15,7 @@
 
 import type { BorderRasterSpec } from '../geometry/raster/types';
 import { whenLayerReady } from './scene-transition';
+import { isAbortError } from './surface-groups';
 import type {
   DrapedImageryLayer,
   DrapedRuntime,
@@ -54,9 +55,6 @@ interface BorderLayer {
   layer: DrapedImageryLayer | null;
   removeError: (() => void) | null;
 }
-
-const isAbortError = (error: unknown): boolean =>
-  error instanceof Error && error.name === 'AbortError';
 
 export class BorderDrape {
   readonly #options: BorderDrapeOptions;
