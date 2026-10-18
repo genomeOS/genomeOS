@@ -15,11 +15,12 @@
  *   below them: it is the base layer whenever no shown layer lies under it, its two level-0 tiles
  *   are the shared empty canvas, and at alpha 0 it draws nothing (also pinned). It goes with the
  *   last Atlas layer.
- * - Readiness: Cesium loads the tiles of a layer at alpha 0 without drawing them (pinned in
- *   tests/atlas-cesium-internals.test.ts). The layer is ready once `globe.tilesLoaded` holds from
- *   the second frame after the add (the first frame's `preRender` still reads the load queues of
- *   the frame before the add), or `DRAPED_READY_CAP_MS` after it. Each `preRender` requests a
- *   frame until then.
+ * - Readiness: Cesium loads the tiles of a layer at alpha 0 without drawing them, and frees every
+ *   tile of a hidden one (both pinned in tests/atlas-cesium-internals.test.ts). The layer is ready
+ *   once `globe.tilesLoaded` holds from the second frame after it was added or last shown (the
+ *   first frame's `preRender` still reads the load queues of the frame before), or
+ *   `DRAPED_READY_CAP_MS` after that. Each `preRender` requests a frame until then. A hidden layer
+ *   is never ready and requests no frame; shown again, its readiness starts over.
  * - Delivered tiles request a render: worker tiles bypass the RequestScheduler that would.
  * - Destroy removes the layer and destroys its provider, once; the page's drape stats watch the
  *   layer in between.
@@ -165,26 +166,37 @@ export const addDrapedImageryLayer: AddDrapedImageryLayer = ({
   scene.imageryLayers.add(layer, insertionIndex(scene.imageryLayers, name));
   const unwatch = drapeStats.watchLayer(layer);
 
-  const addedAt = performance.now();
+  let shownAt = 0;
   let frames = 0;
   let ready = false;
   let destroyed = false;
+  let removePreRender: (() => void) | null = null;
 
-  let removePreRender: (() => void) | null = scene.preRender.addEventListener(
-    () => {
-      frames += 1;
-      if (
-        (frames >= READY_FRAMES && scene.globe.tilesLoaded) ||
-        performance.now() - addedAt >= DRAPED_READY_CAP_MS
-      ) {
-        ready = true;
-        removePreRender?.();
-        removePreRender = null;
-        return;
-      }
-      scene.requestRender();
-    },
-  );
+  const checkReady = () => {
+    frames += 1;
+    if (
+      (frames >= READY_FRAMES && scene.globe.tilesLoaded) ||
+      performance.now() - shownAt >= DRAPED_READY_CAP_MS
+    ) {
+      ready = true;
+      stopChecking();
+      return;
+    }
+    scene.requestRender();
+  };
+  const stopChecking = () => {
+    removePreRender?.();
+    removePreRender = null;
+  };
+  /** Readiness from now: the layer was added, or shown again with none of its tiles left. */
+  const startChecking = () => {
+    shownAt = performance.now();
+    frames = 0;
+    ready = false;
+    removePreRender ??= scene.preRender.addEventListener(checkReady);
+  };
+
+  startChecking();
   const removeTileLoaded = provider.tileLoaded.addEventListener(() =>
     scene.requestRender(),
   );
@@ -201,14 +213,18 @@ export const addDrapedImageryLayer: AddDrapedImageryLayer = ({
     setShown(s: boolean): void {
       if (destroyed || layer.show === s) return;
       layer.show = s;
+      if (s) startChecking();
+      else {
+        stopChecking();
+        ready = false;
+      }
       scene.requestRender();
     },
     isReady: () => ready,
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
-      removePreRender?.();
-      removePreRender = null;
+      stopChecking();
       removeTileLoaded();
       unwatch();
       scene.imageryLayers.remove(layer, true);
