@@ -3,9 +3,11 @@
  * design, "Performance budget and measurement", #483). Pure: no Playwright or browser dependency.
  *
  * `atlas-terrain-performance.spec.ts` measures a tour per project and hands the numbers here; an
- * empty list is a pass. Milliseconds and fps are judged and reported as whole numbers, bytes
- * exactly. A run that measured no restyle or no raster sample never passes, and a measure that is
- * not a number fails its budget rather than slipping past it.
+ * empty list is a pass. Milliseconds and fps are judged and reported as whole numbers, rounded
+ * against their budget (times up, fps down) so a measure outside a budget never rounds back into
+ * it and no failure reads "2000 ms > 2000 ms"; bytes are exact. A run that measured no restyle or
+ * no raster sample never passes, and a measure that is not a number fails its budget rather than
+ * slipping past it.
  *
  * On a software renderer (CI's SwiftShader) the timing budgets are skipped, as
  * `atlas-performance.spec.ts` skips its own. Resident memory is a count of tiles, not a timing,
@@ -112,7 +114,7 @@ export function terrainBudgetFailures(
   if (timed) {
     atMost(
       'data visible',
-      whole(metrics.dataVisibleMs),
+      wholeUp(metrics.dataVisibleMs),
       budget.dataVisibleMs,
       'ms',
     );
@@ -120,21 +122,21 @@ export function terrainBudgetFailures(
   if (metrics.restyleMs.length === 0) failures.push('no restyles measured');
   else if (timed) {
     for (const ms of metrics.restyleMs) {
-      atMost('restyle', whole(ms), budget.restyleMs, 'ms');
+      atMost('restyle', wholeUp(ms), budget.restyleMs, 'ms');
     }
   }
   if (timed) {
-    const fps = whole(metrics.orbitFps);
+    const fps = Math.floor(metrics.orbitFps);
     if (!(fps >= budget.orbitFps)) {
       failures.push(`orbit ${fps} fps < ${budget.orbitFps} fps`);
     }
     for (const ms of metrics.longFramesMs) {
-      atMost('long frame', whole(ms), budget.longFrameMs, 'ms');
+      atMost('long frame', wholeUp(ms), budget.longFrameMs, 'ms');
     }
   }
   const p95 = rasterP95UpperMs(metrics.rasterMs);
   if (Number.isNaN(p95)) failures.push('no raster samples at level 3 or finer');
-  else if (timed) atMost('raster p95', whole(p95), budget.rasterP95Ms, 'ms');
+  else if (timed) atMost('raster p95', wholeUp(p95), budget.rasterP95Ms, 'ms');
   atMost(
     'resident Atlas imagery',
     metrics.peakResidentBytes,
@@ -144,6 +146,7 @@ export function terrainBudgetFailures(
   return failures;
 }
 
-function whole(value: number): number {
-  return Math.round(value);
+/** A time as whole milliseconds, never below the measure, for an at-most budget. */
+function wholeUp(value: number): number {
+  return Math.ceil(value);
 }

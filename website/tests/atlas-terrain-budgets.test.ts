@@ -60,6 +60,32 @@ describe('terrain budgets (#483)', () => {
     ]);
   });
 
+  it('rounds each measure against its budget, so none outside it rounds back in', () => {
+    expect(
+      terrainBudgetFailures({
+        ...PASSING,
+        dataVisibleMs: 2_000.4,
+        restyleMs: [2_000.2],
+        orbitFps: 44.6,
+        longFramesMs: [200.3],
+      }),
+    ).toEqual([
+      'data visible 2001 ms > 2000 ms',
+      'restyle 2001 ms > 2000 ms',
+      'orbit 44 fps < 45 fps',
+      'long frame 201 ms > 200 ms',
+    ]);
+    expect(
+      terrainBudgetFailures({
+        ...PASSING,
+        dataVisibleMs: 1_999.6,
+        restyleMs: [2_000],
+        orbitFps: 45.9,
+        longFramesMs: [200],
+      }),
+    ).toEqual([]);
+  });
+
   it('never passes a run with nothing measured', () => {
     expect(
       terrainBudgetFailures({
