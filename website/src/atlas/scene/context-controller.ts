@@ -17,6 +17,7 @@ import {
   createWorldTerrainAsync,
   type CesiumWidget,
   type TerrainProvider,
+  type TileProviderError,
 } from 'cesium';
 
 import {
@@ -353,20 +354,33 @@ export class ContextController {
   /**
    * Tile-level failures of the terrain on the globe (an ion outage after the provider loaded, a
    * blocked tile request) raise the terrain warning, once per provider; a replaced provider's
-   * failures are no longer heard.
+   * failures are no longer heard. Cesium logs a tile failure to the console only while nothing
+   * listens for it, so each one is still logged here.
    */
   #watchTerrainErrors(terrain: TerrainId, provider: TerrainProvider): void {
     this.#removeTerrainErrors?.();
+    const { label } = terrainOption(terrain);
     let warned = false;
     this.#removeTerrainErrors =
-      provider.errorEvent?.addEventListener(() => {
+      provider.errorEvent?.addEventListener((error: TileProviderError) => {
+        console.warn(`A ${label} tile could not be loaded.`, error.message);
         if (warned) return;
         warned = true;
         this.#onWarning({
           id: 'terrain',
-          message: `Some ${terrainOption(terrain).label} tiles could not be loaded, so relief may be missing in places.`,
+          message: `Some ${label} tiles could not be loaded, so relief may be missing in places.`,
         });
       }) ?? null;
+  }
+
+  /**
+   * Stops listening to the terrain on the globe, and drops a terrain still loading, when the
+   * scene is torn down.
+   */
+  destroy(): void {
+    this.#terrainSequence += 1;
+    this.#removeTerrainErrors?.();
+    this.#removeTerrainErrors = null;
   }
 
   setVisible(visible: boolean): void {

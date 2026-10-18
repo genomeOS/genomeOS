@@ -655,6 +655,7 @@ class CesiumAtlasScene implements AtlasSceneController {
     this.#syntheticTerrain?.destroy();
     this.#removeRenderError();
     this.#reliefFrame.cancel();
+    this.#contextController.destroy();
     this.#terrainShading.destroy();
     this.#globeOffset.destroy();
     this.#globe.destroy();

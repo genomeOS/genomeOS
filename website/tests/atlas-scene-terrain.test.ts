@@ -13,6 +13,7 @@ const harness = vi.hoisted(() => ({
   contextOptions: undefined as
     { onTerrainApplied?: (terrain: TerrainId) => void } | undefined,
   setAppearance: [] as [number, number][],
+  contextDestroyed: 0,
   shadingDestroyed: 0,
   updates: [] as Record<string, unknown>[],
 }));
@@ -74,6 +75,9 @@ vi.mock('../src/atlas/scene/context-controller', () => ({
     setAppearance = (opacity: number, brightness: number) =>
       harness.setAppearance.push([opacity, brightness]);
     setBasemap = () => Promise.resolve(true);
+    destroy = () => {
+      harness.contextDestroyed += 1;
+    };
   },
 }));
 vi.mock('../src/atlas/scene/terrain-shading', () => ({
@@ -154,6 +158,7 @@ beforeEach(() => {
   harness.zooms.length = 0;
   harness.contextOptions = undefined;
   harness.setAppearance.length = 0;
+  harness.contextDestroyed = 0;
   harness.shadingDestroyed = 0;
   harness.updates.length = 0;
   frames.length = 0;
@@ -201,9 +206,10 @@ describe('scene terrain wiring (#483)', () => {
     expect(late).toEqual(['world-terrain']);
   });
 
-  it('tears the shading down with the scene', () => {
+  it('tears the shading and the context controller down with the scene', () => {
     scene().destroy();
     expect(harness.shadingDestroyed).toBe(1);
+    expect(harness.contextDestroyed).toBe(1);
   });
 
   it('applies relief once per frame, with the latest slider value', () => {

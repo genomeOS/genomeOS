@@ -178,21 +178,96 @@ describe('ContextController.setTerrain (#483)', () => {
   });
 
   it('surfaces tile-load failures of the active terrain as the terrain warning, once', async () => {
+    // The failures are logged too; keep the run quiet.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const provider = fakeTerrain();
+      const { controller, warnings } = terrainController(() =>
+        Promise.resolve(provider as unknown as TerrainProvider),
+      );
+      await controller.setTerrain('world-terrain');
+      expect(provider.errorEvent.numberOfListeners).toBe(1);
+      warnings.mockClear();
+      provider.errorEvent.raiseEvent();
+      provider.errorEvent.raiseEvent();
+      expect(warnings).toHaveBeenCalledTimes(1);
+      expect(warnings).toHaveBeenCalledWith({
+        id: 'terrain',
+        message:
+          'Some Cesium World Terrain tiles could not be loaded, so relief may be missing in places.',
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('logs every tile failure, which Cesium stops doing once anyone listens', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const provider = fakeTerrain();
+      const { controller } = terrainController(() =>
+        Promise.resolve(provider as unknown as TerrainProvider),
+      );
+      await controller.setTerrain('world-terrain');
+      for (const tile of [1, 2])
+        provider.errorEvent.raiseEvent({
+          message: `Failed to obtain terrain tile X: ${tile} Y: 0 Level: 3.`,
+        });
+      expect(warn.mock.calls).toEqual([
+        [
+          'A Cesium World Terrain tile could not be loaded.',
+          'Failed to obtain terrain tile X: 1 Y: 0 Level: 3.',
+        ],
+        [
+          'A Cesium World Terrain tile could not be loaded.',
+          'Failed to obtain terrain tile X: 2 Y: 0 Level: 3.',
+        ],
+      ]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('stops listening, and drops a terrain still loading, once destroyed', async () => {
+    const active = fakeTerrain();
+    let resolveLate: (provider: TerrainProvider) => void = () => {};
+    const worldTerrain = vi
+      .fn<() => Promise<TerrainProvider>>()
+      .mockResolvedValueOnce(active as unknown as TerrainProvider)
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveLate = resolve;
+        }),
+      );
+    const { controller, onTerrainApplied, warnings, widget } =
+      terrainController(worldTerrain);
+    await controller.setTerrain('world-terrain');
+    await controller.setTerrain('smooth-globe');
+    const late = controller.setTerrain('world-terrain');
+    const onGlobe = (widget as { terrainProvider?: unknown }).terrainProvider;
+    controller.destroy();
+    const lateProvider = fakeTerrain();
+    resolveLate(lateProvider as unknown as TerrainProvider);
+    await expect(late).resolves.toBe(false);
+    expect((widget as { terrainProvider?: unknown }).terrainProvider).toBe(
+      onGlobe,
+    );
+    expect(lateProvider.errorEvent.numberOfListeners).toBe(0);
+    expect(onTerrainApplied).toHaveBeenCalledTimes(2);
+    warnings.mockClear();
+    lateProvider.errorEvent.raiseEvent();
+    expect(warnings).not.toHaveBeenCalled();
+  });
+
+  it("removes the active terrain's error listener when destroyed", async () => {
     const provider = fakeTerrain();
-    const { controller, warnings } = terrainController(() =>
+    const { controller } = terrainController(() =>
       Promise.resolve(provider as unknown as TerrainProvider),
     );
     await controller.setTerrain('world-terrain');
     expect(provider.errorEvent.numberOfListeners).toBe(1);
-    warnings.mockClear();
-    provider.errorEvent.raiseEvent();
-    provider.errorEvent.raiseEvent();
-    expect(warnings).toHaveBeenCalledTimes(1);
-    expect(warnings).toHaveBeenCalledWith({
-      id: 'terrain',
-      message:
-        'Some Cesium World Terrain tiles could not be loaded, so relief may be missing in places.',
-    });
+    controller.destroy();
+    expect(provider.errorEvent.numberOfListeners).toBe(0);
   });
 
   it('stops listening to a terrain once another replaces it', async () => {

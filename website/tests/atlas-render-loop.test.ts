@@ -55,6 +55,7 @@ vi.mock('../src/atlas/scene/globe-widget', () => ({
 vi.mock('../src/atlas/scene/context-controller', () => ({
   ContextController: class {
     capabilities = () => ({});
+    destroy = () => {};
     setBasemap = () => Promise.resolve(true);
   },
 }));
