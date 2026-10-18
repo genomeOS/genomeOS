@@ -5,10 +5,13 @@
  * A port of the smooth-globe Honmoon fragment in `scene/surface-appearance.ts`, one texel at a
  * time. The shader's `fwidth(contourCoordinate)` becomes the band count times the value's change
  * over one texel step (`|∂v/∂column| + |∂v/∂row|`), which the rasteriser takes from the fan
- * triangle's analytic gradient (`triangleValueGradient`). Material alpha is 1, since the imagery
- * layer's alpha carries the opacity. The shader's `luminous × 1.35` overshoot, which high dynamic
- * range keeps on the smooth globe, saturates at 255 here. Contours read only the normalised value,
- * never terrain height. Cesium-free: it runs in the data worker, loaded only through `import()`.
+ * triangle's exact gradient that `triangle-scan.ts` hands each texel (a central difference at a
+ * pole). `triangleValueGradient` is the same plane's gradient per degree, the independent
+ * reference the tests check the scan's against; no rasteriser calls it. Material alpha is 1, since
+ * the imagery layer's alpha carries the opacity. The shader's `luminous × 1.35` overshoot, which
+ * high dynamic range keeps on the smooth globe, saturates at 255 here. Contours read only the
+ * normalised value, never terrain height. Cesium-free: it runs in the data worker, loaded only
+ * through `import()`.
  */
 
 import { HONMOON_CONTOUR_BANDS } from '../surface-buffers';

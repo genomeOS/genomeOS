@@ -15,8 +15,10 @@
  * pass, picking included (Cesium's pick shader reuses this vertex shader and discards alpha 0).
  *
  * The Honmoon band count and mode table come from the Cesium-free `geometry/surface-buffers.ts`,
- * so the contours the worker rasterises for World Terrain (`geometry/raster/contours.ts`) port
- * this fragment exactly (terrain draping design, "Per layer under World Terrain", #483).
+ * so the contours the worker rasterises for World Terrain (`geometry/raster/contours.ts`) share
+ * them and port this fragment texel by texel, within one byte; the `luminous * 1.35` overshoot
+ * that high dynamic range keeps here saturates at 255 there (terrain draping design, "Per layer
+ * under World Terrain", #483).
  */
 
 import { Material, MaterialAppearance } from 'cesium';
