@@ -229,6 +229,15 @@ Physical terrain and scientific elevation are different controls. The first desc
 topography; the second encodes a selected statistical metric. Labels, legend text, and information
 popovers use those exact terms.
 
+*Amended 2026-10-17 (#483, owner decisions).* World Terrain is lit by a fixed hillshade light from
+the north-west (azimuth 315°, 35° above the horizon at the view target), never by the real-time
+sun, so its relief shows at any time of day; the day/night control applies to the smooth globe and
+is shown disabled, with the reason, while World Terrain is on. A **Relief ×** control (the `relief`
+URL parameter, 1–10 in steps of 0.5, default 1) sets Cesium's vertical exaggeration of the terrain
+from sea level. It is physical terrain, separate from scientific elevation's exaggeration, and does
+not apply to the smooth globe or the 2D map. Until the scientific layers are draped onto the
+terrain, raised relief can hide them on high ground, and the control says so.
+
 The GitHub Actions secret `CESIUM_TOKEN` is exposed to Astro as a public build variable only for
 the Pages build. A browser token is necessarily readable by the browser, so it is treated as a
 restricted public capability rather than as a confidential server credential: assets-read only,
