@@ -163,35 +163,36 @@ describe('Atlas client bundle', () => {
     ).toBe(true);
   });
 
-  it("keeps the raster runtime out of the worker's first load", () => {
-    // Terrain draping design, "When it is active": draped code loads lazily in the worker too.
+  // Terrain draping design, "When it is active": the draped runtime (`DrapedRuntime.version`) and
+  // the worker's raster runtime (`RasterRuntime.version`) load lazily, so neither marker is in the
+  // smooth globe's first load, on the main thread or in the worker, and both are built.
+  const LAZY_MARKERS = ['atlas-draped-v1', 'atlas-raster-v1'] as const;
+
+  function expectBuiltOnlyLazily(firstLoad: Iterable<string>): void {
+    for (const marker of LAZY_MARKERS) {
+      for (const file of firstLoad)
+        expect(code(file).includes(marker), `${marker} in ${file}`).toBe(false);
+      expect(
+        readdirSync(assets).some(
+          (name) => name.endsWith('.js') && code(name).includes(marker),
+        ),
+        marker,
+      ).toBe(true);
+    }
+  }
+
+  it("keeps the raster and draped runtimes out of the worker's first load", () => {
     const worker = readdirSync(assets).find((name) =>
       /^atlas-data\.worker[-.].+\.js$/.test(name),
     )!;
-    for (const file of staticGraph(worker))
-      expect(code(file).includes('atlas-raster-v1'), file).toBe(false);
-    expect(
-      readdirSync(assets).some(
-        (name) =>
-          name.endsWith('.js') && code(name).includes('atlas-raster-v1'),
-      ),
-    ).toBe(true);
+    expectBuiltOnlyLazily(staticGraph(worker));
   });
 
-  it('keeps the draped modules out of the /app/ initial chunks', () => {
-    // Terrain draping design, "When it is active": the scene imports the draped runtime only
-    // when a draped surface is built, so the smooth globe's first load carries none of it.
-    for (const file of new Set([
-      ...staticGraph(islandChunk()),
-      ...staticGraph(sceneChunk()),
-    ]))
-      expect(code(file).includes('atlas-draped-v1'), file).toBe(false);
-    expect(
-      readdirSync(assets).some(
-        (name) =>
-          name.endsWith('.js') && code(name).includes('atlas-draped-v1'),
-      ),
-    ).toBe(true);
+  it('keeps the draped and raster runtimes out of the /app/ initial chunks', () => {
+    // The scene imports the draped runtime only when a draped surface is built.
+    expectBuiltOnlyLazily(
+      new Set([...staticGraph(islandChunk()), ...staticGraph(sceneChunk())]),
+    );
   });
 
   it('modulepreloads the lazy scene chunk and its static imports from the /app/ head', () => {

@@ -14,6 +14,8 @@
  *   only a raster failure does.
  * - In a restyle swap the outgoing draped layer stays opaque until it is retired, so the incoming
  *   one cross-fades over it rather than both letting the ground show through.
+ * - The surface cache's key and a dataset switch's same-frame swap, shared by both kinds, live here
+ *   too, so that ScientificLayers stays within its line cap.
  */
 
 import { Ellipsoid, Math as CesiumMath } from 'cesium';
@@ -201,6 +203,21 @@ export function opaqueUntilRetired(group: SurfaceGroup): FadeableGroup {
     setOpacity: (opacity) => group.setOpacity(opacity > 0 ? 1 : 0),
     totalCount: () => group.totalCount(),
   };
+}
+
+/** The outgoing dataset goes and the incoming one shows, in the same frame (#453). */
+export function switchAtOnce(
+  group: AnySurfaceGroup,
+  observationGroup: ObservationPrimitiveGroup | null,
+  outgoing: Pick<DisplayedSurface, 'group' | 'observationGroup'>,
+): void {
+  for (const leaving of [outgoing.group, outgoing.observationGroup])
+    if (leaving && leaving !== group && leaving !== observationGroup) {
+      leaving.setOpacity(0);
+      leaving.collection.show = false;
+    }
+  group.setOpacity(1);
+  observationGroup?.setOpacity(1);
 }
 
 /** A draped group's outlines are drawn: ready, or none to draw with its supported cells off. */

@@ -50,6 +50,22 @@ export interface TerrainProbe {
   groundHeight: number | null;
   tilesLoaded: boolean;
   /**
+   * An `atlas-surface` imagery layer is shown at alpha > 0: the surface is draped onto the ground
+   * (terrain draping design, "Per layer under World Terrain").
+   */
+  draped: boolean;
+  /**
+   * The imagery layers shown at alpha > 0, bottom to top, by their Atlas names
+   * (`AtlasImageryLayerName`); every other layer is `'basemap'`.
+   */
+  imageryLayers: string[];
+  /**
+   * Every imagery layer on the globe's collection, bottom to top, shown or not and at any alpha:
+   * by its Atlas name, `'guard'` for the draped base guard, `'basemap'` for any other layer. So a
+   * test sees a layer added at alpha 0, and that none is left behind once the data leaves.
+   */
+  layerStack: string[];
+  /**
    * The globe's hillshade and tint terms (terrain draping design, "Per layer under World
    * Terrain").
    */

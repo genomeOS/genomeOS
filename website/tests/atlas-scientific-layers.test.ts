@@ -1569,13 +1569,130 @@ describe('draped surface (#483)', () => {
     );
     await showDraped(h, 'hbs');
     await showDraped(h, 'g6pd-deficiency');
-    // The retired group stays cached, hidden: its late tiles are not the globe's problem.
+    // The retired group is destroyed: its late tiles are not the globe's problem.
+    expect(groups[0].destroy).toHaveBeenCalledTimes(1);
     groups[0].options.onError(new Error('late'));
     expect(onDrapeFailure).not.toHaveBeenCalled();
     const error = new Error('tile');
     groups[1].options.onError(error);
     groups[1].options.onError(error);
     expect(onDrapeFailure.mock.calls).toEqual([[error]]);
+  });
+
+  // Cesium frees every tile of a hidden imagery layer, so a retired draped group kept hidden in the
+  // cache would come back with none, yet read ready; its layers, the base guard and its worker
+  // rasters would also stay on the smooth globe. Only the displayed or incoming group is kept.
+  it('destroys the draped group a restyle retires, so a restyle back builds anew', async () => {
+    const h = harness({ draped: true }, {}, { draped: async () => runtime });
+    await showDraped(h, 'hbs');
+    h.style.palette = 'viridis';
+    const restyle = h.layers.rebuild();
+    await h.pump();
+    groups[1].prepared.resolve();
+    groups[1].ready = true;
+    await h.pump();
+    await restyle;
+    expect(groups[0].destroy).toHaveBeenCalledTimes(1);
+    expect(groups[1].destroy).not.toHaveBeenCalled();
+    h.style.palette = 'rainbow';
+    const back = h.layers.rebuild();
+    await h.pump();
+    expect(groups).toHaveLength(3);
+    groups[2].prepared.resolve();
+    groups[2].ready = true;
+    await h.pump();
+    await back;
+    expect(groups.map((group) => group.destroy.mock.calls.length)).toEqual([
+      1, 1, 0,
+    ]);
+    expect(h.commits).toEqual([keyOf('hbs'), keyOf('hbs'), keyOf('hbs')]);
+  });
+
+  // Review Focus 1: World Terrain, the smooth globe while a draped restyle waits for its tiles,
+  // then World Terrain again.
+  it('destroys the draped groups the smooth globe supersedes and replaces, and drapes anew after', async () => {
+    const h = harness({ draped: true }, {}, { draped: async () => runtime });
+    await showDraped(h, 'hbs');
+    h.style.palette = 'viridis';
+    void h.layers.rebuild();
+    await h.pump();
+    groups[1].prepared.resolve();
+    await h.pump(); // prepared, its tiles still loading
+    h.style.draped = false;
+    const smooth = h.layers.rebuild();
+    await h.pump();
+    await smooth;
+    expect(h.worker.buildChunks).toHaveBeenCalledTimes(1);
+    expect(groups.map((group) => group.destroy.mock.calls.length)).toEqual([
+      1, 1,
+    ]);
+    h.style.draped = true;
+    const back = h.layers.rebuild();
+    await h.pump();
+    expect(groups).toHaveLength(3);
+    groups[2].prepared.resolve();
+    groups[2].ready = true;
+    await h.pump();
+    await back;
+    expect(groups[2].collection.show).toBe(true);
+    expect(groups[2].opacity()).toBe(1);
+  });
+
+  it('never takes back a draped group whose raster failed: World Terrain again drapes anew and reports again', async () => {
+    const failures: unknown[] = [];
+    const h = harness(
+      { draped: true },
+      {},
+      {
+        draped: async () => runtime,
+        onDrapeFailure: (error) => {
+          failures.push(error);
+          h.style.draped = false;
+          void h.layers.rebuild();
+        },
+      },
+    );
+    await showDraped(h, 'hbs');
+    const tile = new Error('tile 1');
+    groups[0].options.onError(tile);
+    await h.pump();
+    expect(h.worker.buildChunks).toHaveBeenCalledTimes(1);
+    expect(groups[0].destroy).toHaveBeenCalledTimes(1);
+    h.style.draped = true;
+    const again = h.layers.rebuild();
+    await h.pump();
+    expect(groups).toHaveLength(2);
+    groups[1].prepared.resolve();
+    groups[1].ready = true;
+    await h.pump();
+    await again;
+    // The same tile fails again on the new group: never silent.
+    groups[1].options.onError(tile);
+    expect(failures).toEqual([tile, tile]);
+    await h.pump();
+  });
+
+  it('drapes anew when a rebuild comes before the smooth globe has replaced a failed group', async () => {
+    const onDrapeFailure = vi.fn();
+    const h = harness(
+      { draped: true },
+      {},
+      { draped: async () => runtime, onDrapeFailure },
+    );
+    await showDraped(h, 'hbs');
+    groups[0].options.onError(new Error('tile'));
+    expect(onDrapeFailure).toHaveBeenCalledTimes(1);
+    // The same style: the cache must not hand the failed group back.
+    const again = h.layers.rebuild();
+    await h.pump();
+    expect(groups).toHaveLength(2);
+    groups[1].prepared.resolve();
+    groups[1].ready = true;
+    await h.pump();
+    await again;
+    expect(groups.map((group) => group.destroy.mock.calls.length)).toEqual([
+      1, 0,
+    ]);
   });
 
   it('tells picks the group is draped and keeps draped groups out of the depth-pick hide list', async () => {

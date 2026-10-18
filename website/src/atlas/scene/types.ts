@@ -300,7 +300,8 @@ export interface DrapedImageryLayer {
   setShown(s: boolean): void;
   /**
    * True once the globe has loaded its tiles with the layer in place, or `DRAPED_READY_CAP_MS`
-   * after it was added.
+   * after it was added or last shown. Never while hidden: Cesium frees a hidden layer's tiles, so
+   * a layer shown again is ready only once they have loaded anew.
    */
   isReady(): boolean;
   destroy(): void;

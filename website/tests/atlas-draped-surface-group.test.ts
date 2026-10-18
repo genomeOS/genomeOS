@@ -278,6 +278,81 @@ describe('addDrapedImageryLayer', () => {
     expect(scene.requestRender).not.toHaveBeenCalled();
   });
 
+  // Cesium frees every tile of a hidden layer (pinned in tests/atlas-cesium-internals.test.ts), so a
+  // layer shown again has none until the globe loads them anew.
+  it('is not ready after a hide until tilesLoaded holds again from the second frame, or the cap', () => {
+    const now = vi.spyOn(performance, 'now').mockReturnValue(0);
+    const layer = addDrapedImageryLayer({
+      alpha: 0,
+      name: 'atlas-surface',
+      provider: fakeProvider(),
+      scene,
+    });
+    scene.globe.tilesLoaded = true;
+    scene.preRender.raiseEvent();
+    scene.preRender.raiseEvent();
+    expect(layer.isReady()).toBe(true);
+
+    now.mockReturnValue(10_000);
+    layer.setShown(false);
+    expect(layer.isReady()).toBe(false);
+    // A hidden layer loads no tiles, so it asks for no frame and stays unready.
+    scene.requestRender.mockClear();
+    scene.preRender.raiseEvent();
+    scene.preRender.raiseEvent();
+    expect(layer.isReady()).toBe(false);
+    expect(scene.requestRender).not.toHaveBeenCalled();
+
+    now.mockReturnValue(20_000);
+    layer.setShown(true);
+    expect(layer.isReady()).toBe(false);
+    // The first frame after the show still reads the load queues of the frame before it.
+    scene.preRender.raiseEvent();
+    expect(layer.isReady()).toBe(false);
+    expect(scene.requestRender).toHaveBeenCalled();
+    scene.globe.tilesLoaded = false;
+    scene.preRender.raiseEvent();
+    expect(layer.isReady()).toBe(false);
+    scene.globe.tilesLoaded = true;
+    scene.preRender.raiseEvent();
+    expect(layer.isReady()).toBe(true);
+
+    // The cap counts from the show, not from the add.
+    layer.setShown(false);
+    layer.setShown(true);
+    scene.globe.tilesLoaded = false;
+    now.mockReturnValue(22_999);
+    scene.preRender.raiseEvent();
+    expect(layer.isReady()).toBe(false);
+    now.mockReturnValue(23_000);
+    scene.preRender.raiseEvent();
+    expect(layer.isReady()).toBe(true);
+    scene.requestRender.mockClear();
+    scene.preRender.raiseEvent();
+    expect(scene.requestRender).not.toHaveBeenCalled();
+  });
+
+  it('leaves no readiness listener behind when destroyed while hidden or shown again', () => {
+    const hidden = addDrapedImageryLayer({
+      alpha: 0,
+      name: 'atlas-surface',
+      provider: fakeProvider(),
+      scene,
+    });
+    hidden.setShown(false);
+    hidden.destroy();
+    const reshown = addDrapedImageryLayer({
+      alpha: 0,
+      name: 'atlas-surface',
+      provider: fakeProvider(),
+      scene,
+    });
+    reshown.setShown(false);
+    reshown.setShown(true);
+    reshown.destroy();
+    expect(scene.preRender.numberOfListeners).toBe(0);
+  });
+
   it('destroy removes the layer and destroys its provider, once', () => {
     scene.imageryLayers.addImageryProvider(fakeProvider()); // basemap
     const before = scene.imageryLayers.length;
@@ -758,6 +833,38 @@ describe('DrapedSurfaceGroup', () => {
     expect(group.readyChunkCount()).toBe(0);
     providerOf(surface).tileLoaded.raiseEvent(message(1, 0, 3, BITMAP));
     providerOf(surface).tileLoaded.raiseEvent(message(2, 0, 3, BITMAP));
+    expect(group.readyChunkCount()).toBe(1);
+  });
+
+  // A hidden group's layers lose their tiles (Cesium frees them), so shown again it is neither
+  // ready nor counts a drawn tile until the globe has its tiles again.
+  it('is ready and counts a drawn tile again only once its tiles reload after a hide', async () => {
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      cellEdges: true,
+      scene,
+      source,
+      wave: REST,
+    });
+    await group.prepare(signal);
+    scene.globe.tilesLoaded = true;
+    frames(2);
+    const [surface] = named(scene, 'atlas-surface');
+    providerOf(surface).tileLoaded.raiseEvent(message(1, 0, 3, BITMAP));
+    expect([group.isReady(), group.readyChunkCount()]).toEqual([true, 1]);
+    expect(group.outlinesReady()).toBe(true);
+
+    group.collection.show = false;
+    expect(group.isReady()).toBe(false);
+    expect(group.outlinesReady()).toBe(false);
+    group.collection.show = true;
+    expect([group.isReady(), group.readyChunkCount()]).toEqual([false, 0]);
+    expect(group.outlinesReady()).toBe(false);
+    frames(2);
+    expect(group.isReady()).toBe(true);
+    expect(group.outlinesReady()).toBe(true);
+    expect(group.readyChunkCount()).toBe(0);
+    providerOf(surface).tileLoaded.raiseEvent(message(1, 0, 3, BITMAP));
     expect(group.readyChunkCount()).toBe(1);
   });
 

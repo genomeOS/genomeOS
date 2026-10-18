@@ -24,6 +24,7 @@
  * - Readiness: `isReady` once the surface layer is ready (Cesium has loaded its tiles at alpha 0);
  *   `readyChunkCount` is 1 from the first drawn surface tile, so a cold reveal with nothing in
  *   view runs no wave; `outlinesReady` once the outlines are prepared and their layer is ready.
+ *   Hiding the group frees its layers' tiles, so shown again it counts all three from scratch.
  * - No silent gaps: a raster that fails while `prepare` runs rejects it, a later one and every
  *   provider `errorEvent` go to `onError`, and the scene reverts to the smooth globe. `destroy`
  *   aborts every prepare in flight (a raster arriving after it is released at once), removes the
@@ -328,6 +329,8 @@ export function createDrapedSurfaceGroup(
         return shown;
       },
       set show(value: boolean) {
+        // Hidden, the layers lost their tiles: shown again, a drawn tile counts from here.
+        if (value && !shown) firstTileDrawn = false;
         shown = value;
         for (const layer of heldLayers()) layer.draped.setShown(value);
       },
