@@ -671,4 +671,28 @@ describe('Honmoon contours in the surface raster (terrain draping design, #483)'
       expect(texel(between, column, 255)[3]).toBe(71);
     }
   });
+
+  // A pole-holding row reads its value's change across one texel only when the mesh asks for it
+  // (`derivatives`). Ramped round the pole, the pole cell's corners differ, so its lines are as
+  // wide as that change makes them, not the 0.006-clamped narrowest a zero change would draw.
+  it("widens a pole cell's contours by its value's change across a texel", () => {
+    const top = { level: 7, x: 0, y: 0 }; // 88.6–90° N: the pole cell fills its top rows
+    const input = honmoonInput({ lat: 90, lon: 0 }, 1, 'honmoon', (lon) =>
+      clamp01((lon + 180) / 360),
+    );
+    const raster = rasterSurfaceTile(input, top)!;
+    let compared = 0;
+    let lit = 0;
+    let halo = 0;
+    for (let row = 255; row > 255 - 16; row -= 1)
+      for (let column = 0; column < 256; column += 1) {
+        const alpha = texel(raster, column, row)[3];
+        compared += 1;
+        if (alpha > 0) lit += 1;
+        if (alpha > 0 && alpha < 255) halo += 1;
+      }
+    // The narrowest line lights at most 2 × 4.5 × 0.006 of a band: under 6% of the texels.
+    expect(lit / compared).toBeGreaterThan(0.5);
+    expect(halo).toBeGreaterThan(0);
+  });
 });
