@@ -713,6 +713,24 @@ describe('draped context and relief (#483)', () => {
     warn.mockRestore();
   });
 
+  it('cancels a relief resample still pending when the terrain goes smooth', async () => {
+    useFakeClock();
+    const controller = scene();
+    void controller.setTerrain('world-terrain');
+    await vi.advanceTimersByTimeAsync(0);
+    controller.setRelief(3);
+    frame(); // the relief frame: its resample waits for the next render
+    void controller.setTerrain('smooth-globe');
+    await vi.advanceTimersByTimeAsync(0);
+    harness.postRender.raise();
+    vi.advanceTimersByTime(GROUND_RESAMPLE_MS);
+    harness.postRender.raise();
+    expect(harness.layers.resampleGround).not.toHaveBeenCalled();
+    // The highlight keeps its own heights on the smooth globe.
+    expect(harness.highlight.setGround).toHaveBeenLastCalledWith(null);
+    vi.useRealTimers();
+  });
+
   // Review Focus 1: Cesium's teardown destroys no imagery provider, and the worker outlives the
   // scene, so the overlay releases its border rasters while the imagery layers are still live.
   it('releases the draped borders with the scene, before the globe goes', async () => {

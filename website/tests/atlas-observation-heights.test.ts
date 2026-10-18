@@ -275,6 +275,18 @@ describe('observations on World Terrain', () => {
     expect(spheres.get(0).center).toBe(center); // not re-placed
   });
 
+  // Every appearance change under World Terrain resizes the symbols in view.
+  it('keeps a resized sphere on the ground', () => {
+    const group = layer({ shape: 'sphere' }); // fixed size 22 → 22 km
+    const spheres = group.collection.get(4) as PrimitiveCollection;
+    group.setGroundHeights(Float64Array.of(6_000));
+    group.setSizeRange([20, 40]); // fixed size 30 → 30 km
+    expect(heightOf(spheres.get(0).center as Cartesian3)).toBeCloseTo(
+      6_000 + CLEARANCE + 30_000,
+      3,
+    );
+  });
+
   it('reads its footprints as shown only while the collection and the sampling areas both are', () => {
     const group = layer({ samplingAreas: false });
     expect(group.footprintsShown()).toBe(false);

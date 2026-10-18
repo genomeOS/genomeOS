@@ -2113,6 +2113,26 @@ describe('observations on World Terrain', () => {
     expect(h.scene.globe.tileLoadProgressEvent.listeners.size).toBe(1); // the displayed group's only
   });
 
+  it('releases the footprints and ground of an observation group whose surface failed', async () => {
+    const h = harness({ draped: true });
+    await h.show('a');
+    const failing = deferred<SurfaceArtifact>();
+    const outcome = h.layers
+      .setArtifact(h.load('b', failing.promise))
+      .catch((error: Error) => error);
+    await h.pump();
+    const [, preparing] = footprintsOf(h);
+    expect(preparing.destroy).not.toHaveBeenCalled();
+    expect(h.scene.globe.tileLoadProgressEvent.listeners.size).toBe(2);
+    failing.reject(new Error('render tier failed its checksum'));
+    await expect(outcome).resolves.toMatchObject({
+      message: 'render tier failed its checksum',
+    });
+    await h.pump();
+    expect(preparing.destroy).toHaveBeenCalledTimes(1);
+    expect(h.scene.globe.tileLoadProgressEvent.listeners.size).toBe(1); // the displayed group's only
+  });
+
   it('creates no ground heights and no footprints on the smooth globe', async () => {
     const h = harness();
     await h.show('a');
