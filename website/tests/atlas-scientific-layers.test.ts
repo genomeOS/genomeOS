@@ -47,14 +47,20 @@ import type {
   BuildChunksBody,
   ChunkMessage,
 } from '../src/atlas/worker/protocol';
-import type { ObservationPrimitiveGroup } from '../src/atlas/scene/observation-layer';
+import {
+  footprintSpec,
+  type ObservationPrimitiveGroup,
+} from '../src/atlas/scene/observation-layer';
 import type { SurfaceChunkGroup } from '../src/atlas/scene/surface-chunk-layer';
 import { chunkMessage } from './helpers/chunk-buffers';
 import { stubCesiumBrowserImageTypes } from './helpers/cesium-stubs';
 import { columnarSurface } from './helpers/columnar-surface';
 import {
+  ArgEvent,
   fakeDrapedRuntime,
+  fakeRasterProvider,
   type FakeDrapedGroup,
+  type FakeRasterProvider,
 } from './helpers/draped-fakes';
 import { FakeEvent, flushTasks } from './helpers/scene-fakes';
 
@@ -169,6 +175,8 @@ function harness(
   const preRender = new FakeEvent();
   const postRender = new FakeEvent();
   const primitives = new PrimitiveCollection();
+  // The rendered ground everywhere, as World Terrain's loaded tiles give it (#483).
+  const ground = { value: 0 };
   const scene = {
     camera: {
       pickEllipsoid: () => undefined,
@@ -176,8 +184,13 @@ function harness(
       ...camera,
     },
     canvas: { clientHeight: 600, clientWidth: 800 },
-    globe: { tilesLoaded: true },
+    globe: {
+      getHeight: () => ground.value,
+      tileLoadProgressEvent: new ArgEvent<number>(),
+      tilesLoaded: true,
+    },
     imageryLayers: {},
+    morphComplete: new FakeEvent(),
     postRender,
     preRender,
     preUpdate,
@@ -273,15 +286,16 @@ function harness(
     buildEdges: vi.fn(async () => {}),
     recolour: vi.fn(recolourStream),
   };
+  // The fake draped runtime a draped style builds from; a smooth style never imports it.
+  const draped = fakeDrapedRuntime();
+  const onDrapeFailure = vi.fn<(error: unknown) => void>();
   const layers = new ScientificLayers({
-    // A smooth harness has no draped runtime: a draped build without one fails like a lost import.
-    draped: () =>
-      Promise.reject(new Error('no draped runtime in this harness')),
+    draped: async () => draped.runtime,
     frameBudgetMs: 8,
     highlight,
     marks,
     onCommit: (key) => commits.push(key),
-    onDrapeFailure: () => {},
+    onDrapeFailure,
     perf: { mark: vi.fn() },
     scene: scene as never,
     style: () => style,
@@ -319,6 +333,14 @@ function harness(
   const show = async (id: string) => {
     const done = layers.setArtifact(load(id));
     await pump();
+    // A draped surface from the harness's runtime waits on its raster and tiles: both arrive here.
+    if (draped.groups.length > 0) {
+      for (const group of draped.groups) {
+        group.prepared.resolve();
+        group.ready = true;
+      }
+      await pump();
+    }
     await done;
     await pump(1);
   };
@@ -333,12 +355,15 @@ function harness(
     clock,
     commits,
     displayedHistory,
+    draped,
     emitted,
     finishWave,
     frame,
+    ground,
     highlight,
     layers,
     load,
+    onDrapeFailure,
     primitives,
     pump,
     realWaveStart,
@@ -1811,5 +1836,187 @@ describe('draped surface (#483)', () => {
     expect(groups.map((group) => group.destroy.mock.calls.length)).toEqual([
       1, 1,
     ]);
+  });
+});
+
+describe('observations on World Terrain', () => {
+  /** The displayed observation group: the newest one built that is on the globe and shown. */
+  const observationsOf = (h: Harness) =>
+    built.observations.findLast(
+      (group) =>
+        h.primitives.contains(group.collection) && group.collection.show,
+    )!;
+  const ringsOf = (h: Harness) =>
+    observationsOf(h).collection.get(0) as PolylineCollection;
+  const pointsOf = (h: Harness) =>
+    observationsOf(h).collection.get(2) as PointPrimitiveCollection;
+  const heightOf = (position: Cartesian3) =>
+    Ellipsoid.WGS84.cartesianToCartographic(position).height;
+  const symbolHeight = (h: Harness) => heightOf(pointsOf(h).get(0).position); // displayed group's PointPrimitiveCollection
+  const footprintsOf = (h: Harness) =>
+    h.draped.layers.filter((l) => l.name === 'atlas-footprints');
+
+  it('drapes the sampling footprints and hides the rings once the layer is ready', async () => {
+    const h = harness({ draped: true });
+    await h.show('a');
+    expect(h.draped.providers.at(-1)!.spec).toEqual(
+      footprintSpec(
+        keyOf('a'),
+        observationsFor().observations,
+        h.style.observationStyle.samplingAreaColor,
+      ),
+    );
+    const [footprints] = footprintsOf(h);
+    expect([footprints.alpha, ringsOf(h).show]).toEqual([0, true]);
+    footprints.ready = true;
+    await h.pump(2);
+    expect([footprints.alpha, ringsOf(h).show]).toEqual([
+      h.style.observationStyle.opacity,
+      false,
+    ]);
+  });
+
+  it('lifts draped observations by the ground, and follows it as terrain tiles load', async () => {
+    const h = harness({ draped: true });
+    h.ground.value = 4_000;
+    await h.show('a');
+    expect(symbolHeight(h)).toBeCloseTo(4_000 + 7_650, 3);
+    h.ground.value = 4_500;
+    h.scene.globe.tileLoadProgressEvent.raiseEvent(0);
+    expect(symbolHeight(h)).toBeCloseTo(4_500 + 7_650, 3);
+  });
+
+  it('resamples the ground of every observation group in view', async () => {
+    const h = harness({ draped: true });
+    await h.show('a');
+    h.ground.value = 5_000;
+    h.layers.resampleGround(true);
+    expect(symbolHeight(h)).toBeCloseTo(5_000 + 7_650, 3);
+  });
+
+  it("returns observations to their rings and today's heights on the smooth globe", async () => {
+    const h = harness({ draped: true });
+    h.ground.value = 4_000;
+    await h.show('a');
+    const [footprints] = footprintsOf(h);
+    footprints.ready = true;
+    await h.pump(2);
+    h.style.draped = false;
+    // The smooth rebuild streams chunks, so frames run while it is awaited.
+    await Promise.all([h.layers.rebuild(), h.pump()]);
+    expect([footprints.destroy.mock.calls.length, ringsOf(h).show]).toEqual([
+      1,
+      true,
+    ]);
+    expect(symbolHeight(h)).toBeCloseTo(7_650, 3);
+    expect(h.scene.globe.tileLoadProgressEvent.listeners.size).toBe(0);
+  });
+
+  it('drops footprints still preparing when the terrain goes smooth', async () => {
+    const h = harness({ draped: true });
+    const pending = Promise.withResolvers<FakeRasterProvider>();
+    vi.mocked(h.draped.runtime.providerFromSpec).mockReturnValueOnce(
+      pending.promise as never,
+    );
+    const shown = h.show('a');
+    // The observations are in, and their footprint raster is preparing.
+    await flushTasks();
+    expect(h.draped.runtime.providerFromSpec).toHaveBeenCalledTimes(1);
+    h.style.draped = false;
+    await Promise.all([h.layers.rebuild(), h.pump()]);
+    const provider = fakeRasterProvider();
+    pending.resolve(provider);
+    await shown;
+    await h.pump();
+    expect(provider.destroy).toHaveBeenCalledTimes(1);
+    expect(footprintsOf(h)).toHaveLength(0);
+  });
+
+  it('rebuilds the footprints in a new sampling colour, keeping the old until the new is ready', async () => {
+    const h = harness({ draped: true });
+    await h.show('a');
+    const [old] = footprintsOf(h);
+    old.ready = true;
+    await h.pump(2);
+    h.layers.setObservationAppearance(
+      { ...h.style.observationStyle, samplingAreaColor: '#ff00ff' },
+      h.style.layers,
+    );
+    await flushTasks();
+    expect(h.draped.providers.at(-1)!.spec).toMatchObject({
+      color: '#ff00ff',
+      layer: 'footprints',
+    });
+    const [, next] = footprintsOf(h);
+    expect(old.destroy).not.toHaveBeenCalled();
+    next.ready = true;
+    await h.pump(2);
+    expect(old.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('reverts through onDrapeFailure when the footprints cannot be rastered', async () => {
+    const h = harness({ draped: true });
+    const error = new Error('raster worker failed');
+    vi.mocked(h.draped.runtime.providerFromSpec).mockRejectedValueOnce(error);
+    await h.show('a');
+    expect(h.onDrapeFailure).toHaveBeenCalledWith(error);
+  });
+
+  it('releases the footprints and ground of a pruned observation group', async () => {
+    const h = harness({ draped: true });
+    await h.show('a');
+    const [first] = footprintsOf(h);
+    for (const id of ['b', 'c', 'd']) await h.show(id); // the observation cache holds 3
+    expect(first.destroy).toHaveBeenCalledTimes(1);
+    expect(h.scene.globe.tileLoadProgressEvent.listeners.size).toBe(1); // the displayed group's only
+  });
+
+  it('creates no ground heights and no footprints on the smooth globe', async () => {
+    const h = harness();
+    await h.show('a');
+    expect(h.scene.globe.tileLoadProgressEvent.listeners.size).toBe(0);
+    expect(h.draped.runtime.providerFromSpec).not.toHaveBeenCalled();
+    expect(ringsOf(h).show).toBe(true);
+  });
+
+  it('reports the first error of footprints in use, and none once they are released', async () => {
+    const h = harness({ draped: true });
+    await h.show('a');
+    const [footprints] = footprintsOf(h);
+    const error = new Error('footprint tile failed');
+    footprints.provider.errorEvent.raiseEvent(error);
+    footprints.provider.errorEvent.raiseEvent(error);
+    expect(h.onDrapeFailure.mock.calls).toEqual([[error]]);
+    h.layers.setObservationAppearance(
+      { ...h.style.observationStyle, samplingAreaColor: '#ff00ff' },
+      h.style.layers,
+    );
+    await flushTasks();
+    const [, recoloured] = footprintsOf(h);
+    h.style.draped = false;
+    await Promise.all([h.layers.rebuild(), h.pump()]);
+    expect(recoloured.destroy).toHaveBeenCalledTimes(1);
+    recoloured.provider.errorEvent.raiseEvent(error);
+    expect(h.onDrapeFailure).toHaveBeenCalledTimes(1);
+  });
+
+  it('destroys the footprints with the layers, so their rasters are released', async () => {
+    const h = harness({ draped: true });
+    await h.show('a');
+    const [shown] = footprintsOf(h);
+    shown.ready = true;
+    await h.pump(2);
+    h.layers.setObservationAppearance(
+      { ...h.style.observationStyle, samplingAreaColor: '#ff00ff' },
+      h.style.layers,
+    );
+    await flushTasks();
+    const [, preparing] = footprintsOf(h);
+    h.layers.destroy();
+    expect([
+      shown.destroy.mock.calls.length,
+      preparing.destroy.mock.calls.length,
+    ]).toEqual([1, 1]);
+    expect(h.scene.globe.tileLoadProgressEvent.listeners.size).toBe(0);
   });
 });

@@ -18,7 +18,7 @@
 
 import { Ellipsoid, Math as CesiumMath } from 'cesium';
 
-import type { ObservationArtifact } from '../contracts';
+import type { Observation, ObservationArtifact } from '../contracts';
 import type { EdgeColorSpec } from '../geometry/edge-buffers';
 import type {
   DrapedGeometry,
@@ -52,6 +52,7 @@ import type {
   DrapedRuntime,
   DrapedSurfaceGroup,
   RasterTileSource,
+  RasterWorkerClient,
   SceneProgressListener,
   SurfaceGroup,
 } from './types';
@@ -69,6 +70,8 @@ export interface SurfaceGroupHost {
   readonly frameBudgetMs: number;
   /** Marker heights per surface group, from its stream's anchors; draped groups have none. */
   readonly heights: WeakMap<SurfaceGroup, ObservationSurfaceHeights>;
+  /** The one raster source over the worker that every draped layer of these layers reads. */
+  rasterSource(runtime: DrapedRuntime): RasterTileSource;
   style(): ScientificStyle;
   lookAt(): LookAt;
 }
@@ -112,6 +115,14 @@ export class DrapeFailure extends Error {
     this.name = 'DrapeFailure';
     this.cause = cause;
   }
+}
+
+/** A raster source over `worker`, made by the first runtime that asks and shared from then on. */
+export function sharedRasterSource(
+  worker: RasterWorkerClient,
+): (runtime: DrapedRuntime) => RasterTileSource {
+  let source: RasterTileSource | null = null;
+  return (runtime) => (source ??= runtime.rasterSource(worker));
 }
 
 export function isAbortError(error: unknown): boolean {
@@ -265,7 +276,6 @@ export function createDrapedGroup(
     load: ArtifactLoad;
     surface: SurfaceArtifact;
     style: ScientificStyle;
-    source: RasterTileSource;
     inView(group: DrapedSurfaceGroup): boolean;
     onFailure(error: unknown): void;
   },
@@ -282,7 +292,7 @@ export function createDrapedGroup(
       input.onFailure(error);
     },
     scene: host.scene,
-    source: input.source,
+    source: host.rasterSource(runtime),
     surface: drapedSurfaceSpec(load, input.surface, style),
     surfaceOpacity: style.surfaceOpacity,
     wave: host.wave,
@@ -293,8 +303,9 @@ export function createDrapedGroup(
   return group;
 }
 
+/** Interleaved lon, lat (degrees) of each observation, in order; null with no observations. */
 export function observationPoints(
-  observations: ObservationArtifact | null,
+  observations: { readonly observations: readonly Observation[] } | null,
 ): Float64Array | null {
   return observations
     ? Float64Array.from(

@@ -48,7 +48,7 @@ import {
   type ObservationSurfaceHeights,
 } from './observation-symbols';
 import { surfaceHeightAt, type SurfaceHeightSource } from './surface-heights';
-import type { DrapedImageryLayer } from './types';
+import type { DrapedImageryLayer, ObservationPresentation } from './types';
 
 export type { ObservationSurfaceHeights } from './observation-symbols';
 
@@ -221,6 +221,24 @@ export function observationHeightsFromBuffers(
       surfaceHeightAt(observation, source, metric, true, 1),
     ),
   };
+}
+
+/**
+ * The cache key of a built group: the artifact and the presentation fields baked into its symbols.
+ * The others (opacity, size range, sampling areas and their colour) are applied by its setters.
+ */
+export function observationKeyFor(
+  artifactKey: string,
+  style: ObservationPresentation,
+): string {
+  return [
+    artifactKey,
+    style.shape,
+    style.colorVariable,
+    style.solidColor,
+    ...style.gradient,
+    style.sizeVariable,
+  ].join(':');
 }
 
 /** Each observation's sampling footprint as interleaved lon, lat (degrees), radius_km, in order. */
