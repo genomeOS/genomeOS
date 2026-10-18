@@ -2,8 +2,8 @@
  * Pins the Cesium 1.145 internals the draped Atlas layers rely on (terrain draping design, "Failure
  * modes", #483). A Cesium upgrade that changes one of them fails here before the draped layers
  * misbehave: a layer at alpha 0 draws no texture, a hidden layer frees its tiles, alpha is a plain
- * number the tile shader reads, the imagery cache layout that resident bytes count, and the
- * flipped decode that south-first bitmaps match.
+ * number the tile shader reads, the imagery cache layout that resident bytes count, the flipped
+ * decode that south-first bitmaps match, and the base-layer rule the draped base guard answers.
  */
 
 import * as Cesium from 'cesium';
@@ -16,7 +16,12 @@ import {
 } from 'cesium';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { cesiumSource, fakeProvider } from './helpers/imagery-fakes';
+import {
+  cesiumSource,
+  FAKE_RECTANGLE,
+  fakeProvider,
+  imagerySkeletons,
+} from './helpers/imagery-fakes';
 
 /** The private members pinned here, which Cesium's type declarations leave out. */
 interface TileProviderInternals {
@@ -101,6 +106,19 @@ describe('Cesium 1.145 internals the draped layers rely on (#483)', () => {
     expect('texture' in imagery).toBe(true);
     layer.removeImageryFromCache(imagery);
     expect(cache).toEqual({});
+  });
+
+  it('makes the first shown layer the base layer, and stretches only its edge texels over tiles outside its rectangle', () => {
+    const collection = new ImageryLayerCollection();
+    const below = collection.addImageryProvider(fakeProvider());
+    below.show = false;
+    const clipped = collection.addImageryProvider(fakeProvider(FAKE_RECTANGLE));
+    // The level-3 imagery tile at the bounds' nearest corner (30 E, 5 N), stretched over the tile.
+    expect(imagerySkeletons(collection, clipped)).toEqual([[9, 3, 3]]);
+    expect(clipped.isBaseLayer()).toBe(true);
+    below.show = true;
+    expect(imagerySkeletons(collection, clipped)).toEqual([]);
+    expect([below.isBaseLayer(), clipped.isBaseLayer()]).toEqual([true, false]);
   });
 
   it('decodes imagery flipped, so a south-first bitmap matches what Cesium uploads', () => {

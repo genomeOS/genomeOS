@@ -6,6 +6,15 @@
  *   after the last Atlas layer of its rank or lower, else before the first of a higher rank, else
  *   on top, so a newer layer of a name sits above the older one it cross-fades over, and a
  *   basemap that arrives later at index 0 stays below.
+ * - Base guard: Cesium makes the first shown layer of a collection the base layer, and stretches
+ *   the base layer's edge texels over every terrain tile outside its rectangle (pinned in
+ *   tests/atlas-cesium-internals.test.ts). The Atlas providers are clipped to their drawn bounds,
+ *   so with the basemap hidden (Context off) or not yet loaded, `atlas-surface` would smear its
+ *   edge across the globe and ask the worker for its edge tiles under every terrain tile. While
+ *   any Atlas layer is on a collection, one shown whole-globe guard layer at alpha 0 sits directly
+ *   below them: it is the base layer whenever no shown layer lies under it, its two level-0 tiles
+ *   are the shared empty canvas, and at alpha 0 it draws nothing (also pinned). It goes with the
+ *   last Atlas layer.
  * - Readiness: Cesium loads the tiles of a layer at alpha 0 without drawing them (pinned in
  *   tests/atlas-cesium-internals.test.ts). The layer is ready once `globe.tilesLoaded` holds from
  *   the second frame after the add (the first frame's `preRender` still reads the load queues of
@@ -18,14 +27,27 @@
  * Lazy: only the draped runtime imports this module.
  */
 
-import { ImageryLayer, type ImageryLayerCollection } from 'cesium';
+import {
+  Event,
+  GeographicTilingScheme,
+  ImageryLayer,
+  Rectangle,
+  type Credit,
+  type ImageryLayerCollection,
+  type ImageryLayerFeatureInfo,
+  type ImageryProvider,
+  type Proxy as ResourceProxy,
+  type TileDiscardPolicy,
+} from 'cesium';
 
 import {
   ATLAS_IMAGERY_LAYER_ORDER,
+  RASTER_TILE_SIZE,
   type AtlasImageryLayerName,
 } from '../../geometry/raster/types';
 import type { AddDrapedImageryLayer, DrapedImageryLayer } from '../types';
 import { drapeStats } from './drape-stats';
+import { emptyTile } from './raster-imagery-provider';
 
 /** A new layer reads ready this long after its add, whether or not the globe has loaded. */
 export const DRAPED_READY_CAP_MS = 3_000;
@@ -40,6 +62,75 @@ export function drapedLayerName(
   layer: ImageryLayer,
 ): AtlasImageryLayerName | undefined {
   return names.get(layer);
+}
+
+/** The whole globe at level 0, every tile empty: the base guard's provider. */
+class BaseGuardProvider implements ImageryProvider {
+  readonly tilingScheme = new GeographicTilingScheme();
+  readonly rectangle = Rectangle.MAX_VALUE;
+  readonly tileWidth = RASTER_TILE_SIZE;
+  readonly tileHeight = RASTER_TILE_SIZE;
+  readonly minimumLevel = 0;
+  readonly maximumLevel = 0;
+  readonly hasAlphaChannel = true;
+  readonly errorEvent = new Event();
+  // Cesium tests each of these with `defined()`, though its declarations type them as present.
+  readonly tileDiscardPolicy = undefined as unknown as TileDiscardPolicy;
+  readonly credit = undefined as unknown as Credit;
+  readonly proxy = undefined as unknown as ResourceProxy;
+
+  getTileCredits(_x: number, _y: number, _level: number): Credit[] {
+    return undefined as unknown as Credit[];
+  }
+
+  pickFeatures(
+    _x: number,
+    _y: number,
+    _level: number,
+    _longitude: number,
+    _latitude: number,
+  ): Promise<ImageryLayerFeatureInfo[]> | undefined {
+    return undefined;
+  }
+
+  requestImage(): Promise<HTMLCanvasElement> {
+    return Promise.resolve(emptyTile());
+  }
+}
+
+/** Each collection's base guard and the Atlas layers that hold it. */
+const guards = new WeakMap<
+  ImageryLayerCollection,
+  { layer: ImageryLayer; holders: number }
+>();
+const guardLayers = new WeakSet<ImageryLayer>();
+
+/** Whether `layer` is a collection's base guard (a non-Atlas layer, at alpha 0). */
+export function isDrapedBaseGuard(layer: ImageryLayer): boolean {
+  return guardLayers.has(layer);
+}
+
+/**
+ * Holds the collection's base guard, adding it on top when absent: no Atlas layer is on the
+ * collection then, and each one added after goes above it. The returned call lets go of it.
+ */
+function holdBaseGuard(layers: ImageryLayerCollection): () => void {
+  let guard = guards.get(layers);
+  if (!guard) {
+    const layer = new ImageryLayer(new BaseGuardProvider(), { alpha: 0 });
+    guardLayers.add(layer);
+    layers.add(layer);
+    guard = { holders: 0, layer };
+    guards.set(layers, guard);
+  }
+  guard.holders += 1;
+  const held = guard;
+  return () => {
+    held.holders -= 1;
+    if (held.holders > 0) return;
+    guards.delete(layers);
+    layers.remove(held.layer, true);
+  };
 }
 
 function insertionIndex(
@@ -67,6 +158,7 @@ export const addDrapedImageryLayer: AddDrapedImageryLayer = ({
   scene,
 }): DrapedImageryLayer => {
   const layer = new ImageryLayer(provider, { alpha });
+  const releaseGuard = holdBaseGuard(scene.imageryLayers);
   names.set(layer, name);
   scene.imageryLayers.add(layer, insertionIndex(scene.imageryLayers, name));
   const unwatch = drapeStats.watchLayer(layer);
@@ -117,11 +209,9 @@ export const addDrapedImageryLayer: AddDrapedImageryLayer = ({
       removePreRender = null;
       removeTileLoaded();
       unwatch();
-      // A destroyed globe has already destroyed its layers with the collection.
-      if (!scene.imageryLayers.isDestroyed()) {
-        scene.imageryLayers.remove(layer, true);
-        scene.requestRender();
-      }
+      scene.imageryLayers.remove(layer, true);
+      releaseGuard();
+      scene.requestRender();
       provider.destroy();
     },
   };

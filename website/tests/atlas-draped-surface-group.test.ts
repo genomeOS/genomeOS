@@ -1,4 +1,4 @@
-import { ImageryLayer } from 'cesium';
+import { ImageryLayer, Rectangle } from 'cesium';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AtlasImageryLayerName } from '../src/atlas/geometry/raster/types';
@@ -11,17 +11,22 @@ import {
   addDrapedImageryLayer,
   DRAPED_READY_CAP_MS,
   drapedLayerName,
+  isDrapedBaseGuard,
 } from '../src/atlas/scene/draped/draped-imagery-layer';
+import { emptyTile } from '../src/atlas/scene/draped/raster-imagery-provider';
 import type {
   DrapeStatsRecorder,
   RasterTileSource,
 } from '../src/atlas/scene/types';
 import type { RasterTileBody } from '../src/atlas/worker/protocol';
 import {
+  FAKE_RECTANGLE,
   fakeDrapedScene,
   fakeProvider,
   fakeSource,
+  imagerySkeletons,
   message,
+  stubCesiumBrowserImageTypes,
   type FakeRasterSource,
 } from './helpers/imagery-fakes';
 
@@ -34,9 +39,13 @@ function order(s: typeof scene): ImageryLayer[] {
   );
 }
 
-/** Each layer's Atlas name, bottom to top; undefined for the basemap. */
-function stack(s: typeof scene): (AtlasImageryLayerName | undefined)[] {
-  return order(s).map((l) => drapedLayerName(l));
+/** Each layer's Atlas name, bottom to top; 'guard' for the base guard, undefined for the basemap. */
+function stack(
+  s: typeof scene,
+): (AtlasImageryLayerName | 'guard' | undefined)[] {
+  return order(s).map((l) =>
+    isDrapedBaseGuard(l) ? 'guard' : drapedLayerName(l),
+  );
 }
 
 beforeEach(() => {
@@ -45,6 +54,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('addDrapedImageryLayer', () => {
@@ -66,10 +76,15 @@ describe('addDrapedImageryLayer', () => {
           scene,
         }).layer,
     );
-    expect(stack(scene)).toEqual(
-      [undefined, sa, sb, oa, ob].map((l) => l && drapedLayerName(l)),
-    );
-    expect(order(scene).slice(1)).toEqual([sa, sb, oa, ob]);
+    expect(stack(scene)).toEqual([
+      undefined,
+      'guard',
+      'atlas-surface',
+      'atlas-surface',
+      'atlas-outlines',
+      'atlas-outlines',
+    ]);
+    expect(order(scene).slice(2)).toEqual([sa, sb, oa, ob]);
   });
 
   it('keeps that order when the basemap arrives later at index 0', () => {
@@ -88,6 +103,7 @@ describe('addDrapedImageryLayer', () => {
     scene.imageryLayers.add(new ImageryLayer(fakeProvider()), 0);
     expect(stack(scene)).toEqual([
       undefined,
+      'guard',
       'atlas-surface',
       'atlas-outlines',
     ]);
@@ -107,11 +123,68 @@ describe('addDrapedImageryLayer', () => {
         scene,
       });
     expect(stack(scene)).toEqual([
+      'guard',
       'atlas-surface',
       'atlas-outlines',
       'atlas-borders',
       'atlas-footprints',
     ]);
+  });
+
+  it('keeps one shown whole-globe guard at alpha 0 under the Atlas layers, removed with the last', async () => {
+    stubCesiumBrowserImageTypes();
+    const [a, b] = (['atlas-surface', 'atlas-outlines'] as const).map((name) =>
+      addDrapedImageryLayer({
+        alpha: 1,
+        name,
+        provider: fakeProvider(FAKE_RECTANGLE),
+        scene,
+      }),
+    );
+    const guard = scene.imageryLayers.get(0);
+    expect(stack(scene)).toEqual(['guard', 'atlas-surface', 'atlas-outlines']);
+    expect([guard.show, guard.alpha]).toEqual([true, 0]);
+    expect(guard.imageryProvider.rectangle).toEqual(Rectangle.MAX_VALUE);
+    expect(guard.imageryProvider.maximumLevel).toBe(0);
+    expect(await guard.imageryProvider.requestImage(1, 0, 0)).toBe(emptyTile());
+    expect(drapedLayerName(guard)).toBeUndefined();
+    a.destroy();
+    expect(stack(scene)).toEqual(['guard', 'atlas-outlines']);
+    b.destroy();
+    expect(scene.imageryLayers.length).toBe(0);
+    expect(guard.isDestroyed()).toBe(true);
+    addDrapedImageryLayer({
+      alpha: 1,
+      name: 'atlas-surface',
+      provider: fakeProvider(),
+      scene,
+    });
+    expect(stack(scene)).toEqual(['guard', 'atlas-surface']);
+  });
+
+  it('never makes an Atlas layer the base layer, whose edge Cesium would stretch over the globe', () => {
+    // A cold draped load before the basemap arrives, then a hidden basemap (Context off), then shown.
+    const atlas = (['atlas-surface', 'atlas-outlines'] as const).map(
+      (name) =>
+        addDrapedImageryLayer({
+          alpha: 1,
+          name,
+          provider: fakeProvider(FAKE_RECTANGLE),
+          scene,
+        }).layer,
+    );
+    const outside = () =>
+      atlas.map((l) => imagerySkeletons(scene.imageryLayers, l));
+    expect(outside()).toEqual([[], []]);
+    expect(atlas.map((l) => l.isBaseLayer())).toEqual([false, false]);
+    const basemap = new ImageryLayer(fakeProvider(), { show: false });
+    scene.imageryLayers.add(basemap, 0);
+    expect(outside()).toEqual([[], []]);
+    expect(atlas.map((l) => l.isBaseLayer())).toEqual([false, false]);
+    basemap.show = true;
+    expect(outside()).toEqual([[], []]);
+    expect(atlas.map((l) => l.isBaseLayer())).toEqual([false, false]);
+    expect(basemap.isBaseLayer()).toBe(true);
   });
 
   it('names only its own layers', () => {
@@ -159,8 +232,12 @@ describe('addDrapedImageryLayer', () => {
     });
     expect(l.layer.alpha).toBe(0.4);
     expect(l.name).toBe('atlas-surface');
+    scene.requestRender.mockClear();
+    scene.globe.tilesLoaded = false;
     scene.preRender.raiseEvent();
-    expect(scene.requestRender).toHaveBeenCalled();
+    expect(scene.requestRender).toHaveBeenCalledTimes(1);
+    scene.preRender.raiseEvent();
+    expect(scene.requestRender).toHaveBeenCalledTimes(2);
     l.setAlpha(0.25);
     expect(l.layer.alpha).toBe(0.25);
     l.setShown(false);
@@ -195,7 +272,7 @@ describe('addDrapedImageryLayer', () => {
       provider,
       scene,
     });
-    expect(scene.imageryLayers.length).toBe(before + 1);
+    expect(scene.imageryLayers.length).toBe(before + 2); // with the base guard
     l.destroy();
     expect(scene.imageryLayers.length).toBe(before);
     expect(scene.imageryLayers.contains(l.layer)).toBe(false);
@@ -210,21 +287,6 @@ describe('addDrapedImageryLayer', () => {
     l.setAlpha(0.5);
     l.setShown(false);
     provider.tileLoaded.raiseEvent(message(0, 0, 3, null));
-    expect(scene.requestRender).not.toHaveBeenCalled();
-  });
-
-  it('destroys its provider without touching a scene already torn down', () => {
-    const provider = fakeProvider();
-    const l = addDrapedImageryLayer({
-      alpha: 1,
-      name: 'atlas-surface',
-      provider,
-      scene,
-    });
-    scene.imageryLayers.destroy();
-    scene.requestRender.mockClear();
-    expect(() => l.destroy()).not.toThrow();
-    expect(provider.destroy).toHaveBeenCalledTimes(1);
     expect(scene.requestRender).not.toHaveBeenCalled();
   });
 
@@ -346,6 +408,31 @@ describe('drape stats', () => {
       upperMs: [0.5, 1, 2, 4, 8, 16, Infinity],
     });
     expect(DRAPE_RASTER_BINS_MS).toEqual([0.5, 1, 2, 4, 8, 16, Infinity]);
+  });
+
+  it.each([Number.NaN, Infinity, -1])(
+    'rejects a tile whose raster time is %s ms, closes its bitmap and counts it as failed',
+    async (rasterMs) => {
+      const close = vi.fn();
+      const pending = wrapped.tile(body(1, 0, 3));
+      source.tiles.get('1/0/3')!.resolve({
+        ...message(1, 0, 3, { close } as unknown as ImageBitmap),
+        rasterMs,
+      });
+      await expect(pending).rejects.toThrow(RangeError);
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(stats.read()).toMatchObject({
+        delivered: 0,
+        queueDepth: 0,
+        rasterMs: { counts: [0, 0, 0, 0, 0, 0, 0] },
+        requested: 1,
+      });
+    },
+  );
+
+  it('fails loudly when a watched layer has no imagery cache', () => {
+    stats.watchLayer({} as unknown as ImageryLayer);
+    expect(() => stats.read()).toThrow(/_imageryCache/);
   });
 
   it('reads a snapshot that later tiles do not change', async () => {

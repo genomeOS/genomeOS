@@ -8,10 +8,12 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import {
+  EllipsoidTerrainProvider,
   Event,
   GeographicTilingScheme,
   ImageryLayerCollection,
   Rectangle,
+  type ImageryLayer,
 } from 'cesium';
 import { vi, type Mock } from 'vitest';
 
@@ -95,10 +97,12 @@ export function message(
 }
 
 /**
- * A ready geographic provider that requests nothing. Its events are Cesium's own, so
- * `tileLoaded.raiseEvent(message)` and `errorEvent.raiseEvent(error)` pass their payloads on.
+ * A ready geographic provider over `rectangle` that requests nothing. Its events are Cesium's own,
+ * so `tileLoaded.raiseEvent(message)` and `errorEvent.raiseEvent(error)` pass their payloads on.
  */
-export function fakeProvider(): RasterImageryProvider & {
+export function fakeProvider(
+  rectangle: Rectangle = Rectangle.MAX_VALUE,
+): RasterImageryProvider & {
   destroy: Mock<() => void>;
 } {
   let destroyed = false;
@@ -116,7 +120,7 @@ export function fakeProvider(): RasterImageryProvider & {
     minimumLevel: 0,
     pickFeatures: () => undefined,
     proxy: undefined,
-    rectangle: Rectangle.MAX_VALUE,
+    rectangle,
     requestImage: () => undefined,
     tileDiscardPolicy: undefined,
     tileHeight: 256,
@@ -148,6 +152,47 @@ export function fakeDrapedScene(): DrapedScene & FakeDrapedSceneHandles {
     requestRender: vi.fn(),
   };
   return scene as unknown as DrapedScene & FakeDrapedSceneHandles;
+}
+
+/** `FAKE_BOUNDS` as a Cesium rectangle, for a provider clipped to drawn bounds. */
+export const FAKE_RECTANGLE = Rectangle.fromDegrees(
+  FAKE_BOUNDS.west,
+  FAKE_BOUNDS.south,
+  FAKE_BOUNDS.east,
+  FAKE_BOUNDS.north,
+);
+
+/** A geographic level-3 terrain tile wholly outside `FAKE_BOUNDS` (x 2, y 1: 135..112.5 W, 45..67.5 N). */
+export const OUTSIDE_TILE = { level: 3, x: 2, y: 1 } as const;
+
+/**
+ * The imagery Cesium attaches for `layer` to a fresh terrain tile, as `[x, y, level]` per imagery
+ * tile: `ImageryLayer._createTileImagerySkeletons` on an ellipsoid terrain, after the collection's
+ * `_update()` has chosen the base layer. Empty when the layer creates no skeleton.
+ */
+export function imagerySkeletons(
+  layers: ImageryLayerCollection,
+  layer: ImageryLayer,
+  { level, x, y }: { level: number; x: number; y: number } = OUTSIDE_TILE,
+): [number, number, number][] {
+  (layers as unknown as { _update(): void })._update();
+  const tile = {
+    data: {
+      imagery: [] as {
+        loadingImagery: { x: number; y: number; level: number };
+      }[],
+    },
+    level,
+    rectangle: new GeographicTilingScheme().tileXYToRectangle(x, y, level),
+    x,
+    y,
+  };
+  (
+    layer as unknown as {
+      _createTileImagerySkeletons(t: unknown, terrain: unknown): boolean;
+    }
+  )._createTileImagerySkeletons(tile, new EllipsoidTerrainProvider());
+  return tile.data.imagery.map(({ loadingImagery: i }) => [i.x, i.y, i.level]);
 }
 
 /** A Cesium 1.145 engine source file, `p` relative to `@cesium/engine/Source`. */
