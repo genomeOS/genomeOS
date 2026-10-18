@@ -47,7 +47,12 @@ import {
   linearStops,
   normalizedValue,
 } from '../../visual-encoding';
-import { honmoonTexel, type HonmoonMode } from './contours';
+import {
+  HONMOON_FILL_ALPHA,
+  HONMOON_FILL_SHADE,
+  honmoonTexel,
+  type HonmoonMode,
+} from './contours';
 import { rowBox } from './grid-index';
 import { dotTexel, hatchTexel } from './mask-texels';
 import {
@@ -61,9 +66,8 @@ import {
 } from './triangle-scan';
 import type { SurfaceRasterInput, TileAddress, TileRaster } from './types';
 
-/** The Honmoon fill of `ELEVATED_SURFACE_FRAGMENT_SHADER`: rgb × 0.55 at α 0.28. */
-export const HONMOON_FILL_SHADE = 0.55;
-export const HONMOON_FILL_ALPHA = 0.28;
+// One owner: the Honmoon fill of `contours.ts`, rgb × 0.55 at α 0.28, drawn here without contours.
+export { HONMOON_FILL_ALPHA, HONMOON_FILL_SHADE };
 
 const HONMOON_ALPHA_BYTE = Math.round(HONMOON_FILL_ALPHA * 255);
 
@@ -134,7 +138,7 @@ function dotWriter(rgb: readonly [number, number, number]): TexelWriter {
 interface FillStyle {
   /** Writes the centre's and then each corner's attributes of `row`, whose corners are `ids`, into
    * `out`: colour bytes, then with contours the normalised value. */
-  colours(row: number, ids: readonly number[], out: number[]): void;
+  attributes(row: number, ids: readonly number[], out: number[]): void;
   /** Attributes per vertex: 3, or 4 with contours. */
   dims: number;
   /** Contours read the value's change over one texel, which a pole-holding row computes only when
@@ -168,12 +172,17 @@ function cornerColours(
   return entry;
 }
 
-/** `mode` is the geometry's Honmoon mode when contours are drawn, else 0. */
-function fillStyleOf(i: SurfaceRasterInput, mode: 0 | HonmoonMode): FillStyle {
+/** `honmoon` is the geometry's Honmoon mode (0: none); `contours` draws its lines, which
+ * `rasterSurfaceTile` has refused for a geometry without them. */
+function fillStyleOf(
+  i: SurfaceRasterInput,
+  honmoon: 0 | HonmoonMode,
+  contours: boolean,
+): FillStyle {
   if (!isSmoothGeometry(i.geometry)) {
     const bins = paletteBins(i, 'supported');
     return {
-      colours: (row, ids, out) => {
+      attributes: (row, ids, out) => {
         const colour = bins.colors.get(bins.binOfRow[row])!;
         for (let v = 0; v <= ids.length; v += 1) out.push(...colour);
       },
@@ -182,16 +191,15 @@ function fillStyleOf(i: SurfaceRasterInput, mode: 0 | HonmoonMode): FillStyle {
       write: fillTexel,
     };
   }
-  const honmoon = honmoonModeForGeometry(i.geometry) !== 0;
-  const contours = mode !== 0;
+  const lines = contours ? honmoon : 0;
   const stops = linearStops(i.palette);
   const means = vertexMeans(i).values;
   const corners = cornerColours(means, i.palette);
   return {
-    colours: (row, ids, out) => {
+    attributes: (row, ids, out) => {
       const value = normalizedValue(i.values[row], i.domain);
       out.push(...colorBytesAtStops(stops, value));
-      if (contours) out.push(value);
+      if (lines !== 0) out.push(value);
       for (const id of ids) {
         if (corners.known[id] === 0) {
           corners.rgb.set(colorBytesAtStops(stops, means[id]), id * 3);
@@ -202,16 +210,17 @@ function fillStyleOf(i: SurfaceRasterInput, mode: 0 | HonmoonMode): FillStyle {
           corners.rgb[id * 3 + 1],
           corners.rgb[id * 3 + 2],
         );
-        if (contours) out.push(means[id]);
+        if (lines !== 0) out.push(means[id]);
       }
     },
-    derivatives: contours,
-    dims: contours ? 4 : 3,
-    write: contours
-      ? contourWriter(mode)
-      : honmoon
-        ? honmoonFillTexel
-        : fillTexel,
+    derivatives: lines !== 0,
+    dims: lines !== 0 ? 4 : 3,
+    write:
+      lines !== 0
+        ? contourWriter(lines)
+        : honmoon !== 0
+          ? honmoonFillTexel
+          : fillTexel,
   };
 }
 
@@ -244,7 +253,7 @@ function drawFill(
     lon,
     triangles: fanTriangles(count),
   };
-  style.colours(row, ids, mesh.attrs);
+  style.attributes(row, ids, mesh.attrs);
   const { write } = style;
   if (box.polar)
     drawPolar(
@@ -349,7 +358,7 @@ export function rasterSurfaceTile(
   // a code outside the four is a schema violation, never a silently skipped row
   for (const row of rows) supportName(i.support[row]);
   if (i.cells.supported) {
-    const style = fillStyleOf(i, i.contours ? honmoonMode : 0);
+    const style = fillStyleOf(i, honmoonMode, i.contours);
     for (const row of rows)
       if (isSupportedCode(i.support[row])) drawFill(t, i, row, style);
   }

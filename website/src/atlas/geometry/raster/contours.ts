@@ -19,6 +19,11 @@ import { HONMOON_CONTOUR_BANDS } from '../surface-buffers';
 /** 1: lines (`honmoon`); 2: lines and fill (`honmoon-fill`). */
 export type HonmoonMode = 1 | 2;
 
+/** The Honmoon fill of `ELEVATED_SURFACE_FRAGMENT_SHADER`: rgb × 0.55 at α 0.28 (`honmoon-fill`).
+ * One owner: `fill-raster.ts` re-exports both and shades the fill it draws without contours. */
+export const HONMOON_FILL_SHADE = 0.55;
+export const HONMOON_FILL_ALPHA = 0.28;
+
 /** The shader's `clamp(fwidth(contourCoordinate), 0.006, 0.22)`. */
 export const HONMOON_DERIVATIVE_CLAMP = [0.006, 0.22] as const;
 
@@ -26,8 +31,6 @@ const [MIN_DERIVATIVE, MAX_DERIVATIVE] = HONMOON_DERIVATIVE_CLAMP;
 // smoothstep edges of the line's core and halo, in line widths from the contour.
 const CORE_EDGES = [0.45, 1.15] as const;
 const HALO_EDGES = [0.7, 4.5] as const;
-const FILL_ALPHA = 0.28;
-const FILL_SHADE = 0.55;
 const HALO_ALPHA = 0.42;
 const HALO_GLOW = 0.62;
 const LUMINOUS_GAIN = 1.35;
@@ -85,13 +88,13 @@ export function honmoonTexel(
   const contourCoordinate = value * HONMOON_CONTOUR_BANDS;
   const shifted = contourCoordinate + 0.5;
   const distanceToLine = Math.abs(shifted - Math.floor(shifted) - 0.5);
-  const fillAlpha = mode === 2 ? FILL_ALPHA : 0;
+  const fillAlpha = mode === 2 ? HONMOON_FILL_ALPHA : 0;
   const pixelsFromLine = distanceToLine / derivative;
   if (pixelsFromLine >= HALO_EDGES[1]) {
     // Beyond the halo core and halo are 0: the formula's own fill, at no smoothstep's cost.
-    out[offset] = 255 * FILL_SHADE * colour[0];
-    out[offset + 1] = 255 * FILL_SHADE * colour[1];
-    out[offset + 2] = 255 * FILL_SHADE * colour[2];
+    out[offset] = 255 * HONMOON_FILL_SHADE * colour[0];
+    out[offset + 1] = 255 * HONMOON_FILL_SHADE * colour[1];
+    out[offset + 2] = 255 * HONMOON_FILL_SHADE * colour[2];
     out[offset + 3] = 255 * fillAlpha;
     return;
   }
@@ -101,7 +104,7 @@ export function honmoonTexel(
   const glow = Math.max(core, halo * HALO_GLOW);
   for (let channel = 0; channel < 3; channel += 1) {
     const c = colour[channel];
-    const fill = c * FILL_SHADE;
+    const fill = c * HONMOON_FILL_SHADE;
     const luminous = (c + (1 - c) * towardsWhite) * LUMINOUS_GAIN;
     out[offset + channel] = 255 * (fill + (luminous - fill) * glow);
   }
