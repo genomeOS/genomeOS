@@ -1,16 +1,21 @@
 import { cellToLatLng } from 'h3-js';
 import {
   Ellipsoid,
+  type Cartesian3,
   type PointPrimitiveCollection,
   type PolylineCollection,
+  type PrimitiveCollection,
 } from 'cesium';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ObservationArtifact } from '../src/atlas/contracts';
 import {
   buildObservationLayer,
+  footprintCircles,
+  footprintSpec,
   observationHeightsFromBuffers,
   observationPickId,
+  type ObservationLayerOptions,
 } from '../src/atlas/scene/observation-layer';
 import {
   anchorsFromBuffers,
@@ -51,7 +56,7 @@ const observations = {
   ],
 } as unknown as ObservationArtifact;
 
-function layer() {
+function layer(overrides: Partial<ObservationLayerOptions> = {}) {
   stubCesiumBrowserImageTypes();
   return buildObservationLayer(observations, {
     artifactKey: KEY,
@@ -67,6 +72,7 @@ function layer() {
     sizeRange: [12, 32],
     sizeVariable: 'fixed',
     solidColor: '#f4fbff',
+    ...overrides,
   });
 }
 
@@ -212,5 +218,113 @@ describe('observation surface heights', () => {
     expect(heights.ringBaseHeights).toEqual([
       source.cellHeight(CELL, 'post_mean'),
     ]);
+  });
+});
+
+function fakeFootprints() {
+  return {
+    alpha: Number.NaN,
+    destroy: vi.fn(),
+    isReady: () => true,
+    layer: {} as never,
+    name: 'atlas-footprints' as const,
+    shown: true,
+    setAlpha(a: number) {
+      this.alpha = a;
+    },
+    setShown(s: boolean) {
+      this.shown = s;
+    },
+  };
+}
+const CLEARANCE = SURFACE_CLEARANCE_METRES + SYMBOL_CLEARANCE_METRES; // 7,650 m
+
+describe('observations on World Terrain', () => {
+  it("lifts a symbol by the ground under it, keeping today's clearance", () => {
+    const group = layer();
+    const points = group.collection.get(2) as PointPrimitiveCollection;
+    group.setGroundHeights(Float64Array.of(6_000));
+    expect(heightOf(points.get(0).position)).toBeCloseTo(6_000 + CLEARANCE, 3);
+    group.setGroundHeights(null);
+    expect(heightOf(points.get(0).position)).toBeCloseTo(CLEARANCE, 3);
+  });
+
+  it('keeps a symbol where the ground has not loaded', () => {
+    const group = layer();
+    const points = group.collection.get(2) as PointPrimitiveCollection;
+    group.setGroundHeights(Float64Array.of(Number.NaN));
+    expect(heightOf(points.get(0).position)).toBeCloseTo(CLEARANCE, 3);
+    group.setGroundHeights(Float64Array.of(6_000));
+    group.setGroundHeights(Float64Array.of(Number.NaN));
+    expect(heightOf(points.get(0).position)).toBeCloseTo(6_000 + CLEARANCE, 3);
+  });
+
+  it('refuses ground heights that do not match the observations', () => {
+    expect(() => layer().setGroundHeights(Float64Array.of(1, 2))).toThrow(
+      /1 observations/,
+    );
+  });
+
+  it('raises a sphere by its radius above the ground, and leaves it alone when the ground holds', () => {
+    const group = layer({ shape: 'sphere' }); // fixed size 22 → 22 km
+    const spheres = group.collection.get(4) as PrimitiveCollection;
+    group.setGroundHeights(Float64Array.of(6_000));
+    const center = spheres.get(0).center as Cartesian3;
+    expect(heightOf(center)).toBeCloseTo(6_000 + CLEARANCE + 22_000, 3);
+    group.setGroundHeights(Float64Array.of(6_000));
+    expect(spheres.get(0).center).toBe(center); // not re-placed
+  });
+
+  it("hides the rings behind a draped footprint layer driven by the group's opacity and visibility", () => {
+    const group = layer();
+    const rings = group.collection.get(0) as PolylineCollection;
+    const footprints = fakeFootprints();
+    group.setStyleOpacity(0.8);
+    group.setFootprints(footprints);
+    expect([rings.show, footprints.alpha, footprints.shown]).toEqual([
+      false,
+      expect.closeTo(0.8, 9),
+      true,
+    ]);
+    group.setOpacity(0.5);
+    expect(footprints.alpha).toBeCloseTo(0.4, 9);
+    group.setEarthOpacity(0.3);
+    expect(footprints.alpha).toBeCloseTo(0.4, 9); // the translucent globe already dims draped imagery
+    group.setVisibility(true, false);
+    expect([footprints.shown, rings.show]).toEqual([false, false]);
+    group.setVisibility(true, true);
+    expect(footprints.shown).toBe(true);
+    group.collection.show = false; // retired: frees its tiles
+    expect(footprints.shown).toBe(false);
+    group.collection.show = true;
+    expect(footprints.shown).toBe(true);
+    group.setFootprints(null);
+    expect([footprints.destroy.mock.calls.length, rings.show]).toEqual([
+      1,
+      true,
+    ]);
+  });
+
+  it('destroys the footprint layer it replaces', () => {
+    const group = layer();
+    const [first, second] = [fakeFootprints(), fakeFootprints()];
+    group.setFootprints(first);
+    group.setFootprints(second);
+    expect([
+      first.destroy.mock.calls.length,
+      second.destroy.mock.calls.length,
+    ]).toEqual([1, 0]);
+  });
+
+  it('lists sampling footprints as lon, lat, radius triples', () => {
+    expect(footprintCircles(observations.observations)).toEqual(
+      Float64Array.of(LON, LAT, 12),
+    );
+    expect(footprintSpec(KEY, observations.observations, '#9af9e2')).toEqual({
+      artifactKey: KEY,
+      circles: Float64Array.of(LON, LAT, 12),
+      color: '#9af9e2',
+      layer: 'footprints',
+    });
   });
 });
