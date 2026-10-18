@@ -4,6 +4,9 @@
  * deadline counts visible time only (RF1), as the chunk scheduler's stall timeout does. Under World
  * Terrain (terrain draping design, "How existing features behave", #483) the worker prepares a
  * draped raster whether or not the tab is shown, so the wait for its tiles may begin hidden.
+ * `whenLayerReady` waits the same way for one draped imagery layer (terrain draping design, "Per
+ * layer under World Terrain"): a recoloured border or footprint layer, added at α 0, replaces the
+ * shown one only once the globe has loaded its tiles or the layer's 3 s cap has passed.
  */
 
 import type { Scene } from 'cesium';
@@ -12,6 +15,7 @@ import {
   DOCUMENT_VISIBILITY,
   type VisibilitySource,
 } from './reveal-wave-driver';
+import type { DrapedImageryLayer } from './types';
 
 export interface SceneHost {
   scene: Pick<Scene, 'postRender' | 'primitives' | 'requestRender'>;
@@ -151,6 +155,42 @@ export function waitForReady(
     signal?.addEventListener('abort', onAbort, { once: true });
     extendDeadline();
     viewer.scene.requestRender();
+  });
+}
+
+/**
+ * Resolves after the first rendered frame at which `layer` is ready, requesting a frame after each
+ * one until then, since a draped layer's tile loads request none of their own. An abort rejects
+ * with an AbortError. Either way its one `postRender` listener is removed.
+ */
+export function whenLayerReady(
+  layer: Pick<DrapedImageryLayer, 'isReady'>,
+  scene: {
+    postRender: { addEventListener(listener: () => void): () => void };
+    requestRender(): void;
+  },
+  signal: AbortSignal,
+): Promise<void> {
+  if (signal.aborted) return Promise.reject(abortedWait());
+  return new Promise((resolve, reject) => {
+    const settle = () => {
+      remove();
+      signal.removeEventListener('abort', onAbort);
+    };
+    const onAbort = () => {
+      settle();
+      reject(abortedWait());
+    };
+    const remove = scene.postRender.addEventListener(() => {
+      if (!layer.isReady()) {
+        scene.requestRender();
+        return;
+      }
+      settle();
+      resolve();
+    });
+    signal.addEventListener('abort', onAbort, { once: true });
+    scene.requestRender();
   });
 }
 
