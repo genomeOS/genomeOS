@@ -1,6 +1,11 @@
 /** Camera serialization and focus-scoped keyboard controls for Atlas design §11. */
 
-import { Cartesian3, Math as CesiumMath, type CesiumWidget } from 'cesium';
+import {
+  Cartesian3,
+  Math as CesiumMath,
+  type Cartographic,
+  type CesiumWidget,
+} from 'cesium';
 
 import type { CameraState } from '../url-state';
 
@@ -9,8 +14,8 @@ export type KeyboardCommand =
   | 'pan-right'
   | 'pan-up'
   | 'pan-down'
-  | 'tilt-up'
-  | 'tilt-down'
+  | 'look-up'
+  | 'look-down'
   | 'zoom-in'
   | 'zoom-out';
 
@@ -56,8 +61,8 @@ export function keyboardCommandFor(
     ArrowUp: 'pan-up',
     a: 'pan-left',
     d: 'pan-right',
-    e: 'tilt-down',
-    q: 'tilt-up',
+    e: 'look-down',
+    q: 'look-up',
     s: 'pan-down',
     w: 'pan-up',
   };
@@ -123,6 +128,85 @@ export function setCameraState(
   }
 }
 
+/**
+ * The lowest the zoom-in button and keys take the camera: this far above the ground under it
+ * (#483). Their steps are fixed fractions of the height (at least 50 km and 20 km), so a step
+ * from a few tens of kilometres went underground, where Cesium's collision handling left the
+ * camera about a metre above one tile, a grey screen. A kilometre keeps a readable view of the
+ * landscape below. Mouse-wheel and pinch zoom keep Cesium's own behaviour.
+ */
+export const ZOOM_FLOOR_METRES = 1_000;
+
+/**
+ * How far a zoom-in may move along the view direction: `requested`, cut so the camera ends at
+ * least `floor` above `ground`. `descent` is the height lost per metre travelled (the sine of
+ * the downward pitch); a camera that is not looking down is not limited, and one already at or
+ * below the floor does not descend.
+ */
+export function zoomInDistance({
+  descent,
+  floor = ZOOM_FLOOR_METRES,
+  ground,
+  height,
+  requested,
+}: {
+  descent: number;
+  floor?: number;
+  ground: number;
+  height: number;
+  requested: number;
+}): number {
+  if (descent <= 0) return requested;
+  return Math.min(requested, Math.max(0, height - ground - floor) / descent);
+}
+
+export interface ZoomCamera {
+  /** Undefined while the scene morphs between views (Cesium's `Camera.pitch`). */
+  readonly pitch: number | undefined;
+  readonly positionCartographic: Cartographic;
+  zoomIn(amount: number): void;
+  zoomOut(amount: number): void;
+}
+
+export interface ZoomGlobe {
+  getHeight(cartographic: Cartographic): number | undefined;
+}
+
+/**
+ * A button or keyboard zoom of `requested` metres that never ends below `ZOOM_FLOOR_METRES` above
+ * the ground under the camera, on the smooth globe and on terrain (ground not yet loaded counts as
+ * sea level). Ground ahead of a tilted camera can rise above the ground it started over, so the
+ * camera backs off along its view line if it lands below the floor there. A zoom-in during a
+ * morph between views does nothing: the camera has no pitch then, and the morph moves it anyway.
+ */
+export function zoomCamera(
+  camera: ZoomCamera,
+  globe: ZoomGlobe | undefined,
+  direction: 'in' | 'out',
+  requested: number,
+): void {
+  if (direction === 'out') {
+    camera.zoomOut(requested);
+    return;
+  }
+  const { pitch } = camera;
+  if (pitch === undefined || !Number.isFinite(pitch)) return;
+  const ground = () => globe?.getHeight(camera.positionCartographic) ?? 0;
+  const descent = Math.sin(-pitch);
+  const distance = zoomInDistance({
+    descent,
+    ground: ground(),
+    height: camera.positionCartographic.height,
+    requested,
+  });
+  if (distance <= 0) return;
+  camera.zoomIn(distance);
+  const shortfall =
+    ground() + ZOOM_FLOOR_METRES - camera.positionCartographic.height;
+  if (shortfall > 0 && descent > 0)
+    camera.zoomOut(Math.min(distance, shortfall / descent));
+}
+
 function runCommand(widget: CesiumWidget, command: KeyboardCommand): void {
   const distance = Math.max(
     20_000,
@@ -134,10 +218,12 @@ function runCommand(widget: CesiumWidget, command: KeyboardCommand): void {
     'pan-left': () => widget.camera.moveLeft(distance),
     'pan-right': () => widget.camera.moveRight(distance),
     'pan-up': () => widget.camera.moveUp(distance),
-    'tilt-down': () => widget.camera.lookDown(angle),
-    'tilt-up': () => widget.camera.lookUp(angle),
-    'zoom-in': () => widget.camera.zoomIn(distance),
-    'zoom-out': () => widget.camera.zoomOut(distance),
+    'look-down': () => widget.camera.lookDown(angle),
+    'look-up': () => widget.camera.lookUp(angle),
+    'zoom-in': () =>
+      zoomCamera(widget.camera, widget.scene.globe, 'in', distance),
+    'zoom-out': () =>
+      zoomCamera(widget.camera, widget.scene.globe, 'out', distance),
   };
   actions[command]();
 }

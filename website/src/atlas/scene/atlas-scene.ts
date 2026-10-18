@@ -11,7 +11,9 @@ import { SceneMode, type CesiumWidget } from 'cesium';
 import {
   cameraMotionTestHook,
   revealWaveTestHold,
+  syntheticTerrainTestHook,
   type CameraMotionHook,
+  type SyntheticTerrainHook,
 } from '../e2e-hooks';
 import { createLoadOrder, type LoadOrder, type LoadTask } from '../load-order';
 import type {
@@ -28,7 +30,12 @@ import {
   type Metric,
   type PaletteId,
 } from '../visual-encoding';
-import { bindKeyboardCamera, cameraState, setCameraState } from './camera';
+import {
+  bindKeyboardCamera,
+  cameraState,
+  setCameraState,
+  zoomCamera,
+} from './camera';
 import { revealFrameBudgetMs } from './chunk-scheduler';
 import {
   ContextController,
@@ -39,7 +46,11 @@ import { ContextOverlay } from './context-overlay';
 import { installGlobeOffset, type GlobeOffset } from './globe-offset';
 import { createGlobeWidget, type GlobeWidget } from './globe-widget';
 import { HighlightLayer } from './highlight-layer';
-import { bindAtlasPicking } from './picking';
+import {
+  bindAtlasPicking,
+  createFrameThrottle,
+  type FrameThrottle,
+} from './picking';
 import { RenderLoop } from './render-loop';
 import {
   createRevealWave,
@@ -60,6 +71,7 @@ import { animateValue } from './scene-transition';
 import { ScientificLayers, type ScientificStyle } from './scientific-layers';
 import { SURFACE_CLEARANCE_METRES } from './surface-appearance';
 import { createSurfacePickResolver } from './surface-pick';
+import { TerrainShading } from './terrain-shading';
 import type {
   ArtifactLoad,
   AtlasHover,
@@ -111,6 +123,7 @@ class CesiumAtlasScene implements AtlasSceneController {
     (warnings: readonly ContextWarning[]) => void
   >();
   readonly #warnings = new Map<ContextWarning['id'], ContextWarning>();
+  readonly #terrainListeners = new Set<(terrain: TerrainId) => void>();
   readonly #renderLoop: RenderLoop;
   readonly #globeOffset: GlobeOffset;
   readonly #unbindKeyboard: () => void;
@@ -119,12 +132,17 @@ class CesiumAtlasScene implements AtlasSceneController {
   readonly #removeRenderError: () => void;
   readonly #removeMarks: () => void;
   readonly #contextController: ContextController;
+  readonly #terrainShading: TerrainShading;
+  /** Slider-driven relief, applied at most once per animation frame. */
+  readonly #reliefFrame: FrameThrottle<number>;
   readonly #overlay: ContextOverlay;
   readonly #highlightLayer: HighlightLayer;
   readonly #marks: MarkTracker;
   readonly #wave: RevealWave;
   /** The e2e build's camera motion hook; undefined elsewhere. */
   readonly #cameraMotion: CameraMotionHook | undefined;
+  /** The e2e build's World Terrain stand-in, when a test asked for it; undefined elsewhere. */
+  readonly #syntheticTerrain: SyntheticTerrainHook | undefined;
   readonly #layers: ScientificLayers;
   readonly #revealSky: () => void;
   readonly #loadOrder: LoadOrder;
@@ -146,6 +164,8 @@ class CesiumAtlasScene implements AtlasSceneController {
   #mode: ExplorerSceneMode = 'globe';
   #destroyed = false;
   #contextStatus: ContextStatus = 'loading';
+  /** A new globe is smooth until the context controller puts another terrain on it. */
+  #appliedTerrain: TerrainId = 'smooth-globe';
   #reducedMotion: boolean;
 
   constructor(container: HTMLElement, options: AtlasSceneOptions) {
@@ -166,12 +186,22 @@ class CesiumAtlasScene implements AtlasSceneController {
       this.#widget.scene,
       options.markTarget ?? null,
     );
+    this.#terrainShading = new TerrainShading(this.#widget.scene);
+    this.#syntheticTerrain = syntheticTerrainTestHook(this.#widget);
+    this.#reliefFrame = createFrameThrottle(
+      (relief: number) => this.#terrainShading.update({ relief }),
+      (callback) => requestAnimationFrame(callback),
+    );
     this.#contextController = new ContextController(
       this.#widget,
       options.cesiumToken ?? '',
       options.contextImageryUrl ??
         'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
       (warning) => this.#setWarning(warning),
+      {
+        onTerrainApplied: (terrain) => this.#setAppliedTerrain(terrain),
+        worldTerrain: this.#syntheticTerrain?.worldTerrain,
+      },
     );
     this.#overlay = new ContextOverlay({
       addCredit: (credit) => this.#widget.creditDisplay.addStaticCredit(credit),
@@ -312,6 +342,12 @@ class CesiumAtlasScene implements AtlasSceneController {
     for (const listener of this.#contextListeners) listener(status);
   }
 
+  #setAppliedTerrain(terrain: TerrainId): void {
+    this.#appliedTerrain = terrain;
+    this.#terrainShading.update({ terrain });
+    for (const listener of this.#terrainListeners) listener(terrain);
+  }
+
   #setWarning(warning: ContextWarningUpdate): void {
     if (warning.message) this.#warnings.set(warning.id, warning);
     else this.#warnings.delete(warning.id);
@@ -413,8 +449,13 @@ class CesiumAtlasScene implements AtlasSceneController {
     dayNightLighting: boolean,
   ): void {
     this.#contextController.setAppearance(basemapOpacity, basemapBrightness);
-    this.#widget.scene.globe.enableLighting = dayNightLighting;
+    // Day/night lights the smooth globe only; World Terrain keeps its hillshade (#483).
+    this.#terrainShading.update({ dayNight: dayNightLighting });
     this.#widget.scene.requestRender();
+  }
+
+  setRelief(relief: number): void {
+    this.#reliefFrame.queue(relief);
   }
 
   setEarthOpacity(opacity: number): void {
@@ -472,6 +513,7 @@ class CesiumAtlasScene implements AtlasSceneController {
       perspective: SceneMode.COLUMBUS_VIEW,
     }[mode];
     this.#mode = mode;
+    this.#terrainShading.update({ mode });
     if (this.#widget.scene.mode !== target) {
       this.#widget.camera.cancelFlight();
       await this.#layers.setSceneMode('perspective');
@@ -523,8 +565,13 @@ class CesiumAtlasScene implements AtlasSceneController {
       50_000,
       this.#widget.camera.positionCartographic.height * 0.28,
     );
-    if (direction === 'in') this.#widget.camera.zoomIn(distance);
-    else this.#widget.camera.zoomOut(distance);
+    // Never below the ground plus ZOOM_FLOOR_METRES (#483).
+    zoomCamera(
+      this.#widget.camera,
+      this.#widget.scene.globe,
+      direction,
+      distance,
+    );
   }
 
   displayedLayer(): DisplayedLayer | null {
@@ -581,6 +628,12 @@ class CesiumAtlasScene implements AtlasSceneController {
     return () => this.#warningListeners.delete(listener);
   }
 
+  onTerrainApplied(listener: (terrain: TerrainId) => void): () => void {
+    this.#terrainListeners.add(listener);
+    listener(this.#appliedTerrain);
+    return () => this.#terrainListeners.delete(listener);
+  }
+
   onRenderError(listener: (error: unknown) => void): () => void {
     return this.#renderLoop.onError(listener);
   }
@@ -599,7 +652,11 @@ class CesiumAtlasScene implements AtlasSceneController {
     this.#unbindPicking();
     this.#removeMoveEnd();
     this.#cameraMotion?.destroy();
+    this.#syntheticTerrain?.destroy();
     this.#removeRenderError();
+    this.#reliefFrame.cancel();
+    this.#contextController.destroy();
+    this.#terrainShading.destroy();
     this.#globeOffset.destroy();
     this.#globe.destroy();
   }

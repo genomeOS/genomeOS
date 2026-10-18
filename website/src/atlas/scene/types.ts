@@ -165,6 +165,12 @@ export interface AtlasSceneController extends ArtifactSceneApi {
     basemapBrightness: number,
     dayNightLighting: boolean,
   ): void;
+  /**
+   * Vertical exaggeration of physical terrain (`scene.verticalExaggeration`, from sea level), in
+   * `RELIEF_RANGE`. It applies only to World Terrain outside the 2D map, and never scales the
+   * data: that is `setElevation`'s exaggeration (#483).
+   */
+  setRelief(relief: number): void;
   setEarthOpacity(opacity: number): void;
   setOceanColor(color: string): void;
   setCountryBorderStyle(color: string, opacity: number): void;
@@ -188,6 +194,11 @@ export interface AtlasSceneController extends ArtifactSceneApi {
   onWarning(
     listener: (warnings: readonly ContextWarning[]) => void,
   ): () => void;
+  /**
+   * The terrain on the globe: called now, and again each time another terrain's provider reaches
+   * the globe. A requested World Terrain that is still loading, or failed, is not on it (#483).
+   */
+  onTerrainApplied(listener: (terrain: TerrainId) => void): () => void;
   /**
    * A frame threw, inside Scene.render or in any listener, tick or resize the Atlas render loop
    * runs, and rendering stopped for good (Cesium globe design §12), so listeners offer a retry.

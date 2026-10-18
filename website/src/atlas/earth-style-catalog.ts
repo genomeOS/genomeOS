@@ -289,3 +289,91 @@ export function resolveElevationView(
 ): ExplorerSceneMode {
   return view === 'map' && elevationEnabled ? 'perspective' : view;
 }
+
+/** Whether a terrain has physical relief; only the smooth globe has none (#483). */
+export function hasPhysicalRelief(terrain: TerrainId): boolean {
+  return terrain !== 'smooth-globe';
+}
+
+export interface TerrainControlState {
+  disabled: boolean;
+  /** Why the control does not apply, shown beside it; null when it applies. */
+  note: string | null;
+}
+
+/**
+ * The day/night control applies to the smooth globe only: with World Terrain on, a fixed
+ * hillshade light shades the relief instead (#483). The control stays visible, disabled with
+ * the reason, so the setting is still there when the globe is smooth again.
+ */
+export function dayNightControl(terrain: TerrainId): TerrainControlState {
+  return hasPhysicalRelief(terrain)
+    ? {
+        disabled: true,
+        note: 'Not used while World Terrain is on: a fixed light from the north-west shades the relief.',
+      }
+    : { disabled: false, note: null };
+}
+
+/** The relief slider and `relief` URL parameter: true scale to tenfold, in half steps (#483). */
+export const RELIEF_RANGE = [1, 10] as const;
+export const RELIEF_STEP = 0.5;
+
+interface ReliefInput {
+  relief: number;
+  /** The terrain on the globe. */
+  terrain: TerrainId;
+  view: ExplorerSceneMode;
+}
+
+/**
+ * The vertical exaggeration the scene draws: the chosen relief where there is physical relief to
+ * raise, true scale on the smooth globe and in the flat 2D map.
+ */
+export function effectiveRelief({
+  relief,
+  terrain,
+  view,
+}: ReliefInput): number {
+  return hasPhysicalRelief(terrain) && view !== 'map' ? relief : 1;
+}
+
+export interface ReliefControlState extends TerrainControlState {
+  /** What drawn terrain costs the map data; null when no terrain height is drawn. */
+  warning: string | null;
+}
+
+/**
+ * Relief exaggerates the ground only. The data layers sit at fixed heights until they are draped
+ * onto the terrain (#483's second change), so wherever World Terrain's height is drawn, even at
+ * true scale, high ground can rise through them (#483 point 3: the 650 m surface disappears in
+ * the Ethiopian highlands and the Himalaya), and raised relief rises through more. The warning
+ * says so whenever that can happen, so data cut away by the ground is not read as missing data.
+ */
+export function reliefControl(
+  input: ReliefInput & {
+    /** The terrain chosen, which may still be loading or have failed. */
+    requested?: TerrainId;
+  },
+): ReliefControlState {
+  if (!hasPhysicalRelief(input.terrain))
+    return {
+      disabled: true,
+      note: hasPhysicalRelief(input.requested ?? input.terrain)
+        ? 'World Terrain has not loaded, so there is no relief to raise.'
+        : 'Choose World Terrain to raise the relief.',
+      warning: null,
+    };
+  if (input.view === 'map')
+    return {
+      disabled: true,
+      note: 'The 2D map is flat; switch to Globe or Perspective to raise the relief.',
+      warning: null,
+    };
+  return {
+    disabled: false,
+    note: null,
+    warning:
+      'World Terrain can hide map data on high ground, and raised relief hides more.',
+  };
+}

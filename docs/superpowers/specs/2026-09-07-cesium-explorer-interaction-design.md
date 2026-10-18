@@ -229,6 +229,24 @@ Physical terrain and scientific elevation are different controls. The first desc
 topography; the second encodes a selected statistical metric. Labels, legend text, and information
 popovers use those exact terms.
 
+*Amended 2026-10-17 (#483, owner decisions).* World Terrain is lit by a fixed hillshade light from
+the north-west (azimuth 315°), never by the real-time sun, so its relief shows at any time of day.
+The light is aimed at the view target, the ground drawn on the view axis. It stands 35° above the
+horizon there up to a camera height of about 660 km; from farther out it rises with the horizon,
+10° above the visible disc's edge, up to overhead. A directional light also shades the curve of
+the Earth, with no fade by distance, so the shading is full up to 1,000 km and fades out by
+3,000 km; beyond that, and in the whole-world 2D map, World Terrain is drawn unlit, as the smooth
+globe is with day/night off, rather than with a night side the user cannot switch off. The
+day/night control applies to the smooth globe and is shown disabled, with the reason, while World
+Terrain is on the globe. These controls follow the terrain actually on the globe: a requested
+World Terrain that is still loading, or failed, leaves the smooth globe and its sun in charge. A
+**Physical relief ×** control (the `relief` URL parameter, 1–10 in steps of 0.5, default 1) sets
+Cesium's vertical exaggeration of the terrain from sea level (`verticalExaggerationRelativeHeight`
+is 0 and has no control). It is physical terrain, separate from scientific elevation's
+exaggeration, and does not apply to the smooth globe or the 2D map. Until the scientific layers
+are draped onto the terrain, World Terrain can hide them on high ground even at true scale, and
+raised relief hides more; the control says so whenever World Terrain's height is drawn.
+
 The GitHub Actions secret `CESIUM_TOKEN` is exposed to Astro as a public build variable only for
 the Pages build. A browser token is necessarily readable by the browser, so it is treated as a
 restricted public capability rather than as a confidential server credential: assets-read only,

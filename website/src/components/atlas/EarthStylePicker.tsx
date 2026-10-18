@@ -20,17 +20,24 @@ import {
   type TerrainId,
 } from '../../atlas/earth-style-catalog';
 import type { SceneCapabilities } from '../../atlas/scene/atlas-scene';
+import type { ExplorerSceneMode } from '../../atlas/url-state';
 import { BrandText } from './BrandText';
 import { InfoTip } from './InfoTip';
+import { ReliefControl } from './ReliefControl';
 import { clampPickerTop, siteHeaderBottom } from './site-header';
 import { useEscapeLayer } from './useEscapeStack';
 
 interface EarthStylePickerProps {
+  /** The terrain on the globe, which the relief slider follows (#483). */
+  appliedTerrain: TerrainId;
   basemap: BasemapId;
   capabilities: SceneCapabilities;
   disabled: boolean;
+  relief: number;
   terrain: TerrainId;
+  view: ExplorerSceneMode;
   onBasemap: (value: BasemapId) => void;
+  onRelief: (value: number) => void;
   onTerrain: (value: TerrainId) => void;
 }
 
@@ -66,11 +73,15 @@ function groupedBasemaps() {
 }
 
 export function EarthStylePicker({
+  appliedTerrain,
   basemap,
   capabilities,
   disabled,
+  relief,
   terrain,
+  view,
   onBasemap,
+  onRelief,
   onTerrain,
 }: EarthStylePickerProps) {
   const dialogId = useId();
@@ -326,6 +337,14 @@ export function EarthStylePicker({
                   galleryButton(option, 'terrain'),
                 )}
               </div>
+              <ReliefControl
+                disabled={disabled}
+                relief={relief}
+                requested={terrain}
+                terrain={appliedTerrain}
+                view={view}
+                onRelief={onRelief}
+              />
             </section>
           </div>,
           document.body,
