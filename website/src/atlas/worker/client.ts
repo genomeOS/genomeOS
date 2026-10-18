@@ -304,18 +304,29 @@ export class AtlasWorkerClient {
 
   /**
    * Prepares a draped raster in the worker (terrain draping design, "Per layer under World
-   * Terrain"); the returned `rasterId` names it in `rasterTile` and `releaseRaster`.
+   * Terrain"); the returned `rasterId` names it in `rasterTile` and `releaseRaster`. An abort
+   * that lands after the worker stored the raster drops its answer, so the client releases the
+   * raster's id itself (the request's own; a release of a raster never stored is a no-op).
    */
   async prepareRaster(
     spec: RasterSpec,
     signal?: AbortSignal,
   ): Promise<RasterReady> {
-    const { bounds, rasterId } = await this.#request<'raster-ready'>(
-      (id) => ({ id, spec, type: 'prepare-raster' }),
-      [],
-      signal,
-    );
-    return { bounds, rasterId };
+    let sent = 0;
+    try {
+      const { bounds, rasterId } = await this.#request<'raster-ready'>(
+        (id) => ({ id: (sent = id), spec, type: 'prepare-raster' }),
+        [],
+        signal,
+      );
+      return { bounds, rasterId };
+    } catch (error) {
+      if (sent && signal?.aborted)
+        this.releaseRaster(sent).catch((release: unknown) =>
+          console.warn(`Raster ${sent} could not be released.`, release),
+        );
+      throw error;
+    }
   }
 
   /** One tile of a prepared raster; the bitmap is transferred, null for an empty tile. */

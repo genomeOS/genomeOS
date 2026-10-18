@@ -6,8 +6,9 @@
  * the rasteriser input once (the grid index is cached per topology), and answers with its own id
  * as the raster id and the bounds of the cells the raster draws: supported cells when
  * `cells.supported`, masked cells when `cells.masked`, and supported cells only for outlines. A
- * prepare cancelled before it runs fails as `cancelled` and stores nothing, as the client drops
- * any later answer and so could never release the raster.
+ * prepare cancelled before it runs fails as `cancelled` and stores nothing; one cancelled after it
+ * stored its raster is freed by the `release-raster` the client sends after the cancel, since the
+ * client drops the late answer.
  *
  * `raster-tile` joins one first-in, first-out queue, which yields to the event loop after each
  * tile, so a `load-detail` that arrives meanwhile runs before the next tile. A tile whose request
@@ -264,8 +265,7 @@ export function createRasterRuntime(
   return {
     handlers: {
       'prepare-raster': async (request) => {
-        // The client drops a late answer to an aborted prepare, so a raster stored for it
-        // could never be released.
+        // The client drops a late answer to an aborted prepare: build nothing it would only release.
         if (c.isCancelled(request.id)) {
           fail(request.id, 'cancelled', 'request superseded');
           return;

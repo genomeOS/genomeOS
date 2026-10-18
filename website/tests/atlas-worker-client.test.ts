@@ -10,6 +10,7 @@ import {
 import type { HandlerRegistry } from '../src/atlas/worker/dispatcher';
 import { ATLAS_WORKER_HANDLERS } from '../src/atlas/worker/handlers';
 import { SURFACE_SPEC } from './helpers/raster-specs';
+import { flushTasks } from './helpers/scene-fakes';
 import {
   goldenBytes,
   goldenCatalog,
@@ -199,6 +200,61 @@ describe('AtlasWorkerClient', () => {
       y: 2,
     });
     await expect(atlas.releaseRaster(ready.rasterId)).resolves.toBeUndefined();
+  });
+
+  it('releases the raster of a prepare aborted after the worker stored it', async () => {
+    // The worker's answer crosses the abort and is dropped, so only the client can free it.
+    const stored = new Set<number>();
+    let answer = () => {};
+    const handlers: HandlerRegistry = {
+      ...ATLAS_WORKER_HANDLERS,
+      'prepare-raster': (r, c) => {
+        stored.add(r.id);
+        answer = () =>
+          c.post({
+            bounds: null,
+            id: r.id,
+            rasterId: r.id,
+            type: 'raster-ready',
+          });
+      },
+      'release-raster': (r, c) => {
+        stored.delete(r.rasterId);
+        c.post({ id: r.id, rasterId: r.rasterId, type: 'raster-released' });
+      },
+    };
+    const { client: atlas } = client(new InProcessWorker(handlers));
+    const controller = new AbortController();
+    const preparing = atlas.prepareRaster(SURFACE_SPEC, controller.signal);
+    await flushTasks();
+    expect(stored.size).toBe(1);
+    controller.abort();
+    await expect(preparing).rejects.toMatchObject({ name: 'AbortError' });
+    answer();
+    await flushTasks();
+    expect(stored.size).toBe(0);
+  });
+
+  it('releases nothing for a prepare aborted before it was sent, or after it settled', async () => {
+    const worker = new InProcessWorker({
+      ...ATLAS_WORKER_HANDLERS,
+      'prepare-raster': (r, c) =>
+        c.post({
+          bounds: null,
+          id: r.id,
+          rasterId: r.id,
+          type: 'raster-ready',
+        }),
+    });
+    const { client: atlas } = client(worker);
+    await expect(
+      atlas.prepareRaster(SURFACE_SPEC, AbortSignal.abort()),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    const controller = new AbortController();
+    await atlas.prepareRaster(SURFACE_SPEC, controller.signal);
+    controller.abort(); // the caller owns the raster now, and releases it itself
+    await flushTasks();
+    expect(worker.received.map(({ type }) => type)).toEqual(['prepare-raster']);
   });
 
   it('fails every pending request when the worker crashes', async () => {
