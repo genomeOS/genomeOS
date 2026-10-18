@@ -28,7 +28,12 @@ import {
   type Metric,
   type PaletteId,
 } from '../visual-encoding';
-import { bindKeyboardCamera, cameraState, setCameraState } from './camera';
+import {
+  bindKeyboardCamera,
+  cameraState,
+  setCameraState,
+  zoomCamera,
+} from './camera';
 import { revealFrameBudgetMs } from './chunk-scheduler';
 import {
   ContextController,
@@ -545,8 +550,13 @@ class CesiumAtlasScene implements AtlasSceneController {
       50_000,
       this.#widget.camera.positionCartographic.height * 0.28,
     );
-    if (direction === 'in') this.#widget.camera.zoomIn(distance);
-    else this.#widget.camera.zoomOut(distance);
+    // Never below the ground plus ZOOM_FLOOR_METRES (#483).
+    zoomCamera(
+      this.#widget.camera,
+      this.#widget.scene.globe,
+      direction,
+      distance,
+    );
   }
 
   displayedLayer(): DisplayedLayer | null {

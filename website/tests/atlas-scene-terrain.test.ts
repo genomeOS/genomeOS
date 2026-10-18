@@ -7,6 +7,9 @@ import type { TerrainId } from '../src/atlas/url-state';
 import type { AtlasWorkerClient } from '../src/atlas/worker/client';
 
 const harness = vi.hoisted(() => ({
+  /** The fake camera's height and the ground under it, and its zoom calls. */
+  camera: { ground: 0 as number | undefined, height: 29_600 },
+  zooms: [] as ['in' | 'out', number][],
   contextOptions: undefined as
     { onTerrainApplied?: (terrain: TerrainId) => void } | undefined,
   setAppearance: [] as [number, number][],
@@ -24,17 +27,32 @@ function fakeEvent() {
   };
 }
 
-// No globe on the fake scene: the scene must route lighting through TerrainShading.
+// The fake globe has no lighting fields: the scene must route lighting through TerrainShading.
 vi.mock('../src/atlas/scene/globe-widget', () => ({
   createGlobeWidget: () => ({
     widget: {
       scene: {
+        globe: { getHeight: () => harness.camera.ground },
         mode: 3,
         primitives: { add: vi.fn() },
         renderError: fakeEvent(),
         requestRender: vi.fn(),
       },
-      camera: { moveEnd: fakeEvent() },
+      camera: {
+        moveEnd: fakeEvent(),
+        pitch: -Math.PI / 2,
+        get positionCartographic() {
+          return { height: harness.camera.height };
+        },
+        zoomIn: (amount: number) => {
+          harness.zooms.push(['in', amount]);
+          harness.camera.height -= amount;
+        },
+        zoomOut: (amount: number) => {
+          harness.zooms.push(['out', amount]);
+          harness.camera.height += amount;
+        },
+      },
       resize: vi.fn(),
       render: vi.fn(),
     },
@@ -131,6 +149,9 @@ function frame(): void {
 }
 
 beforeEach(() => {
+  harness.camera.ground = 0;
+  harness.camera.height = 29_600;
+  harness.zooms.length = 0;
   harness.contextOptions = undefined;
   harness.setAppearance.length = 0;
   harness.shadingDestroyed = 0;
@@ -183,5 +204,20 @@ describe('scene terrain wiring (#483)', () => {
     const controller = scene();
     await controller.setSceneMode('globe', true);
     expect(harness.updates).toContainEqual({ mode: 'globe' });
+  });
+
+  it('stops the zoom-in button a kilometre above the ground (#483)', () => {
+    const controller = scene();
+    controller.zoom('in');
+    expect(harness.zooms).toEqual([['in', 28_600]]);
+    controller.zoom('in');
+    expect(harness.zooms).toHaveLength(1);
+    harness.camera.ground = undefined;
+    harness.camera.height = 200_000;
+    controller.zoom('in');
+    expect(harness.zooms[1][0]).toBe('in');
+    expect(harness.zooms[1][1]).toBeCloseTo(56_000, 6);
+    controller.zoom('out');
+    expect(harness.zooms[2][0]).toBe('out');
   });
 });
