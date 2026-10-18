@@ -1029,8 +1029,17 @@ html.atlas-page .site-header--compact .site-header__inner {
 }
 
 .atlas-map-imagery-style > .atlas-field__title,
-.atlas-map-imagery-style > .atlas-check-row {
+.atlas-map-imagery-style > .atlas-check-row,
+.atlas-map-imagery-style > .atlas-control-note {
   grid-column: 1 / -1;
+}
+
+/* Why a control does not apply, or what it costs (#483). */
+.atlas-control-note {
+  margin: -0.3rem 0 0;
+  color: #9eb3c9;
+  font-size: 0.76rem;
+  line-height: 1.3;
 }
 
 .atlas-country-border-style {

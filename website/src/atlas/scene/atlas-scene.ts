@@ -60,6 +60,7 @@ import { animateValue } from './scene-transition';
 import { ScientificLayers, type ScientificStyle } from './scientific-layers';
 import { SURFACE_CLEARANCE_METRES } from './surface-appearance';
 import { createSurfacePickResolver } from './surface-pick';
+import { TerrainShading } from './terrain-shading';
 import type {
   ArtifactLoad,
   AtlasHover,
@@ -119,6 +120,7 @@ class CesiumAtlasScene implements AtlasSceneController {
   readonly #removeRenderError: () => void;
   readonly #removeMarks: () => void;
   readonly #contextController: ContextController;
+  readonly #terrainShading: TerrainShading;
   readonly #overlay: ContextOverlay;
   readonly #highlightLayer: HighlightLayer;
   readonly #marks: MarkTracker;
@@ -166,12 +168,16 @@ class CesiumAtlasScene implements AtlasSceneController {
       this.#widget.scene,
       options.markTarget ?? null,
     );
+    this.#terrainShading = new TerrainShading(this.#widget.scene);
     this.#contextController = new ContextController(
       this.#widget,
       options.cesiumToken ?? '',
       options.contextImageryUrl ??
         'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
       (warning) => this.#setWarning(warning),
+      {
+        onTerrainApplied: (terrain) => this.#terrainShading.update({ terrain }),
+      },
     );
     this.#overlay = new ContextOverlay({
       addCredit: (credit) => this.#widget.creditDisplay.addStaticCredit(credit),
@@ -413,7 +419,8 @@ class CesiumAtlasScene implements AtlasSceneController {
     dayNightLighting: boolean,
   ): void {
     this.#contextController.setAppearance(basemapOpacity, basemapBrightness);
-    this.#widget.scene.globe.enableLighting = dayNightLighting;
+    // Day/night lights the smooth globe only; World Terrain keeps its hillshade (#483).
+    this.#terrainShading.update({ dayNight: dayNightLighting });
     this.#widget.scene.requestRender();
   }
 
@@ -600,6 +607,7 @@ class CesiumAtlasScene implements AtlasSceneController {
     this.#removeMoveEnd();
     this.#cameraMotion?.destroy();
     this.#removeRenderError();
+    this.#terrainShading.destroy();
     this.#globeOffset.destroy();
     this.#globe.destroy();
   }

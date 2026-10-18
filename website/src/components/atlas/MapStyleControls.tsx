@@ -1,5 +1,6 @@
 /** Basemap, terrain, and globe presentation controls for Atlas design §11. */
 
+import { dayNightControl } from '../../atlas/earth-style-catalog';
 import type { SceneCapabilities } from '../../atlas/scene/atlas-scene';
 import type {
   BasemapId,
@@ -41,6 +42,10 @@ export function MapStyleControls({
   onTerrain,
   onView,
 }: MapStyleControlsProps) {
+  // A terrain this build cannot load leaves the smooth globe on, so day/night still applies.
+  const dayNight = dayNightControl(
+    capabilities.terrains[state.terrain] ? state.terrain : 'smooth-globe',
+  );
   return (
     <div className="atlas-control-grid atlas-control-grid--map">
       <EarthStylePicker
@@ -112,16 +117,25 @@ export function MapStyleControls({
               id="atlas-day-night-lighting"
               type="checkbox"
               checked={state.dayNightLighting}
-              disabled={disabled}
+              disabled={disabled || dayNight.disabled}
+              aria-describedby={
+                dayNight.note ? 'atlas-day-night-lighting-note' : undefined
+              }
               onChange={(event) => onDayNightLighting(event.target.checked)}
             />
             Day/night lighting
           </label>
           <InfoTip label="day and night lighting">
-            Shades the globe using Cesium’s current sun position. Turn it off to
-            keep basemap brightness uniform worldwide.
+            Shades the smooth globe using Cesium’s current sun position. Turn it
+            off to keep basemap brightness uniform worldwide. World Terrain is
+            always lit from the north-west instead, so its relief stays visible.
           </InfoTip>
         </div>
+        {dayNight.note && (
+          <p className="atlas-control-note" id="atlas-day-night-lighting-note">
+            {dayNight.note}
+          </p>
+        )}
       </div>
 
       <div className="atlas-field atlas-field--range">

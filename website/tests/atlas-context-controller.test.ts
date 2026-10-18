@@ -1,7 +1,10 @@
 import type { CesiumWidget } from 'cesium';
 import { describe, expect, it, vi } from 'vitest';
 
-import { ContextController } from '../src/atlas/scene/context-controller';
+import {
+  ContextController,
+  type ContextControllerOptions,
+} from '../src/atlas/scene/context-controller';
 
 function fakeWidget() {
   return {
@@ -10,13 +13,18 @@ function fakeWidget() {
   };
 }
 
-function controllerFor(widget = fakeWidget(), token = '') {
+function controllerFor(
+  widget = fakeWidget(),
+  token = '',
+  options: ContextControllerOptions = {},
+) {
   const warnings = vi.fn();
   const controller = new ContextController(
     widget as unknown as CesiumWidget,
     token,
     'https://tiles.example.org/{z}/{x}/{y}.png',
     warnings,
+    options,
   );
   return { controller, widget, warnings };
 }
@@ -57,5 +65,22 @@ describe('ContextController.setBasemap', () => {
     await expect(controller.setBasemap('aerial')).resolves.toBe(false);
     await expect(controller.setBasemap('aerial')).resolves.toBe(false);
     expect(warnings).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('ContextController terrain (#483)', () => {
+  it('reports each terrain it puts on the globe, for the terrain shading', async () => {
+    const onTerrainApplied = vi.fn();
+    const { controller, warnings } = controllerFor(fakeWidget(), '', {
+      onTerrainApplied,
+    });
+    await expect(controller.setTerrain('smooth-globe')).resolves.toBe(true);
+    expect(onTerrainApplied).toHaveBeenCalledWith('smooth-globe');
+    // No ion token: World Terrain never reaches the globe, so it is never reported.
+    await expect(controller.setTerrain('world-terrain')).resolves.toBe(false);
+    expect(onTerrainApplied).toHaveBeenCalledTimes(1);
+    expect(warnings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: 'terrain' }),
+    );
   });
 });

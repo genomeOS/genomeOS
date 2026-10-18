@@ -46,6 +46,11 @@ export interface ContextWarningClear {
 export type ContextWarningUpdate = ContextWarning | ContextWarningClear;
 export type ContextWarningListener = (warning: ContextWarningUpdate) => void;
 
+export interface ContextControllerOptions {
+  /** Called with each terrain once its provider is on the globe; the terrain shading follows it. */
+  onTerrainApplied?: (terrain: TerrainId) => void;
+}
+
 export interface BasemapAppearanceTarget {
   alpha: number;
   brightness: number;
@@ -176,6 +181,7 @@ export class ContextController {
   readonly #token: string;
   readonly #publicImageryUrl: string;
   readonly #onWarning: ContextWarningListener;
+  readonly #options: ContextControllerOptions;
   #activeLayer: ImageryLayer | null = null;
   // The requested basemap and its load; a repeat request for the same id reuses it.
   #basemapRequest: { basemap: BasemapId; result: Promise<boolean> } | null =
@@ -193,11 +199,13 @@ export class ContextController {
     token: string,
     publicImageryUrl: string,
     onWarning: ContextWarningListener,
+    options: ContextControllerOptions = {},
   ) {
     this.#widget = widget;
     this.#token = token.trim();
     this.#publicImageryUrl = publicImageryUrl;
     this.#onWarning = onWarning;
+    this.#options = options;
     if (this.#token) Ion.defaultAccessToken = this.#token;
   }
 
@@ -287,6 +295,7 @@ export class ContextController {
             });
       if (sequence !== this.#terrainSequence) return false;
       this.#widget.terrainProvider = provider;
+      this.#options.onTerrainApplied?.(terrain);
       this.#onWarning({ id: 'terrain', message: null });
       this.#widget.scene.requestRender();
       return true;

@@ -289,3 +289,28 @@ export function resolveElevationView(
 ): ExplorerSceneMode {
   return view === 'map' && elevationEnabled ? 'perspective' : view;
 }
+
+/** Whether a terrain has physical relief; only the smooth globe has none (#483). */
+export function hasPhysicalRelief(terrain: TerrainId): boolean {
+  return terrain !== 'smooth-globe';
+}
+
+export interface TerrainControlState {
+  disabled: boolean;
+  /** Why the control does not apply, shown beside it; null when it applies. */
+  note: string | null;
+}
+
+/**
+ * The day/night control applies to the smooth globe only: with World Terrain on, a fixed
+ * hillshade light shades the relief instead (#483). The control stays visible, disabled with
+ * the reason, so the setting is still there when the globe is smooth again.
+ */
+export function dayNightControl(terrain: TerrainId): TerrainControlState {
+  return hasPhysicalRelief(terrain)
+    ? {
+        disabled: true,
+        note: 'Not used while World Terrain is on: a fixed light from the north-west shades the relief.',
+      }
+    : { disabled: false, note: null };
+}
