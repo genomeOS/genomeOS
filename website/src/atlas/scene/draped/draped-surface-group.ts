@@ -37,11 +37,12 @@
  */
 
 import type { EdgeColorSpec } from '../../geometry/edge-buffers';
-import type {
-  AtlasImageryLayerName,
-  OutlineRasterSpec,
-  RasterSpec,
-  SurfaceRasterSpec,
+import {
+  DRAPED_SURFACE_ALPHA,
+  type AtlasImageryLayerName,
+  type OutlineRasterSpec,
+  type RasterSpec,
+  type SurfaceRasterSpec,
 } from '../../geometry/raster/types';
 import type {
   DrapedImageryLayer,
@@ -51,8 +52,9 @@ import type {
 import { addDrapedImageryLayer } from './draped-imagery-layer';
 import { AtlasRasterImageryProvider } from './raster-imagery-provider';
 
-/** The surface layer's alpha at full opacity, as the chunk path's surface material. */
-export const DRAPED_SURFACE_ALPHA = 0.9;
+// The surface layer's alpha at full opacity, as the chunk path's surface material. The mask
+// texels divide by it, so the raster types own it.
+export { DRAPED_SURFACE_ALPHA };
 
 /** An Atlas layer this group drew, with the provider listeners it detaches on destroy. */
 interface HeldLayer {
