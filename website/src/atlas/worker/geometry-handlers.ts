@@ -4,7 +4,9 @@
  * Pure orchestration over the Cesium-free geometry modules: one transferable
  * `chunk` message per chunk in camera order (anchors ride on the first), a
  * yield between chunks so `cancel` can land, and topology plus the chunk plan
- * cached per grid. Recolour reuses the cached topology and vertex means.
+ * cached per grid. Recolour reuses the cached topology and vertex means. The
+ * draped rasters share that cache through `prepared` (terrain draping design,
+ * "How existing features behave": Worker, #483).
  */
 
 import type { DecodedGrid, DecodedRender } from '../gosa/types';
@@ -99,6 +101,9 @@ class MissingInputError extends Error {}
 
 export interface GeometryWorker {
   handlers: GeometryHandlers;
+  /** The cached topology and chunk plan of a loaded grid, built (untimed) when absent; undefined
+   * when the grid is not loaded. The raster runtime reads it, so both share one topology. */
+  prepared(gridSha256: string): PreparedGrid | undefined;
   /** Builds and caches topology and the chunk plan as soon as a grid decodes. */
   warmGrid(id: number, gridSha256: string): void;
 }
@@ -106,8 +111,15 @@ export interface GeometryWorker {
 export function createGeometryWorker(
   context: GeometryWorkerContext,
 ): GeometryWorker {
-  const prepared = new Map<string, PreparedGrid>();
+  const preparedGrids = new Map<string, PreparedGrid>();
   let naturalEarth: NaturalEarthBuffers | null = null;
+
+  function build(gridSha256: string, grid: DecodedGrid): PreparedGrid {
+    const topology = buildGridTopology(grid);
+    const entry = { plan: planChunks(grid, topology), topology };
+    preparedGrids.set(gridSha256, entry);
+    return entry;
+  }
 
   function timing(
     id: number,
@@ -136,12 +148,10 @@ export function createGeometryWorker(
   ): { grid: DecodedGrid } & PreparedGrid {
     const grid = context.grid(gridSha256);
     if (!grid) throw new MissingInputError(`grid ${gridSha256} is not loaded`);
-    let entry = prepared.get(gridSha256);
+    let entry = preparedGrids.get(gridSha256);
     if (!entry) {
       const start = context.now();
-      const topology = buildGridTopology(grid);
-      entry = { plan: planChunks(grid, topology), topology };
-      prepared.set(gridSha256, entry);
+      entry = build(gridSha256, grid);
       timing(id, 'topology', null, null, start);
     }
     return { grid, ...entry };
@@ -377,6 +387,12 @@ export function createGeometryWorker(
 
   return {
     handlers,
+    // An arrow, so the raster context can hold it unbound.
+    prepared: (gridSha256) => {
+      const grid = context.grid(gridSha256);
+      if (!grid) return undefined;
+      return preparedGrids.get(gridSha256) ?? build(gridSha256, grid);
+    },
     warmGrid(id, gridSha256) {
       prepare(id, gridSha256);
     },
