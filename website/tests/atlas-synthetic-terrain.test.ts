@@ -9,6 +9,7 @@ import {
   Cartographic,
   CustomHeightmapTerrainProvider,
   EllipsoidTerrainProvider,
+  ImageryLayerCollection,
   Math as CesiumMath,
   SceneTransforms,
   SunLight,
@@ -31,6 +32,7 @@ import { isSupportedCode } from '../src/atlas/geometry/support-codes';
 import { gridRowOf } from '../src/atlas/geometry/topology';
 import { decodeGrid, decodeRender } from '../src/atlas/gosa/decode';
 import { ContextController } from '../src/atlas/scene/context-controller';
+import { addDrapedImageryLayer } from '../src/atlas/scene/draped/draped-imagery-layer';
 import {
   SYNTHETIC_CONE,
   SYNTHETIC_PEAK,
@@ -39,6 +41,8 @@ import {
   syntheticConeHeight,
   syntheticTerrainHeight,
 } from '../src/atlas/scene/synthetic-terrain';
+import { fakeProvider } from './helpers/imagery-fakes';
+import { FakeEvent } from './helpers/scene-fakes';
 import { fixtureBytes, onlyGrid, toBuffer } from './support/gosa-builder';
 
 afterEach(() => {
@@ -162,7 +166,8 @@ describe('SYNTHETIC_PEAK on the e2e fixture', () => {
   });
 });
 
-function fakeWidget(terrainProvider: unknown) {
+/** A widget over the cone, with a real ImageryLayerCollection under `scene.imageryLayers`. */
+function fakeWidget(terrainProvider: unknown = new EllipsoidTerrainProvider()) {
   return {
     camera: {
       positionCartographic: Cartographic.fromDegrees(
@@ -182,7 +187,10 @@ function fakeWidget(terrainProvider: unknown) {
         tilesLoaded: true,
         vertexShadowDarkness: 0.45,
       },
+      imageryLayers: new ImageryLayerCollection(),
       light: new SunLight() as unknown,
+      preRender: new FakeEvent(),
+      requestRender: vi.fn(),
       verticalExaggeration: 2,
       verticalExaggerationRelativeHeight: 0,
     },
@@ -203,8 +211,10 @@ describe('publishTerrainProbe', () => {
       apexGround: 5_000,
       apexWindow: { x: 412, y: 288 },
       cameraHeight: expect.closeTo(20_000, 6),
+      draped: false,
       enableLighting: true,
       groundHeight: 5_000,
+      imageryLayers: [],
       lambertDiffuseMultiplier: 0.9,
       provider: 'ellipsoid',
       showGroundAtmosphere: false,
@@ -265,6 +275,63 @@ describe('publishTerrainProbe', () => {
     });
     unpublish();
     expect(page.__atlasTerrainProbe).toBeUndefined();
+  });
+
+  it('lists the shown imagery layers bottom to top and says whether the surface is draped', () => {
+    const page = {} as Window;
+    vi.stubGlobal('window', page);
+    vi.spyOn(SceneTransforms, 'worldToWindowCoordinates').mockReturnValue(
+      new Cartesian2(412, 288),
+    );
+    const widget = fakeWidget(); // a real ImageryLayerCollection under scene.imageryLayers
+    const { scene } = widget as unknown as CesiumWidget;
+    const basemap =
+      widget.scene.imageryLayers.addImageryProvider(fakeProvider());
+    const surface = addDrapedImageryLayer({
+      alpha: 0.5,
+      name: 'atlas-surface',
+      provider: fakeProvider(),
+      scene,
+    });
+    const outlines = addDrapedImageryLayer({
+      alpha: 0,
+      name: 'atlas-outlines',
+      provider: fakeProvider(),
+      scene,
+    });
+    const unpublish = publishTerrainProbe(widget as never);
+    expect(window.__atlasTerrainProbe!()).toMatchObject({
+      draped: true,
+      imageryLayers: ['basemap', 'atlas-surface'],
+    });
+
+    // Bottom to top, each shown layer at alpha > 0; a hidden or transparent surface is not draped.
+    outlines.setAlpha(0.92);
+    expect(page.__atlasTerrainProbe!().imageryLayers).toEqual([
+      'basemap',
+      'atlas-surface',
+      'atlas-outlines',
+    ]);
+    surface.setShown(false);
+    basemap.show = false;
+    expect(page.__atlasTerrainProbe!()).toMatchObject({
+      draped: false,
+      imageryLayers: ['atlas-outlines'],
+    });
+    surface.setShown(true);
+    surface.setAlpha(0);
+    expect(page.__atlasTerrainProbe!()).toMatchObject({
+      draped: false,
+      imageryLayers: ['atlas-outlines'],
+    });
+    outlines.destroy();
+    surface.destroy();
+    basemap.show = true;
+    expect(page.__atlasTerrainProbe!()).toMatchObject({
+      draped: false,
+      imageryLayers: ['basemap'],
+    });
+    unpublish();
   });
 });
 

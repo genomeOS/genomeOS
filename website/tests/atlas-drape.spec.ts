@@ -5,26 +5,47 @@
  * Spain survey, where the e2e grid supports every res-4 cell within 2σ of the apex.
  *
  * The #483 repro: the summit must show the inferred surface, seen at nadir and obliquely, at
- * relief 1 and 3. Until the data is draped onto the ground (phase 2) the surface floats at a fixed
- * 650 m, the summit buries it, and the repro is held under `test.fail`. A control outside that
- * marker runs the repro's own check on the smooth globe, where nothing buries the surface, and
- * needs it to answer true; so the repro's expected failure means the summit hides the surface,
- * not that the check is blind. The pick and lighting tests take the same path through
- * `openDrape`, `probe` and `apexOnPage`, so a broken harness fails them too. Desktop only: the
- * phone runs the same scene.
+ * relief 1 and 3. Draped onto the ground as the `atlas-surface` imagery layer, the surface follows
+ * the summit up, where at a fixed 650 m it was buried. A control runs the repro's own check on the
+ * smooth globe, where nothing buries the surface, so the check is shown not to be blind. The pick
+ * and lighting tests take the same path through `openDrape`, `probe` and `apexOnPage`.
+ *
+ * The draped surface's behaviour ("How existing features behave", "2D and Columbus"): a cold load
+ * that asks for World Terrain drapes without building chunks first; the data stays visible and
+ * pickable after each morph; a palette restyle swaps the draped layer, and the outlines toggle
+ * neither waits nor asks the worker for tiles; and the smooth globe brings the chunks, data
+ * elevation and extruded columns back. Desktop only: the phone runs the same scene.
  */
 
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { latLngToCell } from 'h3-js';
 
 import { SYNTHETIC_PEAK } from '../src/atlas/e2e-hooks';
 import {
   apexOnPage,
+  cameraSettled,
+  changedShare,
   drapeQuery,
   openDrape,
+  openTerrainChooser,
   probe,
+  summitPatch,
   surfaceVisibleAtApex,
 } from './atlas-terrain-helpers';
+
+/** `performance` marks of surface chunks the page added: none while the data is draped. */
+function chunkAdds(page: Page): Promise<number> {
+  return page.evaluate(
+    () => performance.getEntriesByName('atlas:chunk-add').length,
+  );
+}
+
+/** How many `atlas-surface` layers the probe lists: two while a restyle cross-fades. */
+async function surfaceLayers(page: Page): Promise<number> {
+  return (await probe(page)).imageryLayers.filter(
+    (name) => name === 'atlas-surface',
+  ).length;
+}
 
 test.describe('terrain draping @desktop-chromium', () => {
   test.beforeEach(async ({ page }) => {
@@ -39,10 +60,6 @@ test.describe('terrain draping @desktop-chromium', () => {
       test(`#483 repro: the summit shows the surface (${view}, relief ${relief})`, async ({
         page,
       }) => {
-        test.fail(
-          true,
-          'Phase 1: the surface sits at 650 m, so the 6 km summit buries it; Task 17 drapes it (#483).',
-        );
         await openDrape(page, drapeQuery(view, relief));
         expect(await surfaceVisibleAtApex(page)).toBe(true);
       });
@@ -54,7 +71,7 @@ test.describe('terrain draping @desktop-chromium', () => {
     expect(await surfaceVisibleAtApex(page)).toBe(true);
   });
 
-  test("an oblique click at the summit selects the summit's own cell, though the summit buries the surface", async ({
+  test("an oblique click at the summit selects the summit's own cell", async ({
     page,
   }) => {
     await openDrape(page, drapeQuery('oblique', 3));
@@ -64,8 +81,8 @@ test.describe('terrain draping @desktop-chromium', () => {
     const inspector = page.getByRole('complementary', {
       name: 'Selected map cell',
     });
-    // 84390cbffffffff, found on the rendered ground. The smooth globe's pick starts from a surface
-    // chunk in the drill pick, and the summit hides every chunk there, so it selected nothing.
+    // 84390cbffffffff, found on the rendered ground. Before the data was draped, the pick started
+    // from a surface chunk in the drill pick, and the summit hid every chunk there.
     await expect(inspector).toContainText(
       latLngToCell(SYNTHETIC_PEAK.lat, SYNTHETIC_PEAK.lon, 4),
     );
@@ -96,5 +113,154 @@ test.describe('terrain draping @desktop-chromium', () => {
     await expect
       .poll(() => probe(page))
       .toMatchObject({ showGroundAtmosphere: false, showWaterEffect: false });
+  });
+
+  test('a cold load with terrain=world-terrain drapes without building chunks first', async ({
+    page,
+  }) => {
+    // Context on, so the basemap is shown and the probe sees the surface above it.
+    await openDrape(
+      page,
+      drapeQuery('nadir', 1, { layers: 'surface,support,context' }),
+    );
+    expect(await probe(page)).toMatchObject({
+      draped: true,
+      imageryLayers: ['basemap', 'atlas-surface'],
+      provider: 'synthetic',
+    });
+    expect(await chunkAdds(page)).toBe(0);
+  });
+
+  test('the draped surface stays visible and pickable after each morph', async ({
+    page,
+  }) => {
+    // Cesium's animated morphs to the map and to Perspective frame the whole globe from above
+    // (0°, 0°) (SceneTransitioner.js), where the summit is a pixel; an instant morph keeps the
+    // camera over its own ground point. So the camera stands over the summit, and reduced motion
+    // makes each morph instant.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openDrape(page, drapeQuery('nadir', 1));
+    await page.locator('summary').filter({ hasText: /^Map$/ }).click();
+    for (const view of ['Map', 'Perspective', 'Globe']) {
+      await page.getByRole('radio', { name: view }).check();
+      await cameraSettled(page);
+      await expect
+        .poll(() => surfaceVisibleAtApex(page), { timeout: 30_000 })
+        .toBe(true);
+      const apex = await apexOnPage(page);
+      await page.mouse.click(apex.x, apex.y);
+      const inspector = page.getByRole('complementary', {
+        name: 'Selected map cell',
+      });
+      await expect(
+        inspector
+          .locator('dt', { hasText: 'Cell ID' })
+          .locator('..')
+          .locator('dd'),
+      ).toHaveText(latLngToCell(SYNTHETIC_PEAK.lat, SYNTHETIC_PEAK.lon, 4));
+      // Closed again, so the next view's pick is its own.
+      await page.getByRole('button', { name: 'Close inspector' }).click();
+      await expect(inspector).toHaveCount(0);
+    }
+  });
+
+  test('a palette restyle swaps the draped layer, and the outlines toggle is instant', async ({
+    page,
+  }) => {
+    await openDrape(page, drapeQuery('nadir', 1));
+    const before = await summitPatch(page, await apexOnPage(page));
+    await page
+      .locator('summary')
+      .filter({ hasText: /^Inferred surface$/ })
+      .click();
+    await page
+      .getByLabel('Surface palette', { exact: true })
+      .selectOption('viridis');
+    // The new palette shows at the summit, and the layer it cross-faded over is retired.
+    await expect
+      .poll(
+        async () =>
+          changedShare(
+            page,
+            before,
+            await summitPatch(page, await apexOnPage(page)),
+          ),
+        { timeout: 30_000 },
+      )
+      .toBeGreaterThanOrEqual(0.5);
+    await expect.poll(() => surfaceLayers(page), { timeout: 30_000 }).toBe(1);
+
+    const outlines = page.getByRole('checkbox', {
+      exact: true,
+      name: 'Cell outlines',
+    });
+    await outlines.check();
+    await expect
+      .poll(async () => (await probe(page)).imageryLayers, { timeout: 30_000 })
+      .toContain('atlas-outlines');
+    // Every tile in view has loaded, so a later request could only come from the toggle.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () =>
+              window.__atlasTerrainProbe!().tilesLoaded &&
+              window.__atlasDrapeStats!().queueDepth === 0,
+          ),
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+    const requested = await page.evaluate(
+      () => window.__atlasDrapeStats!().requested,
+    );
+    await outlines.uncheck();
+    await expect
+      .poll(async () => (await probe(page)).imageryLayers, { timeout: 1_000 })
+      .not.toContain('atlas-outlines');
+    await outlines.check();
+    await expect
+      .poll(async () => (await probe(page)).imageryLayers, { timeout: 1_000 })
+      .toContain('atlas-outlines');
+    expect(
+      await page.evaluate(() => window.__atlasDrapeStats!().requested),
+    ).toBe(requested);
+  });
+
+  test('returning to the smooth globe restores chunks, data elevation and extruded columns', async ({
+    page,
+  }) => {
+    await openDrape(
+      page,
+      drapeQuery('nadir', 1, {
+        elevation: 'true',
+        exaggeration: '2',
+        geometry: 'extruded',
+        // Context on, so the basemap is what the smooth globe keeps.
+        layers: 'surface,support,context',
+      }),
+    );
+    await page
+      .locator('summary')
+      .filter({ hasText: /^Inferred surface$/ })
+      .click();
+    await expect(
+      page.getByText('Not available with World Terrain'),
+    ).toBeVisible();
+    await expect(
+      page.locator('#atlas-surface-geometry option[value="extruded"]'),
+    ).toHaveText('Columns (smooth globe only)');
+    await expect(page.locator('#atlas-statistical-elevation')).toBeDisabled();
+    await expect(page).toHaveURL(/elevation=true/);
+    await page.locator('summary').filter({ hasText: /^Map$/ }).click();
+    const chooser = await openTerrainChooser(page);
+    await chooser.getByRole('radio', { name: 'Smooth Globe terrain' }).click();
+    await expect
+      .poll(async () => (await probe(page)).imageryLayers, { timeout: 30_000 })
+      .toEqual(['basemap']);
+    await expect.poll(() => chunkAdds(page)).toBeGreaterThan(0);
+    await expect(page.locator('#atlas-statistical-elevation')).toBeEnabled();
+    await expect(
+      page.locator('#atlas-surface-geometry option[value="extruded"]'),
+    ).toHaveText('Extruded hexagons');
   });
 });

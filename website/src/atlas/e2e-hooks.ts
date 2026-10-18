@@ -50,6 +50,16 @@ export interface TerrainProbe {
   groundHeight: number | null;
   tilesLoaded: boolean;
   /**
+   * An `atlas-surface` imagery layer is shown at alpha > 0: the surface is draped onto the ground
+   * (terrain draping design, "Per layer under World Terrain").
+   */
+  draped: boolean;
+  /**
+   * The imagery layers shown at alpha > 0, bottom to top, by their Atlas names
+   * (`AtlasImageryLayerName`); every other layer is `'basemap'`.
+   */
+  imageryLayers: string[];
+  /**
    * The globe's hillshade and tint terms (terrain draping design, "Per layer under World
    * Terrain").
    */

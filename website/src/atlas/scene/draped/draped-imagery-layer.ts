@@ -24,7 +24,9 @@
  * - Destroy removes the layer and destroys its provider, once; the page's drape stats watch the
  *   layer in between.
  *
- * Lazy: only the draped modules (`scene/draped/*`) import this module.
+ * Lazy: only the draped modules (`scene/draped/*`) import this module, and the e2e build's terrain
+ * probe (`scene/synthetic-terrain.ts`, itself imported only dynamically and never by a production
+ * build), which names the layers with `drapedLayerName`.
  */
 
 import {

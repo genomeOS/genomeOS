@@ -4,9 +4,11 @@
  * test that sets `window.__atlasSyntheticTerrain` gets this terrain of known height in its place
  * (`syntheticTerrainTestHook`, e2e-hooks.ts): a cone under Everest, and a Gaussian peak under the
  * HbS Spain survey, where the e2e fixture supports every nearby cell, so data drapes over relief.
- * The test reads the scene through `window.__atlasTerrainProbe`. Only the e2e build loads this
- * module: the hook imports it dynamically behind `PUBLIC_ATLAS_E2E_HOOKS`, so no production chunk
- * carries it.
+ * The test reads the scene through `window.__atlasTerrainProbe`, which also lists the shown
+ * imagery layers by their Atlas names (terrain draping design, "Per layer under World Terrain"),
+ * so a test sees whether the data is draped. Only the e2e build loads this module: the hook imports
+ * it dynamically behind `PUBLIC_ATLAS_E2E_HOOKS`, so no production chunk carries it, nor the draped
+ * imagery-layer module it names the layers with.
  */
 
 import {
@@ -18,6 +20,7 @@ import {
   SceneTransforms,
   SunLight,
   type CesiumWidget,
+  type ImageryLayerCollection,
 } from 'cesium';
 
 import {
@@ -25,6 +28,7 @@ import {
   SYNTHETIC_PEAK,
   type TerrainProbe,
 } from '../e2e-hooks';
+import { drapedLayerName } from './draped/draped-imagery-layer';
 
 export { SYNTHETIC_CONE, SYNTHETIC_PEAK } from '../e2e-hooks';
 
@@ -123,6 +127,20 @@ function apexWindow(
     : null;
 }
 
+/**
+ * The imagery layers the globe draws, bottom to top: each shown at alpha > 0, by its Atlas name, or
+ * `'basemap'` for any other layer. The draped base guard, at alpha 0, is never among them.
+ */
+function shownImageryLayers(layers: ImageryLayerCollection): string[] {
+  const shown: string[] = [];
+  for (let index = 0; index < layers.length; index += 1) {
+    const layer = layers.get(index);
+    if (layer.show && layer.alpha > 0)
+      shown.push(drapedLayerName(layer) ?? 'basemap');
+  }
+  return shown;
+}
+
 /** Publishes `window.__atlasTerrainProbe` for this widget; returns its removal. */
 export function publishTerrainProbe(widget: CesiumWidget): () => void {
   const read = (): TerrainProbe => {
@@ -133,12 +151,15 @@ export function publishTerrainProbe(widget: CesiumWidget): () => void {
       globe.getHeight(
         Cartographic.fromDegrees(SYNTHETIC_PEAK.lon, SYNTHETIC_PEAK.lat),
       ) ?? null;
+    const imageryLayers = shownImageryLayers(scene.imageryLayers);
     return {
       apexGround,
       apexWindow: apexWindow(scene, apexGround),
       cameraHeight: position.height,
+      draped: imageryLayers.includes('atlas-surface'),
       enableLighting: globe.enableLighting,
       groundHeight: globe.getHeight(position) ?? null,
+      imageryLayers,
       lambertDiffuseMultiplier: globe.lambertDiffuseMultiplier,
       provider:
         terrainProvider instanceof CustomHeightmapTerrainProvider

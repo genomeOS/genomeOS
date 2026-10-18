@@ -4,10 +4,12 @@
  *
  * Main-thread code reaches the draped modules only through `import()` of this module, and outside
  * them imports only their types; the `'atlas-draped-v1'` marker shows where this chunk ends up,
- * and no /app/ initial chunk may contain it. The runtime hands out the draped surface group, the
- * imagery-layer adder, a provider for any raster spec (so the borders and footprints never import
- * the provider class statically), the page's drape stats, and a raster source over the worker
- * client whose tiles those stats count.
+ * and no /app/ initial chunk may contain it. The one exception is the e2e build's terrain probe
+ * (`scene/synthetic-terrain.ts`, itself imported only dynamically and never by a production
+ * build), which reads the layer names from `draped-imagery-layer.ts`. The runtime hands out the
+ * draped surface group, the imagery-layer adder, a provider for any raster spec (so the borders
+ * and footprints never import the provider class statically), the page's drape stats, and a
+ * raster source over the worker client whose tiles those stats count.
  */
 
 import type {
