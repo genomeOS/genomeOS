@@ -10,7 +10,7 @@ and the base for the planned CI automation (refit on data change, upload through
 Identity Federation; data store design §7), not the final model.
 
 Uploads every object of ``data/releases/<release>.json`` (newest by default) at its manifest key, as
-raw bytes with ``--if-generation-match=0``, its media type, the immutable ``Cache-Control`` and
+raw bytes with ``--if-generation-match=0``, its media type, the data store's ``Cache-Control`` and
 ``--custom-metadata=sha256=<hex>``, then the manifest itself at ``manifests/<release>.json``, last.
 
 Identity is the sha256 in object metadata, the stored size and the md5 GCS computed from the stored
@@ -113,7 +113,7 @@ def upload_args(item: Upload, url: str) -> list[str]:
         url,
         "--if-generation-match=0",
         f"--content-type={item.media_type}",
-        f"--cache-control={dr.IMMUTABLE_CACHE_CONTROL}",
+        f"--cache-control={dr.CACHE_CONTROL}",
         f"--custom-metadata=sha256={item.sha256}",
     ]
 
@@ -148,7 +148,7 @@ def verify_upload(url: str, stored: Mapping[str, Any] | None, item: Upload) -> N
         raise PublishError(f"{url}: not found right after upload")
     expected = {
         "contentType": item.media_type,
-        "cacheControl": dr.IMMUTABLE_CACHE_CONTROL,
+        "cacheControl": dr.CACHE_CONTROL,
     }
     problems = identity_problems(stored, item) + [
         f"{field} is {stored.get(field)!r}, expected {value!r}"

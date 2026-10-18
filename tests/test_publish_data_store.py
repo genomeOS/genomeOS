@@ -80,7 +80,7 @@ def test_publish_uploads_raw_bytes_with_identity_metadata_then_the_manifest(
         stored = objects[_key(path)]
         assert base64.b64decode(stored["data_b64"]) == content
         assert stored["metadata"] == {"sha256": hashlib.sha256(content).hexdigest()}
-        assert stored["cacheControl"] == dr.IMMUTABLE_CACHE_CONTROL
+        assert stored["cacheControl"] == dr.CACHE_CONTROL
         assert stored["contentType"] == dr.media_type_for(path)
         assert "contentEncoding" not in stored
     manifest = objects[dr.manifest_key(RELEASE)]

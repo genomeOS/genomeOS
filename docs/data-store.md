@@ -232,7 +232,7 @@ regenerates the browser-test fixture from the same tree.
 Every file a release lists is served from a dedicated public bucket, separate from the web-data bucket
 above (data store design 2026-10-17 §3): `https://storage.googleapis.com/genomeos-atlas-data/`. Each object is raw bytes at
 `releases/<release>/<path>`, with the manifest copy at `manifests/<release>.json`,
-`Cache-Control: public, max-age=31536000, immutable` (under review, #473) and the sha256 in object
+`Cache-Control: public, max-age=3600`, so a takedown reaches readers within an hour (#473), and the sha256 in object
 metadata. Keys never change meaning: a later release reuses an earlier key for a byte-identical file,
 and the builder refuses a released artifact whose bytes changed.
 

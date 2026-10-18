@@ -58,7 +58,7 @@ bucket exposes nothing new.
 | C2 | **Owner decision.** Uniform bucket-level access, us-east1, label `genomeos-purpose=data-store`. **Object versioning on and a 30-day soft delete.** **`allUsers` → `roles/storage.legacyObjectReader`**: read any object by key, but never list the bucket. | The owner wants the store version-controlled in GCS. Versioning and soft delete are a backstop against an accidental overwrite or delete; they do not replace the immutable release paths (C4) or the no-overwrite uploads (C6). Objects can still be fetched without credentials, because every key comes from the manifest, so nothing needs to list. (The first draft had no versioning, the default 7-day soft delete and `objectViewer`; the bucket was changed in place, §10.) | `scripts/provision_data_store_bucket.py`. |
 | C3 | **Open CORS** (`GET`, `HEAD` from `*`). | The data is public. Browser tools such as DuckDB-WASM or Observable can read parquet over HTTP only if CORS allows it. | `deploy/data-store-cors.json`. |
 | C4 | **Release-versioned keys**: `releases/<release>/<path>`, where `<path>` is relative to `data/`. A later release may reuse an earlier release's key for a byte-identical file, so unchanged files are not uploaded twice. | Keys are readable and never change meaning. Deduplication comes without content-addressed filenames. | The manifest `key` field (§5). |
-| C5 | **Raw bytes, no `Content-Encoding`. `Cache-Control: public, max-age=31536000, immutable`. Custom metadata `sha256=<hex>`.** | What a reader downloads is exactly what the manifest hashes. Immutable keys make the year-long cache safe for correctness. **Under review:** the year-long cache slows a takedown (§9 item 6). | `genomeos/publication/data_release.py`. |
+| C5 | **Raw bytes, no `Content-Encoding`. `Cache-Control: public, max-age=3600`. Custom metadata `sha256=<hex>`.** | What a reader downloads is exactly what the manifest hashes. Keys never change meaning, but no cache can be told to forget a copy, so an hour bounds how long a taken-down object is still served. **Decided** by the owner on 2026-10-17 (§9 item 6). | `genomeos/publication/data_release.py`. |
 | C6 | **No-overwrite upload.** Each object is described first. If absent, it is uploaded with `--if-generation-match=0`. If present, its metadata sha256 and size are compared: a match is skipped, and anything else is a hard error. A 412 response triggers the same comparison. After upload, the size, md5 and sha256 metadata must equal what was sent. | This is the guard #406 already proved. Nothing is ever deleted. | `scripts/publish_data_store.py`. |
 | C7 | **Stays in git and is also published:** the hand-curated inputs reviewed by diff (`data/registry/**`, `data/sources/**`, `data/raw/afnd_populations.tsv`), plus `data/store/catalog-metadata.json` and `data/store/INVENTORY.json`. **Leaves git:** `data/store/artifacts/**` and `data/validation/**`. | A diff of a reviewed input is the review surface, and these files are small (about 1 MB together). The outputs are large, or are generated evidence. | `.gitignore` and the `in_git` field. |
 | C8 | **Owner decision. The public base URL is committed:** `DATA_STORE_BASE_URL` (and `DATA_STORE_BUCKET`) in `genomeos/publication/data_release.py`. It is `fetch_data.py`'s default. A `GENOMEOS_DATA_BASE_URL`, `GENOMEOS_DATA_BUCKET` or flag that names anything else is refused, because the committed value is the truth; only a loopback mirror is admitted, for tests and local serving. | The URL is public anyway, and committing it is how a fresh clone finds the data. `docs/repo-gcloud-auth.md` now allows committing public read-only bucket URLs and names, never project ids or numbers, accounts or credentials. `test_no_concrete_bucket_url_is_tracked` exempts exactly this URL. | A PR changing the constants. |
@@ -288,25 +288,16 @@ The parquet artifacts already carry every per-cell posterior summary a consumer 
 5. **Follow-up issues:** #471, a safe export format for fits (§8); and #472, phase 2 for the raw
    third-party harvests, listing each source with its recorded terms. Decisions 1, 2, 6 and 7 are
    tracked in #473 (`needs-human-decision`).
-6. **Cache lifetime of the data-store objects (raised by a security review after the upload).**
-   Release 2026-10-17 was uploaded with `Cache-Control: public, max-age=31536000, immutable` (C5).
-   Neither GCS nor its edge caches can be told to forget a cached copy. If an object ever had to be
-   taken down (for example, if a `not_checked` source such as MAP or WorldPop turned out to restrict
-   redistribution), deleting it would stop new fetches, but copies already cached at the edge or in
-   browsers would keep being served for up to a year. The review recommends `public, max-age=3600`.
-   The uploaded objects were **not** changed. The options are:
-   - **(a)** Keep the one-year lifetime. The keys never change meaning, so it is safe for correctness;
-     the cost is a slow takedown.
-   - **(b)** Set `public, max-age=3600` for future releases by changing `IMMUTABLE_CACHE_CONTROL` in
-     `genomeos/publication/data_release.py`, plus the post-upload check that compares it.
-   - **(c)** Also rewrite the existing objects' cache metadata with
-     `python scripts/gcloud_repo.py run storage objects update "gs://$GENOMEOS_DATA_BUCKET/releases/2026-10-17/**" --cache-control="public, max-age=3600"`.
-     This updates metadata only and never touches the bytes. It does not shorten copies that are
-     already cached.
+6. **Cache lifetime of the data-store objects. Decided 2026-10-17:** `public, max-age=3600`, for future
+   releases and, by a metadata-only update, for release 2026-10-17, which was first uploaded with
+   `public, max-age=31536000, immutable`. The update never touches the bytes, and copies already cached
+   under the old header can still be served until they expire. The constant is `CACHE_CONTROL` in
+   `genomeos/publication/data_release.py`; the post-upload check compares it.
 
    The identity check in `publish_data_store.py` compares the md5 GCS computed from the stored bytes
    with the local file's, as well as the uploader's sha256 metadata and the size. That came from the
    same review.
+
 7. **A CI check of the remote store.** For example, a cheap HEAD and metadata check of the newest
    manifest against the committed URL. Not built here. It belongs with the CI automation in §7.
 

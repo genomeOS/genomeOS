@@ -29,7 +29,9 @@ SCHEMA_VERSION = 1
 LOCAL_ROOT = "data"
 RELEASE_PREFIX = "releases/"
 MANIFEST_PREFIX = "manifests/"
-IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
+# One hour, not a year: keys never change meaning, but a takedown must reach readers quickly, and
+# no cache can be told to forget a copy (owner decision 2026-10-17, #473).
+CACHE_CONTROL = "public, max-age=3600"
 NOT_CHECKED = "not_checked"
 ARTIFACT_PREFIX = "store/artifacts/"
 BASE_URL_VARIABLE = "GENOMEOS_DATA_BASE_URL"
