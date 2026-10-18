@@ -22,6 +22,12 @@
  *   `DRAPED_READY_CAP_MS` after that. Each `preRender` requests a frame until then. A hidden layer
  *   is never ready and requests no frame; shown again, its readiness starts over.
  * - Delivered tiles request a render: worker tiles bypass the RequestScheduler that would.
+ * - Pre-warm ("Failure modes": first-draw shader compile hitch): Cesium keeps a globe shader per
+ *   number of drawn textures and draws no texture of a layer at alpha 0 (both pinned), so a layer
+ *   that fades in from 0 would compile its shader in the fade's first frame. `prewarm()` floors
+ *   the layer's alpha at `PREWARM_ALPHA` for one rendered frame, the first whose `preRender`
+ *   follows the call, and on that frame's `postRender` writes the alpha last asked for. A hidden
+ *   layer, or one asked to draw at `PREWARM_ALPHA` or more, is left alone. Destroy settles it.
  * - Destroy removes the layer and destroys its provider, once; the page's drape stats watch the
  *   layer in between.
  *
@@ -54,6 +60,9 @@ import { emptyTile } from './raster-imagery-provider';
 
 /** A new layer reads ready this long after its add, whether or not the globe has loaded. */
 export const DRAPED_READY_CAP_MS = 3_000;
+
+/** The alpha a pre-warm draws a layer at for one frame: drawn, so its texture counts, yet unseen. */
+export const PREWARM_ALPHA = 0.001;
 
 /** Frames after the add before `globe.tilesLoaded` counts. */
 const READY_FRAMES = 2;
@@ -202,13 +211,52 @@ export const addDrapedImageryLayer: AddDrapedImageryLayer = ({
   );
   scene.requestRender();
 
+  /** The alpha last asked for; the layer draws it, floored while a pre-warm runs. */
+  let requested = alpha;
+  let prewarmed: Promise<void> | null = null;
+  /** The running pre-warm's end: lets go of its frame listeners and resolves it. */
+  let endPrewarm: (() => void) | null = null;
+
+  const writeAlpha = () => {
+    const a = endPrewarm ? Math.max(requested, PREWARM_ALPHA) : requested;
+    if (layer.alpha === a) return;
+    layer.alpha = a;
+    scene.requestRender();
+  };
+
+  const startPrewarm = (): Promise<void> => {
+    if (destroyed || !layer.show || requested >= PREWARM_ALPHA)
+      return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      // A frame already under way when the pre-warm began may have drawn the old alpha.
+      let drawing = false;
+      const removePre = scene.preRender.addEventListener(() => {
+        drawing = true;
+      });
+      const removePost = scene.postRender.addEventListener(() => {
+        if (!drawing) return;
+        endPrewarm?.();
+        writeAlpha();
+        scene.requestRender();
+      });
+      endPrewarm = () => {
+        endPrewarm = null;
+        removePre();
+        removePost();
+        resolve();
+      };
+      writeAlpha();
+      scene.requestRender();
+    });
+  };
+
   return {
     layer,
     name,
     setAlpha(a: number): void {
-      if (destroyed || layer.alpha === a) return;
-      layer.alpha = a;
-      scene.requestRender();
+      if (destroyed) return;
+      requested = a;
+      writeAlpha();
     },
     setShown(s: boolean): void {
       if (destroyed || layer.show === s) return;
@@ -221,9 +269,14 @@ export const addDrapedImageryLayer: AddDrapedImageryLayer = ({
       scene.requestRender();
     },
     isReady: () => ready,
+    prewarm(): Promise<void> {
+      prewarmed ??= startPrewarm();
+      return prewarmed;
+    },
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
+      endPrewarm?.();
       stopChecking();
       removeTileLoaded();
       unwatch();

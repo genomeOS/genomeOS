@@ -305,6 +305,13 @@ export interface DrapedImageryLayer {
    * so a layer shown again is ready only once they have loaded anew.
    */
   isReady(): boolean;
+  /**
+   * Draws the layer for one rendered frame at no less than `PREWARM_ALPHA`, so Cesium compiles
+   * the globe shader for the textures a fade from alpha 0 will draw before that fade begins
+   * (terrain draping design, "Failure modes"). It resolves once that frame is drawn, at once for
+   * a hidden layer or one already drawn, and on destroy; repeated calls return the same promise.
+   */
+  prewarm(): Promise<void>;
   destroy(): void;
 }
 
