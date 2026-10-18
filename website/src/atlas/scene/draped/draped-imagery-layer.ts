@@ -234,8 +234,9 @@ export const addDrapedImageryLayer: AddDrapedImageryLayer = ({
         drawing = true;
       });
       const removePost = scene.postRender.addEventListener(() => {
-        if (!drawing) return;
-        endPrewarm?.();
+        // Ended already: destroyed in this raise, which still calls a listener it removed.
+        if (!drawing || !endPrewarm) return;
+        endPrewarm();
         writeAlpha();
         scene.requestRender();
       });

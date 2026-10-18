@@ -1310,6 +1310,25 @@ describe('pre-warm (#483 phase 4)', () => {
     await expect(during.layer.prewarm()).resolves.toBeUndefined();
   });
 
+  // Cesium defers a listener's removal while its event raises (FakeEvent snapshots the same
+  // way), so the pre-warm's own postRender listener still runs in the raise that destroyed it.
+  it('writes and asks for nothing when destroyed inside its pre-warm frame’s postRender', async () => {
+    const { scene, layer } = drapedLayerAt(0);
+    const destroyer = scene.postRender.addEventListener(() => {
+      layer.destroy();
+      scene.requestRender.mockClear();
+    });
+    const warmed = layer.prewarm();
+    expect(layer.layer.alpha).toBe(PREWARM_ALPHA);
+    scene.preRender.raiseEvent();
+    scene.postRender.raiseEvent();
+    destroyer();
+    await expect(warmed).resolves.toBeUndefined();
+    expect(scene.requestRender).not.toHaveBeenCalled();
+    expect(layer.layer.alpha).toBe(PREWARM_ALPHA); // the destroyed layer is not written
+    expect(listeners(scene)).toBe(0);
+  });
+
   it('is ready only after its pre-warm frame has drawn', async () => {
     const { scene, group, layers } = await loadedGroup({ cellEdges: false });
     expect(group.isReady()).toBe(false);
