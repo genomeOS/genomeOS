@@ -10,6 +10,7 @@
  */
 
 import type { EdgeColorSpec } from '../edge-buffers';
+import type { NaturalEarthBuffers } from '../natural-earth';
 import type { MeshInput } from '../surface-buffers';
 import type { SurfaceGeometry } from '../../url-state';
 import type { Metric, PaletteId } from '../../visual-encoding';
@@ -132,6 +133,16 @@ export interface Rasterisers {
   surface(i: SurfaceRasterInput, a: TileAddress): TileRaster | null;
   outlines(
     i: SurfaceRasterInput & { edgeColor: EdgeColorSpec },
+    a: TileAddress,
+  ): TileRaster | null;
+  /** The country borders: the worker's parsed Natural Earth copy, in a `#rrggbb` colour. */
+  borders(
+    i: { borders: NaturalEarthBuffers; color: string },
+    a: TileAddress,
+  ): TileRaster | null;
+  /** The sampling footprints: interleaved lon, lat, radius_km triples, in a `#rrggbb` colour. */
+  footprints(
+    i: { circles: Float64Array; color: string },
     a: TileAddress,
   ): TileRaster | null;
 }
