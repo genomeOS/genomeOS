@@ -11,7 +11,9 @@ import { SceneMode, type CesiumWidget } from 'cesium';
 import {
   cameraMotionTestHook,
   revealWaveTestHold,
+  syntheticTerrainTestHook,
   type CameraMotionHook,
+  type SyntheticTerrainHook,
 } from '../e2e-hooks';
 import { createLoadOrder, type LoadOrder, type LoadTask } from '../load-order';
 import type {
@@ -138,6 +140,8 @@ class CesiumAtlasScene implements AtlasSceneController {
   readonly #wave: RevealWave;
   /** The e2e build's camera motion hook; undefined elsewhere. */
   readonly #cameraMotion: CameraMotionHook | undefined;
+  /** The e2e build's World Terrain stand-in, when a test asked for it; undefined elsewhere. */
+  readonly #syntheticTerrain: SyntheticTerrainHook | undefined;
   readonly #layers: ScientificLayers;
   readonly #revealSky: () => void;
   readonly #loadOrder: LoadOrder;
@@ -180,6 +184,7 @@ class CesiumAtlasScene implements AtlasSceneController {
       options.markTarget ?? null,
     );
     this.#terrainShading = new TerrainShading(this.#widget.scene);
+    this.#syntheticTerrain = syntheticTerrainTestHook(this.#widget);
     this.#reliefFrame = createFrameThrottle(
       (relief: number) => this.#terrainShading.update({ relief }),
       (callback) => requestAnimationFrame(callback),
@@ -192,6 +197,7 @@ class CesiumAtlasScene implements AtlasSceneController {
       (warning) => this.#setWarning(warning),
       {
         onTerrainApplied: (terrain) => this.#terrainShading.update({ terrain }),
+        worldTerrain: this.#syntheticTerrain?.worldTerrain,
       },
     );
     this.#overlay = new ContextOverlay({
@@ -631,6 +637,7 @@ class CesiumAtlasScene implements AtlasSceneController {
     this.#unbindPicking();
     this.#removeMoveEnd();
     this.#cameraMotion?.destroy();
+    this.#syntheticTerrain?.destroy();
     this.#removeRenderError();
     this.#reliefFrame.cancel();
     this.#terrainShading.destroy();

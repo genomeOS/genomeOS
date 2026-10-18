@@ -4,6 +4,8 @@
  * lib/catalog-build.ts), so no production build carries them.
  */
 
+import type { CesiumWidget, TerrainProvider } from 'cesium';
+
 /** Whether the camera is still moving, as `window.__atlasCameraMotion` reports it. */
 export interface CameraMotion {
   /** A flight the scene started has neither completed nor been cancelled. */
@@ -21,7 +23,76 @@ declare global {
     __atlasRevealWaveHold?: number | null;
     /** Reads the camera's motion, so a browser test can wait out a flight. */
     __atlasCameraMotion?: () => CameraMotion;
+    /** Set by a browser test before the page loads: World Terrain becomes a synthetic cone. */
+    __atlasSyntheticTerrain?: boolean;
+    /** Reads the globe's terrain, lighting and camera, once the synthetic terrain is requested. */
+    __atlasTerrainProbe?: () => TerrainProbe;
   }
+}
+
+/** What `window.__atlasTerrainProbe` reports (#483). */
+export interface TerrainProbe {
+  provider: 'ellipsoid' | 'synthetic' | 'other';
+  enableLighting: boolean;
+  /** Whether the scene's light is Cesium's real-time sun. */
+  sunLight: boolean;
+  verticalExaggeration: number;
+  verticalExaggerationRelativeHeight: number;
+  /** Metres above the ellipsoid. */
+  cameraHeight: number;
+  /** The rendered (exaggerated) ground under the camera; null until its tile has loaded. */
+  groundHeight: number | null;
+  tilesLoaded: boolean;
+}
+
+/**
+ * The synthetic terrain's cone (scene/synthetic-terrain.ts): 6 km high under Everest, 150 km in
+ * radius. Here, free of Cesium, so a browser test can work out the ground it expects.
+ */
+export const SYNTHETIC_CONE = {
+  lat: 27.988,
+  lon: 86.925,
+  peakMetres: 6_000,
+  radiusKm: 150,
+} as const;
+
+export interface SyntheticTerrainHook {
+  /** Builds the cone that stands in for Cesium World Terrain. */
+  worldTerrain(): Promise<TerrainProvider>;
+  destroy(): void;
+}
+
+/**
+ * The e2e build's stand-in for Cesium World Terrain (#483), when a browser test set
+ * `window.__atlasSyntheticTerrain`; undefined elsewhere. CI has no ion token, so the test drives
+ * World Terrain through the UI with a cone of known height (scene/synthetic-terrain.ts, loaded only
+ * here), and reads the scene through `window.__atlasTerrainProbe`.
+ */
+export function syntheticTerrainTestHook(
+  widget: CesiumWidget,
+): SyntheticTerrainHook | undefined {
+  if (
+    import.meta.env.PUBLIC_ATLAS_E2E_HOOKS !== '1' ||
+    typeof window === 'undefined' ||
+    window.__atlasSyntheticTerrain !== true
+  )
+    return undefined;
+  const module = import('./scene/synthetic-terrain');
+  let destroyed = false;
+  let unpublish: (() => void) | undefined;
+  const published = module.then(({ publishTerrainProbe }) => {
+    if (!destroyed) unpublish = publishTerrainProbe(widget);
+  });
+  return {
+    worldTerrain: () =>
+      published
+        .then(() => module)
+        .then(({ createSyntheticTerrain }) => createSyntheticTerrain()),
+    destroy() {
+      destroyed = true;
+      unpublish?.();
+    },
+  };
 }
 
 /** The reveal wave's hold for the e2e build, read on each wave frame; undefined elsewhere. */

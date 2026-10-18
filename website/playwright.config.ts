@@ -21,6 +21,8 @@ export default defineConfig({
     'site.spec.ts',
     'atlas-mobile.spec.ts',
     'atlas-cross-origin.spec.ts',
+    // Physical terrain through a synthetic stand-in for World Terrain (#483).
+    'atlas-terrain.spec.ts',
     'analytics.spec.ts',
     // The site redesign's per-page and cross-page suites (#454, spec §9; round 2 spec §11.2: every
     // marketing-*.spec.ts, so a page's split spec files run without a config change). The

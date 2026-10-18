@@ -234,8 +234,16 @@ export class ContextController {
   } {
     return {
       basemaps: availableBasemaps(this.#token),
-      terrains: availableTerrains(this.#token),
+      terrains: this.#terrains(),
     };
+  }
+
+  /** An injected World Terrain factory (the e2e build's stand-in) needs no ion token. */
+  #terrains(): Record<TerrainId, boolean> {
+    const terrains = availableTerrains(this.#token);
+    return this.#options.worldTerrain
+      ? { ...terrains, 'world-terrain': true }
+      : terrains;
   }
 
   setBasemap(basemap: BasemapId): Promise<boolean> {
@@ -312,7 +320,7 @@ export class ContextController {
 
   async #loadTerrain(terrain: TerrainId): Promise<boolean> {
     const sequence = ++this.#terrainSequence;
-    if (!availableTerrains(this.#token)[terrain]) {
+    if (!this.#terrains()[terrain]) {
       this.#onWarning({
         id: 'terrain',
         message: `${ION_UNAVAILABLE} The smooth globe remains active.`,
