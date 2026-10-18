@@ -4,7 +4,7 @@ Proposed. Cesium 1.145. Paths relative to `website/src/atlas/`.
 
 ## Intent
 
-With Cesium World Terrain on, the data layers sit at fixed heights (surface 650 m, edges 1,050 m, borders 1,800 m, rings 4,000 m, symbols 7,000 m), so higher ground buries them. The owner decided to drape the data onto the terrain, light the terrain with a hillshade, and add a terrain-exaggeration control. The default smooth globe must not change.
+With Cesium World Terrain on, the data layers sit at fixed heights (surface 650 m, edges 1,050 m, borders 1,800 m, rings 4,000 m, symbols 7,000 m), so higher ground buries them. The owner decided to drape the data onto the terrain, light the terrain with a hillshade, and control terrain exaggeration; PR 1 (`fix/terrain-visibility`) already ships the hillshade and the Relief control (updated 2026-10-18 to match PR 1). The default smooth globe must not change.
 
 ## Goals and non-goals
 
@@ -49,11 +49,10 @@ Approach 2 flattens the smooth default into 32 bins and drapes lines only near t
 
 **Provider and group.** `AtlasRasterImageryProvider` uses a geographic tiling scheme clipped to the data bounds, up to level 11. It asks the worker for each tile; empty tiles come back as a shared 1×1 transparent canvas, and the rest as transferred `ImageBitmap`s. `DrapedSurfaceGroup` implements the existing SurfaceChunkGroup/FadeableGroup contract, so ScientificLayers reuses its epochs, cache and `animateSwap`.
 
-**Lighting under World Terrain.**
-- `enableLighting` is on.
-- With day/night off, Atlas uses a north-west directional light whose elevation goes from a headlight at 5,000 km and above to 45° at 500 km and below.
-- `vertexShadowDarkness` 0.45 and `lambertDiffuseMultiplier` 0.9. Flat and sunward ground then shows the exact legend colour, because the diffuse term clamps at 1.0; only slopes facing away darken.
-- With day/night on, the light is SunLight.
+**Lighting under World Terrain** (updated 2026-10-18 to match the owner's decision and PR 1).
+- `enableLighting` is on whenever World Terrain is on; day/night applies only to the smooth globe.
+- Atlas uses a north-west directional light whose elevation goes from a headlight at 5,000 km and above to 45° at 500 km and below (PR 1's rule keeps it at least 10° above the visible disc's edge; in 2D and Columbus view the headlight is overhead, since their camera frame is not Earth-fixed).
+- `vertexShadowDarkness` 0.45 and `lambertDiffuseMultiplier` 0.9. Flat and sunward ground then shows the exact legend colour, because the diffuse term clamps at 1.0; only slopes facing away darken. PR 1's fade stays: full shading up to 1,000 km, faded out by 3,000 km, unlit beyond.
 - The water effect and ground atmosphere are off while the surface is shown.
 
 ## How existing features behave
@@ -67,13 +66,13 @@ Approach 2 flattens the smooth default into 32 bins and drapes lines only near t
 - **Extruded.** Drawn as hexagons, labelled "Columns (smooth globe only)".
 - **Globe offset.** Unchanged: imagery only adds textures to the patched globe shader, and picks use the patched `getPickRay`.
 - **Worker.** Gains `prepare-raster` and `raster-tile` and keeps a borders copy; `load-detail` goes first; destroyed providers' requests are dropped.
-- **Earth opacity and day/night.** Both also apply to the draped data.
+- **Earth opacity.** It also applies to the draped data. Day/night does not apply under World Terrain, which the hillshade lights (updated 2026-10-18 to match the owner's decision).
 
 ## Exaggeration
 
-- **Control.** URL param `terrainExaggeration`, range [1, 5], step 0.25, default 1. It is labelled "Terrain exaggeration", separate from the data `exaggeration` param, and shown only when draped. It sets `scene.verticalExaggeration` and requests a render.
+- **Control.** PR 1's Relief control (updated 2026-10-18 to match PR 1): URL param `relief`, range [1, 10], step 0.5, default 1, labelled "Physical relief ×", separate from the data `exaggeration` param, and disabled with a note on the smooth globe and in the 2D map. It sets `scene.verticalExaggeration` through `effectiveRelief` and requests a render. It replaces the `terrainExaggeration` param ([1, 5], step 0.25) first proposed here; the cap of 5 had no technical basis, since Cesium's per-tile normal rebuild runs for any value other than 1.
 - **What follows it.** Draped layers follow on the GPU. Labels re-clamp themselves. Ground heights re-sample every 50 ms during a drag and once at the end.
-- **Smooth globe.** Switching to it resets exaggeration to 1, so Cesium's per-tile normal rebuild never runs there.
+- **Smooth globe.** There, and in the 2D map, `effectiveRelief` draws 1 while the URL keeps the chosen relief, so Cesium's per-tile normal rebuild never runs there (updated 2026-10-18 to match PR 1).
 
 ## Picking
 
@@ -102,7 +101,7 @@ Imagery drapes natively in every mode and during morphs; Columbus view shows exa
 
 **Measured by** an e2e-only `__atlasDrapeStats` hook: tile counts (requested, delivered, empty), raster-time histogram, queue depth, and resident bytes (cached non-empty tiles × 349,525 B, from pinned ImageryLayer internals).
 
-**Mobile fallbacks, in order:** lower `tileCacheSize`; merge outlines into the surface texture; cap borders at level 10.
+**Mobile fallbacks, in order:** lower `tileCacheSize`; merge outlines into the surface texture; cap borders at level 10; if phones still miss the budget, World Terrain is desktop-only, with a note saying why (updated 2026-10-18 to match the owner's decision).
 
 ## Failure modes
 
@@ -120,7 +119,7 @@ Each phase is one shippable PR; about 4–5 engineer-weeks in all.
 
 1. **Harness, lighting and picking (3–4 days).** Synthetic-terrain fixture, the #483 repro spec marked `test.fail()`, the lighting policy, and `globe.pick` under terrain. Users get the hillshade and correct picks.
 2. **Draped surface (8–10 days).** Rasteriser for fill, masks and outlines; grid index and worker handlers; provider and group; fade, swaps, `resolveDrapedView` and the pick branch. Honmoon shows its fill without contours; other layers keep today's heights. The repro spec passes from here.
-3. **Context, observations and exaggeration (5 days).** Borders and footprint layers, labels, ground heights, the highlight, and the exaggeration slider with its URL param.
+3. **Context, observations and exaggeration (5 days).** Borders and footprint layers, labels, ground heights, the highlight, and making all of them follow PR 1's Relief control, whose hidden-data warning then retires (updated 2026-10-18 to match PR 1).
 4. **Honmoon and hardening (4–5 days).** Contours, pre-warm, a mobile memory measurement, fallbacks if needed, and asserted terrain budgets.
 
 ## Test plan
@@ -129,11 +128,11 @@ Each phase is one shippable PR; about 4–5 engineer-weeks in all.
 - Rasteriser parity with `buildSmoothChunk`/`paletteBins` within 1 byte per texel centre; honmoon contour count per band.
 - Coverage: on the full hbs-rs334 grid, every supported cell's centre texel at level 8 has its colour; one miss fails (never drop a row).
 - Masks vs Grid/Dot formulas; gap-free seams and antimeridian; south-first rows; byte-identical repeats; empty → null.
-- Provider (fake worker); DrapedSurfaceGroup (fake ImageryLayerCollection: α mapping, order, swap, destroy); ScientificLayers and surface-pick draped branches; `terrainExaggeration`; `resolveDrapedView`; ground heights; lighting blend.
+- Provider (fake worker); DrapedSurfaceGroup (fake ImageryLayerCollection: α mapping, order, swap, destroy); ScientificLayers and surface-pick draped branches; `relief` (PR 1's tests) (updated 2026-10-18 to match PR 1); `resolveDrapedView`; ground heights; lighting blend.
 - Cesium-internals pins.
 
-**E2E** (Playwright, no ion). `window.__atlasTerrainFixture()` installs a `CustomHeightmapTerrainProvider` with a 6 km Gaussian peak under supported HbS cells, through `setTerrain`. It is imported dynamically inside the `PUBLIC_ATLAS_E2E_HOOKS` branch, so the production Cesium chunk, which does not contain it today, is unchanged; atlas-bundle asserts it stays out.
-- **#483 repro.** The summit pixel shows the palette colour, not the basemap, at nadir and oblique, at exaggeration 1 and 3.
+**E2E** (Playwright, no ion). PR 1's `window.__atlasSyntheticTerrain` flag makes `setTerrain('world-terrain')` install a `CustomHeightmapTerrainProvider` through `ContextControllerOptions.worldTerrain`, so URL cold loads take it too; phase 1 adds a 6 km Gaussian peak under supported HbS cells (the Spain survey `map-surveys:1135`, whose neighbourhood the e2e grid supports) (updated 2026-10-18 to match PR 1). It is imported dynamically inside the `PUBLIC_ATLAS_E2E_HOOKS` branch, so the production Cesium chunk, which does not contain it today, is unchanged; atlas-bundle asserts it stays out.
+- **#483 repro.** The summit pixel shows the palette colour, not the basemap, at nadir and oblique, at relief 1 and 3 (updated 2026-10-18 to match PR 1).
 - **Pick.** An oblique pick on the slope returns the cell under the cursor.
 - **Modes.** Data visible and picks working after each morph (globe → map → perspective → globe).
 - **Swaps and toggles.** Swaps under 2 s; toggles instant; returning to the smooth globe restores wave, elevation and extruded.
@@ -154,10 +153,10 @@ The fixture has no vertex normals, so hillshade gets unit tests plus a manual io
 8. Honmoon contours deferred to phase 4.
 9. Headlight-to-45° light blend, so no limb darkens at globe scale.
 10. Atmosphere and water effect off while the surface shows.
-11. Exaggeration [1, 5], default 1.
+11. Relief [1, 10], step 0.5, default 1: PR 1's control, in place of [1, 5] (updated 2026-10-18 to match PR 1).
 12. Raster lines: GroundPolylinePrimitive costs 1,456 B per segment and ignores exaggeration; draped BufferPolylineCollection is experimental, one colour per primitive, unverified in 2D/Columbus.
 13. A raster failure reverts to the smooth globe.
-14. Earth opacity and day/night dimming apply to draped data; accepted.
+14. Earth opacity applies to draped data; accepted. Day/night does not apply under World Terrain (updated 2026-10-18 to match the owner's decision).
 
 ## Decided by the owner (2026-10-18)
 
