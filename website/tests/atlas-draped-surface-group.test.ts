@@ -44,6 +44,7 @@ import {
   type FakeRasterSource,
 } from './helpers/imagery-fakes';
 import { SURFACE_SPEC } from './helpers/raster-specs';
+import { flushTasks } from './helpers/scene-fakes';
 
 let scene: ReturnType<typeof fakeDrapedScene>;
 
@@ -941,6 +942,63 @@ describe('DrapedSurfaceGroup', () => {
     expect(scene.imageryLayers.length).toBe(0);
     group.destroy();
     expect(scene.preRender.numberOfListeners).toBe(0);
+  });
+
+  it('takes every setter after destroy as a no-op', async () => {
+    // ScientificLayers may still hide or fade a group it has already destroyed.
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      cellEdges: true,
+      scene,
+      source,
+      wave: REST,
+    });
+    await group.prepare(signal);
+    group.destroy();
+    scene.requestRender.mockClear();
+    group.setOpacity(0);
+    group.collection.show = false;
+    group.setVisibility(false, false);
+    group.setSurfaceOpacity(0.2);
+    await group.setCellEdges(true);
+    expect(scene.imageryLayers.length).toBe(0);
+    expect(scene.requestRender).not.toHaveBeenCalled();
+    expect(source.prepare).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops the outline prepare it started when its own signal aborts', async () => {
+    const outlineReady = deferred<RasterReady>();
+    const late = fakeSource();
+    late.prepare.mockImplementation(async (spec) =>
+      spec.layer === 'outlines'
+        ? outlineReady.promise
+        : { bounds: FAKE_BOUNDS, rasterId: 7 },
+    );
+    const controller = new AbortController();
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      cellEdges: true,
+      scene,
+      source: late,
+      wave: REST,
+    });
+    let outcome = 'pending';
+    group.prepare(controller.signal).catch((error: Error) => {
+      outcome = error.name;
+    });
+    await flushTasks();
+    expect(late.prepare).toHaveBeenCalledTimes(2);
+    controller.abort();
+    expect(late.prepare.mock.calls[1][1].aborted).toBe(true);
+    await flushTasks();
+    // Rejected at once, not once the outline raster lands.
+    expect(outcome).toBe('AbortError');
+    outlineReady.resolve({ bounds: FAKE_BOUNDS, rasterId: 8 });
+    await flushTasks();
+    expect(late.release.mock.calls).toEqual([[8]]);
+    expect(named(scene, 'atlas-outlines')).toEqual([]);
+    group.destroy();
+    expect(late.release.mock.calls).toEqual([[8], [7]]);
   });
 
   it('shows at once when the wave rests (reduced motion, hidden tab)', async () => {

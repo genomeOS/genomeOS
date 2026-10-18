@@ -27,7 +27,9 @@
  * - No silent gaps: a raster that fails while `prepare` runs rejects it, a later one and every
  *   provider `errorEvent` go to `onError`, and the scene reverts to the smooth globe. `destroy`
  *   aborts every prepare in flight (a raster arriving after it is released at once), removes the
- *   layers and releases their rasters.
+ *   layers and releases their rasters. A `prepare` whose own signal aborts rejects at once and
+ *   stops the outline prepare it started; a surface layer it already added waits for `destroy`.
+ *   Every setter is a no-op after `destroy`.
  * - Data elevation is off under World Terrain and Cesium drapes imagery in every scene mode, so
  *   the elevation, scene-mode and edge-hold setters do nothing.
  *
@@ -254,6 +256,24 @@ export function createDrapedSurfaceGroup(
     return state.done;
   };
 
+  /** `startOutlines` for `prepare`: settles with them, or drops them once `signal` aborts. */
+  const outlinesUntil = (signal: AbortSignal): Promise<void> => {
+    const done = startOutlines();
+    const state = outline;
+    return new Promise<void>((resolve) => {
+      const stop = () => {
+        if (state && outline === state && !state.prepared) dropOutlines(false);
+        resolve();
+      };
+      if (signal.aborted) return stop();
+      signal.addEventListener('abort', stop, { once: true });
+      void done.then(() => {
+        signal.removeEventListener('abort', stop);
+        resolve();
+      });
+    });
+  };
+
   /** Drops the current style's outlines; with `keepDrawn`, its drawn layer retires instead. */
   const dropOutlines = (keepDrawn: boolean) => {
     const old = outline;
@@ -276,7 +296,7 @@ export function createDrapedSurfaceGroup(
       }
       surface = { layer };
       apply();
-      if (cellEdges && cells.supported) await startOutlines();
+      if (cellEdges && cells.supported) await outlinesUntil(link.signal);
       if (destroyed || signal.aborted) throw abortError();
       if (pendingFailure) throw pendingFailure.error;
       prepareState = 'settled';
