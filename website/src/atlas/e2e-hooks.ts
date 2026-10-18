@@ -1,11 +1,14 @@
 /**
  * Test-only hooks for the e2e build (fast-load design §B.8; #453), with the synthetic World
- * Terrain's probe and peak (terrain draping design, "Test plan"; #483). Each is inert unless the
- * build sets `PUBLIC_ATLAS_E2E_HOOKS=1`, which only `npm run build:e2e` may do
- * (`assertE2eHooks`, lib/catalog-build.ts), so no production build carries them.
+ * Terrain's probe and peak (terrain draping design, "Test plan"; #483) and the drape stats reader
+ * ("Performance budget and measurement"). Each is inert unless the build sets
+ * `PUBLIC_ATLAS_E2E_HOOKS=1`, which only `npm run build:e2e` may do (`assertE2eHooks`,
+ * lib/catalog-build.ts), so no production build carries them.
  */
 
 import type { CesiumWidget, TerrainProvider } from 'cesium';
+
+import type { DrapeStats } from './scene/types';
 
 /** Whether the camera is still moving, as `window.__atlasCameraMotion` reports it. */
 export interface CameraMotion {
@@ -28,6 +31,8 @@ declare global {
     __atlasSyntheticTerrain?: boolean;
     /** Reads the globe's terrain, lighting and camera, once the synthetic terrain is requested. */
     __atlasTerrainProbe?: () => TerrainProbe;
+    /** Reads the draped tiles' counts, raster times and resident bytes, once draping has loaded. */
+    __atlasDrapeStats?: () => DrapeStats;
   }
 }
 
@@ -135,6 +140,25 @@ export function revealWaveTestHold(): (() => number | null) | undefined {
     const hold =
       typeof window === 'undefined' ? undefined : window.__atlasRevealWaveHold;
     return typeof hold === 'number' ? hold : null;
+  };
+}
+
+/**
+ * Publishes `read` as `window.__atlasDrapeStats` in the e2e build (#483), so the World Terrain
+ * budgets can be measured; undefined elsewhere. The returned callback unpublishes it, unless a
+ * newer scene has published its own reader since.
+ */
+export function drapeStatsTestHook(
+  read: () => DrapeStats,
+): (() => void) | undefined {
+  if (
+    import.meta.env.PUBLIC_ATLAS_E2E_HOOKS !== '1' ||
+    typeof window === 'undefined'
+  )
+    return undefined;
+  window.__atlasDrapeStats = read;
+  return () => {
+    if (window.__atlasDrapeStats === read) delete window.__atlasDrapeStats;
   };
 }
 

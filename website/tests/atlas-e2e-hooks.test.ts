@@ -1,7 +1,24 @@
-/** The e2e build's camera motion hook (fast-load design §B.8; #453). */
+/** The e2e build's camera motion hook (fast-load design §B.8; #453) and drape stats reader
+ * (terrain draping design, "Performance budget and measurement"; #483). */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { cameraMotionTestHook } from '../src/atlas/e2e-hooks';
+import {
+  cameraMotionTestHook,
+  drapeStatsTestHook,
+} from '../src/atlas/e2e-hooks';
+import type { DrapeStats } from '../src/atlas/scene/types';
+
+const STATS: DrapeStats = {
+  delivered: 3,
+  empty: 1,
+  queueDepth: 0,
+  rasterMs: {
+    counts: [1, 1, 0, 0, 0, 0, 0],
+    upperMs: [0.5, 1, 2, 4, 8, 16, Infinity],
+  },
+  requested: 4,
+  residentBytes: 349_525,
+};
 
 /** A Cesium-like camera whose move events the test raises. */
 function camera() {
@@ -101,5 +118,32 @@ describe('cameraMotionTestHook', () => {
     expect(page.__atlasCameraMotion).toBe(reader);
     newer.destroy();
     expect(page.__atlasCameraMotion).toBeUndefined();
+  });
+});
+
+describe('drapeStatsTestHook', () => {
+  it('publishes nothing outside the e2e build', () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '');
+    expect(drapeStatsTestHook(() => STATS)).toBeUndefined();
+    expect(page.__atlasDrapeStats).toBeUndefined();
+  });
+
+  it('publishes the reader and removes only its own', () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const remove = drapeStatsTestHook(() => STATS)!;
+    expect(page.__atlasDrapeStats!()).toBe(STATS);
+    const newer = () => STATS;
+    page.__atlasDrapeStats = newer;
+    remove();
+    expect(page.__atlasDrapeStats).toBe(newer);
+  });
+
+  it('unpublishes its own reader', () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    drapeStatsTestHook(() => STATS)!();
+    expect(page.__atlasDrapeStats).toBeUndefined();
   });
 });

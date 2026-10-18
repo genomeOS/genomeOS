@@ -104,8 +104,8 @@ export interface ScientificStyle {
   elevationFactor: number;
   earthOpacity: number;
   reducedMotion: boolean;
-  /** World Terrain is requested, so the surface drapes onto the ground (#483); absent is smooth. */
-  draped?: boolean;
+  /** The scene's draped rule (#483): World Terrain is requested, so the surface drapes. */
+  draped: boolean;
 }
 
 export interface ScientificHighlight {
@@ -148,9 +148,9 @@ export interface ScientificLayersOptions {
   >;
   perf?: { mark(name: string, options?: PerformanceMarkOptions): unknown };
   /** The lazily imported draped runtime, for a draped style (#483). */
-  draped?: () => Promise<DrapedRuntime>;
+  draped: () => Promise<DrapedRuntime>;
   /** A draped raster failed for the surface in view; the scene reverts to the smooth globe. */
-  onDrapeFailure?: (error: unknown) => void;
+  onDrapeFailure: (error: unknown) => void;
 }
 
 interface Displayed extends DisplayedSurface {
@@ -512,7 +512,7 @@ export class ScientificLayers {
         // rebuild of this request settles this call.
         if (this.#destroyed) return true;
         if (sequence === this.#sequence)
-          this.#options.onDrapeFailure?.(error.cause);
+          this.#options.onDrapeFailure(error.cause);
         if (sequence !== this.#sequence) return true;
         error = error.cause;
       }
@@ -739,7 +739,7 @@ export class ScientificLayers {
   ): Promise<DrapedSurfaceGroup> {
     let runtime: DrapedRuntime;
     try {
-      runtime = await this.#options.draped!();
+      runtime = await this.#options.draped();
     } catch (error) {
       throw new DrapeFailure(error);
     }
@@ -751,7 +751,7 @@ export class ScientificLayers {
         (candidate === this.#displayed?.group ||
           candidate === this.#epoch?.group),
       load,
-      onFailure: (error) => this.#options.onDrapeFailure?.(error),
+      onFailure: (error) => this.#options.onDrapeFailure(error),
       source: this.#rasterSource,
       style,
       surface,
@@ -970,7 +970,7 @@ export class ScientificLayers {
       if (isAbortError(error)) return;
       console.warn('Cell outlines could not be built.', error);
       // An outline raster is a raster: its failure reverts the globe too.
-      if (inView()) this.#options.onDrapeFailure?.(error);
+      if (inView()) this.#options.onDrapeFailure(error);
       return;
     }
     // A newer request owns the marks now.

@@ -178,6 +178,22 @@ describe('Atlas client bundle', () => {
     ).toBe(true);
   });
 
+  it('keeps the draped modules out of the /app/ initial chunks', () => {
+    // Terrain draping design, "When it is active": the scene imports the draped runtime only
+    // when a draped surface is built, so the smooth globe's first load carries none of it.
+    for (const file of new Set([
+      ...staticGraph(islandChunk()),
+      ...staticGraph(sceneChunk()),
+    ]))
+      expect(code(file).includes('atlas-draped-v1'), file).toBe(false);
+    expect(
+      readdirSync(assets).some(
+        (name) =>
+          name.endsWith('.js') && code(name).includes('atlas-draped-v1'),
+      ),
+    ).toBe(true);
+  });
+
   it('modulepreloads the lazy scene chunk and its static imports from the /app/ head', () => {
     const html = appHtml();
     const head = html.slice(0, html.indexOf('</head>'));

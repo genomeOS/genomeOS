@@ -219,6 +219,7 @@ function harness(
   primitives.add(highlight.collection);
   const style: ScientificStyle = {
     cellEdges: false,
+    draped: false,
     earthOpacity: 1,
     edgeColorMode: 'matched',
     edgeFixedColor: '#b9f5ff',
@@ -273,10 +274,14 @@ function harness(
     recolour: vi.fn(recolourStream),
   };
   const layers = new ScientificLayers({
+    // A smooth harness has no draped runtime: a draped build without one fails like a lost import.
+    draped: () =>
+      Promise.reject(new Error('no draped runtime in this harness')),
     frameBudgetMs: 8,
     highlight,
     marks,
     onCommit: (key) => commits.push(key),
+    onDrapeFailure: () => {},
     perf: { mark: vi.fn() },
     scene: scene as never,
     style: () => style,
