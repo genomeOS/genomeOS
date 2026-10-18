@@ -1,6 +1,7 @@
 # HBB rs334 corpus slice (Salih 2010) — coverage report
 
-Date: 2026-09-09 (v0); revised 2026-09-10 after review round 1.
+Date: 2026-09-09 (v0); revised 2026-09-10 after review round 1; revised 2026-10-17 after
+review round 2.
 Staged under tests/fixtures/literature/hbb-rs334-salih-2010/.
 Corpus: hbb-rs334-salih-2010. Source paper: Salih NA et al. Loss of
 balancing selection in the betaS globin locus. BMC Med Genet 2010;11:21
@@ -119,16 +120,15 @@ for each label with exact lat/lon/uncertainty_radius_km.
 
 Checked 2026-10-01 against the source list of the assembly behind the MAP HbS corpus: Piel et al.
 2010, *Nature Communications* 1:104 (doi:10.1038/ncomms1104), Supplementary Figures S1-S2,
-Supplementary Methods and **Supplementary References**, 25 pages, 342 numbered entries.
+Supplementary Methods and **Supplementary References**, 25 pages.
 
 - Retrieved file: `41467_2010_BFncomms1104_MOESM456_ESM.pdf`, 438,548 bytes,
   SHA-256 `8f4f11a8ea0b9bd57d5b5cc8b9d1d326cb83b4ee1d70bbae3930839fee9cf3a5`.
 - Method: extract all 25 pages to text and search the full text for the study's identifiers, not by
   title. The extracted text is 62,551 characters with `pypdf` (62,627 with the extractor used on
   2026-10-01; a character count is extractor-dependent, so it is not a property of the document), and
-  it includes the supplementary reference list, which is numbered inline past 300 (highest entry seen,
-  341). The reference-entry count is not stated here because the extracted numbering has gaps and a
-  count is not reproducible from text.
+  it includes the supplementary reference list, which is numbered inline. No entry count is quoted in
+  this report: the extracted numbering has gaps, so a count taken from text is not reproducible.
 - Result: **0 occurrences** of `Salih`, of PMID 20128890, of `BMC Med Genet`, and of the paper's
   village and population labels (`Um-Salala`, `Hausa`, `Massalit`).
 - Control: the same text does contain Sudan studies — 8 occurrences of `Sudan`, all 8 named here
@@ -155,15 +155,26 @@ reconstructed: `scripts/fetch_map_hbs.py --out <path>` writes the `Explorer:HbS_
 (`outputFormat=csv`, no credentials).
 
 - Fetch window 2026-10-07T22:08:31Z to 22:08:33Z, repeated at 22:14:06Z to 22:14:07Z. Both responses
-  are 402,028 bytes with 1,287 data rows.
+  carried 1,287 data rows.
 - The response is **not byte-stable**, and the reason is exactly one column: GeoServer's `FID` is a
-  per-request feature id (`HbS_Data.fid-...-6220`, `...-6728`, `...-6764` across three requests). With
-  `FID` removed every request is identical: data-column SHA-256
-  `3d6a4f6040c0806dbb4331745918999a220c56afa83d7befd7ca54e48c0702f1`, reproduced on all three
-  fetches. Whole-response SHA-256 varies per request by design of that column and three observed
-  values are `457ea3ab...`, `a5a5bf38...` and `26ad330d...`; none of them identifies the layer. A
-  later check compares the data-column hash with the byte count and the row count, and does not read a
-  changed `FID` as a changed layer.
+  per-request feature id (`HbS_Data.fid-...-6220`, `...-6728`, `...-6764` across three requests), and
+  its length varies between requests. The byte count therefore moves with it while the data do not:
+  one character longer on each of the 1,287 rows is 1,287 bytes. It read 402,028 bytes on the
+  2026-10-07 requests and again on two independent requests on 2026-10-17, with identical data
+  columns, so the byte count is not one of this layer's properties either.
+- With `FID` removed every request is identical. The data-column digest is SHA-256 over the response
+  re-serialized as CSV with the `FID` column dropped, the header row kept, `csv.writer` quoting
+  `QUOTE_MINIMAL` on a comma delimiter, LF line endings, no trailing newline, UTF-8:
+  `b3174937aa32ea01c0670b564359394779d7d860f7d5f24bf56495b9bf0d3ca5`, over 1,287 rows and 350,304
+  characters, identical on two independent fetches on 2026-10-17. The 2026-10-07 value
+  `3d6a4f6040c0806dbb4331745918999a220c56afa83d7befd7ca54e48c0702f1` is retired: it hashed each
+  row's fields joined naively on a comma, and 1,277 of the data fields contain a comma, every one of
+  them in `citation`, so that serialization cannot tell some changes apart. The CSV serialization
+  above quotes those fields and is unambiguous.
+- Whole-response SHA-256 varies per request by design of that column and three observed values are
+  `457ea3ab...`, `a5a5bf38...` and `26ad330d...`; none of them identifies the layer. A later check
+  compares the data-column digest and the row count, and reads neither a changed `FID`, a changed
+  byte count nor a changed response digest as a changed layer.
 - Second layer checked: the committed artifact the P1 path holds,
   `website/public/data/atlas/hbs-rs334.observations.json`, `data_version` `map-2026-08`, 1,071 survey
   records. Every one of its 1,071 survey ids is present in the live layer.
