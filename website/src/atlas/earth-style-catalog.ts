@@ -321,6 +321,7 @@ export const RELIEF_STEP = 0.5;
 
 interface ReliefInput {
   relief: number;
+  /** The terrain on the globe. */
   terrain: TerrainId;
   view: ExplorerSceneMode;
 }
@@ -349,11 +350,18 @@ export interface ReliefControlState extends TerrainControlState {
  * the Ethiopian highlands and the Himalaya), and raised relief rises through more. The warning
  * says so whenever that can happen, so data cut away by the ground is not read as missing data.
  */
-export function reliefControl(input: ReliefInput): ReliefControlState {
+export function reliefControl(
+  input: ReliefInput & {
+    /** The terrain chosen, which may still be loading or have failed. */
+    requested?: TerrainId;
+  },
+): ReliefControlState {
   if (!hasPhysicalRelief(input.terrain))
     return {
       disabled: true,
-      note: 'Choose World Terrain to raise the relief.',
+      note: hasPhysicalRelief(input.requested ?? input.terrain)
+        ? 'World Terrain has not loaded, so there is no relief to raise.'
+        : 'Choose World Terrain to raise the relief.',
       warning: null,
     };
   if (input.view === 'map')

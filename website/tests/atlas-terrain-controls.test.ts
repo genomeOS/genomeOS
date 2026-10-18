@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import type { AtlasCatalog } from '../src/atlas/contracts';
 import {
   BASEMAP_IDS,
+  TERRAIN_IDS,
   RELIEF_RANGE,
   RELIEF_STEP,
   dayNightControl,
@@ -35,16 +36,18 @@ function allAvailable<T extends string>(ids: readonly T[]): Record<T, boolean> {
 
 const noop = () => {};
 
-function mapControls(query: string, ion = true): string {
+/** The map controls for `query`, with `applied` the terrain the scene has on the globe. */
+function mapControls(query: string, applied?: TerrainId): string {
   const { state } = parseExplorerState(query, catalog);
   return renderToStaticMarkup(
     createElement(
       EscapeStackProvider,
       null,
       createElement(MapStyleControls, {
+        appliedTerrain: applied ?? state.terrain,
         capabilities: {
           basemaps: allAvailable(BASEMAP_IDS),
-          terrains: { 'smooth-globe': true, 'world-terrain': ion },
+          terrains: allAvailable(TERRAIN_IDS),
         },
         disabled: false,
         state,
@@ -99,12 +102,30 @@ describe('day/night control (#483)', () => {
     },
   );
 
-  it('still applies when this build cannot load the requested World Terrain', () => {
-    // No ion token: the smooth globe stays on, lit by the sun.
-    const html = mapControls('?terrain=world-terrain', false);
+  it('follows the terrain on the globe, not the one requested (#483 review)', () => {
+    // World Terrain still loading, failed, or not loadable without an ion token: the smooth
+    // globe stays on, lit by the sun, so day/night applies and there is no relief to raise.
+    const html = mapControls('?terrain=world-terrain', 'smooth-globe');
     expect(tagWithId(html, 'atlas-day-night-lighting')).not.toContain(
       'disabled=""',
     );
+    expect(html).not.toContain('fixed light from the north-west');
+    // The relief slider, in the chooser, is told both terrains.
+    const relief = renderToStaticMarkup(
+      createElement(ReliefControl, {
+        disabled: false,
+        relief: 3,
+        requested: 'world-terrain',
+        terrain: 'smooth-globe',
+        view: 'globe',
+        onRelief: noop,
+      }),
+    );
+    expect(tagWithId(relief, 'atlas-relief')).toContain('disabled=""');
+    expect(relief).toContain(
+      'World Terrain has not loaded, so there is no relief to raise.',
+    );
+    expect(relief).not.toMatch(/hide map data on high ground/);
   });
 });
 
@@ -134,7 +155,15 @@ describe('relief control (#483)', () => {
   it('explains why it is off', () => {
     expect(
       reliefControl({ relief: 1, terrain: 'smooth-globe', view: 'globe' }).note,
-    ).toMatch(/World Terrain/);
+    ).toBe('Choose World Terrain to raise the relief.');
+    expect(
+      reliefControl({
+        relief: 1,
+        requested: 'world-terrain',
+        terrain: 'smooth-globe',
+        view: 'globe',
+      }).note,
+    ).toBe('World Terrain has not loaded, so there is no relief to raise.');
     expect(
       reliefControl({ relief: 1, terrain: 'world-terrain', view: 'map' }).note,
     ).toMatch(/2D map/);

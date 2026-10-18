@@ -26,6 +26,7 @@ function picker(basemap: BasemapId, terrain: TerrainId): string {
       EscapeStackProvider,
       null,
       createElement(EarthStylePicker, {
+        appliedTerrain: terrain,
         basemap,
         capabilities: {
           basemaps: allAvailable(BASEMAP_IDS),

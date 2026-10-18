@@ -13,6 +13,8 @@ import { EarthStylePicker } from './EarthStylePicker';
 import { InfoTip } from './InfoTip';
 
 interface MapStyleControlsProps {
+  /** The terrain on the globe: day/night and relief follow it, not the one requested (#483). */
+  appliedTerrain: TerrainId;
   capabilities: SceneCapabilities;
   disabled: boolean;
   state: ExplorerState;
@@ -30,6 +32,7 @@ interface MapStyleControlsProps {
 }
 
 export function MapStyleControls({
+  appliedTerrain,
   capabilities,
   disabled,
   state,
@@ -45,13 +48,12 @@ export function MapStyleControls({
   onTerrain,
   onView,
 }: MapStyleControlsProps) {
-  // A terrain this build cannot load leaves the smooth globe on, so day/night still applies.
-  const dayNight = dayNightControl(
-    capabilities.terrains[state.terrain] ? state.terrain : 'smooth-globe',
-  );
+  // Until a requested World Terrain is on the globe, the smooth globe's sun is in charge.
+  const dayNight = dayNightControl(appliedTerrain);
   return (
     <div className="atlas-control-grid atlas-control-grid--map">
       <EarthStylePicker
+        appliedTerrain={appliedTerrain}
         basemap={state.basemap}
         capabilities={capabilities}
         disabled={disabled}

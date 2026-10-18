@@ -33,6 +33,8 @@ import { ExplorerHeading } from './ExplorerHeading';
 import { MOBILE_QUERY, useMediaQuery } from './useMediaQuery';
 
 interface ExplorerControlsProps {
+  /** The terrain on the globe, which can lag or differ from `state.terrain` (#483). */
+  appliedTerrain: TerrainId;
   capabilities: SceneCapabilities;
   catalog: AtlasCatalog;
   artifactDataBase: string;
@@ -103,6 +105,7 @@ const layerDescriptions: Record<LayerId, string> = {
 };
 
 export function ExplorerControls({
+  appliedTerrain,
   capabilities,
   catalog,
   artifactDataBase,
@@ -335,6 +338,7 @@ export function ExplorerControls({
         <summary>Map</summary>
         <div className="atlas-control-sheet__body">
           <MapStyleControls
+            appliedTerrain={appliedTerrain}
             capabilities={capabilities}
             disabled={disabled}
             state={state}

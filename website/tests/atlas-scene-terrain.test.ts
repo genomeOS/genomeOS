@@ -181,6 +181,26 @@ describe('scene terrain wiring (#483)', () => {
     expect(harness.updates).toContainEqual({ terrain: 'world-terrain' });
   });
 
+  it('tells its listeners which terrain is on the globe, now and as it changes', () => {
+    const controller = scene();
+    const applied: TerrainId[] = [];
+    const remove = controller.onTerrainApplied((terrain) =>
+      applied.push(terrain),
+    );
+    // A new globe starts smooth: World Terrain counts only once its provider is on the globe.
+    expect(applied).toEqual(['smooth-globe']);
+    harness.contextOptions?.onTerrainApplied?.('world-terrain');
+    expect(applied).toEqual(['smooth-globe', 'world-terrain']);
+    remove();
+    harness.contextOptions?.onTerrainApplied?.('smooth-globe');
+    expect(applied).toHaveLength(2);
+    // A late listener hears the current terrain.
+    const late: TerrainId[] = [];
+    harness.contextOptions?.onTerrainApplied?.('world-terrain');
+    controller.onTerrainApplied((terrain) => late.push(terrain));
+    expect(late).toEqual(['world-terrain']);
+  });
+
   it('tears the shading down with the scene', () => {
     scene().destroy();
     expect(harness.shadingDestroyed).toBe(1);

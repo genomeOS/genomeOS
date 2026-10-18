@@ -195,6 +195,11 @@ export interface AtlasSceneController extends ArtifactSceneApi {
     listener: (warnings: readonly ContextWarning[]) => void,
   ): () => void;
   /**
+   * The terrain on the globe: called now, and again each time another terrain's provider reaches
+   * the globe. A requested World Terrain that is still loading, or failed, is not on it (#483).
+   */
+  onTerrainApplied(listener: (terrain: TerrainId) => void): () => void;
+  /**
    * A frame threw, inside Scene.render or in any listener, tick or resize the Atlas render loop
    * runs, and rendering stopped for good (Cesium globe design §12), so listeners offer a retry.
    * The error is reported once, a late listener still hears it, and none is reported after

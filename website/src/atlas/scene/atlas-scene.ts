@@ -123,6 +123,7 @@ class CesiumAtlasScene implements AtlasSceneController {
     (warnings: readonly ContextWarning[]) => void
   >();
   readonly #warnings = new Map<ContextWarning['id'], ContextWarning>();
+  readonly #terrainListeners = new Set<(terrain: TerrainId) => void>();
   readonly #renderLoop: RenderLoop;
   readonly #globeOffset: GlobeOffset;
   readonly #unbindKeyboard: () => void;
@@ -163,6 +164,8 @@ class CesiumAtlasScene implements AtlasSceneController {
   #mode: ExplorerSceneMode = 'globe';
   #destroyed = false;
   #contextStatus: ContextStatus = 'loading';
+  /** A new globe is smooth until the context controller puts another terrain on it. */
+  #appliedTerrain: TerrainId = 'smooth-globe';
   #reducedMotion: boolean;
 
   constructor(container: HTMLElement, options: AtlasSceneOptions) {
@@ -196,7 +199,7 @@ class CesiumAtlasScene implements AtlasSceneController {
         'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
       (warning) => this.#setWarning(warning),
       {
-        onTerrainApplied: (terrain) => this.#terrainShading.update({ terrain }),
+        onTerrainApplied: (terrain) => this.#setAppliedTerrain(terrain),
         worldTerrain: this.#syntheticTerrain?.worldTerrain,
       },
     );
@@ -337,6 +340,12 @@ class CesiumAtlasScene implements AtlasSceneController {
   #setContextStatus(status: ContextStatus): void {
     this.#contextStatus = status;
     for (const listener of this.#contextListeners) listener(status);
+  }
+
+  #setAppliedTerrain(terrain: TerrainId): void {
+    this.#appliedTerrain = terrain;
+    this.#terrainShading.update({ terrain });
+    for (const listener of this.#terrainListeners) listener(terrain);
   }
 
   #setWarning(warning: ContextWarningUpdate): void {
@@ -617,6 +626,12 @@ class CesiumAtlasScene implements AtlasSceneController {
     this.#warningListeners.add(listener);
     listener([...this.#warnings.values()]);
     return () => this.#warningListeners.delete(listener);
+  }
+
+  onTerrainApplied(listener: (terrain: TerrainId) => void): () => void {
+    this.#terrainListeners.add(listener);
+    listener(this.#appliedTerrain);
+    return () => this.#terrainListeners.delete(listener);
   }
 
   onRenderError(listener: (error: unknown) => void): () => void {

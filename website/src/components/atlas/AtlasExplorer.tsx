@@ -462,7 +462,7 @@ export default function AtlasExplorer({
   ]);
 
   // Basemap, its appearance and day/night, physical terrain and its relief (#483).
-  useEarthPresentation({
+  const appliedTerrain = useEarthPresentation({
     runSceneActivity,
     scene,
     sceneAttempt,
@@ -588,6 +588,7 @@ export default function AtlasExplorer({
 
           {catalog && state ? (
             <ExplorerControls
+              appliedTerrain={appliedTerrain}
               capabilities={capabilities}
               catalog={catalog}
               artifactDataBase={artifactDataBase}

@@ -19,7 +19,9 @@ import type { ExplorerSceneMode } from '../../atlas/url-state';
 interface ReliefControlProps {
   disabled: boolean;
   relief: number;
-  /** The terrain on the globe: a requested terrain this build cannot load counts as smooth. */
+  /** The terrain chosen, which may still be loading or have failed. */
+  requested?: TerrainId;
+  /** The terrain on the globe, which the slider follows. */
   terrain: TerrainId;
   view: ExplorerSceneMode;
   onRelief: (value: number) => void;
@@ -28,11 +30,12 @@ interface ReliefControlProps {
 export function ReliefControl({
   disabled,
   relief,
+  requested,
   terrain,
   view,
   onRelief,
 }: ReliefControlProps) {
-  const control = reliefControl({ relief, terrain, view });
+  const control = reliefControl({ relief, requested, terrain, view });
   const describedBy = [
     control.note ? 'atlas-relief-note' : 'atlas-relief-help',
     ...(control.warning ? ['atlas-relief-warning'] : []),

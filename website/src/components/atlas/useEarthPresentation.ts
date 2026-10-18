@@ -5,12 +5,15 @@
  *
  * Before an artifact is displayed a basemap or terrain change goes straight to the scene; once
  * one is, the change shows as scene activity while its imagery or terrain service answers.
+ *
+ * It returns the terrain on the globe, which the terrain controls follow: a requested World
+ * Terrain that is still loading, or failed, leaves the smooth globe and its sun in charge.
  */
 
-import { useEffect, type RefObject } from 'react';
+import { useEffect, useState, type RefObject } from 'react';
 
 import type { AtlasSceneController } from '../../atlas/scene/types';
-import type { ExplorerState } from '../../atlas/url-state';
+import type { ExplorerState, TerrainId } from '../../atlas/url-state';
 import type { useAtlasActivity } from './useAtlasActivity';
 
 interface EarthPresentationOptions {
@@ -29,7 +32,15 @@ export function useEarthPresentation({
   sceneController,
   sceneHasArtifact,
   state,
-}: EarthPresentationOptions): void {
+}: EarthPresentationOptions): TerrainId {
+  const [appliedTerrain, setAppliedTerrain] =
+    useState<TerrainId>('smooth-globe');
+
+  useEffect(
+    () => sceneController?.onTerrainApplied(setAppliedTerrain),
+    [sceneController],
+  );
+
   useEffect(() => {
     if (!state) return;
     if (!sceneHasArtifact()) {
@@ -74,4 +85,6 @@ export function useEarthPresentation({
   useEffect(() => {
     if (state) scene.current?.setRelief(state.relief);
   }, [state?.relief, sceneAttempt, sceneController]);
+
+  return appliedTerrain;
 }

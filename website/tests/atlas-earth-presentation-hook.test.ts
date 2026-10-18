@@ -5,10 +5,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AtlasCatalog } from '../src/atlas/contracts';
 import type { AtlasSceneController } from '../src/atlas/scene/types';
-import { parseExplorerState, type ExplorerState } from '../src/atlas/url-state';
+import {
+  parseExplorerState,
+  type ExplorerState,
+  type TerrainId,
+} from '../src/atlas/url-state';
 
 const react = vi.hoisted(() => {
-  const slots: { cleanup?: () => void; deps?: readonly unknown[] }[] = [];
+  const slots: {
+    cleanup?: () => void;
+    deps?: readonly unknown[];
+    value?: unknown;
+  }[] = [];
   let index = 0;
   return {
     render(run: () => void) {
@@ -17,6 +25,16 @@ const react = vi.hoisted(() => {
     },
     reset() {
       slots.length = 0;
+    },
+    useState<T>(initial: T): [T, (value: T) => void] {
+      const slot = (slots[index] ??= { value: initial });
+      index += 1;
+      return [
+        slot.value as T,
+        (value: T) => {
+          slot.value = value;
+        },
+      ];
     },
     useEffect(effect: () => void | (() => void), deps?: readonly unknown[]) {
       const slot = (slots[index] ??= {});
@@ -38,6 +56,7 @@ const react = vi.hoisted(() => {
 vi.mock('react', async (importOriginal) => ({
   ...(await importOriginal<typeof import('react')>()),
   useEffect: react.useEffect,
+  useState: react.useState,
 }));
 
 const { useEarthPresentation } =
@@ -50,7 +69,19 @@ const catalog = {
 } as AtlasCatalog;
 
 function fakeController() {
+  const terrainListeners = new Set<(terrain: TerrainId) => void>();
+  let applied: TerrainId = 'smooth-globe';
   return {
+    /** Puts `terrain` on the globe, as the scene's context controller would. */
+    applyTerrain(terrain: TerrainId) {
+      applied = terrain;
+      for (const listener of terrainListeners) listener(terrain);
+    },
+    onTerrainApplied: vi.fn((listener: (terrain: TerrainId) => void) => {
+      terrainListeners.add(listener);
+      listener(applied);
+      return () => terrainListeners.delete(listener);
+    }),
     setBasemap: vi.fn(() => Promise.resolve(true)),
     setMapPresentation: vi.fn(),
     setRelief: vi.fn(),
@@ -73,17 +104,20 @@ function harness(hasArtifact = false) {
       return undefined;
     },
   );
-  const render = (state: ExplorerState) =>
-    react.render(() =>
-      useEarthPresentation({
+  let applied: TerrainId | undefined;
+  const render = (state: ExplorerState) => {
+    react.render(() => {
+      applied = useEarthPresentation({
         runSceneActivity: runSceneActivity as never,
         scene,
         sceneAttempt: 0,
         sceneController: scene.current,
         sceneHasArtifact: () => hasArtifact,
         state,
-      }),
-    );
+      });
+    });
+    return applied;
+  };
   return { controller, render, runSceneActivity };
 }
 
@@ -118,6 +152,17 @@ describe('useEarthPresentation', () => {
     ]);
     expect(controller.setBasemap).toHaveBeenCalledWith('openstreetmap');
     expect(controller.setTerrain).toHaveBeenCalledWith('world-terrain');
+  });
+
+  it('reports the terrain the scene put on the globe, not the one requested (#483 review)', () => {
+    const { controller, render } = harness();
+    const requested = state('?terrain=world-terrain');
+    // Until World Terrain loads (or when it fails), the smooth globe and its sun are in charge.
+    render(requested);
+    expect(render(requested)).toBe('smooth-globe');
+    controller.applyTerrain('world-terrain');
+    expect(render(requested)).toBe('world-terrain');
+    expect(controller.onTerrainApplied).toHaveBeenCalledTimes(1);
   });
 
   it('sets basemap and terrain directly before anything is displayed', () => {

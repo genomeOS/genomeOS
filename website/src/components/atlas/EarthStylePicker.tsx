@@ -28,6 +28,8 @@ import { clampPickerTop, siteHeaderBottom } from './site-header';
 import { useEscapeLayer } from './useEscapeStack';
 
 interface EarthStylePickerProps {
+  /** The terrain on the globe, which the relief slider follows (#483). */
+  appliedTerrain: TerrainId;
   basemap: BasemapId;
   capabilities: SceneCapabilities;
   disabled: boolean;
@@ -71,6 +73,7 @@ function groupedBasemaps() {
 }
 
 export function EarthStylePicker({
+  appliedTerrain,
   basemap,
   capabilities,
   disabled,
@@ -337,10 +340,8 @@ export function EarthStylePicker({
               <ReliefControl
                 disabled={disabled}
                 relief={relief}
-                // A terrain this build cannot load leaves the smooth globe on.
-                terrain={
-                  capabilities.terrains[terrain] ? terrain : 'smooth-globe'
-                }
+                requested={terrain}
+                terrain={appliedTerrain}
                 view={view}
                 onRelief={onRelief}
               />
