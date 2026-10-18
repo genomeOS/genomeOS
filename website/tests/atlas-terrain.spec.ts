@@ -182,4 +182,25 @@ test.describe('physical terrain @desktop-chromium', () => {
     });
     await expect(dayNight).toBeEnabled();
   });
+
+  test('the Keys help says how to tilt, inside the controls panel', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    await page.goto('/app/');
+    await expect(page.locator('[data-atlas-ready="true"]')).toBeVisible({
+      timeout: 45_000,
+    });
+    await page.getByText('Keys', { exact: true }).click();
+    const help = page.locator('.atlas-keyboard-help p');
+    await expect(help).toContainText('Q/E to look up or down');
+    await expect(help).toContainText('Ctrl+drag');
+    const [box, panel] = await Promise.all([
+      help.boundingBox(),
+      page.locator('aside.atlas-controls').boundingBox(),
+    ]);
+    // Not clipped by the panel's edge.
+    expect(box!.x).toBeGreaterThanOrEqual(panel!.x);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(panel!.x + panel!.width);
+  });
 });

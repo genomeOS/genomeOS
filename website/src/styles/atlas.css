@@ -864,6 +864,22 @@ html.atlas-page .site-header--compact .site-header__inner {
   font-size: 1rem;
 }
 
+/* In the controls panel the help spans the camera row above it, so the panel's edge never clips
+   it (an 18rem box from the Keys button ran past the panel; #483). */
+.atlas-camera-actions {
+  position: relative;
+}
+
+.atlas-camera-actions .atlas-keyboard-help {
+  position: static;
+}
+
+.atlas-camera-actions .atlas-keyboard-help p {
+  right: 0;
+  left: 0;
+  width: auto;
+}
+
 .atlas-field__title,
 .atlas-check-row,
 .atlas-fieldset legend {
