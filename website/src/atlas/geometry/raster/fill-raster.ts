@@ -11,8 +11,10 @@
  * them, in the `Grid` hatch (unknown) or the `Dot` pattern of the prior bin colour
  * (prior-dominated). A mask texel's `st` is interpolated from its triangle's vertex `st`, which
  * `stAt` gives in the part's own frame, as the GPU interpolates the chunk masks' vertex `st`; its
- * step across one texel is the triangle's gradient. `triangle-scan.ts` decides which texels each
- * triangle covers, exactly along shared edges, across ±180° and at the poles.
+ * step across one texel is the larger of st's changes per column and per row, as Grid takes it
+ * from `dFdx` and `dFdy`. `triangle-scan.ts` decides which texels each triangle covers, exactly
+ * along shared edges, across ±180° and at the poles. A row is skipped when the grid index's box
+ * for it (`rowBox`) holds no texel centre of the tile.
  *
  * Presentation only: no value is invented and no row is dropped, and a support code outside the
  * four throws. A tile with nothing drawn is null. Cesium-free and deterministic: the data worker
@@ -35,71 +37,24 @@ import {
   linearStops,
   normalizedValue,
 } from '../../visual-encoding';
+import { rowBox } from './grid-index';
 import { dotTexel, hatchTexel } from './mask-texels';
 import {
   drawMesh,
   drawPolar,
   scanTarget,
   touchesTexel,
-  turnsNear,
   type Mesh,
   type Target,
   type TexelWriter,
 } from './triangle-scan';
-import type {
-  DegreeRectangle,
-  SurfaceRasterInput,
-  TileAddress,
-  TileRaster,
-} from './types';
+import type { SurfaceRasterInput, TileAddress, TileRaster } from './types';
 
 /** The Honmoon fill of `ELEVATED_SURFACE_FRAGMENT_SHADER`: rgb × 0.55 at α 0.28. */
 export const HONMOON_FILL_SHADE = 0.55;
 export const HONMOON_FILL_ALPHA = 0.28;
 
 const HONMOON_ALPHA_BYTE = Math.round(HONMOON_FILL_ALPHA * 255);
-/** Fraction of a row's corner box added on every side before the texel test; it covers the
- * boundary's class III distortion points, as the grid index does. */
-const BOX_PAD = 0.1;
-
-/** The row's corners unwrapped towards its centre: the box, padded by `BOX_PAD`, and whether the
- * row holds a pole. */
-function cornerBox(
-  i: SurfaceRasterInput,
-  row: number,
-): { box: DegreeRectangle; polar: boolean } {
-  const { topology } = i;
-  const near = topology.centreLon[row];
-  let west = Infinity;
-  let east = -Infinity;
-  let south = Infinity;
-  let north = -Infinity;
-  for (
-    let k = topology.cornerOffsets[row];
-    k < topology.cornerOffsets[row + 1];
-    k += 1
-  ) {
-    const id = topology.cornerIds[k];
-    const lon =
-      topology.vertexLon[id] + 360 * turnsNear(topology.vertexLon[id], near);
-    const lat = topology.vertexLat[id];
-    if (lon < west) west = lon;
-    if (lon > east) east = lon;
-    if (lat < south) south = lat;
-    if (lat > north) north = lat;
-  }
-  const padLon = BOX_PAD * (east - west);
-  const padLat = BOX_PAD * (north - south);
-  return {
-    box: {
-      east: east + padLon,
-      north: north + padLat,
-      south: south - padLat,
-      west: west - padLon,
-    },
-    polar: east - west > 180,
-  };
-}
 
 /** Fan triangles (0, 1 + k, 1 + (k + 1) mod n) round vertex 0 over a ring of `n`. */
 function fanTriangles(
@@ -126,11 +81,14 @@ const honmoonFillTexel: TexelWriter = (rgba, offset, v) => {
 };
 
 const st: [number, number] = [0, 0];
+const stStep: [number, number] = [0, 0];
 
-const hatchWriter: TexelWriter = (rgba, offset, v, step) => {
-  st[0] = v[0];
-  st[1] = v[1];
-  hatchTexel(st, step, rgba, offset);
+const hatchWriter: TexelWriter = (rgba, offset, v, dColumn, dRow) => {
+  for (let d = 0; d < 2; d += 1) {
+    st[d] = v[d];
+    stStep[d] = Math.max(Math.abs(dColumn[d]), Math.abs(dRow[d]));
+  }
+  hatchTexel(st, stStep, rgba, offset);
 };
 
 function dotWriter(rgb: readonly [number, number, number]): TexelWriter {
@@ -221,8 +179,8 @@ function drawFill(
   row: number,
   style: FillStyle,
 ): void {
-  const { polar, box } = cornerBox(i, row);
-  if (!polar && !touchesTexel(t, box)) return;
+  const box = rowBox(i.topology, row);
+  if (!box.polar && !touchesTexel(t, box)) return;
   const { topology } = i;
   const first = topology.cornerOffsets[row];
   const count = topology.cornerOffsets[row + 1] - first;
@@ -237,6 +195,7 @@ function drawFill(
   }
   const mesh: Mesh = {
     attrs: [],
+    derivatives: false,
     dims: 3,
     lat,
     lon,
@@ -244,7 +203,7 @@ function drawFill(
   };
   style.colours(row, ids, mesh.attrs);
   const { write } = style;
-  if (polar)
+  if (box.polar)
     drawPolar(
       t,
       { lat: lat.slice(1), lon: lon.slice(1) },
@@ -286,16 +245,23 @@ function drawMask(
   row: number,
   write: TexelWriter,
 ): void {
-  const { polar, box } = cornerBox(i, row);
-  if (!polar && !touchesTexel(t, box)) return;
+  const box = rowBox(i.topology, row);
+  if (!box.polar && !touchesTexel(t, box)) return;
   const cell = cellLanes(i.grid, row);
   const centre: [number, number] = [
     i.topology.centreLon[row],
     i.topology.centreLat[row],
   ];
   const boundary = h3BoundaryDegrees(cell);
-  const mesh: Mesh = { attrs: [], dims: 2, lat: [], lon: [], triangles: [] };
-  if (!polar) {
+  const mesh: Mesh = {
+    attrs: [],
+    derivatives: true,
+    dims: 2,
+    lat: [],
+    lon: [],
+    triangles: [],
+  };
+  if (!box.polar) {
     addMaskFan(
       mesh,
       centre,

@@ -9,7 +9,9 @@
  * gives it; each edge function is evaluated with its endpoints in lexicographic order, so the two
  * triangles on a shared edge compute exact negations and every texel centre belongs to one of them.
  * Attributes (colour bytes, or mask st) are interpolated barycentrically in the tile's texel frame,
- * that is in degrees.
+ * that is in degrees. Each texel's writer also gets every attribute's change across one texel,
+ * along a row and along a column: the triangle's exact gradient, or at a pole the central
+ * difference, so a texel formula that needs a screen derivative has one.
  *
  * A row whose unwrapped corners span more than 180° of longitude holds a pole. There a texel is
  * inside when it lies poleward of the ring, sorted by longitude, joined by straight lon/lat segments
@@ -19,7 +21,7 @@
  * Cesium-free and deterministic: the data worker runs it.
  */
 
-import { tileRectangle } from './tiling';
+import { tileRectangle, turnsNear } from './tiling';
 import {
   RASTER_TILE_SIZE,
   type DegreeRectangle,
@@ -28,25 +30,34 @@ import {
 
 const SIZE = RASTER_TILE_SIZE;
 const DEGREES = Math.PI / 180;
+/** The most attributes a mesh vertex may carry. */
+export const MAX_MESH_DIMS = 4;
 
 /** Triangles over shared vertices in degrees, each vertex carrying `dims` attributes. */
 export interface Mesh {
   lon: number[];
   lat: number[];
-  /** `dims` values per vertex: sRGB bytes (3) for fills, st (2) for masks. */
+  /** `dims` values per vertex: sRGB bytes (3) for fills, st (2) for masks, and room for one more,
+   * such as the normalised value a contour reads. */
   attrs: number[];
-  dims: 2 | 3;
+  /** 1 to `MAX_MESH_DIMS`. */
+  dims: number;
+  /** The writer reads `dColumn` and `dRow`. A fan triangle has them at no cost; a pole-holding row
+   * computes them only when this is set, and hands zeros otherwise. */
+  derivatives: boolean;
   /** Vertex indices, three per triangle. */
   triangles: number[];
 }
 
-/** Writes one texel from the interpolated attributes `v`; `step` is st's change across one texel
- * (masks only). */
+/** Writes one texel from the interpolated attributes `v`. `dColumn[d]` and `dRow[d]` are attribute
+ * `d`'s change across one texel along a row and along a column, as a fragment's `dFdx` and `dFdy`
+ * give them. */
 export type TexelWriter = (
   rgba: Uint8ClampedArray,
   offset: number,
   v: Float64Array,
-  step: readonly [number, number],
+  dColumn: Float64Array,
+  dRow: Float64Array,
 ) => void;
 
 /** A tile being drawn: its texels, frame and scratch state. */
@@ -56,12 +67,12 @@ export interface Target {
   /** Degrees per tile side, as `toTexel` takes it. */
   span: number;
   written: boolean;
-  /** Scratch: interpolated attributes, their value at a run's first texel and their change per
-   * column, the mask st step, a row's real span and the triangle being drawn. */
+  /** Scratch: interpolated attributes, their value at a run's first texel, their change per
+   * column and per row, a row's real span and the triangle being drawn. */
   value: Float64Array;
   base: Float64Array;
-  gradient: Float64Array;
-  step: [number, number];
+  dColumn: Float64Array;
+  dRow: Float64Array;
   run: Float64Array;
   triangle: Triangle;
 }
@@ -69,13 +80,13 @@ export interface Target {
 /** An empty tile at `a` to draw into. */
 export function scanTarget(a: TileAddress): Target {
   return {
-    base: new Float64Array(3),
-    gradient: new Float64Array(3),
+    base: new Float64Array(MAX_MESH_DIMS),
+    dColumn: new Float64Array(MAX_MESH_DIMS),
+    dRow: new Float64Array(MAX_MESH_DIMS),
     rect: tileRectangle(a),
     rgba: new Uint8ClampedArray(SIZE * SIZE * 4),
     run: new Float64Array(2),
     span: 180 / 2 ** a.level,
-    step: [0, 0],
     triangle: {
       own01: false,
       own12: false,
@@ -88,9 +99,16 @@ export function scanTarget(a: TileAddress): Target {
       y1: 0,
       y2: 0,
     },
-    value: new Float64Array(3),
+    value: new Float64Array(MAX_MESH_DIMS),
     written: false,
   };
+}
+
+function checkDims(m: Mesh): void {
+  if (!(Number.isInteger(m.dims) && m.dims >= 1 && m.dims <= MAX_MESH_DIMS))
+    throw new Error(
+      `a raster mesh carries 1 to ${MAX_MESH_DIMS} attributes per vertex, not ${m.dims}`,
+    );
 }
 
 /** The edge function E(p) = (b − a) × (p − a), evaluated with the endpoints in lexicographic order
@@ -207,10 +225,8 @@ function scanTriangle(
     const a0 = attrs[i0 * dims + d];
     const a1 = attrs[i1 * dims + d];
     const a2 = attrs[i2 * dims + d];
-    const dx = (-(y2 - y1) * a0 - (y0 - y2) * a1 - (y1 - y0) * a2) / signed;
-    const dy = ((x2 - x1) * a0 + (x0 - x2) * a1 + (x1 - x0) * a2) / signed;
-    t.gradient[d] = dx;
-    if (dims === 2) t.step[d] = Math.max(Math.abs(dx), Math.abs(dy));
+    t.dColumn[d] = (-(y2 - y1) * a0 - (y0 - y2) * a1 - (y1 - y0) * a2) / signed;
+    t.dRow[d] = ((x2 - x1) * a0 + (x0 - x2) * a1 + (x1 - x0) * a2) / signed;
   }
   const span = t.run;
   for (let row = minY; row <= maxY; row += 1) {
@@ -240,21 +256,17 @@ function scanTriangle(
         w2 * attrs[i2 * dims + d];
     for (let column = first; column <= last; column += 1) {
       for (let d = 0; d < dims; d += 1)
-        t.value[d] = t.base[d] + t.gradient[d] * (column - first);
-      write(t.rgba, (row * SIZE + column) * 4, t.value, t.step);
+        t.value[d] = t.base[d] + t.dColumn[d] * (column - first);
+      write(t.rgba, (row * SIZE + column) * 4, t.value, t.dColumn, t.dRow);
     }
     t.written = true;
   }
 }
 
-/** `lon` moved by whole turns to within 180° of `near`, as a turn count. */
-export function turnsNear(lon: number, near: number): number {
-  return -Math.round((lon - near) / 360);
-}
-
 /** Draws a mesh that holds no pole, for each ±360° copy whose box meets the tile. Vertex 0 is the
  * cell centre, which every other vertex is unwrapped towards. */
 export function drawMesh(t: Target, m: Mesh, write: TexelWriter): void {
+  checkDims(m);
   const n = m.lon.length;
   const turns = m.lon.map((lon) => turnsNear(lon, m.lon[0]));
   const unwrapped = m.lon.map((lon, v) => lon + 360 * turns[v]);
@@ -343,7 +355,8 @@ function interpolateAt(
 }
 
 /** Draws a pole-holding row: inside poleward of `ring`, attributes from the mesh triangle that
- * holds the texel best (the largest smallest weight) in the azimuthal frame. */
+ * holds the texel best (the largest smallest weight) in the azimuthal frame, and, when the mesh
+ * asks for them, their central differences over one texel through that triangle. */
 export function drawPolar(
   t: Target,
   ring: { lon: number[]; lat: number[] },
@@ -351,8 +364,12 @@ export function drawPolar(
   north: boolean,
   write: TexelWriter,
 ): void {
+  checkDims(m);
   const edge = north ? Math.min(...ring.lat) : Math.max(...ring.lat);
   if (north ? edge > t.rect.north : edge < t.rect.south) return;
+  const { dims } = m;
+  t.dColumn.fill(0);
+  t.dRow.fill(0);
   const order = ring.lon
     .map((_, k) => k)
     .sort((p, q) => ring.lon[p] - ring.lon[q]);
@@ -371,7 +388,7 @@ export function drawPolar(
   const ax = corners.map(([x]) => x);
   const ay = corners.map(([, y]) => y);
   const half = t.span / SIZE / 2;
-  const around = new Float64Array(8);
+  const around = new Float64Array(4 * MAX_MESH_DIMS);
   for (let column = 0; column < SIZE; column += 1) {
     const lon = t.rect.west + ((column + 0.5) * t.span) / SIZE;
     const boundary = ringLatAt(lons, lats, lon - 360 * Math.round(lon / 360));
@@ -386,7 +403,7 @@ export function drawPolar(
         if (smallest > bestMin) [best, bestMin] = [k, smallest];
       }
       interpolateAt(m, best, ax, ay, lon, lat, true, t.value);
-      if (m.dims === 2) {
+      if (m.derivatives) {
         const probes: [number, number][] = [
           [lon - half, lat],
           [lon + half, lat],
@@ -402,16 +419,15 @@ export function drawPolar(
             x,
             y,
             false,
-            around.subarray(p * 2, p * 2 + 2),
+            around.subarray(p * dims, (p + 1) * dims),
           ),
         );
-        for (let d = 0; d < 2; d += 1)
-          t.step[d] = Math.max(
-            Math.abs(around[2 + d] - around[d]),
-            Math.abs(around[6 + d] - around[4 + d]),
-          );
+        for (let d = 0; d < dims; d += 1) {
+          t.dColumn[d] = around[dims + d] - around[d];
+          t.dRow[d] = around[3 * dims + d] - around[2 * dims + d];
+        }
       }
-      write(t.rgba, (row * SIZE + column) * 4, t.value, t.step);
+      write(t.rgba, (row * SIZE + column) * 4, t.value, t.dColumn, t.dRow);
       t.written = true;
     }
   }

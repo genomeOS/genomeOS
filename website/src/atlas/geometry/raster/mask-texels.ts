@@ -6,24 +6,36 @@
  * the uniforms `scene/support-material.ts` gives it from `UNKNOWN_HATCH`, at a pixel ratio of 1:
  * one texel stands for one pixel, so `stStep`, the st change across one texel, stands for the
  * shader's `dFdx`/`dFdy` maximum. `dotTexel` repeats the `Dot` material (DotMaterial.glsl) with
- * `PRIOR_DOTS`. Two terms have no texel form and are left out: Grid's rim term, which fades lines
- * towards the limb from the eye vector, and `czm_gammaCorrect`, which is the identity without HDR.
+ * `PRIOR_DOTS`. Grid's rim term, which fades lines towards the limb from the eye vector, has no
+ * texel form and is left out.
  *
- * The draped surface layer scales its whole texture by `DRAPED_LAYER_ALPHA`, while the chunk path
- * draws the mask materials unscaled, so each material α is stored divided by it. Bytes are rounded
- * half up, as the tests compute them. Cesium-free: the data worker runs it.
+ * Colours are matched as the globe shows them, not as the materials state them. Imagery shows
+ * `czm_gammaCorrect(texel)`, which is texel^γ under HDR. Dot sets only `diffuse` to
+ * `czm_gammaCorrect(colour)` and the FLAT mask appearance shows `diffuse + emission`, so a dot texel
+ * is the material colour itself. Grid writes `czm_gammaCorrect(0.5 × colour)` into both `diffuse`
+ * and `emission`, so the chunk masks show 2 × (0.5 × colour)^γ. The hatch texel is therefore
+ * colour × 0.5 × 2^(1/γ), `HATCH_SHADE`, with γ = 2.2 (Cesium's `Scene.gamma`, which Atlas keeps).
+ * That holds under HDR, which Atlas requests (`scene-policy.ts`) and Cesium grants wherever float
+ * colour buffers exist. Without HDR the chunk hatch shows the full colour, about 1.46 × this
+ * texel.
+ *
+ * The draped surface layer scales its whole texture by `DRAPED_SURFACE_ALPHA`, while the chunk
+ * path draws the mask materials unscaled, so each material α is stored divided by it. Bytes are
+ * rounded half up, as the tests compute them. Cesium-free: the data worker runs it.
  */
 
 import { PRIOR_DOTS, UNKNOWN_HATCH } from '../../encoding-tokens';
-
-/** The surface layer's own α factor (`DRAPED_SURFACE_ALPHA` of the draped group). */
-const DRAPED_LAYER_ALPHA = 0.9;
+import { DRAPED_SURFACE_ALPHA } from './types';
 /** Grid's line blur, in pixels (GridMaterial.glsl `fuzz`). */
 const GRID_FUZZ = 1.2;
 /** Grid's line half-width beyond one pixel: `lineThickness × czm_pixelRatio − 1`. */
 const GRID_THICKNESS = UNKNOWN_HATCH.lineThickness - 1;
 /** Dot's edge, as a distance from the dot centre in repeat units (DotMaterial.glsl). */
 const DOT_EDGE = [0.3, 0.32] as const;
+/** Cesium's display gamma (`Scene.gamma`, the shaders' `czm_gamma`). */
+const SCENE_GAMMA = 2.2;
+/** Grid's 0.5 × colour, shown twice (diffuse + emission) under HDR, as one imagery texel. */
+const HATCH_SHADE = 0.5 * 2 ** (1 / SCENE_GAMMA);
 
 function hexBytes(hex: string): [number, number, number] {
   return [1, 3, 5].map((offset) =>
@@ -32,7 +44,7 @@ function hexBytes(hex: string): [number, number, number] {
 }
 
 const HATCH_RGB = hexBytes(UNKNOWN_HATCH.color).map(
-  (channel) => channel * 0.5,
+  (channel) => channel * HATCH_SHADE,
 ) as [number, number, number];
 
 /** GLSL `smoothstep`; a zero-width edge is a step at `edge0`. */
@@ -72,7 +84,7 @@ export function hatchTexel(
   out[offset + 1] = Math.round(HATCH_RGB[1]);
   out[offset + 2] = Math.round(HATCH_RGB[2]);
   out[offset + 3] = Math.round(
-    ((alpha * (1 - (1 - cellAlpha) * value)) / DRAPED_LAYER_ALPHA) * 255,
+    ((alpha * (1 - (1 - cellAlpha) * value)) / DRAPED_SURFACE_ALPHA) * 255,
   );
 }
 
@@ -93,6 +105,6 @@ export function dotTexel(
     out[offset + channel] = Math.round(light * (1 - b) + rgb[channel] * b);
   }
   out[offset + 3] = Math.round(
-    ((lightAlpha * (1 - b) + darkAlpha * b) / DRAPED_LAYER_ALPHA) * 255,
+    ((lightAlpha * (1 - b) + darkAlpha * b) / DRAPED_SURFACE_ALPHA) * 255,
   );
 }

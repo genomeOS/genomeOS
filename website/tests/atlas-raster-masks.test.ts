@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import { h3PolygonParts } from '../src/atlas/geometry/polygon-parts';
@@ -10,6 +13,7 @@ import {
 } from '../src/atlas/geometry/support-buffers';
 import { paletteBins } from '../src/atlas/geometry/surface-buffers';
 import { geodeticToEcef, type Vec3 } from '../src/atlas/geometry/wgs84';
+import { UNKNOWN_HATCH } from '../src/atlas/encoding-tokens';
 import { meshInputFor } from './helpers/mesh-input';
 import {
   forEachTexel,
@@ -24,6 +28,22 @@ import {
  * distortion vertex beyond its six corners. */
 const CELL = '83d602fffffffff';
 
+/** Cesium's display gamma (`Scene.gamma`, `czm_gamma`), which Atlas leaves at its default. */
+const SCENE_GAMMA = 2.2;
+/** The hatch rgb bytes under HDR: #a8b5c9 × 0.5 × 2^(1 / 2.2). */
+const HATCH_RGB = [115, 124, 138];
+
+function engineSource(file: string): string {
+  return readFileSync(
+    path.resolve(
+      import.meta.dirname,
+      '../node_modules/@cesium/engine/Source',
+      file,
+    ),
+    'utf8',
+  );
+}
+
 function ecef(lon: number, lat: number, height: number): Vec3 {
   const point: Vec3 = [0, 0, 0];
   geodeticToEcef(lon, lat, height, point);
@@ -34,9 +54,43 @@ describe('support mask texels (terrain draping design, #483)', () => {
   it("hatches unknown cells with the Grid material's formula (UNKNOWN_HATCH)", () => {
     const out = new Uint8ClampedArray(4);
     hatchTexel([0, 0.37], [0.01, 0.01], out, 0); // on a line: value 0
-    expect([...out]).toEqual([84, 91, 101, 204]); // #a8b5c9 × 0.5; α 0.72 / 0.9
+    expect([...out]).toEqual([...HATCH_RGB, 204]); // α 0.72 / 0.9
     hatchTexel([0.1, 0.1], [0.01, 0.01], out, 0); // between lines: value 1
     expect(out[3]).toBe(49); // 0.72 × (1 − 0.76) / 0.9 × 255
+  });
+
+  it("shows the light the chunk masks' Grid shows under HDR, the nearest byte to it", () => {
+    // Grid writes 0.5 × colour, gamma-corrected, into both diffuse and emission, and the FLAT mask
+    // appearance shows their sum; imagery shows texel^γ. Atlas turns HDR on (scene-policy.ts).
+    const colour = [1, 3, 5].map((offset) =>
+      Number.parseInt(UNKNOWN_HATCH.color.slice(offset, offset + 2), 16),
+    );
+    const out = new Uint8ClampedArray(4);
+    hatchTexel([0, 0.37], [0.01, 0.01], out, 0);
+    colour.forEach((byte, channel) => {
+      const chunk = 2 * ((0.5 * byte) / 255) ** SCENE_GAMMA;
+      const shown = (texelByte: number) =>
+        Math.abs((texelByte / 255) ** SCENE_GAMMA - chunk);
+      expect(shown(out[channel])).toBeLessThan(shown(out[channel] - 1));
+      expect(shown(out[channel])).toBeLessThan(shown(out[channel] + 1));
+    });
+  });
+
+  it('pins the Cesium terms the hatch and dot shades rest on', () => {
+    const grid = engineSource('Shaders/Materials/GridMaterial.glsl');
+    expect(grid).toContain('halfColor.rgb = color.rgb * 0.5;');
+    expect(grid).toContain('halfColor = czm_gammaCorrect(halfColor);');
+    expect(grid).toContain('material.diffuse = halfColor.rgb;');
+    expect(grid).toContain('material.emission = halfColor.rgb;');
+    const dot = engineSource('Shaders/Materials/DotMaterial.glsl');
+    expect(dot).toContain('material.diffuse = color.rgb;');
+    expect(dot).not.toContain('material.emission');
+    expect(engineSource('Scene/Scene.js')).toContain(
+      `this.gamma = ${SCENE_GAMMA};`,
+    );
+    expect(engineSource('Shaders/GlobeFS.glsl')).toContain(
+      'vec4 tempColor = czm_gammaCorrect(vec4(color, alpha));',
+    );
   });
 
   it("dots prior-dominated cells with the Dot material's formula in their bin colour (PRIOR_DOTS)", () => {
@@ -79,7 +133,7 @@ describe('support mask texels (terrain draping design, #483)', () => {
       const row = rowOfCellAt(input, lon, lat, 8);
       if (row === null) return;
       if (cells[row].support === 'unknown') {
-        expect(rgba.slice(0, 3)).toEqual([84, 91, 101]);
+        expect(rgba.slice(0, 3)).toEqual(HATCH_RGB);
         expect(rgba[3]).toBeGreaterThanOrEqual(49);
         expect(rgba[3]).toBeLessThanOrEqual(204);
         hatch.add(rgba[3]);
