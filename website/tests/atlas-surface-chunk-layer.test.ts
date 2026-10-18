@@ -128,6 +128,10 @@ describe('surface chunk group', () => {
     expect(layer.collection.get(1)).toBeInstanceOf(PrimitiveCollection);
   });
 
+  it('reads as the chunks kind of surface group', () => {
+    expect(group().kind).toBe('chunks');
+  });
+
   it('adds a chunk and its masked cells together with chunk pick ids', () => {
     const layer = group();
     const surface = triangleSurfaceBuffers(7);

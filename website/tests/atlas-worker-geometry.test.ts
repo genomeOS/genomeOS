@@ -360,6 +360,27 @@ describe('geometry worker handlers (fast-load §B.6.3, §B.6.5)', () => {
       type: 'error',
     });
   });
+
+  it('shares its cached topology with the raster runtime, building it untimed on demand', () => {
+    const { worker, posted, fixture } = harness();
+    const first = worker.prepared(fixture.grid.gridSha256)!;
+    expect(first.topology).toEqual(buildGridTopology(fixture.grid));
+    expect(first.plan).toEqual(planChunks(fixture.grid, first.topology));
+    expect(worker.prepared(fixture.grid.gridSha256)).toBe(first);
+    expect(posted).toEqual([]);
+    expect(worker.prepared('absent')).toBeUndefined();
+  });
+
+  it('builds chunks over the topology the raster runtime already prepared, untimed', async () => {
+    const { fixture, posted, worker } = harness();
+    const shared = worker.prepared(fixture.grid.gridSha256)!;
+    worker.warmGrid(3, fixture.grid.gridSha256);
+    await worker.handlers['build-chunks'](request(fixture.grid.gridSha256));
+    expect(
+      ofType(posted, 'step-timing').map(({ message }) => message.step),
+    ).not.toContain('topology');
+    expect(worker.prepared(fixture.grid.gridSha256)).toBe(shared);
+  });
 });
 
 describe('worker yield (fast-load §B.6.9)', () => {

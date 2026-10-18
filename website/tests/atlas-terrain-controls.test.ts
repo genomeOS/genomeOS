@@ -1,5 +1,5 @@
 /** Enable/disable rules of the physical-terrain controls (Atlas design §11, interaction design
- * §5.2; #483). */
+ * §5.2; terrain draping design, "How existing features behave" (#483)). */
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -13,6 +13,7 @@ import {
   dayNightControl,
   effectiveRelief,
   reliefControl,
+  resolveDrapedView,
 } from '../src/atlas/earth-style-catalog';
 import {
   parseExplorerState,
@@ -62,6 +63,30 @@ function mapControls(query: string, applied?: TerrainId): string {
         onRelief: noop,
         onTerrain: noop,
         onView: noop,
+      }),
+    ),
+  );
+}
+
+/** The inferred-surface controls for `query`, with `draped` the controls' draped rule,
+ * `hasPhysicalRelief(appliedTerrain)` (#483). */
+function surfaceControls(query: string, draped: boolean): string {
+  const { state } = parseExplorerState(query, catalog);
+  return renderToStaticMarkup(
+    createElement(
+      EscapeStackProvider,
+      null,
+      createElement(InferredSurfaceControls, {
+        disabled: false,
+        draped,
+        state,
+        onEdgeColorMode: noop,
+        onEdgeFixedColor: noop,
+        onElevation: noop,
+        onExaggeration: noop,
+        onGeometry: noop,
+        onPalette: noop,
+        onSurfaceOpacity: noop,
       }),
     ),
   );
@@ -246,27 +271,105 @@ describe('relief control (#483)', () => {
 
 describe('data elevation control wording (#483)', () => {
   it('says it scales data values, not the ground', () => {
-    const { state } = parseExplorerState('?elevation=true', catalog);
-    const html = renderToStaticMarkup(
-      createElement(
-        EscapeStackProvider,
-        null,
-        createElement(InferredSurfaceControls, {
-          disabled: false,
-          state,
-          onEdgeColorMode: noop,
-          onEdgeFixedColor: noop,
-          onElevation: noop,
-          onExaggeration: noop,
-          onGeometry: noop,
-          onPalette: noop,
-          onSurfaceOpacity: noop,
-        }),
-      ),
-    );
+    const html = surfaceControls('?elevation=true', false);
     expect(html).toContain('aria-label="Data height exaggeration"');
     expect(html).toContain('× data height');
     expect(html).toMatch(/not the ground/);
     expect(html).toMatch(/Physical relief ×/);
+  });
+});
+
+describe('draped view (#483)', () => {
+  it('forces data elevation to 0 and draws columns as hexagons while draped', () => {
+    expect(
+      resolveDrapedView({
+        draped: true,
+        elevation: true,
+        exaggeration: 3,
+        geometry: 'extruded',
+        view: 'globe',
+      }),
+    ).toEqual({
+      elevationFactor: 0,
+      elevationNote: 'Not available with World Terrain',
+      extrudedLabel: 'Columns (smooth globe only)',
+      geometry: 'hexagons',
+    });
+    for (const geometry of [
+      'triangles',
+      'hexagons',
+      'honmoon',
+      'honmoon-fill',
+    ] as const)
+      expect(
+        resolveDrapedView({
+          draped: true,
+          elevation: false,
+          exaggeration: 1,
+          geometry,
+          view: 'globe',
+        }).geometry,
+      ).toBe(geometry);
+  });
+
+  it("returns today's values on the smooth globe", () => {
+    expect(
+      resolveDrapedView({
+        draped: false,
+        elevation: true,
+        exaggeration: 3,
+        geometry: 'extruded',
+        view: 'globe',
+      }),
+    ).toEqual({
+      elevationFactor: 3,
+      elevationNote: null,
+      extrudedLabel: 'Extruded hexagons',
+      geometry: 'extruded',
+    });
+    expect(
+      resolveDrapedView({
+        draped: false,
+        elevation: true,
+        exaggeration: 3,
+        geometry: 'triangles',
+        view: 'map',
+      }).elevationFactor,
+    ).toBe(0);
+  });
+
+  it("disables Statistical elevation with the note while keeping the URL's choice", () => {
+    const html = surfaceControls(
+      'elevation=true&exaggeration=2&geometry=extruded&terrain=world-terrain',
+      true,
+    );
+    // React 19's server renderer writes `checked` and `value` after every other attribute, so
+    // each tag's attributes are checked in any order.
+    const checkbox = tagWithId(html, 'atlas-statistical-elevation');
+    expect(checkbox).toContain('type="checkbox"');
+    expect(checkbox).toContain('checked=""');
+    expect(checkbox).toContain('disabled=""');
+    expect(checkbox).toContain('aria-describedby="atlas-data-height-draped"');
+    expect(html).toContain('Not available with World Terrain');
+    expect(html).toContain(
+      '<p class="atlas-control-note" id="atlas-data-height-draped">Not available with World Terrain</p>',
+    );
+    expect(html).toContain('>Columns (smooth globe only)</option>');
+    // The URL's extruded choice stays selected, under its draped label.
+    expect(html).toContain(
+      '<option value="extruded" selected="">Columns (smooth globe only)</option>',
+    );
+    const slider = html.match(
+      /<input[^>]*aria-label="Data height exaggeration"[^>]*>/,
+    )?.[0];
+    expect(slider).toContain('disabled=""');
+    expect(slider).toContain('value="2"');
+  });
+
+  it('leaves the controls as they were on the smooth globe', () => {
+    const html = surfaceControls('elevation=true&exaggeration=2', false);
+    expect(html).not.toContain('Not available with World Terrain');
+    expect(html).toContain('>Extruded hexagons</option>');
+    expect(html).not.toMatch(/id="atlas-statistical-elevation"[^>]*disabled/);
   });
 });

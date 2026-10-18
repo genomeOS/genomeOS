@@ -7,7 +7,13 @@ import {
   startAtlasWorker,
   type StepTiming,
 } from '../src/atlas/worker/client';
+import type { DegreeRectangle } from '../src/atlas/geometry/raster/types';
+import { artifactKeyFor } from '../src/atlas/surface-columns';
+import type { HandlerRegistry } from '../src/atlas/worker/dispatcher';
 import { ATLAS_WORKER_HANDLERS } from '../src/atlas/worker/handlers';
+import { tileContaining } from './helpers/raster-fixtures';
+import { SURFACE_SPEC } from './helpers/raster-specs';
+import { flushTasks } from './helpers/scene-fakes';
 import {
   goldenBytes,
   goldenCatalog,
@@ -27,6 +33,11 @@ afterEach(() => {
 
 function client(worker = new InProcessWorker()) {
   return { client: new AtlasWorkerClient(worker.asWorker()), worker };
+}
+
+/** `[lon, lat]` of the rectangle's middle. */
+function centreOf(bounds: DegreeRectangle): [number, number] {
+  return [(bounds.west + bounds.east) / 2, (bounds.south + bounds.north) / 2];
 }
 
 describe('AtlasWorkerClient', () => {
@@ -151,6 +162,165 @@ describe('AtlasWorkerClient', () => {
       artifactKey: null,
       chunk: null,
       step: 'decode-grid',
+    });
+  });
+
+  it('settles prepare, tile and release on their terminal raster responses', async () => {
+    const handlers: HandlerRegistry = {
+      ...ATLAS_WORKER_HANDLERS,
+      'prepare-raster': (r, c) =>
+        c.post({
+          bounds: null,
+          id: r.id,
+          rasterId: r.id,
+          type: 'raster-ready',
+        }),
+      'raster-tile': (r, c) =>
+        c.post({
+          bitmap: null,
+          id: r.id,
+          level: r.level,
+          rasterId: r.rasterId,
+          rasterMs: 0.5,
+          type: 'tile-ready',
+          x: r.x,
+          y: r.y,
+        }),
+      'release-raster': (r, c) =>
+        c.post({ id: r.id, rasterId: r.rasterId, type: 'raster-released' }),
+    };
+    const { client: atlas } = client(new InProcessWorker(handlers));
+    const ready = await atlas.prepareRaster(SURFACE_SPEC);
+    expect(ready).toEqual({ bounds: null, rasterId: expect.any(Number) });
+    expect(
+      await atlas.rasterTile({
+        level: 3,
+        rasterId: ready.rasterId,
+        x: 9,
+        y: 2,
+      }),
+    ).toMatchObject({
+      bitmap: null,
+      level: 3,
+      rasterId: ready.rasterId,
+      rasterMs: 0.5,
+      x: 9,
+      y: 2,
+    });
+    await expect(atlas.releaseRaster(ready.rasterId)).resolves.toBeUndefined();
+  });
+
+  it('releases the raster of a prepare aborted after the worker stored it', async () => {
+    // The worker's answer crosses the abort and is dropped, so only the client can free it.
+    const stored = new Set<number>();
+    let answer = () => {};
+    const handlers: HandlerRegistry = {
+      ...ATLAS_WORKER_HANDLERS,
+      'prepare-raster': (r, c) => {
+        stored.add(r.id);
+        answer = () =>
+          c.post({
+            bounds: null,
+            id: r.id,
+            rasterId: r.id,
+            type: 'raster-ready',
+          });
+      },
+      'release-raster': (r, c) => {
+        stored.delete(r.rasterId);
+        c.post({ id: r.id, rasterId: r.rasterId, type: 'raster-released' });
+      },
+    };
+    const { client: atlas } = client(new InProcessWorker(handlers));
+    const controller = new AbortController();
+    const preparing = atlas.prepareRaster(SURFACE_SPEC, controller.signal);
+    await flushTasks();
+    expect(stored.size).toBe(1);
+    controller.abort();
+    await expect(preparing).rejects.toMatchObject({ name: 'AbortError' });
+    answer();
+    await flushTasks();
+    expect(stored.size).toBe(0);
+  });
+
+  it('releases nothing for a prepare aborted before it was sent, or after it settled', async () => {
+    const worker = new InProcessWorker({
+      ...ATLAS_WORKER_HANDLERS,
+      'prepare-raster': (r, c) =>
+        c.post({
+          bounds: null,
+          id: r.id,
+          rasterId: r.id,
+          type: 'raster-ready',
+        }),
+    });
+    const { client: atlas } = client(worker);
+    await expect(
+      atlas.prepareRaster(SURFACE_SPEC, AbortSignal.abort()),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    const controller = new AbortController();
+    await atlas.prepareRaster(SURFACE_SPEC, controller.signal);
+    controller.abort(); // the caller owns the raster now, and releases it itself
+    await flushTasks();
+    expect(worker.received.map(({ type }) => type)).toEqual(['prepare-raster']);
+  });
+
+  it('drapes end to end through the worker: prepare, a drawn tile, release', async () => {
+    vi.stubGlobal(
+      'ImageData',
+      class {
+        constructor(
+          readonly data: Uint8ClampedArray,
+          readonly width: number,
+          readonly height: number,
+        ) {}
+      },
+    );
+    vi.stubGlobal(
+      'createImageBitmap',
+      async (image: { data: Uint8ClampedArray }) => image.data.buffer, // a transferable stand-in
+    );
+    const { client: atlas } = client();
+    await atlas.loadGrid(toBuffer(goldenBytes(entry.url)), {
+      entry,
+      gridSha256,
+    });
+    await atlas.loadRender(toBuffer(goldenBytes(ref.web.render.url)), ref);
+    const ready = await atlas.prepareRaster({
+      ...SURFACE_SPEC,
+      artifactKey: artifactKeyFor(ref),
+      gridSha256,
+    });
+    expect(ready.bounds).not.toBeNull();
+    const tile = await atlas.rasterTile({
+      rasterId: ready.rasterId,
+      ...tileContaining(...centreOf(ready.bounds!), 6),
+    });
+    expect((tile.bitmap as unknown as ArrayBuffer).byteLength).toBe(
+      256 * 256 * 4,
+    );
+    await atlas.releaseRaster(ready.rasterId);
+    await expect(
+      atlas.rasterTile({ level: 6, rasterId: ready.rasterId, x: 0, y: 0 }),
+    ).rejects.toMatchObject({ code: 'cancelled' });
+  });
+
+  it('fails raster requests as internal while the raster runtime cannot load, and imports it again later', async () => {
+    const { client: atlas } = client();
+    vi.doMock('../src/atlas/worker/raster-handlers', () => {
+      throw new Error('the raster chunk failed to load');
+    });
+    try {
+      await expect(atlas.prepareRaster(SURFACE_SPEC)).rejects.toMatchObject({
+        code: 'internal',
+      });
+    } finally {
+      vi.doUnmock('../src/atlas/worker/raster-handlers');
+    }
+    // The runtime's own refusal: the same worker loaded it on this request.
+    await expect(atlas.prepareRaster(SURFACE_SPEC)).rejects.toMatchObject({
+      code: 'internal',
+      message: `render tier ${SURFACE_SPEC.artifactKey} is not loaded`,
     });
   });
 
