@@ -192,6 +192,22 @@ function summitLoaded({
 }
 
 /**
+ * Waits until the summit's own ground has loaded at the probe's relief (`summitLoaded`), the rule
+ * `apexOnPage` uses. The whole globe's `tilesLoaded` is no gate here: under CI's software WebGL the
+ * oblique view's tiles out to the horizon can outlast the test, and read just after a relief change
+ * it can still hold from the frame before the change, while the summit stands at the new relief
+ * only once that change has re-exaggerated its tile.
+ */
+export async function summitOnGround(page: Page): Promise<void> {
+  await expect
+    .poll(async () => summitLoaded(await probe(page)), {
+      message: 'the summit stands at its height for this relief',
+      timeout: 60_000,
+    })
+    .toBe(true);
+}
+
+/**
  * Where `SYNTHETIC_PEAK`'s summit stands on the rendered (exaggerated) ground, in page CSS px,
  * once its own ground has loaded (`summitLoaded`) or every tile in view has. Under CI's software
  * WebGL the oblique view's tiles out to the horizon can outlast the test, and they never move the

@@ -38,6 +38,7 @@ import {
   openTerrainChooser,
   pixelsAround,
   probe,
+  summitOnGround,
   summitPatch,
   surfaceVisibleAtApex,
   windowOf,
@@ -325,6 +326,32 @@ const atlasLayers = (names: string[]) =>
   names.filter((name) => name.startsWith('atlas-'));
 const ALL_LAYERS = 'surface,observations,support,context,countries';
 
+/**
+ * Clicks the sphere standing on the ground above the summit until the observation panel names
+ * Spain (map-surveys:1135, :966 or :892, all within 5 km). The symbols re-sample their ground as
+ * tiles load and after each relief frame, so a click made before they reach it is tried again.
+ */
+async function pickSummitSphere(page: Page): Promise<void> {
+  const observation = page.getByRole('complementary', {
+    name: 'Selected observation',
+  });
+  await expect(async () => {
+    await clickAbove(page, SYMBOL_CLEARANCE + SPHERE_RADIUS);
+    await expect(observation).toContainText('Spain', { timeout: 2_000 });
+  }).toPass({ timeout: 60_000 });
+  await page.keyboard.press('Escape');
+  await expect(observation).toBeHidden();
+}
+
+/** Spain's label anchor is 42 km from the apex, on the peak's flank: 2,500 m above its ground. */
+async function spainLabelClamped(page: Page): Promise<void> {
+  await expect
+    .poll(() => page.evaluate(() => window.__atlasLabelClearance!('Spain')), {
+      timeout: 60_000,
+    })
+    .toBeGreaterThanOrEqual(2_499);
+}
+
 test.describe('context and observations on World Terrain @desktop-chromium', () => {
   test.beforeEach(async ({ page }) => {
     test.setTimeout(150_000);
@@ -333,40 +360,34 @@ test.describe('context and observations on World Terrain @desktop-chromium', () 
     });
   });
 
+  // The end state of a relief change: the symbols and labels stand on the new ground. That they
+  // re-sample only after the frame that applies the change (Review Focus 4) is pinned by unit tests
+  // (atlas-scene-terrain, atlas-ground-heights): here tile loads re-sample them as well.
   test('symbols and labels stand above the summit at Physical relief 6, and follow it to 10', async ({
     page,
   }) => {
-    // 155 km south of the apex, 110 km up, looking 20° down: the summit spheres sit near the view axis.
+    // 120 km south of the apex, 160 km up, looking 42° down: the summit spheres and Spain's label
+    // are in view, and the view stops short of the horizon, whose tiles keep CI's software WebGL
+    // rendering for minutes. A sphere left on the relief-6 ground lies 24 km under the point
+    // clicked at relief 10, about 20 km off the ray: missed.
     await openDrape(
       page,
       drapeQuery('oblique', 6, {
-        height: '110000',
-        lat: String(SYNTHETIC_PEAK.lat - 1.4),
+        height: '160000',
+        lat: String(SYNTHETIC_PEAK.lat - 120 / 111.195),
         layers: ALL_LAYERS,
         obsShape: 'sphere',
         obsSize: 'fixed',
+        pitch: '-42',
         pointMax: '12',
         pointMin: '12',
       }),
     );
     await expect.poll(async () => (await probe(page)).draped).toBe(true);
-    await expect
-      .poll(async () => (await probe(page)).tilesLoaded, { timeout: 30_000 })
-      .toBe(true);
-    const observation = page.getByRole('complementary', {
-      name: 'Selected observation',
-    });
+    await summitOnGround(page);
     // At 6× the 36 km summit buries today's spheres (centre 19.65 km); a grounded one is picked here.
-    await clickAbove(page, SYMBOL_CLEARANCE + SPHERE_RADIUS);
-    await expect(observation).toContainText('Spain'); // map-surveys:1135, :966 or :892, all within 5 km
-    await page.keyboard.press('Escape');
-    await expect(observation).toBeHidden();
-    // Spain's label anchor is 42 km from the apex, on the peak's flank.
-    await expect
-      .poll(() => page.evaluate(() => window.__atlasLabelClearance!('Spain')), {
-        timeout: 30_000,
-      })
-      .toBeGreaterThanOrEqual(2_499);
+    await pickSummitSphere(page);
+    await spainLabelClamped(page);
 
     // The chooser opens from the Map controls.
     await page.locator('summary').filter({ hasText: /^Map$/ }).click();
@@ -377,14 +398,10 @@ test.describe('context and observations on World Terrain @desktop-chromium', () 
     await expect
       .poll(async () => (await probe(page)).verticalExaggeration)
       .toBe(10);
-    await expect
-      .poll(async () => (await probe(page)).tilesLoaded, { timeout: 30_000 })
-      .toBe(true);
-    await clickAbove(page, SYMBOL_CLEARANCE + SPHERE_RADIUS); // the 60 km summit: the spheres followed it
-    await expect(observation).toContainText('Spain');
-    await expect
-      .poll(() => page.evaluate(() => window.__atlasLabelClearance!('Spain')))
-      .toBeGreaterThanOrEqual(2_499);
+    // Fresh after the relief frame: the summit's tile now stands at 10 × its height.
+    await summitOnGround(page);
+    await pickSummitSphere(page); // the 60 km summit: the spheres followed it
+    await spainLabelClamped(page);
   });
 
   test('sampling footprints and borders drape onto the summit, and leave with World Terrain', async ({
@@ -432,10 +449,11 @@ test.describe('context and observations on World Terrain @desktop-chromium', () 
     const chooser = await openTerrainChooser(page);
     await chooser.getByRole('radio', { name: 'Smooth Globe terrain' }).click();
     await expect
-      .poll(async () => (await probe(page)).draped, { timeout: 30_000 })
-      .toBe(false);
+      .poll(async () => (await probe(page)).provider, { timeout: 30_000 })
+      .toBe('ellipsoid');
+    // No Atlas layer is left on the smooth globe, hidden or at alpha 0, nor the base guard.
     await expect
-      .poll(async () => atlasLayers((await probe(page)).imageryLayers))
-      .toEqual([]);
+      .poll(async () => (await probe(page)).layerStack, { timeout: 30_000 })
+      .toEqual(['basemap']);
   });
 });
