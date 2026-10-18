@@ -12,7 +12,7 @@
  * requests a render after a tile, so `tileLoaded` fires for each delivered one. `destroy` releases
  * the raster once; later requests are dropped and nothing is raised after it.
  *
- * Lazy: only the draped runtime imports this module.
+ * Lazy: only the draped modules (`scene/draped/*`) import this module.
  */
 
 import {

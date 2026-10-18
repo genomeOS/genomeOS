@@ -5,7 +5,8 @@
  * `ImageryLayer._imageryCache` (tests/atlas-cesium-internals.test.ts). Neither falls back
  * silently: a tile whose raster time is not a finite, non-negative duration rejects (its bitmap
  * closed), and a watched layer without the cache throws on `read`. The e2e build publishes the
- * page's recorder as `__atlasDrapeStats`. Lazy: only the draped runtime imports this module.
+ * page's recorder as `__atlasDrapeStats`. Lazy: only the draped modules (`scene/draped/*`) import
+ * this module.
  */
 
 import type { ImageryLayer } from 'cesium';

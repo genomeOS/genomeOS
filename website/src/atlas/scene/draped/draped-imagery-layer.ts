@@ -24,7 +24,7 @@
  * - Destroy removes the layer and destroys its provider, once; the page's drape stats watch the
  *   layer in between.
  *
- * Lazy: only the draped runtime imports this module.
+ * Lazy: only the draped modules (`scene/draped/*`) import this module.
  */
 
 import {
