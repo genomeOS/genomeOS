@@ -12,10 +12,12 @@
  *
  * `rowsIn` tests every candidate's box against the rectangle and its ±360° copies, so a rectangle
  * grown past ±180° finds the rows on the far side. Nothing here is stochastic, and no row is
- * dropped: a row without finite corners throws.
+ * dropped: a row without finite corners throws. The surface raster reads the same boxes
+ * (`rowBox`) to skip a row with no texel centre in a tile.
  */
 
 import type { GridTopology } from '../topology';
+import { turnsNear } from './tiling';
 import type { DegreeRectangle, GridIndex } from './types';
 
 /** Fraction of a box's own extent added on every side. */
@@ -24,17 +26,67 @@ const BOX_PAD = 0.1;
 const BUCKET_COLUMNS = 360;
 const BUCKET_ROWS = 180;
 
-/** `lon` moved by whole turns to within 180° of `near`. */
-function unwrapNear(lon: number, near: number): number {
-  return lon - 360 * Math.round((lon - near) / 360);
-}
-
 function bucketColumn(lon: number): number {
   return Math.min(BUCKET_COLUMNS - 1, Math.floor(lon + 180));
 }
 
 function bucketRow(lat: number): number {
   return Math.min(BUCKET_ROWS - 1, Math.max(0, Math.floor(lat + 90)));
+}
+
+/** One row's box in degrees; `west`/`east` may pass ±180° by less than a turn. */
+export interface RowBox extends DegreeRectangle {
+  /** The row's unwrapped corners span more than 180° of longitude: it holds a pole. */
+  polar: boolean;
+}
+
+/** Row `row`'s box: its corners unwrapped to within 180° of its centre and padded by `BOX_PAD`, or,
+ * for a pole-holding row, every longitude from its padded lowest (or highest) corner to the pole.
+ * Throws for a row without finite corners. */
+export function rowBox(topology: GridTopology, row: number): RowBox {
+  const { cornerIds, cornerOffsets, vertexLat, vertexLon } = topology;
+  const near = topology.centreLon[row];
+  let west = Infinity;
+  let east = -Infinity;
+  let south = Infinity;
+  let north = -Infinity;
+  for (let k = cornerOffsets[row]; k < cornerOffsets[row + 1]; k += 1) {
+    const id = cornerIds[k];
+    const lon = vertexLon[id] + 360 * turnsNear(vertexLon[id], near);
+    const lat = vertexLat[id];
+    if (lon < west) west = lon;
+    if (lon > east) east = lon;
+    if (lat < south) south = lat;
+    if (lat > north) north = lat;
+  }
+  if (![west, east, south, north].every(Number.isFinite))
+    throw new Error(`grid row ${row} has no finite corners to index`);
+  const polar = east - west > 180;
+  if (polar) {
+    west = -180;
+    east = 180;
+    if (topology.centreLat[row] > 0) {
+      south -= BOX_PAD * (90 - south);
+      north = 90;
+    } else {
+      north += BOX_PAD * (north + 90);
+      south = -90;
+    }
+  } else {
+    const padLon = BOX_PAD * (east - west);
+    const padLat = BOX_PAD * (north - south);
+    west -= padLon;
+    east += padLon;
+    south -= padLat;
+    north += padLat;
+  }
+  return {
+    east,
+    north: Math.min(90, north),
+    polar,
+    south: Math.max(-90, south),
+    west,
+  };
 }
 
 /** Per-row boxes in degrees; `west`/`east` may pass ±180° by less than a turn. */
@@ -48,7 +100,7 @@ interface RowBoxes {
 }
 
 function rowBoxes(topology: GridTopology): RowBoxes {
-  const { cornerIds, cornerOffsets, n, vertexLat, vertexLon } = topology;
+  const { n } = topology;
   const boxes: RowBoxes = {
     east: new Float64Array(n),
     north: new Float64Array(n),
@@ -57,44 +109,11 @@ function rowBoxes(topology: GridTopology): RowBoxes {
     wraps: new Uint8Array(n),
   };
   for (let row = 0; row < n; row += 1) {
-    const near = topology.centreLon[row];
-    let west = Infinity;
-    let east = -Infinity;
-    let south = Infinity;
-    let north = -Infinity;
-    for (let k = cornerOffsets[row]; k < cornerOffsets[row + 1]; k += 1) {
-      const id = cornerIds[k];
-      const lon = unwrapNear(vertexLon[id], near);
-      const lat = vertexLat[id];
-      if (lon < west) west = lon;
-      if (lon > east) east = lon;
-      if (lat < south) south = lat;
-      if (lat > north) north = lat;
-    }
-    if (![west, east, south, north].every(Number.isFinite))
-      throw new Error(`grid row ${row} has no finite corners to index`);
-    if (east - west > 180) {
-      west = -180;
-      east = 180;
-      if (topology.centreLat[row] > 0) {
-        south -= BOX_PAD * (90 - south);
-        north = 90;
-      } else {
-        north += BOX_PAD * (north + 90);
-        south = -90;
-      }
-    } else {
-      const padLon = BOX_PAD * (east - west);
-      const padLat = BOX_PAD * (north - south);
-      west -= padLon;
-      east += padLon;
-      south -= padLat;
-      north += padLat;
-    }
+    const { east, north, south, west } = rowBox(topology, row);
     boxes.west[row] = west;
     boxes.east[row] = east;
-    boxes.south[row] = Math.max(-90, south);
-    boxes.north[row] = Math.min(90, north);
+    boxes.south[row] = south;
+    boxes.north[row] = north;
     boxes.wraps[row] = east - west >= 360 || west < -180 || east > 180 ? 1 : 0;
   }
   return boxes;

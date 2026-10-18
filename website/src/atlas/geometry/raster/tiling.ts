@@ -5,7 +5,9 @@
  * Tiles follow Cesium's `GeographicTilingScheme`: two 180° roots at level 0, `y` counted from the
  * north, so a tile of `level` spans Δ = 180 / 2^level degrees on each side. Within a tile, texel
  * rows are south-first: row 0 is the southernmost. The texel-centre frame puts the centre of texel
- * (column, row) at (column, row), so the tile's south-west corner is (−0.5, −0.5).
+ * (column, row) at (column, row), so the tile's south-west corner is (−0.5, −0.5). A cell's
+ * vertices are unwrapped towards its centre by whole turns (`turnsNear`), which the grid index and
+ * the scan share.
  */
 
 import {
@@ -13,6 +15,11 @@ import {
   type DegreeRectangle,
   type TileAddress,
 } from './types';
+
+/** The whole turns that bring `lon` to within 180° of `near`: `lon + 360 × turnsNear(lon, near)`. */
+export function turnsNear(lon: number, near: number): number {
+  return -Math.round((lon - near) / 360);
+}
 
 /** Degrees along each side of a tile of `level`. */
 function tileSpan(level: number): number {
