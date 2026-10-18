@@ -104,7 +104,10 @@ export interface SurfaceGroup
   totalCount(): number;
   readyChunkCount(): number;
   opacity(): number;
-  /** Hides the cell outlines while a reveal wave runs, whatever else would show them. */
+  /**
+   * Hides the cell outlines while a reveal wave runs, whatever else would show them; a no-op for
+   * the draped kind, which fades instead of running a radial wave.
+   */
   setEdgesHeld(held: boolean): void;
 }
 export type ContextStatus = 'loading' | 'ready' | 'fallback';
@@ -295,7 +298,10 @@ export interface DrapedImageryLayer {
   readonly layer: ImageryLayer;
   setAlpha(a: number): void;
   setShown(s: boolean): void;
-  /** True once the globe has loaded its tiles. */
+  /**
+   * True once the globe has loaded its tiles with the layer in place, or `DRAPED_READY_CAP_MS`
+   * after it was added.
+   */
   isReady(): boolean;
   destroy(): void;
 }
@@ -339,6 +345,7 @@ export interface DrapedSurfaceGroup extends SurfaceGroup {
   setOutlineStyle(c: EdgeColorSpec): Promise<void>;
   outlinesReady(): boolean;
   isReady(): boolean;
+  /** Removes its layers and releases their rasters; every setter after it is a no-op. */
   destroy(): void;
 }
 
