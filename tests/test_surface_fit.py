@@ -33,6 +33,7 @@ from genomeos.surfaces.fit import (
 )
 from genomeos.surfaces.footprint import ObservationSupportMetadata, uniform_area_disc_support
 from genomeos.surfaces.observation import SurveyQueries
+from genomeos.surfaces.persistence import FIT_FORMAT
 from genomeos.surfaces.prior import PRIOR_DRAWS
 from genomeos.validation.predictive import CountPredictive, predictive_diagnostics
 
@@ -417,6 +418,100 @@ def test_footprint_metadata_survives_save_and_load(fit, tmp_path):
     assert reloaded.footprint_metadata == metadata
 
 
+def test_the_fit_records_the_table_it_consumed(fit):
+    """The validated rows, in the fit's own order, are what an artifact publishes as its input (#45)."""
+    consumed = OBSERVATIONS_SCHEMA.validate(_observations()).reset_index(drop=True)
+    pd.testing.assert_frame_equal(fit.observations, consumed)
+    assert {"ac", "an"} <= set(fit.observations.columns)
+
+
+def test_a_saved_fit_keeps_the_table_it_consumed(fit, tmp_path):
+    reloaded = load_fit(save_fit(fit, tmp_path / "surface.pkl"))
+    pd.testing.assert_frame_equal(reloaded.observations, fit.observations)
+
+
+def test_a_format_two_fit_loads_without_inventing_its_input(fit, tmp_path):
+    """Format 2 predates the record. What such a fit consumed is unknown, and is never guessed.
+
+    A real format-2 pickle has no `observations` in its instance state at all, not a None, so that
+    is the shape written here.
+    """
+    import copy
+
+    import cloudpickle
+
+    format_two = copy.copy(fit)
+    del format_two.__dict__["observations"]
+    assert "observations" not in format_two.__dict__
+    path = tmp_path / "format-2.pkl"
+    with path.open("wb") as stream:
+        cloudpickle.dump({"format": 2, "fit": format_two}, stream)
+    with path.open("rb") as stream:
+        assert "observations" not in cloudpickle.load(stream)["fit"].__dict__
+    legacy = load_fit(path)
+    assert legacy.observations is None
+    assert legacy.correlation_range_km == fit.correlation_range_km
+
+
+def test_a_fit_without_its_input_is_neither_cached_nor_loaded_as_the_current_format(fit, tmp_path):
+    import cloudpickle
+
+    bare = replace(fit, observations=None)
+    with pytest.raises(ValueError, match="observation table"):
+        save_fit(bare, tmp_path / "bare.pkl")
+    path = tmp_path / "forged.pkl"
+    with path.open("wb") as stream:
+        cloudpickle.dump({"format": FIT_FORMAT, "fit": bare}, stream)
+    with pytest.raises(ValueError, match="observation table"):
+        load_fit(path)
+    without_an = replace(fit, observations=fit.observations.drop(columns="an"))
+    with path.open("wb") as stream:
+        cloudpickle.dump({"format": FIT_FORMAT, "fit": without_an}, stream)
+    with pytest.raises(ValueError, match="observation table"):
+        load_fit(path)
+
+
+def test_a_cache_whose_counts_are_not_integers_is_not_loaded_as_the_current_format(fit, tmp_path):
+    """Counts, not frequencies (§7.1b): a float `ac` is refused even where every value is integral.
+
+    `save_fit` never writes one, since the fit's table holds the contract's integer counts, so a
+    format-3 cache that holds one was not written from what the fit consumed.
+    """
+    import cloudpickle
+
+    float_ac = replace(fit, observations=fit.observations.assign(ac=fit.observations["ac"].astype(float)))
+    path = tmp_path / "float-ac.pkl"
+    with path.open("wb") as stream:
+        cloudpickle.dump({"format": FIT_FORMAT, "fit": float_ac}, stream)
+    with pytest.raises(ValueError, match="integer counts ac and an"):
+        load_fit(path)
+
+
+def test_a_format_three_cache_outlives_a_contract_revision_but_cannot_publish_under_it(fit, tmp_path):
+    """A contract revision must not strand every format-3 cache: the cache still loads (#45).
+
+    Conformance is checked where it matters, when the table is published: `serialize_observations`
+    re-validates it against the current contract, and refuses.
+    """
+    import cloudpickle
+
+    from genomeos.surfaces.fit_input import serialize_observations
+
+    earlier = replace(fit, observations=fit.observations.assign(retired_column="x"))
+    path = tmp_path / "earlier-contract.pkl"
+    with path.open("wb") as stream:
+        cloudpickle.dump({"format": FIT_FORMAT, "fit": earlier}, stream)
+    loaded = load_fit(path)
+    pd.testing.assert_frame_equal(loaded.observations, earlier.observations)
+    with pytest.raises(
+        (pandera.errors.SchemaError, pandera.errors.SchemaErrors),
+        match="'retired_column' not in DataFrameSchema",
+    ):
+        serialize_observations(loaded.observations, measurement="allele_frequency")
+    with pytest.raises(ValueError, match="contract"):
+        save_fit(earlier, tmp_path / "resaved.pkl")
+
+
 def test_owned_legacy_fit_is_reconstructed_without_refit_or_rewrite(fit, tmp_path):
     import cloudpickle
 
@@ -433,6 +528,7 @@ def test_owned_legacy_fit_is_reconstructed_without_refit_or_rewrite(fit, tmp_pat
 
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before_hash
     assert not hasattr(migrated, "prior_frequency_sd")
+    assert migrated.observations is None  # format 1 predates the recorded input
     np.testing.assert_allclose(
         migrated.predict(query[:, 0], query[:, 1])[["post_median", "post_sd"]],
         expected_post[["post_median", "post_sd"]],

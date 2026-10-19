@@ -33,7 +33,8 @@ data/
     fits/       <variant>.fit.pkl       trained models — a CACHE, not an artifact (see below)
     artifacts/  <variant>__<model>__<data>/      in the data store; fetched, not tracked
                   cells.parquet         the citable per-cell surface (§5, §6)
-                  manifest.json         what was published, and under what assumptions
+                  observations.parquet  the exact observation table its fit consumed (#45)
+                  manifest.json         what was published, and under what assumptions; written last
     INVENTORY.json                      checksums of what was on the publishing machine
   validation/                           held-out validation evidence; in the data store
 reference/                              committed: Natural Earth countries (1:110m, and the 1:50m
@@ -50,9 +51,10 @@ docs/figures/                           committed: review figures
 | `data/releases/*.json` | **yes** | **yes** (`manifests/`) | the record of what each release published |
 | `data/registry/`, `data/sources/`, `data/raw/afnd_populations.tsv`, `data/store/{catalog-metadata,INVENTORY}.json` | **yes** | **yes** | hand-curated inputs, reviewed by diff |
 | `data/store/artifacts/` | no (since 2026-10-17) | **yes** | the citable output; immutable once released |
+| `data/store/artifacts/*/observations.parquet` | no | **yes** | each artifact's fit input, hash-pinned in its manifest; required for every new artifact. The 61 released 2026-10-17 have none and are listed (below) |
 | `data/validation/` | no (since 2026-10-17) | **yes** | held-out validation evidence |
 | `data/raw/` (other files) | no | not yet (phase 2) | sources are versioned upstream; re-fetchable by script |
-| `data/store/fits/*.pkl` | no | **never** | pickles: environment-coupled, and loading one executes code |
+| `data/store/fits/*.pkl` | no | **never** | pickles: environment-coupled, and loading one executes code. Format 3 also holds the fit's input, which is how it reaches the artifact |
 
 ## A fit is not an artifact
 
@@ -72,6 +74,63 @@ Every row carries its `support` state, `posterior_contraction` and `dist_nearest
 not padding: §4's defence against a persuasive-but-unfounded cline is that a consumer can tell
 measured from inferred without going back to the model, and the distance is carried so a stricter
 threshold can be applied without refitting.
+
+## Inputs travel with outputs
+
+A surface can only be checked against the rows it was fitted to, and an input that lives anywhere
+else can be lost: the 2026-09-16 HbS parity run pinned the sha256 of its 994 input surveys, but no
+copy of the rows survived, and they had to be rebuilt from a fresh MAP export a month later (#45).
+So every artifact carries its own input.
+
+- `fit_surface` keeps the schema-validated observation frame it consumed on the fit
+  (`SurfaceFit.observations`), and `save_fit` writes it into the cache (fit format 3).
+- `publish_artifacts.py` writes **that** frame, not a reload, as `observations.parquet` beside
+  `cells.parquet` (`genomeos/surfaces/fit_input.py`). It is exactly the rows the fit consumed, in
+  its row order, as integer counts and never frequencies, under the strict frozen contract of the
+  artifact's `measurement`. The bytes are deterministic in the locked environment.
+- **Which counts depends on the measurement** (#133). An `allele_frequency` artifact's input is
+  `contract/observations.schema.json`: `ac` alleles out of `an` chromosomes. A `carrier_frequency`
+  artifact (KIR gene presence) is fitted on `ac`/`an` too, because `afnd_carriers.as_binomial`
+  renames carriers over individuals so the same binomial GP can fit them, but its input is
+  published as what it is: `contract/carrier_observations.schema.json`, with `carriers` out of
+  `n_individuals`. The rename is the only difference, so `as_binomial` applied to the published
+  table gives back the fit's frame exactly. Never pool the two kinds of table as if their counts
+  were the same unit: one counts chromosomes, the other people.
+- The artifact's `manifest.json` records the file's `sha256`, `bytes`, `row_count` (equal to
+  `n_observations`), its `measurement` (equal to the artifact's), its `columns` and the contract
+  file with its `schema_sha256`, and is written last.
+- `publish_artifacts.py` refuses a fit cached before format 3 (what it consumed is unknown: refit
+  it), a format-3 cache written under an earlier observation contract revision (refit it, or
+  re-serialize it with its table migrated, before publishing), flags that supply rows other than
+  the fit's own, and a fit with an observation footprint
+  (it also consumed support points, which the table does not describe). It checks every fit's
+  input before writing the first directory, so an input refusal never leaves a run half published.
+- `build_data_release.py` refuses an artifact without `observations.parquet`, an empty one, or one
+  whose recorded hash, size, row count, columns or measurement do not match the file and the
+  artifact. It also checks the file's columns and types from its footer, without loading the
+  contract: its counts must be its measurement's own columns with an integer type, it may carry no
+  other measurement's counts and no column named like a frequency, its `schema_sha256` must be a
+  contract revision listed in `CONTRACT_REVISIONS`, and its columns must be exactly that
+  revision's in `REVISION_COLUMNS`, in order (so no surface value such as `post_mean` travels in
+  it). Both tables are in `genomeos/publication/artifact_inputs.py`: when a contract is revised,
+  append its digest and its columns there, and never remove or change an old entry, so an input
+  released under an earlier revision stays valid. It does not read the rows: a row value the
+  contract refuses is refused by the contract itself, when the artifact is published and when its
+  input is read. Nothing is skipped.
+- In the release manifest, `observations.parquet` carries its data source's terms alone: `map` or
+  `afnd`, from the `data_version` prefix, never `worldpop`. The WorldPop grid chose the cells the
+  surface is predicted on and contributed none of the input's rows. The artifact's other files
+  are also tagged `worldpop` when its manifest declares a WorldPop target grid.
+
+Artifacts released before this rule cannot gain the file, because a released artifact is
+immutable: the builder also refuses any new file inside a released artifact directory. They are
+named one by one, each with a reason, in `RELEASED_WITHOUT_INPUT` in
+`scripts/build_data_release.py`: the 61 artifacts of release 2026-10-17. Nothing is exempt by
+default. A released artifact missing from that table fails the build. An entry that no earlier
+release holds is refused, so the table can never admit a new artifact, and so is an entry that an
+earlier release holds with its `observations.parquet`, so the table can never hide a dropped input.
+Recovering one of their inputs means publishing it under a new key (a `validation/` record, or a
+refit under a new `model_version`), never adding a file to a cited directory.
 
 ## Building the P4 serving catalog
 
@@ -103,8 +162,11 @@ explicitly unavailable; the builder never manufactures them from a surface.
 The `/app/` explorer reads `catalog.json` from the site (`website/public/data/atlas/`) and every
 per-artifact object from the public web data bucket. `scripts/export_atlas_web.py` writes the
 canonical, citable JSON (surface, observations and manifest per artifact, plus `catalog.json`) to
-an export directory. `export_atlas_web.py` output is an intermediate; the site build fails until
-`encode_atlas_web.py` has run on it and the result is published:
+an export directory. When an artifact carries `observations.parquet` (#45), the exporter reads it
+back and refuses rows reloaded from the source export that differ from it on any column the
+observations JSON uses, and the manifest it serves drops `observations.path`, which names a
+data-store file the bucket does not hold. `export_atlas_web.py` output is an intermediate; the
+site build fails until `encode_atlas_web.py` has run on it and the result is published:
 
 ```bash
 python scripts/encode_atlas_web.py --in <export-dir> --out data/atlas-web --with-downloads
@@ -153,6 +215,8 @@ python scripts/build_data_release.py --release <YYYY-MM-DD>   # lists them all; 
 
 `publish_artifacts.py` refuses an artifact directory that any committed release already holds, even
 with `--overwrite`: a released artifact is cited, so a refit publishes under a new `model_version`.
+Pass it the same `--hbs`/`--g6pd`/`--afnd` inputs the fits were made from: it publishes each fit's own
+record of its input and refuses rows that differ from it.
 
 The HbS fetch command retains the untouched vendor export as raw evidence. That area-only export
 intentionally fails the HbS adapter: an area class cannot establish a bounding radius from the

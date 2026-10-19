@@ -8,10 +8,12 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from genomeos.observations.sources import map_surveys
 from genomeos.publication.surface_codec import GosaError
 from genomeos.publication.web_format import WEB_FORMAT_VERSION
 from genomeos.registry.variants import load as load_variant_registry
 from genomeos.registry.variants import normalized_identity
+from genomeos.surfaces.fit_input import OBSERVATIONS_FILE, serialize_observations
 from genomeos.surfaces.prior import PRIOR_DRAWS, PRIOR_NORMALIZATION
 from scripts import encode_atlas_web, encode_natural_earth_borders, export_atlas_web
 
@@ -711,6 +713,100 @@ def test_export_refuses_noninteger_or_boolean_artifact_format(
 
     with pytest.raises(ValueError, match="artifact_format"):
         _export(export_inputs)
+
+
+# --- an artifact that carries the table its fit consumed (#45) ---
+
+
+def _pin_fixture_input(
+    export_inputs: dict[str, Path], *, measurement: str = "allele_frequency", change=lambda rows: rows
+) -> tuple[Path, dict]:
+    """The fixture artifact as `publish()` writes it now, with `observations.parquet` and its record.
+
+    The pinned table is the rows the exporter reloads from the HbS CSV, after `change`.
+    """
+    artifact = _upgrade_fixture_to_format_three(export_inputs)
+    reloaded, _ = map_surveys.load(export_inputs["hbs"], "map-test")
+    payload, record = serialize_observations(change(reloaded), measurement=measurement)
+    (artifact / OBSERVATIONS_FILE).write_bytes(payload)
+    manifest_path = artifact / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest.update(
+        measurement=measurement,
+        n_observations=record.row_count,
+        observations={**record.__dict__, "columns": list(record.columns)},
+    )
+    manifest_path.write_text(json.dumps(manifest))
+    return artifact, manifest
+
+
+def _served_manifest(export_inputs: dict[str, Path]) -> dict:
+    return json.loads((export_inputs["out"] / "hbs-rs334.manifest.json").read_text())
+
+
+def test_export_serves_a_pinned_input_record_without_its_data_store_path(
+    export_inputs: dict[str, Path],
+) -> None:
+    """`observations.path` names a file beside the artifact in the data store, not in the bucket."""
+    _, manifest = _pin_fixture_input(export_inputs)
+    _export(export_inputs)
+    served = _served_manifest(export_inputs)
+    record = manifest.pop("observations")
+    assert served.pop("observations") == {key: value for key, value in record.items() if key != "path"}
+    assert served == manifest
+    assert {"sha256", "bytes", "row_count", "columns", "schema", "schema_sha256"} <= set(record)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [lambda rows: rows.assign(an=rows["an"] + 1), lambda rows: rows.assign(lat=rows["lat"] + 0.5)],
+    ids=["a-count", "a-coordinate"],
+)
+def test_export_refuses_reloaded_rows_that_are_not_the_input_the_fit_consumed(
+    export_inputs: dict[str, Path], change
+) -> None:
+    """As many rows is not the same rows: the site must not show a surface beside other data."""
+    _pin_fixture_input(export_inputs, change=change)
+    with pytest.raises(ValueError, match="differ in .* from the table its fit consumed"):
+        _export(export_inputs)
+    assert not (export_inputs["out"] / "catalog.json").exists()
+
+
+def test_export_reads_a_carrier_input_back_in_the_fit_shape(export_inputs: dict[str, Path]) -> None:
+    """A carrier input is published as carriers over individuals (#133); the reload is `ac`/`an`."""
+    metadata_path = export_inputs["store"] / "catalog-metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["variants"][VARIANT_ID]["measurement"] = "carrier_frequency"
+    metadata_path.write_text(json.dumps(metadata))
+    _pin_fixture_input(export_inputs, measurement="carrier_frequency")
+    _export(export_inputs)
+    assert _served_manifest(export_inputs)["observations"]["columns"][6:8] == ["carriers", "n_individuals"]
+
+
+def test_export_refuses_a_pinned_input_whose_bytes_its_manifest_does_not_name(
+    export_inputs: dict[str, Path],
+) -> None:
+    """The served record advertises a sha256, so it is checked even when no rows are reloaded."""
+    artifact, _ = _pin_fixture_input(export_inputs)
+    other, _ = serialize_observations(
+        map_surveys.load(export_inputs["hbs"], "map-test")[0].assign(an=51), measurement="allele_frequency"
+    )
+    (artifact / OBSERVATIONS_FILE).write_bytes(other)
+    allowlist = json.loads(export_inputs["allowlist"].read_text())
+    allowlist["artifacts"][0]["observation_source"] = None
+    export_inputs["allowlist"].write_text(json.dumps(allowlist))
+    with pytest.raises(ValueError, match="sha256"):
+        _export(export_inputs)
+
+
+def test_export_without_a_pinned_input_copies_the_manifest_and_reads_no_input(
+    export_inputs: dict[str, Path],
+) -> None:
+    """An artifact released before #45 is exported exactly as before: no record, nothing read."""
+    artifact = _upgrade_fixture_to_format_three(export_inputs)
+    (artifact / OBSERVATIONS_FILE).write_bytes(b"not parquet, and named by no record")
+    _export(export_inputs)
+    assert _served_manifest(export_inputs) == json.loads((artifact / "manifest.json").read_text())
 
 
 def test_export_refuses_variant_mismatch(export_inputs: dict[str, Path]) -> None:

@@ -186,6 +186,28 @@ def test_a_published_artifact_whose_bytes_changed_is_refused() -> None:
         dr.build_manifest(mutated, SOURCES, RELEASE, previous=[previous])
 
 
+def test_a_released_artifact_directory_cannot_gain_a_file() -> None:
+    """A cited key names a closed set of files; a later file there would change what it means (§5)."""
+    previous = dr.build_manifest(_records(), SOURCES, "2026-10-01")
+    def input_of(directory: str) -> dr.FileRecord:
+        path = f"{dr.ARTIFACT_PREFIX}{directory}/observations.parquet"
+        return dr.FileRecord(path, 9, SHA_B, False, ("map",))
+
+    added = input_of("x__v3__map-2026-08")
+    with pytest.raises(dr.DataReleaseError, match="cannot gain"):
+        dr.build_manifest([*_records(), added], SOURCES, RELEASE, previous=[previous])
+    sibling = input_of("x__v4__map-2026-08")
+    dr.build_manifest([*_records(), sibling], SOURCES, RELEASE, previous=[previous])
+
+
+def test_artifact_directory_names_the_directory_under_the_artifact_prefix() -> None:
+    assert dr.artifact_directory("store/artifacts/x__v3__map-2026-08/cells.parquet") == "x__v3__map-2026-08"
+    with pytest.raises(dr.DataReleaseError, match="artifact"):
+        dr.artifact_directory("validation/x/cells.parquet")
+    with pytest.raises(dr.DataReleaseError, match="artifact"):
+        dr.artifact_directory("store/artifacts/loose.json")
+
+
 def test_previous_releases_must_be_earlier() -> None:
     later = dr.build_manifest(_records(), SOURCES, "2026-10-18")
     with pytest.raises(dr.DataReleaseError, match="earlier"):
