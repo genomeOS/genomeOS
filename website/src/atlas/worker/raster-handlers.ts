@@ -23,9 +23,10 @@
  * budget and measurement"). The queue yields to the event loop after each tile, so a
  * `load-detail` that arrives meanwhile runs before the next tile. A tile whose request was
  * cancelled, or whose raster was released, fails as `cancelled` when it is reached. Tiles at
- * levels 0–2 are kept per raster key (`coarse-tiles.ts`), so a raster prepared again with the same
- * key serves them without drawing. The rasteriser, or the kept tile's lookup, alone is timed
- * (`rasterMs`); a drawn tile's ImageBitmap is transferred, an empty one posted as null.
+ * levels 0–2 are kept per raster key, in one bounded cache per layer kind (`coarse-tiles.ts`), so
+ * a raster prepared again with the same key serves them without drawing. The rasteriser, or the
+ * kept tile's lookup, alone is timed (`rasterMs`); a drawn tile's ImageBitmap is transferred, an
+ * empty one posted as null.
  * `release-raster` frees a raster and confirms once a tile of it being drawn has been posted, so
  * no tile of a released raster follows its `raster-released`.
  *
@@ -63,7 +64,7 @@ import { isSupportedCode } from '../geometry/support-codes';
 import type { GridTopology } from '../geometry/topology';
 import type { DecodedGrid, DecodedRender } from '../gosa/types';
 import type { PreparedGrid } from './geometry-handlers';
-import { createCoarseTiles, rasterKey } from './coarse-tiles';
+import { createCoarseTiles, rasterKey, type CoarseTiles } from './coarse-tiles';
 import type {
   RasterReady,
   RasterRequestType,
@@ -132,10 +133,12 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** A prepared raster: the bounds of what it draws, its tile drawer and its coarse tiles' key. */
+/** A prepared raster: the bounds of what it draws, its tile drawer, and its layer kind's coarse
+ * tiles with its key there. */
 interface PreparedRaster {
   bounds: RasterReady['bounds'];
   draw(a: TileAddress): TileRaster | null;
+  coarse: CoarseTiles;
   key: string;
 }
 
@@ -156,7 +159,12 @@ export function createRasterRuntime(
 ): RasterRuntime {
   const indexes = new WeakMap<GridTopology, GridIndex>();
   const rasters = new Map<number, PreparedRaster>();
-  const coarse = createCoarseTiles();
+  const coarse: Record<RasterSpec['layer'], CoarseTiles> = {
+    borders: createCoarseTiles(),
+    footprints: createCoarseTiles(),
+    outlines: createCoarseTiles(),
+    surface: createCoarseTiles(),
+  };
   const queue: TileJob[] = [];
   let draining = false;
   let drawing: DrawingTile | null = null;
@@ -242,6 +250,7 @@ export function createRasterRuntime(
         );
         return {
           bounds: drawnBounds(input),
+          coarse: coarse.surface,
           draw: (a) => rasterisers.surface(input, a),
           key: rasterKey(spec, sources),
         };
@@ -251,6 +260,7 @@ export function createRasterRuntime(
         const input = { ...artifact.input, edgeColor: spec.edgeColor };
         return {
           bounds: drawnBounds(input),
+          coarse: coarse.outlines,
           draw: (a) => rasterisers.outlines(input, a),
           key: rasterKey(spec, artifact.sources),
         };
@@ -262,6 +272,7 @@ export function createRasterRuntime(
         const { color, maximumLevel } = spec;
         return {
           bounds: borderBounds(borders),
+          coarse: coarse.borders,
           draw: (a) => {
             if (a.level > maximumLevel)
               throw new RasterValidationError(
@@ -281,6 +292,7 @@ export function createRasterRuntime(
         }
         return {
           bounds: footprintBounds(circles),
+          coarse: coarse.footprints,
           draw: (a) => rasterisers.footprints({ circles, color }, a),
           key: rasterKey(spec, []),
         };
@@ -307,10 +319,10 @@ export function createRasterRuntime(
     try {
       const a = { level, x, y };
       const start = c.now();
-      const kept = coarse.get(raster.key, a);
+      const kept = raster.coarse.get(raster.key, a);
       const tile = kept === undefined ? raster.draw(a) : kept;
       const rasterMs = c.now() - start;
-      if (kept === undefined) coarse.keep(raster.key, a, tile);
+      if (kept === undefined) raster.coarse.keep(raster.key, a, tile);
       const bitmap = tile ? await c.toBitmap(tile) : null;
       c.post(
         { bitmap, id, level, rasterId, rasterMs, type: 'tile-ready', x, y },

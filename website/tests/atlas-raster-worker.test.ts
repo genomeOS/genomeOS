@@ -20,6 +20,10 @@ import type {
 } from '../src/atlas/geometry/raster/types';
 import { SUPPORT_CODES } from '../src/atlas/gosa/decode';
 import type { DecodedGrid, DecodedRender } from '../src/atlas/gosa/types';
+import {
+  COARSE_TILE_BUDGET,
+  rasterKey,
+} from '../src/atlas/worker/coarse-tiles';
 import type {
   RasterResponse,
   WorkerErrorMessage,
@@ -185,7 +189,7 @@ export function rasterHarness(
 
 type Harness = ReturnType<typeof rasterHarness>;
 
-function prepare(h: Harness, id: number, spec = SURFACE_SPEC) {
+function prepare(h: Harness, id: number, spec: RasterSpec = SURFACE_SPEC) {
   return h.runtime.handlers['prepare-raster']({
     id,
     spec,
@@ -697,7 +701,7 @@ describe('coarse tiles and the queue (terrain draping design, "Performance budge
     h = rasterHarness({ rasterisers: { ...h.rasterisers, surface } });
     const coarse = { level: 0, x: 0, y: 0 };
     const draws = async (id: number, spec: RasterSpec, a: TileAddress) => {
-      await prepare(h, id, spec as typeof SURFACE_SPEC);
+      await prepare(h, id, spec);
       const before = surface.mock.calls.length;
       await tileAt(h, id + 100, id, a);
       return surface.mock.calls.length - before;
@@ -728,9 +732,10 @@ describe('coarse tiles and the queue (terrain draping design, "Performance budge
     expect(last(h.posted, 'tile-ready')).toMatchObject({ id: 109 });
   });
 
-  it('keeps at most 64 drawn coarse tiles, dropping the raster used least recently first', async () => {
+  it('keeps a layer kind’s drawn coarse tiles up to every level 0–2 tile of one raster, dropping its raster used least recently first', async () => {
     const coarse = [0, 1, 2].flatMap(everyTile);
     expect(coarse).toHaveLength(42);
+    expect(COARSE_TILE_BUDGET).toBe(coarse.length);
     let id = 100;
     const drawAll = async (rasterId: number) => {
       for (const a of coarse) await tileAt(h, (id += 1), rasterId, a);
@@ -747,5 +752,195 @@ describe('coarse tiles and the queue (terrain draping design, "Performance budge
     await prepare(h, 4);
     await tileAt(h, (id += 1), 4, { level: 0, x: 0, y: 0 });
     expect(surface).toHaveBeenCalledTimes(85);
+  });
+});
+
+describe('the coarse tiles’ raster key (terrain draping design, "Performance budget and measurement")', () => {
+  /** One spec of each layer kind, every field set; `layer` picks the kind, so it is not varied. */
+  const OUTLINE_MATCHED_SPEC: OutlineRasterSpec = {
+    ...OUTLINE_SPEC,
+    edgeColor: { mode: 'matched' },
+  };
+  const BASES: readonly RasterSpec[] = [
+    SURFACE_SPEC,
+    OUTLINE_SPEC,
+    OUTLINE_MATCHED_SPEC,
+    BORDER_SPEC,
+    FOOTPRINT_SPEC,
+  ];
+
+  /** Each field of `spec` as a dotted path, a typed array as one field; `layer` aside. */
+  function fieldsOf(spec: object, prefix = ''): string[] {
+    return Object.entries(spec).flatMap(([name, value]) => {
+      const path = `${prefix}${name}`;
+      if (path === 'layer') return [];
+      return value !== null &&
+        typeof value === 'object' &&
+        !ArrayBuffer.isView(value)
+        ? fieldsOf(value as object, `${path}.`)
+        : [path];
+    });
+  }
+
+  /** `base` with one field changed, by the field's path. */
+  function variantsOf(base: RasterSpec): [string, RasterSpec][] {
+    const artifact = {
+      artifactKey: { ...base, artifactKey: 'other-artifact' },
+      geometry: { ...base, geometry: 'hexagons' },
+      gridSha256: { ...base, gridSha256: 'other-grid' },
+      metric: { ...base, metric: 'post_sd' },
+      palette: { ...base, palette: 'viridis' },
+    };
+    switch (base.layer) {
+      case 'surface':
+        return Object.entries({
+          ...artifact,
+          'cells.masked': { ...base, cells: { ...base.cells, masked: false } },
+          'cells.supported': {
+            ...base,
+            cells: { ...base.cells, supported: false },
+          },
+          contours: { ...base, contours: !base.contours },
+        }) as [string, RasterSpec][];
+      case 'outlines':
+        return Object.entries({
+          ...artifact,
+          ...(base.edgeColor.mode === 'fixed'
+            ? {
+                'edgeColor.color': {
+                  ...base,
+                  edgeColor: { color: '#00ff00', mode: 'fixed' },
+                },
+                'edgeColor.mode': { ...base, edgeColor: { mode: 'matched' } },
+              }
+            : {
+                'edgeColor.mode': {
+                  ...base,
+                  edgeColor: { color: '#00ff00', mode: 'fixed' },
+                },
+              }),
+        }) as [string, RasterSpec][];
+      case 'borders':
+        return [
+          ['color', { ...base, color: '#ff8000' }],
+          ['maximumLevel', { ...base, maximumLevel: 10 }],
+        ];
+      case 'footprints':
+        return [
+          ['artifactKey', { ...base, artifactKey: 'other-artifact' }],
+          // one radius of the triples changed, the rest the same
+          [
+            'circles',
+            {
+              ...base,
+              circles: base.circles.map((v, k) => (k === 2 ? v + 1 : v)),
+            },
+          ],
+          ['color', { ...base, color: '#000000' }],
+        ];
+    }
+  }
+
+  it('varies every field of every layer kind’s spec in these tests', () => {
+    for (const base of BASES)
+      expect(
+        variantsOf(base)
+          .map(([field]) => field)
+          .sort(),
+        `${base.layer} fields`,
+      ).toEqual(fieldsOf(base).sort());
+  });
+
+  it('is a new key for a change of any one field, and the same key for an identical spec', () => {
+    const sources = [{}, {}];
+    for (const base of BASES) {
+      const key = rasterKey(base, sources);
+      expect(rasterKey(structuredClone(base), sources), base.layer).toBe(key);
+      for (const [field, changed] of variantsOf(base))
+        expect(rasterKey(changed, sources), `${base.layer} ${field}`).not.toBe(
+          key,
+        );
+      expect(rasterKey(base, [sources[0], {}]), base.layer).not.toBe(key);
+    }
+  });
+
+  it('refuses a spec field it cannot key by value, never leaving it out', () => {
+    const withField = (odd: unknown) =>
+      ({ ...BORDER_SPEC, odd }) as unknown as RasterSpec;
+    for (const [odd, kind] of [
+      [new Map([['a', 1]]), 'Map'],
+      [new Date(0), 'Date'],
+      [() => 0, 'function'],
+      [Symbol('odd'), 'symbol'],
+    ] as const)
+      expect(() => rasterKey(withField({ deep: odd }), [])).toThrow(
+        `raster spec field odd.deep is a ${kind}`,
+      );
+    // Null and undefined are values, each its own key.
+    const keys = [null, undefined, 'null', 0].map((odd) =>
+      rasterKey(withField(odd), []),
+    );
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it('draws a level 0–2 tile again for a change of any field the runtime can change alone, and never for an identical spec', async () => {
+    for (const base of BASES) {
+      h = rasterHarness({ naturalEarth: () => tinyBorders });
+      // Any artifact key reads the same render tier and grid, so the spec alone changes.
+      h.context.render = () => h.render;
+      h.context.gridFor = () => h.grid;
+      const drawer = vi.mocked(h.rasterisers[base.layer]);
+      let id = 0;
+      const draws = async (spec: RasterSpec) => {
+        const before = drawer.mock.calls.length;
+        await prepare(h, (id += 1), spec);
+        await tileAt(h, (id += 1), id - 1, { level: 0, x: 0, y: 0 });
+        expect(last(h.posted, 'tile-ready')).toMatchObject({ id });
+        return drawer.mock.calls.length - before;
+      };
+      expect(await draws(base), base.layer).toBe(1);
+      for (const [field, changed] of variantsOf(base)) {
+        // The grid's sha comes with its grid, another source, so it cannot change alone here.
+        if (field === 'gridSha256') continue;
+        expect(await draws(changed), `${base.layer} ${field}`).toBe(1);
+      }
+      expect(await draws(structuredClone(base)), base.layer).toBe(0);
+    }
+  });
+
+  it('draws again once the support layer is hidden: the surface without its masks', async () => {
+    await prepare(h, 1);
+    await tileAt(h, 2, 1, { level: 1, x: 2, y: 1 });
+    await prepare(h, 3, {
+      ...SURFACE_SPEC,
+      cells: { ...SURFACE_SPEC.cells, masked: false },
+    });
+    await tileAt(h, 4, 3, { level: 1, x: 2, y: 1 });
+    expect(h.rasterisers.surface).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(h.rasterisers.surface).mock.calls[1][0].cells).toEqual({
+      masked: false,
+      supported: true,
+    });
+  });
+
+  it('keeps each layer kind’s coarse tiles apart, so restyles of one never drop another’s', async () => {
+    h = rasterHarness({ naturalEarth: () => tinyBorders });
+    const coarse = [0, 1, 2].flatMap(everyTile);
+    let id = 100;
+    const drawAll = async (rasterId: number, spec: RasterSpec) => {
+      await prepare(h, rasterId, spec);
+      for (const a of coarse) await tileAt(h, (id += 1), rasterId, a);
+    };
+    await drawAll(1, BORDER_SPEC);
+    await drawAll(2, FOOTPRINT_SPEC);
+    await drawAll(3, SURFACE_SPEC);
+    await drawAll(4, { ...SURFACE_SPEC, palette: 'viridis' });
+    await drawAll(5, { ...SURFACE_SPEC, geometry: 'hexagons' });
+    expect(h.rasterisers.surface).toHaveBeenCalledTimes(3 * 42);
+    // World Terrain off and on: the borders and footprints are prepared again, and served kept.
+    await drawAll(6, BORDER_SPEC);
+    await drawAll(7, FOOTPRINT_SPEC);
+    expect(h.rasterisers.borders).toHaveBeenCalledTimes(42);
+    expect(h.rasterisers.footprints).toHaveBeenCalledTimes(42);
   });
 });
