@@ -18,9 +18,11 @@
  *
  * Bounded per layer kind: the runtime keeps one cache per kind, each of at most
  * `COARSE_TILE_BUDGET` drawn tiles (256 × 256 RGBA, 256 KiB each), every level 0–2 tile of one
- * raster. So the newest raster of each kind keeps all its coarse tiles whatever the view asked
- * for, and restyles of one kind never drop another's. Past the budget, the kind's raster key used
- * least recently goes first, all its tiles at once. At production density one raster of each kind
+ * raster, and at most `COARSE_TILE_MAX_KEYS` raster keys, those whose kept tiles are all empty
+ * too (an outline raster draws nothing below level 3, yet Cesium asks for its coarse tiles). So
+ * the newest raster of each kind keeps all its coarse tiles whatever the view asked for, and
+ * restyles of one kind never drop another's. Past either bound, the kind's raster key used least
+ * recently goes first, all its tiles at once. At production density one raster of each kind
  * draws 36 surface, 42 border and 26 footprint tiles at levels 0–2 and no outline tile, 26 MiB in
  * all; 31.5 MiB is the bound while outlines draw none there. Kept bytes are never handed out to be
  * transferred: the runtime makes a fresh bitmap from them for every post. Nothing here is
@@ -38,6 +40,9 @@ export const COARSE_TILE_MAX_LEVEL = 2;
 /** Drawn tiles kept per layer kind: every level 0–2 tile of one raster, 2 + 8 + 32, 10.5 MiB of
  * RGBA. */
 export const COARSE_TILE_BUDGET = 42;
+
+/** Raster keys kept per layer kind, drawn tiles or not. */
+export const COARSE_TILE_MAX_KEYS = 16;
 
 /** Small integers for the objects rasters draw from, by identity. */
 const identities = new WeakMap<object, number>();
@@ -106,7 +111,10 @@ export interface CoarseTiles {
   keep(key: string, a: TileAddress, tile: TileRaster | null): void;
 }
 
-export function createCoarseTiles(budget = COARSE_TILE_BUDGET): CoarseTiles {
+export function createCoarseTiles(
+  budget = COARSE_TILE_BUDGET,
+  maxKeys = COARSE_TILE_MAX_KEYS,
+): CoarseTiles {
   /** Tiles per raster key, least recently used key first. */
   const byKey = new Map<string, Map<string, TileRaster | null>>();
   let drawn = 0;
@@ -125,7 +133,7 @@ export function createCoarseTiles(budget = COARSE_TILE_BUDGET): CoarseTiles {
 
   function evict(): void {
     for (const [key, tiles] of byKey) {
-      if (drawn <= budget) return;
+      if (drawn <= budget && byKey.size <= maxKeys) return;
       byKey.delete(key);
       for (const tile of tiles.values()) if (tile) drawn -= 1;
     }

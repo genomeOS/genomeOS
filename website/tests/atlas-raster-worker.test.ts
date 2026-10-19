@@ -22,6 +22,8 @@ import { SUPPORT_CODES } from '../src/atlas/gosa/decode';
 import type { DecodedGrid, DecodedRender } from '../src/atlas/gosa/types';
 import {
   COARSE_TILE_BUDGET,
+  COARSE_TILE_MAX_KEYS,
+  createCoarseTiles,
   rasterKey,
 } from '../src/atlas/worker/coarse-tiles';
 import type {
@@ -305,7 +307,7 @@ describe('worker raster runtime (terrain draping design, "How existing features 
     expect(outlineInput.index).toBe(surfaceInput.index); // one index per topology
   });
 
-  it('rasterises queued tiles first in, first out, yielding after each', async () => {
+  it('rasterises queued tiles of one level first in, first out, yielding after each', async () => {
     await prepare(h, 7);
     await Promise.all([11, 12, 13].map((id) => tile(h, id, 7)));
     expect(h.posted.slice(1).map(({ m }) => m.id)).toEqual([11, 12, 13]);
@@ -752,6 +754,22 @@ describe('coarse tiles and the queue (terrain draping design, "Performance budge
     await prepare(h, 4);
     await tileAt(h, (id += 1), 4, { level: 0, x: 0, y: 0 });
     expect(surface).toHaveBeenCalledTimes(85);
+  });
+
+  // An outline raster draws nothing below level 3, yet Cesium asks for its level 0–2 tiles: a key
+  // of empty tiles only, which the drawn-tile budget alone would never drop.
+  it('keeps at most 16 raster keys of a layer kind, empty tiles’ too, dropping the key used least recently first', () => {
+    expect(COARSE_TILE_MAX_KEYS).toBe(16);
+    const cache = createCoarseTiles();
+    const a = { level: 0, x: 0, y: 0 };
+    for (let k = 0; k <= COARSE_TILE_MAX_KEYS; k += 1)
+      cache.keep(`key ${k}`, a, null);
+    expect(cache.get('key 0', a)).toBeUndefined();
+    expect(cache.get('key 1', a)).toBeNull(); // now the key used most recently
+    cache.keep('key 17', a, null);
+    expect(cache.get('key 1', a)).toBeNull();
+    expect(cache.get('key 2', a)).toBeUndefined();
+    expect(cache.get(`key ${COARSE_TILE_MAX_KEYS}`, a)).toBeNull();
   });
 });
 
