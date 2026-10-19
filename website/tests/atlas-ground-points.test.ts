@@ -9,6 +9,7 @@ import {
   Globe,
   type HeightmapTerrainData,
   Math as CesiumMath,
+  type QuantizedMeshTerrainData,
   TaskProcessor,
 } from 'cesium';
 import * as Cesium from 'cesium';
@@ -20,6 +21,12 @@ import {
   SYNTHETIC_CONE,
   SYNTHETIC_PEAK,
 } from '../src/atlas/scene/synthetic-terrain';
+import {
+  isQuantizedMeshTask,
+  quantizedMesh,
+  quantizedTile,
+  runQuantizedMeshTask,
+} from './helpers/quantized-terrain';
 import { fakeTerrain } from './helpers/terrain-fakes';
 
 /** The Spain survey on the synthetic peak (map-surveys:1135), then the Gabon survey (map-surveys:996). */
@@ -308,7 +315,7 @@ describe('ground points on World Terrain', () => {
 interface SurfaceTileInternals {
   mesh: unknown;
   vertexArray: unknown;
-  terrainData: HeightmapTerrainData | undefined;
+  terrainData: HeightmapTerrainData | QuantizedMeshTerrainData | undefined;
   readonly renderedMesh: { encoding: { exaggeration: number } } | undefined;
 }
 interface QuadtreeTileInternals {
@@ -332,12 +339,15 @@ const internals = Cesium as unknown as {
 /**
  * A globe whose quadtree holds Cesium's own tiles down to `level` under each point, each with a
  * real 33 × 33 heightmap mesh of the synthetic terrain exaggerated `exaggeration` times, picked
- * by Cesium's own `Globe.getHeight`.
+ * by Cesium's own `Globe.getHeight`. As a `quantized-mesh` each tile holds the same 33 × 33 grid
+ * of the synthetic terrain's heights as World Terrain's format, `QuantizedMeshTerrainData`, with
+ * Cesium's own mesh of it.
  */
 async function realTerrain(
   points: Float64Array,
   level: number,
   exaggeration: number,
+  format: 'heightmap' | 'quantized-mesh' = 'heightmap',
 ) {
   const provider = createSyntheticTerrain();
   const tilingScheme = provider.tilingScheme as GeographicTilingScheme;
@@ -357,24 +367,44 @@ async function realTerrain(
       ].find(contains)!;
     if (tile.data) continue;
     const data = new internals.GlobeSurfaceTile();
-    const terrainData = (await provider.requestTileGeometry(
+    const heightmap = (await provider.requestTileGeometry(
       tile.x,
       tile.y,
       tile.level,
     )) as HeightmapTerrainData;
-    data.terrainData = terrainData;
-    data.mesh = (
-      terrainData as unknown as {
-        _createMeshSync(o: object): unknown;
-      }
-    )._createMeshSync({
-      exaggeration,
-      exaggerationRelativeHeight: 0,
-      level: tile.level,
-      tilingScheme,
-      x: tile.x,
-      y: tile.y,
-    });
+    if (format === 'quantized-mesh') {
+      const quantized = quantizedTile(
+        tilingScheme,
+        tile.x,
+        tile.y,
+        tile.level,
+        (longitude, latitude) =>
+          heightmap.interpolateHeight(tile.rectangle, longitude, latitude)!,
+      );
+      data.terrainData = quantized;
+      data.mesh = await quantizedMesh(
+        quantized,
+        tilingScheme,
+        tile.x,
+        tile.y,
+        tile.level,
+        exaggeration,
+      );
+    } else {
+      data.terrainData = heightmap;
+      data.mesh = (
+        heightmap as unknown as {
+          _createMeshSync(o: object): unknown;
+        }
+      )._createMeshSync({
+        exaggeration,
+        exaggerationRelativeHeight: 0,
+        level: tile.level,
+        tilingScheme,
+        x: tile.x,
+        y: tile.y,
+      });
+    }
     data.vertexArray = {};
     tile.data = data;
     meshed.push(tile);
@@ -417,21 +447,31 @@ function slopePoints(): Float64Array {
 
 // The rule the ground follows on a relief change, measured against Cesium's own picks of meshes
 // built at relief 3 (perfinv/synth/rescale-accuracy.mjs measured 26.8 m at level 2, 6 m at level 4
-// and at most 0.4 m from level 6; dividing by the exaggeration instead is 1.9 km off at level 2).
+// and at most 0.4 m from level 6 on heightmaps; dividing by the exaggeration instead is 1.9 km off
+// at level 2). World Terrain's tiles are quantized meshes, whose source height Cesium's own
+// interpolateHeight no longer finds once the mesh exists, so the rule reads it from the mesh; its
+// other diagonals put the level-2 error at 31.8 m. A level-2 tile is drawn only at globe scale.
 describe('relief followed on real Cesium meshes (synthetic terrain)', () => {
   it.each([
-    [2, 30],
-    [6, 1],
-    [8, 1],
-  ])(
-    'stays within the re-exaggerated mesh’s ground at level %i to %i m, with no pick',
-    async (level, toleranceMetres) => {
+    ['heightmap', 2, 30],
+    ['heightmap', 6, 1],
+    ['heightmap', 8, 1],
+    ['quantized-mesh', 2, 35],
+    ['quantized-mesh', 6, 1],
+    ['quantized-mesh', 8, 1],
+  ] as const)(
+    'stays within the re-exaggerated %s mesh’s ground at level %i to %i m, with no pick',
+    async (format, level, toleranceMetres) => {
       // The picker's worker never answers inside a synchronous pass: every pick scans the tile.
-      vi.spyOn(TaskProcessor.prototype, 'scheduleTask').mockReturnValue(
-        new Promise(() => {}),
+      // A quantized tile's mesh is built by Cesium's own worker module, run on this thread.
+      vi.spyOn(TaskProcessor.prototype, 'scheduleTask').mockImplementation(
+        (parameters: unknown) =>
+          isQuantizedMeshTask(parameters)
+            ? (runQuantizedMeshTask(parameters as object) as never)
+            : new Promise(() => {}),
       );
       const points = slopePoints();
-      const followed = await realTerrain(points, level, 1);
+      const followed = await realTerrain(points, level, 1, format);
       const ground = new GroundPoints(points);
       ground.update(followed.globe);
       expect(Array.from(ground.heights).every(Number.isFinite)).toBe(true);
@@ -442,7 +482,7 @@ describe('relief followed on real Cesium meshes (synthetic terrain)', () => {
       expect(followed.globe.getHeight).not.toHaveBeenCalled();
 
       const truth = new GroundPoints(points);
-      truth.update((await realTerrain(points, level, 3)).globe);
+      truth.update((await realTerrain(points, level, 3, format)).globe);
       const errors = Array.from(ground.heights, (h, i) =>
         Math.abs(h - truth.heights[i]),
       );

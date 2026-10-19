@@ -30,6 +30,12 @@ import {
   type TerrainTileInternals,
 } from '../src/atlas/scene/ground-points';
 import {
+  isQuantizedMeshTask,
+  quantizedMesh,
+  quantizedTile,
+  runQuantizedMeshTask,
+} from './helpers/quantized-terrain';
+import {
   cesiumSource,
   FAKE_RECTANGLE,
   fakeProvider,
@@ -495,5 +501,35 @@ describe('Cesium 1.145 internals the ground under the observations relies on (#4
       exaggerationRelativeHeight: 250,
     });
     expect(own.updateExaggeration).toHaveBeenCalledWith(3, 250);
+  });
+
+  // Why mesh-source-height.ts reads a quantized tile's source height from its mesh: Cesium's own
+  // read compares u, v scaled to 32,767 with the mesh's texture coordinates in [0, 1]. A Cesium
+  // that fixes it fails here, and the ground can read interpolateHeight again.
+  it('finds no source height inside a quantized-mesh tile once its mesh exists, which frees the quantized vertices', async () => {
+    vi.spyOn(Cesium.TaskProcessor.prototype, 'scheduleTask').mockImplementation(
+      (parameters: unknown) =>
+        isQuantizedMeshTask(parameters)
+          ? (runQuantizedMeshTask(parameters as object) as never)
+          : new Promise(() => {}),
+    );
+    const tiling = new GeographicTilingScheme();
+    const data = quantizedTile(
+      tiling,
+      1,
+      0,
+      1,
+      (_, lat) => 1_000 + lat * 1_000,
+    );
+    const rectangle = tiling.tileXYToRectangle(1, 0, 1);
+    const inside = Rectangle.center(rectangle);
+    expect(
+      data.interpolateHeight(rectangle, inside.longitude, inside.latitude),
+    ).toBeCloseTo(1_000 + inside.latitude * 1_000, 0);
+    await quantizedMesh(data, tiling, 1, 0, 1, 1);
+    expect(
+      data.interpolateHeight(rectangle, inside.longitude, inside.latitude),
+    ).toBeUndefined();
+    expect((data as unknown as { _uValues: unknown })._uValues).toBeUndefined();
   });
 });

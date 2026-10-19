@@ -10,7 +10,9 @@
  * nothing. On a relief change the mesh stays, and Cesium raises each vertex along its normal by
  * `(h − r) · k + r` for exaggeration `k` from relative height `r`; the ground under a point moves
  * the same way, by its source height `H` read from the tile's own terrain data
- * (`interpolateHeight`), so `h' = h + (H − r') · k' + r' − (H − r) · k − r` with no pick. Dividing
+ * (`interpolateHeight`), or for a quantized-mesh tile, World Terrain's format, from its mesh
+ * (`mesh-source-height.ts`: Cesium's own read finds nothing once the mesh exists), so
+ * `h' = h + (H − r') · k' + r' − (H − r) · k − r` with no pick. Dividing
  * the picked height by `k` instead is wrong on coarse tiles: the chord of a level-0 triangle sags
  * 15 km below the ellipsoid, and the error is twice that sag (30 km at level 0, 1.9 km at level 2;
  * the source-height rule is within 30 m at level 2 and 1 m from level 6). A fill mesh, drawn from
@@ -37,9 +39,12 @@ import {
   Ellipsoid,
   EllipsoidTerrainProvider,
   Math as CesiumMath,
+  QuantizedMeshTerrainData,
   Rectangle,
   type Globe,
 } from 'cesium';
+
+import { meshSourceHeight } from './mesh-source-height';
 
 /** A terrain mesh, as far as the ground under a point reads it (Cesium's `TerrainMesh`). */
 interface TerrainMeshInternals {
@@ -327,15 +332,20 @@ export class GroundPoints {
     const data = tile.data!;
     const mesh = data.renderedMesh!;
     const height = globe.getHeight(this.#at(i)) ?? Number.NaN;
+    const longitude = this.#longitude[i];
+    const latitude = this.#latitude[i];
+    const { terrainData } = data;
     // Only the tile's own mesh draws its terrain data; a fill mesh draws its neighbours' edges.
     const source =
-      mesh === data.mesh && data.terrainData !== undefined
-        ? (data.terrainData.interpolateHeight(
-            tile.rectangle,
-            this.#longitude[i],
-            this.#latitude[i],
-          ) ?? Number.NaN)
-        : Number.NaN;
+      mesh !== data.mesh || terrainData === undefined
+        ? Number.NaN
+        : terrainData instanceof QuantizedMeshTerrainData
+          ? meshSourceHeight(mesh, tile.rectangle, longitude, latitude)
+          : (terrainData.interpolateHeight(
+              tile.rectangle,
+              longitude,
+              latitude,
+            ) ?? Number.NaN);
     this.#picked[i] = {
       exaggeration: mesh.encoding.exaggeration,
       height,
