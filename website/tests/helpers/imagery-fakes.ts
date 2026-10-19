@@ -136,7 +136,8 @@ export function fakeProvider(
 /**
  * A terrain tile the globe rendered, with its imagery as Cesium keeps it (pinned in
  * tests/atlas-cesium-internals.test.ts): per imagery tile of a layer, the one still loading, or
- * none once it has loaded and is ready.
+ * none once it has loaded and is ready; its level, and whether its own terrain has loaded (else
+ * Cesium draws it as a fill).
  */
 export interface FakeRenderedTile {
   readonly data: {
@@ -145,14 +146,24 @@ export interface FakeRenderedTile {
       readyImagery?: { imageryLayer: ImageryLayer };
     }[];
   };
+  readonly level: number;
+  readonly renderable: boolean;
 }
 
 /** What a test drives on a fake draped scene. */
 export interface FakeDrapedSceneHandles {
-  /** The whole globe's load state, and the tiles its last frame rendered (none at first). */
+  /**
+   * The whole globe's load state, and its quadtree's last frame: the tiles it rendered (none at
+   * first), those that blocked refinement while they loaded and the count drawn in place of
+   * descendants still loading (none: settled).
+   */
   globe: {
     tilesLoaded: boolean;
-    _surface: { _tilesToRender: FakeRenderedTile[] };
+    _surface: {
+      _tilesToRender: FakeRenderedTile[];
+      _tileLoadQueueHigh: unknown[];
+      _debug: { tilesWaitingForChildren: number };
+    };
   };
   imageryLayers: ImageryLayerCollection;
   preRender: FakeEvent;
@@ -163,7 +174,14 @@ export interface FakeDrapedSceneHandles {
 /** A real ImageryLayerCollection, FakeEvent frames, `globe.tilesLoaded` and the rendered tiles. */
 export function fakeDrapedScene(): DrapedScene & FakeDrapedSceneHandles {
   const scene: FakeDrapedSceneHandles = {
-    globe: { _surface: { _tilesToRender: [] }, tilesLoaded: false },
+    globe: {
+      _surface: {
+        _debug: { tilesWaitingForChildren: 0 },
+        _tileLoadQueueHigh: [],
+        _tilesToRender: [],
+      },
+      tilesLoaded: false,
+    },
     imageryLayers: new ImageryLayerCollection(),
     postRender: new FakeEvent(),
     preRender: new FakeEvent(),
@@ -172,13 +190,20 @@ export function fakeDrapedScene(): DrapedScene & FakeDrapedSceneHandles {
   return scene as unknown as DrapedScene & FakeDrapedSceneHandles;
 }
 
-/** A rendered tile with each of `loaded`'s imagery ready and each of `loading`'s still loading. */
+/**
+ * A rendered tile at `level` with each of `loaded`'s imagery ready and each of `loading`'s still
+ * loading; `renderable` false makes it a fill.
+ */
 export function renderedTile({
+  level = 0,
   loaded = [],
   loading = [],
+  renderable = true,
 }: {
+  level?: number;
   loaded?: ImageryLayer[];
   loading?: ImageryLayer[];
+  renderable?: boolean;
 }): FakeRenderedTile {
   return {
     data: {
@@ -189,17 +214,20 @@ export function renderedTile({
         })),
       ],
     },
+    level,
+    renderable,
   };
 }
 
 /**
- * From now on the globe renders one tile that every shown layer of `scene`'s collection covers,
- * one added later too, each with its imagery `state`: `loaded`, as once Cesium's load queues have
- * drained, or `loading`. A hidden layer has none: Cesium frees a hidden layer's tiles.
+ * From now on the globe renders one tile at `level` that every shown layer of `scene`'s collection
+ * covers, one added later too, each with its imagery `state`: `loaded`, as once Cesium's load
+ * queues have drained, or `loading`. A hidden layer has none: Cesium frees a hidden layer's tiles.
  */
 export function renderEveryLayer(
   scene: FakeDrapedSceneHandles,
   state: 'loaded' | 'loading',
+  level = 0,
 ): void {
   const tile: FakeRenderedTile = {
     get data() {
@@ -210,6 +238,8 @@ export function renderEveryLayer(
         state === 'loaded' ? { loaded: shown } : { loading: shown },
       ).data;
     },
+    level,
+    renderable: true,
   };
   scene.globe._surface._tilesToRender = [tile];
 }

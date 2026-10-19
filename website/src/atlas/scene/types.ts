@@ -299,7 +299,8 @@ export interface DrapedImageryLayer {
   setAlpha(a: number): void;
   setShown(s: boolean): void;
   /**
-   * True once the tiles the globe rendered have this layer's imagery loaded, or
+   * True once the tiles the globe rendered are the ones it chose for the view, not coarser ones
+   * drawn while finer terrain loads, and have this layer's imagery loaded, or
    * `DRAPED_READY_CAP_MS` after it was added or last shown; until then the shown layer asks for a
    * frame each frame. Never while hidden, and a hidden layer asks for no frame: Cesium frees a
    * hidden layer's tiles, so a layer shown again is ready only once they have loaded anew.

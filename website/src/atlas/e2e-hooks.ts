@@ -253,6 +253,14 @@ export interface DrapedReadyDetail {
   capElapsed: boolean;
   /** The frames counted from the add or show, that one included. */
   frames: number;
+  /**
+   * Whether the tiles the globe rendered in the frame read from were the ones it chose for the
+   * view, not coarser ones drawn while finer terrain loaded: always for `tiles`; a `cap` read
+   * without it waited on the terrain, one with it on the layer's own imagery.
+   */
+  settled: boolean;
+  /** The deepest level of the tiles the globe rendered in the frame read from; −1 with none. */
+  renderedLevel: number;
 }
 
 /** A performance measure from `startMs` to `endMs` (`performance.now()` times), e2e build only. */

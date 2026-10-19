@@ -308,6 +308,56 @@ describe('addDrapedImageryLayer', () => {
     expect(layer.isReady()).toBe(true);
   });
 
+  // Right after a terrain change the globe draws its level-0 tiles while finer terrain loads, and
+  // those carry the layer's coarsest imagery long before the tiles the view settles on carry
+  // theirs. The layer waits for those, so its fade and pre-warm run over the tiles the view keeps.
+  it('is not ready while the globe still refines the tiles in view, though those it drew have its imagery', () => {
+    const now = vi.spyOn(performance, 'now').mockReturnValue(0);
+    const layer = addDrapedImageryLayer({
+      alpha: 0,
+      name: 'atlas-surface',
+      provider: fakeProvider(),
+      scene,
+    });
+    const quadtree = scene.globe._surface;
+    renderEveryLayer(scene, 'loaded');
+    quadtree._tileLoadQueueHigh = [{}, {}]; // the two level-0 tiles block refinement as they load
+    scene.preRender.raiseEvent();
+    scene.preRender.raiseEvent();
+    expect(layer.isReady()).toBe(false);
+    expect(scene.requestRender).toHaveBeenCalled();
+    // Refined into children that cannot render yet: drawn in their place, nothing blocking.
+    quadtree._tileLoadQueueHigh = [];
+    quadtree._debug.tilesWaitingForChildren = 1;
+    scene.preRender.raiseEvent();
+    expect(layer.isReady()).toBe(false);
+    // A tile drawn as a fill beside its loaded siblings, its own terrain still loading.
+    quadtree._debug.tilesWaitingForChildren = 0;
+    quadtree._tilesToRender = [
+      renderedTile({ level: 3, loaded: [layer.layer] }),
+      renderedTile({ level: 3, loaded: [layer.layer], renderable: false }),
+    ];
+    scene.preRender.raiseEvent();
+    expect(layer.isReady()).toBe(false);
+    renderEveryLayer(scene, 'loaded', 3);
+    scene.preRender.raiseEvent();
+    expect(layer.isReady()).toBe(true);
+    // Still unsettled at the cap, the fallback reads it ready all the same.
+    const capped = addDrapedImageryLayer({
+      alpha: 0,
+      name: 'atlas-outlines',
+      provider: fakeProvider(),
+      scene,
+    });
+    quadtree._tileLoadQueueHigh = [{}];
+    scene.preRender.raiseEvent();
+    scene.preRender.raiseEvent();
+    expect(capped.isReady()).toBe(false);
+    now.mockReturnValue(3_000);
+    scene.preRender.raiseEvent();
+    expect(capped.isReady()).toBe(true);
+  });
+
   describe('readiness measures (e2e build)', () => {
     afterEach(() => {
       vi.unstubAllEnvs();
@@ -332,12 +382,12 @@ describe('addDrapedImageryLayer', () => {
         provider: fakeProvider(),
         scene,
       });
-      renderEveryLayer(scene, 'loaded');
+      renderEveryLayer(scene, 'loaded', 7);
       scene.preRender.raiseEvent();
       now.mockReturnValue(1_040);
       scene.preRender.raiseEvent();
       expect(loaded.isReady()).toBe(true);
-      renderEveryLayer(scene, 'loading');
+      renderEveryLayer(scene, 'loading', 7);
       now.mockReturnValue(2_000);
       const capped = addDrapedImageryLayer({
         alpha: 0,
@@ -351,13 +401,15 @@ describe('addDrapedImageryLayer', () => {
       now.mockReturnValue(5_000);
       scene.preRender.raiseEvent();
       expect(capped.isReady()).toBe(true);
-      // Shown again, its readiness counts from the show.
+      // Shown again, its readiness counts from the show; the cap reads it ready while the globe
+      // still refines the coarse tiles it draws.
       now.mockReturnValue(9_000);
       loaded.setShown(false);
       loaded.setShown(true);
-      renderEveryLayer(scene, 'loaded');
+      renderEveryLayer(scene, 'loaded', 1);
+      scene.globe._surface._tileLoadQueueHigh = [{}];
       scene.preRender.raiseEvent();
-      now.mockReturnValue(9_016);
+      now.mockReturnValue(12_016);
       scene.preRender.raiseEvent();
       expect(readiness()).toEqual([
         {
@@ -366,6 +418,8 @@ describe('addDrapedImageryLayer', () => {
             capElapsed: false,
             frames: 2,
             layer: 'atlas-surface',
+            renderedLevel: 7,
+            settled: true,
           },
           duration: 40,
           startTime: 1_000,
@@ -376,18 +430,22 @@ describe('addDrapedImageryLayer', () => {
             capElapsed: true,
             frames: 3,
             layer: 'atlas-outlines',
+            renderedLevel: 7,
+            settled: true,
           },
           duration: 3_000,
           startTime: 2_000,
         },
         {
           detail: {
-            branch: 'tiles',
-            capElapsed: false,
+            branch: 'cap',
+            capElapsed: true,
             frames: 2,
             layer: 'atlas-surface',
+            renderedLevel: 1,
+            settled: false,
           },
-          duration: 16,
+          duration: 3_016,
           startTime: 9_000,
         },
       ]);
@@ -421,6 +479,8 @@ describe('addDrapedImageryLayer', () => {
             capElapsed: true,
             frames: 3,
             layer: 'atlas-surface',
+            renderedLevel: 0,
+            settled: true,
           },
           duration: 3_018,
           startTime: 1_000,

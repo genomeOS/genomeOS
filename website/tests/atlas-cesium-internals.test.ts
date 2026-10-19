@@ -7,7 +7,8 @@
  * the globe shader cache, keyed by the number of drawn textures, that a draped pre-warm fills.
  * Also the cache of ground positions a relief change leaves stale ("Exaggeration"), which the
  * terrain shading empties so the labels clamped to the ground follow Physical relief, and the
- * rendered tiles and their per-layer imagery states that a draped layer's readiness reads.
+ * rendered tiles, their per-layer imagery states and the quadtree's refinement state that a
+ * draped layer's readiness reads.
  */
 
 import * as Cesium from 'cesium';
@@ -320,5 +321,54 @@ describe('Cesium 1.145 internals the draped layers rely on (#483)', () => {
     expect(cesiumSource('Scene/Globe.js')).toMatch(
       /this\._surface\._tileLoadQueueHigh\.length === 0 &&\s*this\._surface\._tileLoadQueueMedium\.length === 0 &&\s*this\._surface\._tileLoadQueueLow\.length === 0/,
     );
+  });
+
+  // A draped layer is ready only once the rendered tiles are the ones the globe chose for the
+  // view (scene/draped/rendered-imagery.ts, `renderedTilesSettled`): right after a terrain change
+  // it draws coarse tiles while finer terrain loads, and those carry a layer's coarsest imagery.
+  it('says in its quadtree when the tiles it rendered stand in for ones still loading', () => {
+    const quadtree = cesiumSource('Scene/QuadtreePrimitive.js');
+    // Both reset at the start of each render frame, and the load queues are walked, not emptied,
+    // so `preRender` reads those of the frame before.
+    expect(quadtree).toMatch(
+      /function clearTileLoadQueue\(primitive\) \{[\s\S]*?debug\.tilesWaitingForChildren = 0;\s*primitive\._tileLoadQueueHigh\.length = 0;/,
+    );
+    expect(quadtree).toMatch(
+      /QuadtreePrimitive\.prototype\.beginFrame = function \(frameState\) \{[\s\S]*?clearTileLoadQueue\(this\);/,
+    );
+    expect(quadtree).toMatch(
+      /function processSinglePriorityLoadQueue\([\s\S]*?for \(\s*let i = 0, len = loadQueue\.length;/,
+    );
+    // A level-0 tile not yet renderable: nothing drawn in its place, counted and queued high.
+    expect(quadtree).toMatch(
+      /if \(!tile\.renderable\) \{\s*queueTileLoad\(primitive, primitive\._tileLoadQueueHigh, tile, frameState\);\s*\+\+debug\.tilesWaitingForChildren;/,
+    );
+    // A tile drawn in place of descendants that cannot render yet, which load at medium
+    // priority: counted, whatever the debug output, with no refinement blocker queued.
+    expect(quadtree).toMatch(
+      /\/\/ Remove all descendants from the render list and add this tile\.\s*primitive\._tilesToRender\.length = firstRenderedDescendantIndex;[\s\S]*?\+\+debug\.tilesWaitingForChildren;\s*\}/,
+    );
+    // A tile drawn because its children's availability is unknown until it loads.
+    expect(quadtree).toMatch(
+      /load this refinement blocker with\s*\/\/ high priority\.\s*addTileToRenderList\(primitive, tile\);\s*queueTileLoad\(primitive, primitive\._tileLoadQueueHigh, tile, frameState\);/,
+    );
+    // A tile the view wants that cannot render yet without losing detail drawn last frame.
+    expect(quadtree).toMatch(
+      /Load this blocker tile with high priority[\s\S]{0,120}queueTileLoad\(primitive, primitive\._tileLoadQueueHigh, tile, frameState\);/,
+    );
+    // A rendered tile without its own terrain is drawn as a fill.
+    expect(cesiumSource('Scene/GlobeSurfaceTile.js')).toMatch(
+      /tile\.renderable = defined\(surfaceTile\.vertexArray\);/,
+    );
+    expect(cesiumSource('Scene/GlobeSurfaceTileProvider.js')).toMatch(
+      /if \(!defined\(surfaceTile\.vertexArray\)\) \{\s*this\._hasFillTilesThisFrame = true;/,
+    );
+    const tile = new terrain.QuadtreeTile({
+      level: 2,
+      tilingScheme: new GeographicTilingScheme(),
+      x: 1,
+      y: 1,
+    }) as unknown as { level: number; renderable: unknown };
+    expect([tile.level, tile.renderable]).toEqual([2, false]);
   });
 });

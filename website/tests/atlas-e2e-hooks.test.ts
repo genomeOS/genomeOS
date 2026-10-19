@@ -238,6 +238,8 @@ describe('e2e performance measures', () => {
       capElapsed: true,
       frames: 40,
       layer: 'atlas-surface',
+      renderedLevel: 0,
+      settled: false,
     });
     expect(measures(GROUND_PASS_MEASURE)).toEqual([]);
     expect(measures(DRAPED_READY_MEASURE)).toEqual([]);
@@ -286,6 +288,8 @@ describe('e2e performance measures', () => {
       capElapsed: true,
       frames: 40,
       layer: 'atlas-outlines',
+      renderedLevel: 2,
+      settled: false,
     });
     expect(measures(DRAPED_READY_MEASURE)).toEqual([
       {
@@ -294,6 +298,8 @@ describe('e2e performance measures', () => {
           capElapsed: true,
           frames: 40,
           layer: 'atlas-outlines',
+          renderedLevel: 2,
+          settled: false,
         },
         duration: 3_000,
         startTime: 100,
