@@ -1398,6 +1398,71 @@ describe('DrapedSurfaceGroup', () => {
     expect(late.release.mock.calls).toEqual([[8], [7]]);
   });
 
+  // The fade waits for both layers, so the outlines' raster and tiles load beside the surface's.
+  it('prepares the outlines beside the surface, before the surface prepare resolves', async () => {
+    const surfaceReady = deferred<RasterReady>();
+    const late = fakeSource();
+    late.prepare.mockImplementation(async (spec) =>
+      spec.layer === 'outlines'
+        ? { bounds: FAKE_BOUNDS, rasterId: 8 }
+        : surfaceReady.promise,
+    );
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      cellEdges: true,
+      scene,
+      source: late,
+      wave: REST,
+    });
+    group.setOpacity(0);
+    const preparing = group.prepare(signal);
+    expect(late.prepare.mock.calls.map(([spec]) => spec.layer)).toEqual([
+      'surface',
+      'outlines',
+    ]);
+    await flushTasks();
+    expect(alphas(scene)).toEqual([['atlas-outlines', 0]]); // loading its tiles at alpha 0
+    expect(group.isReady()).toBe(false);
+    expect(group.outlinesReady()).toBe(false);
+    surfaceReady.resolve({ bounds: FAKE_BOUNDS, rasterId: 7 });
+    await preparing;
+    expect(alphas(scene)).toEqual([
+      ['atlas-surface', 0],
+      ['atlas-outlines', 0],
+    ]);
+    renderEveryLayer(scene, 'loaded');
+    frames(2);
+    expect(group.outlinesReady()).toBe(true);
+    expect(group.isReady()).toBe(false); // loaded: both pre-warm in the next frame
+    drawFrame();
+    await vi.waitFor(() => expect(group.isReady()).toBe(true));
+  });
+
+  it('stops the outline prepare it started when the surface raster fails', async () => {
+    const outlineReady = deferred<RasterReady>();
+    const failing = fakeSource();
+    failing.prepare.mockImplementation(async (spec) => {
+      if (spec.layer === 'outlines') return outlineReady.promise;
+      throw new Error('surface raster');
+    });
+    const onError = vi.fn();
+    const group = createDrapedSurfaceGroup({
+      ...OPTIONS,
+      cellEdges: true,
+      onError,
+      scene,
+      source: failing,
+      wave: REST,
+    });
+    await expect(group.prepare(signal)).rejects.toThrow('surface raster');
+    expect(failing.prepare.mock.calls[1][1].aborted).toBe(true);
+    outlineReady.resolve({ bounds: FAKE_BOUNDS, rasterId: 8 });
+    await flushTasks();
+    expect(failing.release.mock.calls).toEqual([[8]]);
+    expect(named(scene, 'atlas-outlines')).toEqual([]);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it('shows at once when the wave rests (reduced motion, hidden tab)', async () => {
     const group = createDrapedSurfaceGroup({
       ...OPTIONS,

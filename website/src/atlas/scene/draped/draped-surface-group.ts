@@ -13,9 +13,10 @@
  *   rasters kept, so the toggle back is instant. Every setter and every `preRender` recomputes
  *   both and writes only a changed one, so the 1 s fade follows the wave frame by frame and a
  *   frame at rest requests nothing.
- * - `prepare` prepares the surface raster and adds its layer, then the outlines' when edges are
- *   on. A raster with nothing to draw adds no layer and is ready at once. The outlines are
- *   prepared the first time edges turn on and toggled by alpha after that.
+ * - `prepare` prepares the surface raster and, when edges are on, the outlines' beside it, not
+ *   after it: the fade waits for both, so both load their tiles at once. Each adds its layer as
+ *   its raster lands. A raster with nothing to draw adds no layer and is ready at once. The
+ *   outlines are prepared the first time edges turn on and toggled by alpha after that.
  * - A new outline style is prepared at alpha 0 above the old outlines, which keep drawing until
  *   the new layer is ready and are then destroyed in the frame that shows the new one, as a
  *   restyle keeps the outgoing surface opaque until it is retired. A style moved past before it
@@ -38,8 +39,8 @@
  *   provider `errorEvent` go to `onError`, and the scene reverts to the smooth globe. `destroy`
  *   aborts every prepare in flight (a raster arriving after it is released at once), removes the
  *   layers and releases their rasters. A `prepare` whose own signal aborts rejects at once and
- *   stops the outline prepare it started; a surface layer it already added waits for `destroy`.
- *   Every setter is a no-op after `destroy`.
+ *   stops the outline prepare it started, as does one whose surface raster fails; a layer it
+ *   already added waits for `destroy`. Every setter is a no-op after `destroy`.
  * - Data elevation is off under World Terrain and Cesium drapes imagery in every scene mode, so
  *   the elevation, scene-mode and edge-hold setters do nothing.
  *
@@ -300,22 +301,30 @@ export function createDrapedSurfaceGroup(
   const run = async (signal: AbortSignal): Promise<void> => {
     prepareState = 'pending';
     const link = eitherSignal(signal, lifetime.signal);
+    // Stops the outline prepare begun here once this one fails.
+    const failed = new AbortController();
+    const outlineLink = eitherSignal(link.signal, failed.signal);
+    const surfaceLayer = drape(surfaceSpec, 'atlas-surface', link.signal);
+    const outlines =
+      cellEdges && cells.supported ? outlinesUntil(outlineLink.signal) : null;
     try {
-      const layer = await drape(surfaceSpec, 'atlas-surface', link.signal);
+      const layer = await surfaceLayer;
       if (destroyed) {
         layer?.destroy();
         throw abortError();
       }
       surface = { layer };
       apply();
-      if (cellEdges && cells.supported) await outlinesUntil(link.signal);
+      await outlines;
       if (destroyed || signal.aborted) throw abortError();
       if (pendingFailure) throw pendingFailure.error;
       prepareState = 'settled';
     } catch (error) {
       prepareState = 'failed';
+      failed.abort();
       throw error;
     } finally {
+      outlineLink.detach();
       link.detach();
     }
   };
