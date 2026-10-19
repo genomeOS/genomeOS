@@ -449,10 +449,8 @@ describe('the terrain tour’s attribution (#483)', () => {
         steps,
         [
           { observedMs: 1_800, step: 'World Terrain: click → data visible' },
-          {
-            observedMs: Number.NaN,
-            step: 'palette restyle: change → tiles loaded',
-          },
+          // never came
+          { observedMs: null, step: 'palette restyle: change → tiles loaded' },
         ],
         4,
       ),
@@ -467,7 +465,7 @@ describe('the terrain tour’s attribution (#483)', () => {
       },
       {
         coarseWorkerMs: Number.NaN,
-        observedMs: Number.NaN,
+        observedMs: null,
         rate: 4,
         scaledMs: Number.NaN,
         step: 'palette restyle: change → tiles loaded',
@@ -481,6 +479,42 @@ describe('the terrain tour’s attribution (#483)', () => {
         1,
       )[0].scaledMs,
     ).toBe(1_800);
+  });
+
+  it('refuses a reached milestone that bounds no step, and a milestone time that is neither a time nor null', () => {
+    const steps = attributeTour({
+      endMs: 12_000,
+      endTiles: tiles(),
+      groundPasses: [],
+      longFrames: [],
+      readiness: [],
+      steps: [
+        {
+          startMs: 1_000,
+          step: 'World Terrain: click → data visible',
+          tiles: null,
+        },
+      ],
+    });
+    expect(() =>
+      workerScaled(
+        steps,
+        [{ observedMs: 1_800, step: 'World Terrain: click → data seen' }],
+        4,
+      ),
+    ).toThrow(
+      "the milestone 'World Terrain: click → data seen' came at 1800 ms, yet bounds no step of the tour",
+    );
+    for (const observedMs of [Number.NaN, Number.POSITIVE_INFINITY])
+      expect(() =>
+        workerScaled(
+          steps,
+          [{ observedMs, step: 'World Terrain: click → data visible' }],
+          4,
+        ),
+      ).toThrow(
+        `the milestone 'World Terrain: click → data visible' has a time of ${observedMs} ms: null when it never came, else finite`,
+      );
   });
 
   it('keeps what began before the first step in a step of its own, named for it', () => {

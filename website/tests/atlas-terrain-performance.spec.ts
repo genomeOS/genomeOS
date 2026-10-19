@@ -616,10 +616,10 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
   steps.push(
     ...milestoneSteps('World Terrain', 'click', 'data visible', click, visible),
   );
-  // The milestones the worker-scaled estimate reports, by the steps they bound.
-  const milestones = [
+  // The milestones the worker-scaled estimate reports, by the steps they bound; null never came.
+  const milestones: { observedMs: number | null; step: string }[] = [
     {
-      observedMs: dataVisibleMs,
+      observedMs: visible ? dataVisibleMs : null,
       step: milestoneStep('World Terrain', 'click', 'data visible'),
     },
   ];
@@ -672,7 +672,7 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
       ),
     );
     milestones.push({
-      observedMs: restyled.ms,
+      observedMs: restyled.done ? restyled.ms : null,
       step: milestoneStep(step, 'change', swapped),
     });
     await settle(step);

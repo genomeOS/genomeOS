@@ -385,7 +385,8 @@ export function attributeTour(record: TourRecord): StepAttribution[] {
 /** A milestone's time with the worker's raster time scaled by the CPU rate, for the report. */
 export interface WorkerScaledMilestone {
   step: string;
-  observedMs: number;
+  /** Null where the milestone never came. */
+  observedMs: number | null;
   /** The raster time of the tiles delivered in the milestone's step: every level, and 0–2 alone. */
   workerMs: number;
   coarseWorkerMs: number;
@@ -396,16 +397,29 @@ export interface WorkerScaledMilestone {
 
 /**
  * Each milestone, named by the step it bounds (`milestoneSteps`), with the worker's raster time in
- * that step scaled by `rate`, as a phone's slower CPU would take it. A milestone that never came,
- * or whose step read no tile counts, scales to NaN.
+ * that step scaled by `rate`, as a phone's slower CPU would take it. A milestone that never came
+ * (`observedMs` null), or whose step read no tile counts, scales to NaN. One that came yet bounds
+ * no step, or whose time is not finite, is an error.
  */
 export function workerScaled(
   steps: StepAttribution[],
-  milestones: { step: string; observedMs: number }[],
+  milestones: { step: string; observedMs: number | null }[],
   rate: number,
 ): WorkerScaledMilestone[] {
   return milestones.map(({ observedMs, step }) => {
-    const tiles = steps.find((attributed) => attributed.step === step)?.tiles;
+    if (observedMs !== null && !Number.isFinite(observedMs))
+      throw new Error(
+        `the milestone '${step}' has a time of ${observedMs} ms: null when it never came, else finite`,
+      );
+    let tiles: TourTiles | null = null;
+    if (observedMs !== null) {
+      const attributed = steps.find((each) => each.step === step);
+      if (!attributed)
+        throw new Error(
+          `the milestone '${step}' came at ${observedMs} ms, yet bounds no step of the tour`,
+        );
+      tiles = attributed.tiles;
+    }
     const sum = (levels: number[]) =>
       levels.reduce((total, ms) => total + ms, 0);
     const workerMs = tiles ? sum(tiles.rasterMsByLevel) : Number.NaN;
@@ -415,7 +429,7 @@ export function workerScaled(
         : Number.NaN,
       observedMs,
       rate,
-      scaledMs: observedMs + (rate - 1) * workerMs,
+      scaledMs: (observedMs ?? Number.NaN) + (rate - 1) * workerMs,
       step,
       workerMs,
     };
