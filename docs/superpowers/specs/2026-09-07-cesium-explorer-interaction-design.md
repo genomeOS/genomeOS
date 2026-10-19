@@ -269,7 +269,8 @@ terrain under the published HbS grid, one headed run on an Apple M3 Pro, the pho
 emulation with its page CPU slowed ×4), the peak was 53.3 MiB on the desktop and 56.3 MiB on the
 phone, so phones keep Cesium's default tile cache, outlines in their own layer, borders to level
 11, and World Terrain itself. The World Terrain budgets are asserted on hardware GPUs; on a
-software renderer only the memory budget is. That asserted tour runs on the e2e fixture's
+software renderer only the memory budget is, pending the owner's sign-off, since the draping
+design skips every terrain budget there. That asserted tour runs on the e2e fixture's
 256-cell grid. The production-density run met both memory budgets but missed three timing
 budgets: a desktop long frame of 346 ms against 200 ms, and on the phone data visible after 3.8 s
 against 2 s and a long frame of 927 ms against 800 ms. So the timing budgets are met at the
