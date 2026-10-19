@@ -471,6 +471,22 @@ def test_a_fit_without_its_input_is_neither_cached_nor_loaded_as_the_current_for
         load_fit(path)
 
 
+def test_a_cache_whose_counts_are_not_integers_is_not_loaded_as_the_current_format(fit, tmp_path):
+    """Counts, not frequencies (§7.1b): a float `ac` is refused even where every value is integral.
+
+    `save_fit` never writes one, since the fit's table holds the contract's integer counts, so a
+    format-3 cache that holds one was not written from what the fit consumed.
+    """
+    import cloudpickle
+
+    float_ac = replace(fit, observations=fit.observations.assign(ac=fit.observations["ac"].astype(float)))
+    path = tmp_path / "float-ac.pkl"
+    with path.open("wb") as stream:
+        cloudpickle.dump({"format": FIT_FORMAT, "fit": float_ac}, stream)
+    with pytest.raises(ValueError, match="integer counts ac and an"):
+        load_fit(path)
+
+
 def test_a_format_three_cache_outlives_a_contract_revision_but_cannot_publish_under_it(fit, tmp_path):
     """A contract revision must not strand every format-3 cache: the cache still loads (#45).
 
