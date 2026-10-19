@@ -33,8 +33,7 @@
  * asks for that frame and runs its callback once the frame has rendered, which is when the scene
  * re-reads the ground after a relief change; `createReliefResampler` arms it for each relief
  * frame, and once more, final, when the slider rests. `throttleResample` is the 50 ms rule, which
- * the scene also applies to the highlight it grounds. `sampleGroundHeights` picks every point
- * once, for a one-off read.
+ * the scene also applies to the highlight it grounds.
  *
  * In the e2e build each pass emits a `GROUND_PASS_MEASURE` performance measure with the points it
  * picked and why it ran ("Performance budget and measurement"), so the World Terrain tour can
@@ -44,9 +43,8 @@
 
 import {
   Cartesian3,
-  Cartographic,
   Ellipsoid,
-  Math as CesiumMath,
+  type Cartographic,
   type Event,
   type Globe,
 } from 'cesium';
@@ -68,46 +66,6 @@ export const GROUND_RESAMPLE_MS = 50;
  * the next frame.
  */
 export const GROUND_PICK_BUDGET_MS = 3;
-
-/** One scratch position, reused for every point: sampling allocates nothing per point. */
-const SCRATCH = new Cartographic();
-
-function assertLonLatPairs(lonLat: Float64Array): void {
-  if (lonLat.length % 2 !== 0) {
-    throw new Error(
-      `ground heights need lon, lat pairs: got ${lonLat.length} numbers`,
-    );
-  }
-}
-
-/**
- * The rendered ground height in metres under each `lon, lat` pair (WGS84 degrees), NaN where no
- * loaded tile covers the point. Longitudes are wrapped into [-180°, 180°], where `getHeight` finds
- * its tiles. Writes into `out` when given (one slot per pair) and returns it.
- */
-export function sampleGroundHeights(
-  globe: Pick<Globe, 'getHeight'>,
-  lonLat: Float64Array,
-  out?: Float64Array,
-): Float64Array {
-  assertLonLatPairs(lonLat);
-  const count = lonLat.length / 2;
-  if (out && out.length !== count) {
-    throw new Error(
-      `ground heights for ${count} points need ${count} slots: got ${out.length}`,
-    );
-  }
-  const heights = out ?? new Float64Array(count);
-  for (let i = 0; i < count; i += 1) {
-    SCRATCH.longitude = CesiumMath.negativePiToPi(
-      CesiumMath.toRadians(lonLat[2 * i]),
-    );
-    SCRATCH.latitude = CesiumMath.toRadians(lonLat[2 * i + 1]);
-    SCRATCH.height = 0;
-    heights[i] = globe.getHeight(SCRATCH) ?? Number.NaN;
-  }
-  return heights;
-}
 
 /** The ground heights under a fixed set of points, kept current as the rendered ground changes. */
 export interface GroundHeights {
@@ -163,11 +121,11 @@ const SCRATCH_VIEWER = new Cartesian3();
 
 /**
  * Reads the ground under `lonLat` (WGS84 degree pairs) at once, unless the globe's tiles are still
- * the smooth globe's, then again as terrain tiles load and after each morph between views, picks
- * a frame's budget left going on in the next frame. Throws unless `lonLat` holds finite pairs.
- * `now` is the performance timeline's clock: the throttle, the pick budget and the e2e build's
- * pass measures read it. Picks spend `budget`, shared with other ground heights, or one of their
- * own.
+ * the smooth globe's, then again as terrain tiles load and after each morph between views; the
+ * picks a frame's budget leaves wait for the next frame. Throws unless `lonLat` holds finite
+ * pairs. `now` is the performance timeline's clock: the throttle, the pick budget and the e2e
+ * build's pass measures read it. Picks spend `budget`, shared with other ground heights, or one
+ * of their own.
  */
 export function createGroundHeights(
   scene: GroundScene,

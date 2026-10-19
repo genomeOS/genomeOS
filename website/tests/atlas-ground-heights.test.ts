@@ -2,7 +2,7 @@
  * (terrain draping design, "Per layer under World Terrain", "Exaggeration", "2D and Columbus" and
  * "Failure modes"; #483), and the e2e build's measure of each pass ("Performance budget and
  * measurement"). */
-import { Cartographic, Math as CesiumMath } from 'cesium';
+import { Cartographic } from 'cesium';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { GROUND_PASS_MEASURE } from '../src/atlas/e2e-hooks';
@@ -15,7 +15,6 @@ import {
   GROUND_PICK_BUDGET_MS,
   GROUND_RESAMPLE_MS,
   onTileLoads,
-  sampleGroundHeights,
   throttleResample,
 } from '../src/atlas/scene/ground-heights';
 import { FakeEvent } from './helpers/scene-fakes';
@@ -95,19 +94,6 @@ function setup(initial: GroundAt) {
 }
 
 describe('ground heights under World Terrain', () => {
-  it('samples the rendered ground under each point, NaN where no tile has loaded', () => {
-    const globe = {
-      getHeight: (c: Cartographic) =>
-        CesiumMath.toDegrees(c.longitude) < 0 ? 6_000 : undefined,
-    };
-    expect(Array.from(sampleGroundHeights(globe as never, POINTS))).toEqual([
-      6_000,
-      Number.NaN,
-    ]);
-    const out = new Float64Array(2);
-    expect(sampleGroundHeights(globe as never, POINTS, out)).toBe(out);
-  });
-
   it('samples at creation and tells listeners only when a height changed', () => {
     const { heights, setGround } = setup((lon) =>
       lon < 0 ? 6_000 : undefined,
@@ -212,7 +198,7 @@ describe('ground heights under World Terrain', () => {
     ).toThrow(/lon, lat pairs/);
   });
 
-  it('refuses a coordinate that is not finite, and an out array of the wrong length', () => {
+  it('refuses a coordinate that is not finite', () => {
     const scene = {
       globe: { getHeight: () => 0, tileLoadProgressEvent: new ProgressEvent() },
       morphComplete: new FakeEvent(),
@@ -220,21 +206,6 @@ describe('ground heights under World Terrain', () => {
     expect(() =>
       createGroundHeights(scene as never, Float64Array.of(1, 2, 3, Number.NaN)),
     ).toThrow(/finite lon, lat pairs: pair 1 is \(3, NaN\)/);
-    expect(() =>
-      sampleGroundHeights(scene.globe, POINTS, new Float64Array(3)),
-    ).toThrow(/2 points need 2 slots: got 3/);
-  });
-
-  it('wraps a longitude past 180° into the range where getHeight finds its tiles', () => {
-    // Globe.getHeight finds no level-zero tile for a longitude outside [-180°, 180°].
-    const globe = {
-      getHeight: (c: Cartographic) =>
-        Math.abs(c.longitude) <= Math.PI ? 6_000 : undefined,
-    };
-    const shifted = Float64Array.of(-3.709 + 360, 40.419, 12.686 - 360, -1.844);
-    expect(Array.from(sampleGroundHeights(globe as never, shifted))).toEqual([
-      6_000, 6_000,
-    ]);
   });
 });
 
