@@ -471,6 +471,31 @@ def test_a_fit_without_its_input_is_neither_cached_nor_loaded_as_the_current_for
         load_fit(path)
 
 
+def test_a_format_three_cache_outlives_a_contract_revision_but_cannot_publish_under_it(fit, tmp_path):
+    """A contract revision must not strand every format-3 cache: the cache still loads (#45).
+
+    Conformance is checked where it matters, when the table is published: `serialize_observations`
+    re-validates it against the current contract, and refuses.
+    """
+    import cloudpickle
+
+    from genomeos.surfaces.fit_input import serialize_observations
+
+    earlier = replace(fit, observations=fit.observations.assign(retired_column="x"))
+    path = tmp_path / "earlier-contract.pkl"
+    with path.open("wb") as stream:
+        cloudpickle.dump({"format": FIT_FORMAT, "fit": earlier}, stream)
+    loaded = load_fit(path)
+    pd.testing.assert_frame_equal(loaded.observations, earlier.observations)
+    with pytest.raises(
+        (pandera.errors.SchemaError, pandera.errors.SchemaErrors),
+        match="'retired_column' not in DataFrameSchema",
+    ):
+        serialize_observations(loaded.observations, measurement="allele_frequency")
+    with pytest.raises(ValueError, match="contract"):
+        save_fit(earlier, tmp_path / "resaved.pkl")
+
+
 def test_owned_legacy_fit_is_reconstructed_without_refit_or_rewrite(fit, tmp_path):
     import cloudpickle
 
