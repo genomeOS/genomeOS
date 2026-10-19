@@ -6,10 +6,13 @@
  * (`terrain-budgets.ts`); this says where they went. Pure: no Playwright or browser dependency.
  *
  * Every time is the page's `performance.now()`. An entry belongs to the step it started in: from
- * that step's start to the next one's, the last to the tour's end. One that started before the
- * first step (a long frame of the smooth globe that the page's observer delivered late) lands in a
- * step of its own named for it, so nothing the budgets count goes unattributed; one at or after
- * the end, steps out of order, or running tile counts that shrink are errors.
+ * that step's start to the next one's, the last to the tour's end. A long frame starts where its
+ * longest script does, or with no script where the frame does: the page reads a step's start in a
+ * task of its own, which can open the frame whose callback then runs long for the new step. One
+ * that started before the first step (a long frame of the smooth globe that the page's observer
+ * delivered late) lands in a step of its own named for it, so nothing the budgets count goes
+ * unattributed; one at or after the end, steps out of order, or running tile counts that shrink
+ * are errors.
  */
 
 import type {
@@ -148,6 +151,24 @@ function tilesBetween(
   };
 }
 
+/** The frame's longest script; undefined for a frame without one. */
+export function longestScript(
+  frame: Pick<TourLongFrame, 'scripts'>,
+): TourScript | undefined {
+  return frame.scripts.reduce<TourScript | undefined>(
+    (longest, script) =>
+      longest === undefined || script.duration > longest.duration
+        ? script
+        : longest,
+    undefined,
+  );
+}
+
+/** Where a long frame's time went: its longest script's start, or the frame's own. */
+function frameStart(frame: TourLongFrame): number {
+  return longestScript(frame)?.startTime ?? frame.startTime;
+}
+
 /** The time `a` and `b`, two spans of the page's clock, share. */
 function overlapMs(
   a: { startTime: number; duration: number },
@@ -170,19 +191,19 @@ export function attributeTour(record: TourRecord): StepAttribution[] {
       );
   });
   const first = steps[0];
-  const all = [
-    ...record.longFrames,
-    ...record.groundPasses,
-    ...record.readiness,
+  const starts = [
+    ...record.longFrames.map(frameStart),
+    ...record.groundPasses.map((pass) => pass.startTime),
+    ...record.readiness.map((ready) => ready.startTime),
   ];
-  for (const entry of all)
-    if (!(entry.startTime < endMs))
+  for (const start of starts)
+    if (!(start < endMs))
       throw new Error(
-        `an entry at ${entry.startTime} ms is after the tour's end at ${endMs} ms`,
+        `an entry at ${start} ms is after the tour's end at ${endMs} ms`,
       );
   // Reduced, not spread: a production-density tour emits thousands of ground passes.
-  const earliest = all.reduce(
-    (min, entry) => Math.min(min, entry.startTime),
+  const earliest = starts.reduce(
+    (min, start) => Math.min(min, start),
     Infinity,
   );
   const buckets: {
@@ -209,8 +230,10 @@ export function attributeTour(record: TourRecord): StepAttribution[] {
 
   return buckets.map((bucket, index) => {
     const endOf = buckets[index + 1]?.startMs ?? endMs;
-    const inBucket = <T extends { startTime: number }>(entries: T[]): T[] =>
-      entries.filter((entry) => bucketOf(entry.startTime) === index);
+    const inBucket = <T extends { startTime: number }>(
+      entries: T[],
+      start: (entry: T) => number = (entry) => entry.startTime,
+    ): T[] => entries.filter((entry) => bucketOf(start(entry)) === index);
     const passes = inBucket(record.groundPasses);
     const [from, to] = bucket.tiles;
     return {
@@ -222,7 +245,7 @@ export function attributeTour(record: TourRecord): StepAttribution[] {
         picked: passes.reduce((sum, pass) => sum + pass.detail.points, 0),
         totalMs: tenth(passes.reduce((sum, pass) => sum + pass.duration, 0)),
       },
-      longFrames: inBucket(record.longFrames)
+      longFrames: inBucket(record.longFrames, frameStart)
         .sort((a, b) => a.startTime - b.startTime)
         .map((frame) => ({
           blockingMs: tenth(frame.blockingDuration),

@@ -30,12 +30,13 @@
  * scripts, and the e2e build's performance measures: `atlas-ground-pass`, one per pass that picks
  * the ground under the draped observations (the points picked; its duration is the pass's ms),
  * and `atlas-draped-ready`, one per draped layer read ready (the layer, the rule that fired,
- * `tilesLoaded` or the 3 s cap, and the ms since its add or show). So each long frame lands in its
- * step with the ground-pass time inside it: its scripts alone would not name the pass, which runs
- * inside Cesium's render callback. The drape stats' running counts at each step's start give the
+ * `tilesLoaded` or the 3 s cap, and the ms since its add or show). So each long frame lands in the
+ * step its longest script began in, with the ground-pass time inside it: its scripts alone would
+ * not name the pass, which runs inside Cesium's render callback. The drape stats' running counts at each step's start give the
  * tiles each step delivered: the raster time of levels 0–2, which the budget's histogram leaves
  * out, and the request-to-delivery time per level. The console prints each step's longest frames
- * and its sums; the JSON attachment holds every frame and script.
+ * and its sums; the JSON attachment, kept in the test's output directory, holds every frame and
+ * script.
  *
  * The phone's profile slows only the page's CPU, ×4, as the spec's "mobile ×4" long-frame budget
  * reads. The data worker that rasterises the draped tiles runs at full speed, so the phone's
@@ -63,6 +64,8 @@
  * `public/data/atlas/catalog.json` in that file for the build alone and restores it on every exit
  * (both hold HbS `v3/map-2026-08`), then runs this tour.
  */
+
+import { writeFileSync } from 'node:fs';
 
 import { expect, test, type Page } from '@playwright/test';
 
@@ -98,6 +101,7 @@ import {
 } from './support/terrain-budgets';
 import {
   attributeTour,
+  longestScript,
   type StepAttribution,
   type TourLongFrame,
   type TourMeasure,
@@ -416,7 +420,7 @@ async function pageMeasures(page: Page): Promise<{
 
 /**
  * Each step for the console: its longest frames (`REPORTED_FRAMES`) with their ground-pass time
- * and first script, its ground passes, readiness and the tiles it delivered, only the levels it
+ * and longest script, its ground passes, readiness and the tiles it delivered, only the levels it
  * delivered any at. The attachment carries every frame and script.
  */
 function attributionSummary(steps: StepAttribution[]) {
@@ -428,14 +432,17 @@ function attributionSummary(steps: StepAttribution[]) {
     longest: [...step.longFrames]
       .sort((a, b) => b.ms - a.ms)
       .slice(0, REPORTED_FRAMES)
-      .map(({ groundPassMs, ms, scripts, startMs }) => ({
-        startMs,
-        ms,
-        groundPassMs,
-        script: scripts[0]
-          ? `${scripts[0].invoker} ${scripts[0].sourceFunctionName} ${Math.round(scripts[0].duration)} ms`
-          : null,
-      })),
+      .map((frame) => {
+        const script = longestScript(frame);
+        return {
+          startMs: frame.startMs,
+          ms: frame.ms,
+          groundPassMs: frame.groundPassMs,
+          longestScript: script
+            ? `${script.invoker} ${script.sourceFunctionName} ${Math.round(script.duration)} ms`
+            : null,
+        };
+      }),
     groundPasses: step.groundPasses,
     readiness: step.readiness,
     tiles: step.tiles && {
@@ -640,9 +647,15 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
       steps: attributionSummary(attribution),
     })}`,
   );
+  // A file in the test's output directory, which outlives the run whatever the reporter.
+  const report = testInfo.outputPath('atlas-terrain-performance.json');
+  writeFileSync(
+    report,
+    reportJson({ ...metrics, attribution: { bins, steps: attribution } }),
+  );
   await testInfo.attach('atlas-terrain-performance.json', {
-    body: reportJson({ ...metrics, attribution: { bins, steps: attribution } }),
     contentType: 'application/json',
+    path: report,
   });
   expect(
     (await page.evaluate(() => window.__atlasDrapeStats!())).delivered,

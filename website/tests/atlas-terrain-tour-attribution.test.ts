@@ -70,7 +70,7 @@ describe('the terrain tour’s attribution (#483)', () => {
           startTime: 1_040,
         },
       ],
-      longFrames: [frame(1_000, 80), frame(9_500, 346), frame(4_999, 60)],
+      longFrames: [frame(1_000, 80), frame(9_500, 346), frame(4_990, 60)],
       readiness: [],
       steps: STEPS,
     });
@@ -86,7 +86,7 @@ describe('the terrain tour’s attribution (#483)', () => {
     ).toEqual([
       [
         [1_000, 80, 40],
-        [4_999, 60, 0],
+        [4_990, 60, 0],
       ],
       [],
       [[9_500, 346, 300]],
@@ -96,6 +96,30 @@ describe('the terrain tour’s attribution (#483)', () => {
       [1_000, 4_000],
       [5_000, 4_000],
       [9_000, 3_000],
+    ]);
+  });
+
+  // The page reads a step's start in a task of its own, which can open the frame whose callback
+  // then runs long: that frame is the new step's.
+  it('puts a long frame that straddles a step’s start in the step its longest script began in', () => {
+    const straddling = frame(4_999, 1_034);
+    straddling.scripts = [
+      { ...straddling.scripts[0], duration: 6, startTime: 4_999.5 },
+      { ...straddling.scripts[0], duration: 1_023, startTime: 5_001 },
+    ];
+    const scriptless = { ...frame(8_999, 120), scripts: [] };
+    const steps = attributeTour({
+      endMs: 12_000,
+      endTiles: tiles(),
+      groundPasses: [],
+      longFrames: [straddling, scriptless],
+      readiness: [],
+      steps: STEPS.map((s) => ({ ...s, tiles: null })),
+    });
+    expect(steps.map((s) => s.longFrames.map((f) => f.startMs))).toEqual([
+      [],
+      [4_999, 8_999],
+      [],
     ]);
   });
 
