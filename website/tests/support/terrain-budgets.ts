@@ -7,7 +7,9 @@
  * against their budget (times up, fps down) so a measure outside a budget never rounds back into
  * it and no failure reads "2000 ms > 2000 ms"; bytes are exact. A run that measured no restyle or
  * no raster sample never passes, and a measure that is not a number fails its budget rather than
- * slipping past it.
+ * slipping past it. The tour records a milestone that never came (data visible, or a restyle) as
+ * NaN rather than leaving it out, so a non-finite one reads "not measured" on every renderer, as
+ * an empty list does: the "nothing measured" checks are never skipped, only the timings.
  *
  * On a software renderer (CI's SwiftShader) the timing budgets are skipped, as
  * `atlas-performance.spec.ts` skips its own. Resident memory is a count of tiles, not a timing,
@@ -56,9 +58,12 @@ export interface TerrainPerformanceMetrics {
   profile: TerrainProfile;
   /** `UNMASKED_RENDERER_WEBGL`. */
   renderer: string;
-  /** Terrain switch → draped data visible (Task 17's measure). */
+  /** Terrain switch → draped data visible (Task 17's measure); NaN if it never came. */
   dataVisibleMs: number;
-  /** Each restyle → `globe.tilesLoaded`. */
+  /**
+   * Each restyle → `globe.tilesLoaded`, NaN if that never came. A software renderer, whose
+   * timings are skipped, measures each only to the outgoing layer's retirement.
+   */
   restyleMs: number[];
   orbitFps: number;
   /** Long-animation-frame durations from the terrain switch on. */
@@ -111,7 +116,9 @@ export function terrainBudgetFailures(
       failures.push(`${label} ${value} ${unit} > ${limit} ${unit}`);
   };
 
-  if (timed) {
+  if (!Number.isFinite(metrics.dataVisibleMs))
+    failures.push('data visible not measured');
+  else if (timed) {
     atMost(
       'data visible',
       wholeUp(metrics.dataVisibleMs),
@@ -120,10 +127,9 @@ export function terrainBudgetFailures(
     );
   }
   if (metrics.restyleMs.length === 0) failures.push('no restyles measured');
-  else if (timed) {
-    for (const ms of metrics.restyleMs) {
-      atMost('restyle', wholeUp(ms), budget.restyleMs, 'ms');
-    }
+  for (const ms of metrics.restyleMs) {
+    if (!Number.isFinite(ms)) failures.push('restyle not measured');
+    else if (timed) atMost('restyle', wholeUp(ms), budget.restyleMs, 'ms');
   }
   if (timed) {
     const fps = Math.floor(metrics.orbitFps);

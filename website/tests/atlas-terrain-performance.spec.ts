@@ -13,21 +13,30 @@
  * spec runs under playwright.config.ts with the e2e build, not under
  * playwright.performance.config.ts, which asserts a production build.
  *
- * The tour, the same in both projects (the phone's page CPU slowed ×4, and it must be a coarse
- * pointer, or it would measure the desktop's policy): HbS over the synthetic peak on the smooth
- * globe, every layer on; World Terrain chosen in the chooser (data visible: the surface's fade has
- * begun, past the one pre-warm frame that draws it unseen); an orbit (frame rate, NaN if the drag
- * left the camera where it was, since an idle page counts frames at its display rate); three
- * zoom-ins; Physical relief 1 → 3, whose ground resampling the long frames include; a palette and
- * then a Honmoon restyle (each to `tilesLoaded`); and Home. An init script samples the resident
- * Atlas imagery every frame for its peak and records the long animation frames.
+ * The tour, the same in both projects (the phone must be a coarse pointer, or it would measure
+ * the desktop's policy): HbS over the synthetic peak on the smooth globe, every layer on; World
+ * Terrain chosen in the chooser (data visible: the surface's fade has begun, past the one pre-warm
+ * frame that draws it unseen); an orbit (frame rate, NaN if the drag left the camera where it
+ * was, since an idle page counts frames at its display rate); three zoom-ins; Physical relief
+ * 1 → 3, whose ground resampling the long frames include; a palette and then a Honmoon restyle
+ * (each to `tilesLoaded` on a hardware GPU; on a software renderer, whose timings are skipped, to
+ * the outgoing layer's retirement, which proves the swap happened); and Home. An init script
+ * samples the resident Atlas imagery every frame for its peak and records the long animation
+ * frames.
  *
- * Each step waits for the draped data to settle first. A hardware run must settle. Under a
- * software renderer, whose frames take about a second each in CI, a settle that runs out of time
- * is recorded instead and the tour goes on: the timing budgets are skipped there, and a view whose
- * tiles never all loaded leaves the peak resident imagery only a lower bound, which the tour then
+ * The phone's profile slows only the page's CPU, ×4, as the spec's "mobile ×4" long-frame budget
+ * reads. The data worker that rasterises the draped tiles runs at full speed, so the phone's
+ * data-visible and raster numbers are optimistic for a real phone.
+ *
+ * After each step the tour waits for the draped data to settle (`drapeUnsettled`, which first
+ * lets the step's own frame draw). A hardware run must settle. Under a software renderer, whose
+ * frames take about a second each in CI and whose tiles there load about nine times slower than
+ * under a local SwiftShader, a settle that runs out of time (`SOFTWARE_SETTLE`) is recorded
+ * instead and the tour goes on: the timing budgets are skipped there, and a view whose tiles
+ * never all loaded leaves the peak resident imagery only a lower bound, which the tour then
  * reports as NaN: the memory budget fails, naming the settles that ran out, rather than pass on
- * a lower bound.
+ * a lower bound. A milestone that never came (data visible, or a restyle's swap) fails as not
+ * measured on every renderer.
  *
  * Density: the e2e fixture's grids hold 256 cells, where production's res-4 grid holds 77,844 over
  * almost all land, and only non-empty tiles are resident (`scene/draped/drape-stats.ts`), so the
@@ -83,10 +92,15 @@ const ORBIT = {
 } as const;
 
 /**
- * Under a software renderer, how long the tour waits for each settle, and for all of them
- * together, before it records one as missed.
+ * Under a software renderer, how long the tour waits for each settle, and for all nine together,
+ * before it records one as missed. CI's SwiftShader took 48 s from a restyle to `tilesLoaded` in
+ * phase 3's tour, where a local SwiftShader took 5.4 s; this tour's restyles take up to 12 s to
+ * `tilesLoaded` under a local SwiftShader.
  */
-const SOFTWARE_SETTLE = { eachMs: 60_000, totalMs: 300_000 } as const;
+const SOFTWARE_SETTLE = { eachMs: 150_000, totalMs: 720_000 } as const;
+
+/** The whole tour, its settles included, on any renderer. */
+const TOUR_TIMEOUT_MS = 1_200_000;
 
 /** What the init script keeps in the page. */
 type TourWindow = Window & {
@@ -234,17 +248,18 @@ async function setRelief(page: Page, relief: number): Promise<void> {
 
 /**
  * From a surface restyle (`change`) to one `atlas-surface` layer again, after the new one was
- * added beside the old, with every tile in view loaded; NaN if that never came. The probe's
- * `layerStack` lists the incoming layer from its add at alpha 0, so a sample need not land inside
- * the 300 ms cross-fade, which a slow first swap frame can end at once.
+ * added beside the old, and with `untilTilesLoaded` every tile in view loaded; NaN if that never
+ * came. The probe's `layerStack` lists the incoming layer from its add at alpha 0, so a sample
+ * need not land inside the 300 ms cross-fade, which a slow first swap frame can end at once.
  */
 async function restyleMs(
   page: Page,
   change: () => Promise<unknown>,
+  untilTilesLoaded: boolean,
 ): Promise<number> {
   await openSection(page, 'Inferred surface');
   const done = page.evaluate(
-    (timeoutMs) =>
+    ({ timeoutMs, untilTilesLoaded }) =>
       new Promise<number>((resolve) => {
         const started = performance.now();
         let added = false;
@@ -257,13 +272,14 @@ async function restyleMs(
           const elapsed = performance.now() - started;
           if (surfaces > 1) added = true;
           if (added && surfaces === 1) retired = true;
-          if (retired && probe.tilesLoaded) resolve(elapsed);
+          if (retired && (!untilTilesLoaded || probe.tilesLoaded))
+            resolve(elapsed);
           else if (elapsed > timeoutMs) resolve(Number.NaN);
           else requestAnimationFrame(sample);
         };
         requestAnimationFrame(sample);
       }),
-    MILESTONE_TIMEOUT_MS,
+    { timeoutMs: MILESTONE_TIMEOUT_MS, untilTilesLoaded },
   );
   await change();
   return done;
@@ -337,7 +353,7 @@ function reportJson(value: unknown): string {
 }
 
 test('World Terrain meets its budgets', async ({ page }, testInfo) => {
-  test.setTimeout(600_000);
+  test.setTimeout(TOUR_TIMEOUT_MS);
   const profile: TerrainProfile =
     testInfo.project.name === 'mobile-chromium' ? 'mobile' : 'desktop';
   await page.addInitScript(() => {
@@ -376,7 +392,8 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
   await waitForRevealWave(page);
   await cameraSettled(page);
   const renderer = await rendererOf(page);
-  const { missed, settle } = tourSettler(page, isSoftwareRenderer(renderer));
+  const software = isSoftwareRenderer(renderer);
+  const { missed, settle } = tourSettler(page, software);
   await page.evaluate(() => {
     (window as never as TourWindow).__atlasLongFrames.length = 0;
   });
@@ -400,17 +417,26 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
   await settle('relief 3');
 
   // 6. A palette restyle, then a geometry restyle to Honmoon.
-  const restyles = [
-    await restyleMs(page, () =>
-      page
-        .getByLabel('Surface palette', { exact: true })
-        .selectOption('viridis'),
+  const restyles: number[] = [];
+  restyles.push(
+    await restyleMs(
+      page,
+      () =>
+        page
+          .getByLabel('Surface palette', { exact: true })
+          .selectOption('viridis'),
+      !software,
     ),
-    await restyleMs(page, () =>
-      page.locator('#atlas-surface-geometry').selectOption('honmoon'),
+  );
+  await settle('palette restyle');
+  restyles.push(
+    await restyleMs(
+      page,
+      () => page.locator('#atlas-surface-geometry').selectOption('honmoon'),
+      !software,
     ),
-  ];
-  await settle('restyles');
+  );
+  await settle('Honmoon restyle');
 
   // 7. Home.
   await pressCameraControl(page, 'Home');
@@ -455,7 +481,7 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
     (await page.evaluate(() => window.__atlasDrapeStats!())).delivered,
     'the draped tiles arrived',
   ).toBeGreaterThan(0);
-  if (isSoftwareRenderer(metrics.renderer))
+  if (software)
     testInfo.annotations.push({
       type: 'timing budgets skipped',
       description: `software renderer: ${metrics.renderer}`,

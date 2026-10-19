@@ -104,13 +104,33 @@ describe('terrain budgets (#483)', () => {
       terrainBudgetFailures({
         ...PASSING,
         dataVisibleMs: Number.NaN,
+        restyleMs: [900, Number.NaN],
         orbitFps: Number.NaN,
         peakResidentBytes: Number.NaN,
       }),
     ).toEqual([
-      'data visible NaN ms > 2000 ms',
+      'data visible not measured',
+      'restyle not measured',
       'orbit NaN fps < 45 fps',
       'resident Atlas imagery NaN B > 167772160 B',
+    ]);
+  });
+
+  it('never passes a software run whose milestones never came, though it skips their timings', () => {
+    // The tour records a milestone that never came as NaN, not as a missing entry.
+    expect(
+      terrainBudgetFailures({
+        ...PASSING,
+        renderer:
+          'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)',
+        dataVisibleMs: Number.NaN,
+        restyleMs: [Number.NaN, Number.POSITIVE_INFINITY],
+        orbitFps: Number.NaN,
+      }),
+    ).toEqual([
+      'data visible not measured',
+      'restyle not measured',
+      'restyle not measured',
     ]);
   });
 
