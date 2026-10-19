@@ -111,6 +111,10 @@ So every artifact carries its own input.
   as `post_mean` travels in it), and its `schema_sha256` must be a contract revision listed in
   `CONTRACT_REVISIONS` (`genomeos/publication/artifact_inputs.py`; append a digest there when a
   contract is revised, and never remove one). Nothing is skipped.
+- In the release manifest, `observations.parquet` carries its data source's terms alone: `map` or
+  `afnd`, from the `data_version` prefix, never `worldpop`. The WorldPop grid chose the cells the
+  surface is predicted on and contributed none of the input's rows. The artifact's other files
+  are also tagged `worldpop` when its manifest declares a WorldPop target grid.
 
 Artifacts released before this rule cannot gain the file, because a released artifact is
 immutable: the builder also refuses any new file inside a released artifact directory. They are
@@ -152,8 +156,11 @@ explicitly unavailable; the builder never manufactures them from a surface.
 The `/app/` explorer reads `catalog.json` from the site (`website/public/data/atlas/`) and every
 per-artifact object from the public web data bucket. `scripts/export_atlas_web.py` writes the
 canonical, citable JSON (surface, observations and manifest per artifact, plus `catalog.json`) to
-an export directory. `export_atlas_web.py` output is an intermediate; the site build fails until
-`encode_atlas_web.py` has run on it and the result is published:
+an export directory. When an artifact carries `observations.parquet` (#45), the exporter reads it
+back and refuses rows reloaded from the source export that differ from it on any column the
+observations JSON uses, and the manifest it serves drops `observations.path`, which names a
+data-store file the bucket does not hold. `export_atlas_web.py` output is an intermediate; the
+site build fails until `encode_atlas_web.py` has run on it and the result is published:
 
 ```bash
 python scripts/encode_atlas_web.py --in <export-dir> --out data/atlas-web --with-downloads
