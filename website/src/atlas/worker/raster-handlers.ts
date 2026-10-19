@@ -17,12 +17,17 @@
  * empty tile. A footprint raster's circles must be lon, lat, radius_km triples with a positive
  * radius (`validation` otherwise); it is bounded by their rings.
  *
- * `raster-tile` joins one first-in, first-out queue, which yields to the event loop after each
- * tile, so a `load-detail` that arrives meanwhile runs before the next tile. A tile whose request
- * was cancelled, or whose raster was released, fails as `cancelled` when it is reached. The
- * rasteriser alone is timed (`rasterMs`); a drawn tile's ImageBitmap is transferred, an empty one
- * posted as null. `release-raster` frees a raster and confirms once a tile of it being drawn has
- * been posted, so no tile of a released raster follows its `raster-released`.
+ * `raster-tile` joins one queue that serves the finest tile first, and tiles of one level first
+ * in, first out: Cesium asks for a view's own tiles at its deepest levels and for their coarse
+ * ancestors as fallbacks, so the tiles in view come before the costly coarse ones ("Performance
+ * budget and measurement"). The queue yields to the event loop after each tile, so a
+ * `load-detail` that arrives meanwhile runs before the next tile. A tile whose request was
+ * cancelled, or whose raster was released, fails as `cancelled` when it is reached. Tiles at
+ * levels 0–2 are kept per raster key (`coarse-tiles.ts`), so a raster prepared again with the same
+ * key serves them without drawing. The rasteriser, or the kept tile's lookup, alone is timed
+ * (`rasterMs`); a drawn tile's ImageBitmap is transferred, an empty one posted as null.
+ * `release-raster` frees a raster and confirms once a tile of it being drawn has been posted, so
+ * no tile of a released raster follows its `raster-released`.
  *
  * Every failure is posted as an error, never an empty tile (design, "Failure modes"); a failed
  * tile does not stop the queue. Bitmaps keep the rows south-first, unpremultiplied and without
@@ -58,6 +63,7 @@ import { isSupportedCode } from '../geometry/support-codes';
 import type { GridTopology } from '../geometry/topology';
 import type { DecodedGrid, DecodedRender } from '../gosa/types';
 import type { PreparedGrid } from './geometry-handlers';
+import { createCoarseTiles, rasterKey } from './coarse-tiles';
 import type {
   RasterReady,
   RasterRequestType,
@@ -126,10 +132,11 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** A prepared raster: the bounds of what it draws and its tile drawer. */
+/** A prepared raster: the bounds of what it draws, its tile drawer and its coarse tiles' key. */
 interface PreparedRaster {
   bounds: RasterReady['bounds'];
   draw(a: TileAddress): TileRaster | null;
+  key: string;
 }
 
 interface TileJob {
@@ -149,6 +156,7 @@ export function createRasterRuntime(
 ): RasterRuntime {
   const indexes = new WeakMap<GridTopology, GridIndex>();
   const rasters = new Map<number, PreparedRaster>();
+  const coarse = createCoarseTiles();
   const queue: TileJob[] = [];
   let draining = false;
   let drawing: DrawingTile | null = null;
@@ -178,11 +186,12 @@ export function createRasterRuntime(
     return index;
   }
 
+  /** The rasteriser input of an artifact raster, and the objects it is drawn from. */
   function artifactInput(
     spec: SurfaceRasterSpec | OutlineRasterSpec,
     cells: SurfaceRasterSpec['cells'],
     contours: boolean,
-  ): SurfaceRasterInput {
+  ): { input: SurfaceRasterInput; sources: object[] } {
     const { artifactKey, gridSha256 } = spec;
     const render = c.render(artifactKey);
     if (!render)
@@ -200,16 +209,19 @@ export function createRasterRuntime(
     if (!prepared)
       throw new RasterInputError(`grid ${gridSha256} is not loaded`);
     return {
-      cells,
-      contours,
-      domain: render.artifact.metric_domains[spec.metric],
-      geometry: spec.geometry,
-      grid,
-      index: indexFor(prepared.topology),
-      palette: spec.palette,
-      support: render.support,
-      topology: prepared.topology,
-      values: render[spec.metric],
+      input: {
+        cells,
+        contours,
+        domain: render.artifact.metric_domains[spec.metric],
+        geometry: spec.geometry,
+        grid,
+        index: indexFor(prepared.topology),
+        palette: spec.palette,
+        support: render.support,
+        topology: prepared.topology,
+        values: render[spec.metric],
+      },
+      sources: [render, grid, prepared.topology],
     };
   }
 
@@ -223,20 +235,24 @@ export function createRasterRuntime(
   function prepareRaster(spec: RasterSpec): PreparedRaster {
     switch (spec.layer) {
       case 'surface': {
-        const input = artifactInput(spec, spec.cells, spec.contours);
+        const { input, sources } = artifactInput(
+          spec,
+          spec.cells,
+          spec.contours,
+        );
         return {
           bounds: drawnBounds(input),
           draw: (a) => rasterisers.surface(input, a),
+          key: rasterKey(spec, sources),
         };
       }
       case 'outlines': {
-        const input = {
-          ...artifactInput(spec, OUTLINE_CELLS, false),
-          edgeColor: spec.edgeColor,
-        };
+        const artifact = artifactInput(spec, OUTLINE_CELLS, false);
+        const input = { ...artifact.input, edgeColor: spec.edgeColor };
         return {
           bounds: drawnBounds(input),
           draw: (a) => rasterisers.outlines(input, a),
+          key: rasterKey(spec, artifact.sources),
         };
       }
       case 'borders': {
@@ -253,6 +269,7 @@ export function createRasterRuntime(
               );
             return rasterisers.borders({ borders, color }, a);
           },
+          key: rasterKey(spec, [borders]),
         };
       }
       case 'footprints': {
@@ -265,6 +282,7 @@ export function createRasterRuntime(
         return {
           bounds: footprintBounds(circles),
           draw: (a) => rasterisers.footprints({ circles, color }, a),
+          key: rasterKey(spec, []),
         };
       }
     }
@@ -287,9 +305,12 @@ export function createRasterRuntime(
       return;
     }
     try {
+      const a = { level, x, y };
       const start = c.now();
-      const tile = raster.draw({ level, x, y });
+      const kept = coarse.get(raster.key, a);
+      const tile = kept === undefined ? raster.draw(a) : kept;
       const rasterMs = c.now() - start;
+      if (kept === undefined) coarse.keep(raster.key, a, tile);
       const bitmap = tile ? await c.toBitmap(tile) : null;
       c.post(
         { bitmap, id, level, rasterId, rasterMs, type: 'tile-ready', x, y },
@@ -300,10 +321,18 @@ export function createRasterRuntime(
     }
   }
 
+  /** Takes the finest queued tile, the first queued of its level. */
+  function nextJob(): TileJob | undefined {
+    let finest = 0;
+    for (let k = 1; k < queue.length; k += 1)
+      if (queue[k].request.level > queue[finest].request.level) finest = k;
+    return queue.splice(finest, 1)[0];
+  }
+
   async function drain(): Promise<void> {
     draining = true;
     try {
-      for (let job = queue.shift(); job; job = queue.shift()) {
+      for (let job = nextJob(); job; job = nextJob()) {
         const posted = drawTile(job.request);
         drawing = { posted, rasterId: job.request.rasterId };
         await posted;

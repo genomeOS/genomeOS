@@ -626,3 +626,126 @@ describe('worker raster runtime (terrain draping design, "How existing features 
     expect(h.runtime.version).toBe('atlas-raster-v1');
   });
 });
+
+/** Asks for the tile of raster `rasterId` at `a`. */
+function tileAt(h: Harness, id: number, rasterId: number, a: TileAddress) {
+  return h.runtime.handlers['raster-tile']({
+    id,
+    rasterId,
+    type: 'raster-tile',
+    ...a,
+  });
+}
+
+/** Every tile of `level`, row by row. */
+function everyTile(level: number): TileAddress[] {
+  const tiles: TileAddress[] = [];
+  for (let y = 0; y < 2 ** level; y += 1)
+    for (let x = 0; x < 2 ** (level + 1); x += 1) tiles.push({ level, x, y });
+  return tiles;
+}
+
+describe('coarse tiles and the queue (terrain draping design, "Performance budget and measurement")', () => {
+  beforeEach(() => {
+    h = rasterHarness();
+  });
+
+  it('serves the finest queued tile first, and tiles of one level first in, first out', async () => {
+    await prepare(h, 7);
+    h.holdYield(); // the first tile's yield waits until every other tile is queued
+    const tiles = [
+      tileAt(h, 11, 7, { level: 4, x: 0, y: 0 }),
+      tileAt(h, 12, 7, { level: 0, x: 0, y: 0 }),
+      tileAt(h, 13, 7, { level: 7, x: 0, y: 0 }),
+      tileAt(h, 14, 7, { level: 2, x: 0, y: 0 }),
+      tileAt(h, 15, 7, { level: 7, x: 1, y: 0 }),
+    ];
+    h.releaseYield();
+    await Promise.all(tiles);
+    expect(h.posted.slice(1).map(({ m }) => m.id)).toEqual([
+      11, 13, 15, 14, 12,
+    ]);
+  });
+
+  it('serves a level 0–2 tile of a raster prepared again with the same spec without drawing it', async () => {
+    await prepare(h, 7);
+    await tileAt(h, 11, 7, { level: 0, x: 0, y: 0 });
+    await tileAt(h, 12, 7, { level: 2, x: EMPTY_X, y: 0 });
+    await prepare(h, 8);
+    await tileAt(h, 13, 8, { level: 0, x: 0, y: 0 });
+    await tileAt(h, 14, 8, { level: 2, x: EMPTY_X, y: 0 });
+    expect(h.rasterisers.surface).toHaveBeenCalledTimes(2);
+    expect(h.posted.slice(-3).map(({ m }) => m)).toEqual([
+      expect.objectContaining({ type: 'raster-ready', rasterId: 8 }),
+      expect.objectContaining({ bitmap: BITMAP, id: 13, rasterId: 8 }),
+      expect.objectContaining({ bitmap: null, id: 14, rasterId: 8 }),
+    ]);
+    // a fresh bitmap of the kept bytes for every post
+    expect(h.context.toBitmap).toHaveBeenCalledTimes(2);
+    expect(h.context.toBitmap).toHaveBeenLastCalledWith(FAKE_TILE);
+  });
+
+  it('draws again a tile finer than level 2, a restyle, a tier loaded again and a tile that failed', async () => {
+    let fail = true;
+    const surface = vi.fn((input: SurfaceRasterInput, a: TileAddress) => {
+      if (a.x === 1 && fail) {
+        fail = false;
+        throw new Error('fan out of range');
+      }
+      return fakeRaster(input, a);
+    });
+    h = rasterHarness({ rasterisers: { ...h.rasterisers, surface } });
+    const coarse = { level: 0, x: 0, y: 0 };
+    const draws = async (id: number, spec: RasterSpec, a: TileAddress) => {
+      await prepare(h, id, spec as typeof SURFACE_SPEC);
+      const before = surface.mock.calls.length;
+      await tileAt(h, id + 100, id, a);
+      return surface.mock.calls.length - before;
+    };
+    expect(await draws(1, SURFACE_SPEC, { level: 3, x: 0, y: 0 })).toBe(1);
+    expect(await draws(2, SURFACE_SPEC, { level: 3, x: 0, y: 0 })).toBe(1);
+    expect(await draws(3, SURFACE_SPEC, coarse)).toBe(1);
+    expect(
+      await draws(4, { ...SURFACE_SPEC, palette: 'viridis' }, coarse),
+    ).toBe(1);
+    expect(
+      await draws(
+        5,
+        { ...SURFACE_SPEC, contours: true, geometry: 'honmoon' },
+        coarse,
+      ),
+    ).toBe(1);
+    expect(await draws(6, SURFACE_SPEC, coarse)).toBe(0);
+    const reloaded = { ...h.render };
+    h.context.render = () => reloaded;
+    expect(await draws(7, SURFACE_SPEC, coarse)).toBe(1);
+    expect(await draws(8, SURFACE_SPEC, { level: 0, x: 1, y: 0 })).toBe(1);
+    expect(last(h.posted, 'error')).toMatchObject({
+      id: 108,
+      code: 'internal',
+    });
+    expect(await draws(9, SURFACE_SPEC, { level: 0, x: 1, y: 0 })).toBe(1);
+    expect(last(h.posted, 'tile-ready')).toMatchObject({ id: 109 });
+  });
+
+  it('keeps at most 64 drawn coarse tiles, dropping the raster used least recently first', async () => {
+    const coarse = [0, 1, 2].flatMap(everyTile);
+    expect(coarse).toHaveLength(42);
+    let id = 100;
+    const drawAll = async (rasterId: number) => {
+      for (const a of coarse) await tileAt(h, (id += 1), rasterId, a);
+    };
+    await prepare(h, 1);
+    await drawAll(1);
+    await prepare(h, 2, { ...SURFACE_SPEC, palette: 'viridis' });
+    await drawAll(2); // 84 drawn tiles: the first raster's 42 go
+    const surface = vi.mocked(h.rasterisers.surface);
+    expect(surface).toHaveBeenCalledTimes(84);
+    await prepare(h, 3, { ...SURFACE_SPEC, palette: 'viridis' });
+    await drawAll(3);
+    expect(surface).toHaveBeenCalledTimes(84);
+    await prepare(h, 4);
+    await tileAt(h, (id += 1), 4, { level: 0, x: 0, y: 0 });
+    expect(surface).toHaveBeenCalledTimes(85);
+  });
+});
