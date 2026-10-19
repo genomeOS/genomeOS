@@ -8,20 +8,26 @@ import { describe, expect, it } from 'vitest';
 import {
   attributeTour,
   milestoneSteps,
+  workerScaled,
   type TourLongFrame,
   type TourTiles,
 } from './support/terrain-tour-attribution';
 
-/** No tile yet: 7 raster bins, 12 levels of 11 delivery bins. */
+/** No tile yet: 7 raster bins, 12 levels of 11 delivery bins and of raster time. */
 function tiles(
   coarse: number[] = [0, 0, 0, 0, 0, 0, 0],
   delivered: Record<number, number[]> = {},
+  rasterMs: Record<number, number> = {},
 ): TourTiles {
   return {
     coarseRasterCounts: coarse,
     deliveryByLevel: Array.from(
       { length: 12 },
       (_, level) => delivered[level] ?? Array.from({ length: 11 }, () => 0),
+    ),
+    rasterMsByLevel: Array.from(
+      { length: 12 },
+      (_, level) => rasterMs[level] ?? 0,
     ),
   };
 }
@@ -392,6 +398,89 @@ describe('the terrain tour’s attribution (#483)', () => {
     expect(steps[1].tiles!.deliveryByLevel[0]).toEqual([
       0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0,
     ]);
+  });
+
+  it('sums the worker’s raster time per level that each step’s tiles took', () => {
+    const steps = attributeTour({
+      endMs: 12_000,
+      endTiles: tiles(undefined, undefined, { 0: 40, 2: 9, 7: 6.5 }),
+      groundPasses: [],
+      longFrames: [],
+      readiness: [],
+      steps: [
+        { startMs: 1_000, step: 'World Terrain', tiles: null },
+        {
+          startMs: 5_000,
+          step: 'orbit',
+          tiles: tiles(undefined, undefined, { 0: 25, 7: 1.5 }),
+        },
+      ],
+    });
+    expect(steps[0].tiles!.rasterMsByLevel).toEqual([
+      25, 0, 0, 0, 0, 0, 0, 1.5, 0, 0, 0, 0,
+    ]);
+    expect(steps[1].tiles!.rasterMsByLevel).toEqual([
+      15, 0, 9, 0, 0, 0, 0, 5, 0, 0, 0, 0,
+    ]);
+  });
+
+  it('scales each milestone’s worker raster time by the CPU rate, reported as an upper bound', () => {
+    const steps = attributeTour({
+      endMs: 12_000,
+      endTiles: tiles(undefined, undefined, { 0: 40, 2: 10, 7: 20 }),
+      groundPasses: [],
+      longFrames: [],
+      readiness: [],
+      steps: [
+        {
+          startMs: 1_000,
+          step: 'World Terrain: click → data visible',
+          tiles: null,
+        },
+        {
+          startMs: 2_800,
+          step: 'World Terrain: data visible → settled',
+          tiles: tiles(undefined, undefined, { 0: 30, 2: 10, 7: 10 }),
+        },
+      ],
+    });
+    expect(
+      workerScaled(
+        steps,
+        [
+          { observedMs: 1_800, step: 'World Terrain: click → data visible' },
+          {
+            observedMs: Number.NaN,
+            step: 'palette restyle: change → tiles loaded',
+          },
+        ],
+        4,
+      ),
+    ).toEqual([
+      {
+        coarseWorkerMs: 40,
+        observedMs: 1_800,
+        rate: 4,
+        scaledMs: 1_800 + 3 * 50,
+        step: 'World Terrain: click → data visible',
+        workerMs: 50,
+      },
+      {
+        coarseWorkerMs: Number.NaN,
+        observedMs: Number.NaN,
+        rate: 4,
+        scaledMs: Number.NaN,
+        step: 'palette restyle: change → tiles loaded',
+        workerMs: Number.NaN,
+      },
+    ]);
+    expect(
+      workerScaled(
+        steps,
+        [{ observedMs: 1_800, step: 'World Terrain: click → data visible' }],
+        1,
+      )[0].scaledMs,
+    ).toBe(1_800);
   });
 
   it('keeps what began before the first step in a step of its own, named for it', () => {

@@ -31,6 +31,7 @@ const STATS: DrapeStats = {
     counts: [1, 1, 0, 0, 0, 0, 0],
     upperMs: [0.5, 1, 2, 4, 8, 16, Infinity],
   },
+  rasterMsByLevel: [20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   requested: 4,
   residentBytes: 349_525,
 };

@@ -4,8 +4,10 @@
  * histogram of tiles at level 3 and finer (the budget's), and resident Atlas imagery bytes, read
  * from the pinned `ImageryLayer._imageryCache` (tests/atlas-cesium-internals.test.ts). Beside the
  * budget, for the tour that attributes its timings: the raster time of the coarse tiles (levels
- * 0–2) in a histogram of their own, so the budget's keeps its meaning, and each tile's time from
- * request to delivery, binned per level. None falls back silently: a tile whose raster time is not
+ * 0–2) in a histogram of their own, so the budget's keeps its meaning, each tile's time from
+ * request to delivery, binned per level, and the raster time summed per level, which the tour
+ * scales for the phone since a page's CPU throttle does not reach the worker. None falls back
+ * silently: a tile whose raster time is not
  * a finite, non-negative duration, or whose level is outside 0–`RASTER_MAX_LEVEL`, rejects (its
  * bitmap closed), and a watched layer without the cache throws on `read`. The e2e build publishes
  * the page's recorder as `__atlasDrapeStats`. Lazy: only the draped modules (`scene/draped/*`)
@@ -100,6 +102,7 @@ export function createDrapeStats(
   const deliveryCounts = Array.from({ length: RASTER_MAX_LEVEL + 1 }, () =>
     DRAPE_DELIVERY_BINS_MS.map(() => 0),
   );
+  const rasterMsByLevel = deliveryCounts.map(() => 0);
   const layers = new Set<ImageryLayer>();
 
   return {
@@ -122,6 +125,7 @@ export function createDrapeStats(
             deliveryCounts[message.level][
               bin(DRAPE_DELIVERY_BINS_MS, now() - requestedAt)
             ] += 1;
+            rasterMsByLevel[message.level] += message.rasterMs;
             return message;
           } finally {
             queueDepth -= 1;
@@ -153,6 +157,7 @@ export function createDrapeStats(
         empty,
         queueDepth,
         rasterMs: { counts: [...counts], upperMs: DRAPE_RASTER_BINS_MS },
+        rasterMsByLevel: [...rasterMsByLevel],
         requested,
         residentBytes: resident * RESIDENT_TILE_BYTES,
       };

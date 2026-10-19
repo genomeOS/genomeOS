@@ -373,6 +373,11 @@ export interface DrapeStats {
    * 4,096 ms, Infinity.
    */
   deliveryMs: { upperMs: readonly number[]; byLevel: number[][] };
+  /**
+   * The worker's raster time summed over the delivered tiles, per level 0–11, which the terrain tour
+   * scales for the phone (a page's CPU throttle does not reach the worker).
+   */
+  rasterMsByLevel: number[];
   /** Non-empty cached tiles × `RESIDENT_TILE_BYTES`. */
   residentBytes: number;
 }
