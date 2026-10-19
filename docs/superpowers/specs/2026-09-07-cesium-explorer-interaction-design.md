@@ -274,7 +274,14 @@ design skips every terrain budget there. That asserted tour runs on the e2e fixt
 256-cell grid. The production-density run met both memory budgets but missed three timing
 budgets: a desktop long frame of 346 ms against 200 ms, and on the phone data visible after 3.8 s
 against 2 s and a long frame of 927 ms against 800 ms. So the timing budgets are met at the
-fixture's density and not yet at production's.
+fixture's density and not yet at production's. `website/scripts/terrain-tour-production-density.sh`
+repeats the production-density run, by hand and never in CI: with `PUBLIC_ATLAS_DATA_BASE_URL` set
+to the bucket base, it builds the e2e bundle over the bucket with the production catalog in the
+fixture catalog's place, restores that file on every exit, and runs the tour. The tour also says
+where the time went, step by step: each long frame with the time spent picking the ground under
+the observations inside it, which rule read each draped layer ready (`globe.tilesLoaded` or the
+3 s cap) and how long after its add, and the raster time of the coarse tiles (levels 0–2) and
+each level's request-to-delivery time.
 
 The GitHub Actions secret `CESIUM_TOKEN` is exposed to Astro as a public build variable only for
 the Pages build. A browser token is necessarily readable by the browser, so it is treated as a

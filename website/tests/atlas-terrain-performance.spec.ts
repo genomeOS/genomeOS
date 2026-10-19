@@ -24,6 +24,19 @@
  * samples the resident Atlas imagery every frame for its peak and records the long animation
  * frames.
  *
+ * Attribution, reported and never judged (`support/terrain-tour-attribution.ts`): the tour reads
+ * the page's clock at each step's start (World Terrain, the orbit, each zoom-in, relief 3, each
+ * restyle, Home), and the init script keeps each long animation frame's start, duration and
+ * scripts, and the e2e build's performance measures: `atlas-ground-pass`, one per pass that picks
+ * the ground under the draped observations (the points picked; its duration is the pass's ms),
+ * and `atlas-draped-ready`, one per draped layer read ready (the layer, the rule that fired,
+ * `tilesLoaded` or the 3 s cap, and the ms since its add or show). So each long frame lands in its
+ * step with the ground-pass time inside it: its scripts alone would not name the pass, which runs
+ * inside Cesium's render callback. The drape stats' running counts at each step's start give the
+ * tiles each step delivered: the raster time of levels 0–2, which the budget's histogram leaves
+ * out, and the request-to-delivery time per level. The console prints each step's longest frames
+ * and its sums; the JSON attachment holds every frame and script.
+ *
  * The phone's profile slows only the page's CPU, ×4, as the spec's "mobile ×4" long-frame budget
  * reads. The data worker that rasterises the draped tiles runs at full speed, so the phone's
  * data-visible and raster numbers are optimistic for a real phone.
@@ -43,15 +56,23 @@
  * fixture's peak is a lower bound for production. The decision on the mobile fallbacks rests on
  * this tour at production density: the e2e build over the public bucket. What this spec asserts
  * holds at the fixture's density only: the one headed run at production density met both memory
- * budgets but missed three timing budgets (interaction design §5.2). The e2e build carries
- * its hooks only with the fixture catalog's path (#453), so such a run puts
- * `public/data/atlas/catalog.json` in that file for one local build, never committed (both hold
- * HbS `v3/map-2026-08`).
+ * budgets but missed three timing budgets (interaction design §5.2). To repeat that run, by hand
+ * and never in CI: `PUBLIC_ATLAS_DATA_BASE_URL=<the bucket base> bash
+ * scripts/terrain-tour-production-density.sh [--project=…] [--headed]`. The e2e build carries its
+ * hooks only with the fixture catalog's path (#453), so the script puts
+ * `public/data/atlas/catalog.json` in that file for the build alone and restores it on every exit
+ * (both hold HbS `v3/map-2026-08`), then runs this tour.
  */
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { SYNTHETIC_PEAK } from '../src/atlas/e2e-hooks';
+import {
+  DRAPED_READY_MEASURE,
+  GROUND_PASS_MEASURE,
+  SYNTHETIC_PEAK,
+  type DrapedReadyDetail,
+  type GroundPassDetail,
+} from '../src/atlas/e2e-hooks';
 import { PREWARM_ALPHA } from '../src/atlas/geometry/raster/types';
 import {
   expandExplorerSheet,
@@ -75,6 +96,14 @@ import {
   type TerrainPerformanceMetrics,
   type TerrainProfile,
 } from './support/terrain-budgets';
+import {
+  attributeTour,
+  type StepAttribution,
+  type TourLongFrame,
+  type TourMeasure,
+  type TourRecord,
+  type TourStep,
+} from './support/terrain-tour-attribution';
 
 /** How long the tour waits for a draped milestone before it records none (NaN). */
 const MILESTONE_TIMEOUT_MS = 60_000;
@@ -104,9 +133,14 @@ const TOUR_TIMEOUT_MS = 1_200_000;
 
 /** What the init script keeps in the page. */
 type TourWindow = Window & {
-  __atlasLongFrames: number[];
+  __atlasLongFrames: TourLongFrame[];
   __atlasPeakResident: number;
+  __atlasGroundPasses: TourMeasure<GroundPassDetail>[];
+  __atlasReadiness: TourMeasure<DrapedReadyDetail>[];
 };
+
+/** How many of a step's longest frames the console report lists; the attachment has them all. */
+const REPORTED_FRAMES = 5;
 
 /** The tour's start: HbS over the peak on the smooth globe, 400 km up, looking 45° down. */
 const START_QUERY = drapeQuery('oblique', 1, {
@@ -319,27 +353,100 @@ function tourSettler(page: Page, software: boolean) {
   };
 }
 
-/** The long frames, the raster histogram and the peak resident imagery. */
-async function pageMeasures(
-  page: Page,
-): Promise<
-  Pick<
-    TerrainPerformanceMetrics,
-    'longFramesMs' | 'peakResidentBytes' | 'rasterMs'
-  >
-> {
+/**
+ * The page's clock and the drape stats' running tile counts, read at a step's start; null counts
+ * before the draped runtime has published its stats.
+ */
+async function stepMark(page: Page): Promise<Omit<TourStep, 'step'>> {
+  return page.evaluate(() => {
+    const stats = window.__atlasDrapeStats?.();
+    return {
+      startMs: performance.now(),
+      tiles: stats
+        ? {
+            coarseRasterCounts: stats.coarseRasterMs.counts,
+            deliveryByLevel: stats.deliveryMs.byLevel,
+          }
+        : null,
+    };
+  });
+}
+
+/**
+ * The raster histogram and the peak resident imagery for the budgets, and for the attribution
+ * every long frame, ground pass and readiness the page recorded, the drape stats' running tile
+ * counts with their bins, and the page's clock, all in one read: the clock is the tour's end, and
+ * every entry the page holds started before it.
+ */
+async function pageMeasures(page: Page): Promise<{
+  budgeted: Pick<TerrainPerformanceMetrics, 'peakResidentBytes' | 'rasterMs'>;
+  record: Omit<TourRecord, 'steps'>;
+  /** The upper bounds (ms) of the coarse raster and the delivery bins the tile counts are in. */
+  bins: { coarseRasterMs: number[]; deliveryMs: number[] };
+}> {
   return page.evaluate(() => {
     const tour = window as never as TourWindow;
-    const { rasterMs } = window.__atlasDrapeStats!();
+    const { coarseRasterMs, deliveryMs, rasterMs } =
+      window.__atlasDrapeStats!();
     return {
-      longFramesMs: [...tour.__atlasLongFrames],
-      peakResidentBytes: tour.__atlasPeakResident,
-      rasterMs: {
-        counts: [...rasterMs.counts],
-        upperMs: [...rasterMs.upperMs],
+      bins: {
+        coarseRasterMs: [...coarseRasterMs.upperMs],
+        deliveryMs: [...deliveryMs.upperMs],
+      },
+      budgeted: {
+        peakResidentBytes: tour.__atlasPeakResident,
+        rasterMs: {
+          counts: [...rasterMs.counts],
+          upperMs: [...rasterMs.upperMs],
+        },
+      },
+      record: {
+        endMs: performance.now(),
+        endTiles: {
+          coarseRasterCounts: coarseRasterMs.counts,
+          deliveryByLevel: deliveryMs.byLevel,
+        },
+        groundPasses: [...tour.__atlasGroundPasses],
+        longFrames: [...tour.__atlasLongFrames],
+        readiness: [...tour.__atlasReadiness],
       },
     };
   });
+}
+
+/**
+ * Each step for the console: its longest frames (`REPORTED_FRAMES`) with their ground-pass time
+ * and first script, its ground passes, readiness and the tiles it delivered, only the levels it
+ * delivered any at. The attachment carries every frame and script.
+ */
+function attributionSummary(steps: StepAttribution[]) {
+  return steps.map((step) => ({
+    step: step.step,
+    startMs: step.startMs,
+    ms: step.ms,
+    longFrames: step.longFrames.length,
+    longest: [...step.longFrames]
+      .sort((a, b) => b.ms - a.ms)
+      .slice(0, REPORTED_FRAMES)
+      .map(({ groundPassMs, ms, scripts, startMs }) => ({
+        startMs,
+        ms,
+        groundPassMs,
+        script: scripts[0]
+          ? `${scripts[0].invoker} ${scripts[0].sourceFunctionName} ${Math.round(scripts[0].duration)} ms`
+          : null,
+      })),
+    groundPasses: step.groundPasses,
+    readiness: step.readiness,
+    tiles: step.tiles && {
+      coarseRasterCounts: step.tiles.coarseRasterCounts,
+      deliveryByLevel: Object.fromEntries(
+        step.tiles.deliveryByLevel
+          .map((bins, level) => [level, bins] as const)
+          .filter(([, bins]) => bins.some((count) => count > 0)),
+      ),
+    },
+  }));
 }
 
 /** JSON has no Infinity or NaN: the raster histogram's open last bin, or a missed milestone. */
@@ -356,27 +463,63 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
   test.setTimeout(TOUR_TIMEOUT_MS);
   const profile: TerrainProfile =
     testInfo.project.name === 'mobile-chromium' ? 'mobile' : 'desktop';
-  await page.addInitScript(() => {
-    window.__atlasSyntheticTerrain = true;
-    const tour = window as never as TourWindow;
-    tour.__atlasPeakResident = 0;
-    tour.__atlasLongFrames = [];
-    new PerformanceObserver((list) =>
-      tour.__atlasLongFrames.push(
-        ...list.getEntries().map((entry) => entry.duration),
-      ),
-    ).observe({ type: 'long-animation-frame', buffered: true });
-    const sample = () => {
-      const stats = window.__atlasDrapeStats?.();
-      if (stats)
-        tour.__atlasPeakResident = Math.max(
-          tour.__atlasPeakResident,
-          stats.residentBytes,
-        );
+  await page.addInitScript(
+    ({ drapedReady, groundPass }) => {
+      window.__atlasSyntheticTerrain = true;
+      const tour = window as never as TourWindow;
+      tour.__atlasPeakResident = 0;
+      tour.__atlasLongFrames = [];
+      tour.__atlasGroundPasses = [];
+      tour.__atlasReadiness = [];
+      // A long animation frame and its scripts, as TourLongFrame keeps them; the DOM lib in
+      // use declares neither PerformanceLongAnimationFrameTiming nor PerformanceScriptTiming.
+      new PerformanceObserver((list) =>
+        tour.__atlasLongFrames.push(
+          ...list.getEntries().map((entry) => {
+            const frame = entry as unknown as TourLongFrame;
+            return {
+              blockingDuration: frame.blockingDuration,
+              duration: frame.duration,
+              scripts: frame.scripts.map((script) => ({
+                duration: script.duration,
+                forcedStyleAndLayoutDuration:
+                  script.forcedStyleAndLayoutDuration,
+                invoker: script.invoker,
+                invokerType: script.invokerType,
+                sourceCharPosition: script.sourceCharPosition,
+                sourceFunctionName: script.sourceFunctionName,
+                sourceURL: script.sourceURL,
+                startTime: script.startTime,
+              })),
+              startTime: frame.startTime,
+            };
+          }),
+        ),
+      ).observe({ type: 'long-animation-frame', buffered: true });
+      // The e2e build's ground-pass and readiness measures (src/atlas/e2e-hooks.ts).
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          const { detail, duration, name, startTime } =
+            entry as PerformanceMeasure;
+          if (name === groundPass)
+            tour.__atlasGroundPasses.push({ detail, duration, startTime });
+          else if (name === drapedReady)
+            tour.__atlasReadiness.push({ detail, duration, startTime });
+        }
+      }).observe({ type: 'measure', buffered: true });
+      const sample = () => {
+        const stats = window.__atlasDrapeStats?.();
+        if (stats)
+          tour.__atlasPeakResident = Math.max(
+            tour.__atlasPeakResident,
+            stats.residentBytes,
+          );
+        requestAnimationFrame(sample);
+      };
       requestAnimationFrame(sample);
-    };
-    requestAnimationFrame(sample);
-  });
+    },
+    { drapedReady: DRAPED_READY_MEASURE, groundPass: GROUND_PASS_MEASURE },
+  );
   if (profile === 'mobile')
     await (
       await page.context().newCDPSession(page)
@@ -395,29 +538,42 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
   const software = isSoftwareRenderer(renderer);
   const { missed, settle } = tourSettler(page, software);
   await page.evaluate(() => {
-    (window as never as TourWindow).__atlasLongFrames.length = 0;
+    const tour = window as never as TourWindow;
+    tour.__atlasLongFrames.length = 0;
+    tour.__atlasGroundPasses.length = 0;
+    tour.__atlasReadiness.length = 0;
   });
+  // Each step's start on the page's clock, so every long frame, ground pass and readiness can be
+  // put in the step it began in.
+  const steps: TourStep[] = [];
+  const beginStep = async (step: string) =>
+    steps.push({ step, ...(await stepMark(page)) });
 
   // 2. World Terrain, from the chooser.
+  await beginStep('World Terrain');
   const dataVisibleMs = await switchToWorldTerrain(page);
   await settle('World Terrain');
 
   // 3. An orbit.
+  await beginStep('orbit');
   const orbited = await orbit(page, profile);
   await settle('orbit');
 
   // 4. Three zoom-ins.
   for (let press = 1; press <= 3; press += 1) {
+    await beginStep(`zoom in ${press}`);
     await pressCameraControl(page, 'Zoom in');
     await settle(`zoom in ${press}`);
   }
 
   // 5. Physical relief 1 → 3: the ground heights resample, inside the long frames.
+  await beginStep('relief 3');
   await setRelief(page, 3);
   await settle('relief 3');
 
   // 6. A palette restyle, then a geometry restyle to Honmoon.
   const restyles: number[] = [];
+  await beginStep('palette restyle');
   restyles.push(
     await restyleMs(
       page,
@@ -429,6 +585,7 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
     ),
   );
   await settle('palette restyle');
+  await beginStep('Honmoon restyle');
   restyles.push(
     await restyleMs(
       page,
@@ -439,31 +596,33 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
   await settle('Honmoon restyle');
 
   // 7. Home.
+  await beginStep('Home');
   await pressCameraControl(page, 'Home');
   await settle('Home');
 
   // 8. What the tour measured; with a settle missed, the peak is only a lower bound.
-  const measured = await pageMeasures(page);
+  const { bins, budgeted, record } = await pageMeasures(page);
   const metrics: TerrainPerformanceMetrics = {
     profile,
     renderer,
     dataVisibleMs,
     restyleMs: restyles,
     orbitFps: orbited.fps,
-    longFramesMs: measured.longFramesMs,
-    rasterMs: measured.rasterMs,
+    longFramesMs: record.longFrames.map((frame) => frame.duration),
+    rasterMs: budgeted.rasterMs,
     peakResidentBytes:
-      missed.length === 0 ? measured.peakResidentBytes : Number.NaN,
+      missed.length === 0 ? budgeted.peakResidentBytes : Number.NaN,
   };
-  const json = reportJson(metrics);
-  console.log(`atlas terrain performance (${testInfo.project.name}): ${json}`);
+  console.log(
+    `atlas terrain performance (${testInfo.project.name}): ${reportJson(metrics)}`,
+  );
   console.log(
     `atlas terrain budgets (${testInfo.project.name}): ${reportJson({
       budgets: TERRAIN_BUDGETS[profile],
       outside: terrainBudgetFailures(metrics),
       // Software renderers only: the settles that ran out of time, and the peak they leave.
       missedSettles: missed,
-      sampledPeakResidentBytes: measured.peakResidentBytes,
+      sampledPeakResidentBytes: budgeted.peakResidentBytes,
       orbitTurnedDegrees: orbited.turnedDegrees,
       // The tiles behind the numbers, as they stand at the end of the tour.
       tiles: await page.evaluate(() => {
@@ -473,8 +632,16 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
       }),
     })}`,
   );
+  // Where the time went, step by step: reported, not judged.
+  const attribution = attributeTour({ ...record, steps });
+  console.log(
+    `atlas terrain attribution (${testInfo.project.name}): ${reportJson({
+      bins,
+      steps: attributionSummary(attribution),
+    })}`,
+  );
   await testInfo.attach('atlas-terrain-performance.json', {
-    body: json,
+    body: reportJson({ ...metrics, attribution: { bins, steps: attribution } }),
     contentType: 'application/json',
   });
   expect(
