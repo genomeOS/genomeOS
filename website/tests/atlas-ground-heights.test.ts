@@ -329,6 +329,29 @@ describe('ground pass measures (e2e build)', () => {
     ]);
   });
 
+  it('carries its picks past a frame whose earlier passes spent the budget, without a pass', () => {
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const clock = { now: 100 };
+    const terrain = fakeTerrain(() => 1_000);
+    timePicks(terrain, clock);
+    const scene = groundScene(terrain);
+    const five = Float64Array.of(-10, 0, -5, 0, 0, 0, 5, 0, 10, 0);
+    createGroundHeights(scene as never, five, () => clock.now);
+    scene.preRender.raiseEvent();
+    terrain.load(() => 2_000); // new tiles under every point, in this frame
+    clock.now += GROUND_RESAMPLE_MS;
+    scene.globe.tileLoadProgressEvent.raiseEvent(3);
+    scene.postRender.raiseEvent(); // the carried pass finds no budget left: it waits
+    scene.frame();
+    expect(
+      passes().map(({ detail }) => detail as { kind: string; points: number }),
+    ).toEqual([
+      { kind: 'create', points: 3 },
+      { kind: 'resample', points: 3 },
+      { kind: 'continue', points: 2 },
+    ]);
+  });
+
   it('measures nothing outside the e2e build', () => {
     vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '');
     const { clock, heights } = timedSetup();

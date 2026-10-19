@@ -162,10 +162,12 @@ export interface GroundScene {
 const SCRATCH_VIEWER = new Cartesian3();
 
 /**
- * Samples the ground under `lonLat` (WGS84 degree pairs) at once, then re-samples as terrain
- * tiles load and after each morph between views. Throws unless `lonLat` holds finite pairs. `now`
- * is the performance timeline's clock: the throttle, the pick budget and the e2e build's pass
- * measures read it. Picks spend `budget`, shared with other ground heights, or one of their own.
+ * Reads the ground under `lonLat` (WGS84 degree pairs) at once, unless the globe's tiles are still
+ * the smooth globe's, then again as terrain tiles load and after each morph between views, picks
+ * a frame's budget left going on in the next frame. Throws unless `lonLat` holds finite pairs.
+ * `now` is the performance timeline's clock: the throttle, the pick budget and the e2e build's
+ * pass measures read it. Picks spend `budget`, shared with other ground heights, or one of their
+ * own.
  */
 export function createGroundHeights(
   scene: GroundScene,
@@ -180,6 +182,14 @@ export function createGroundHeights(
   let destroyed = false;
   /** Cancels the pass armed for the next frame, which picks what this frame's budget left. */
   let cancelCarry: (() => void) | null = null;
+  const carry = (): void => {
+    cancelCarry ??= afterNextRender(scene, () => {
+      cancelCarry = null;
+      // A frame whose earlier passes spent its budget has none to give: wait for the next.
+      if (frameBudget.remainingMs() > 0) sample('continue');
+      else carry();
+    });
+  };
 
   const sample = (kind: GroundPassDetail['kind']): void => {
     if (tilesAreSmooth(globe)) return;
@@ -196,11 +206,7 @@ export function createGroundHeights(
     if (import.meta.env.PUBLIC_ATLAS_E2E_HOOKS === '1')
       measuredGroundPass(kind, read, now);
     else read();
-    if (pass!.pending > 0)
-      cancelCarry ??= afterNextRender(scene, () => {
-        cancelCarry = null;
-        sample('continue');
-      });
+    if (pass!.pending > 0) carry();
     else {
       cancelCarry?.();
       cancelCarry = null;
