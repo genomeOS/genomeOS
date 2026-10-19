@@ -21,6 +21,7 @@ const PASSING: TerrainPerformanceMetrics = {
   restyleMs: [900, 1_300],
   orbitFps: 58,
   longFramesMs: [120, 180],
+  readinessCapped: [],
   peakResidentBytes: 150 * MIB,
   rasterMs: {
     upperMs: [0.5, 1, 2, 4, 8, 16, Infinity],
@@ -165,8 +166,32 @@ describe('terrain budgets (#483)', () => {
         dataVisibleMs: 9_000,
         orbitFps: 4,
         longFramesMs: [3_000],
+        readinessCapped: ['atlas-surface'],
         peakResidentBytes: 170 * MIB,
       }),
     ).toEqual(['resident Atlas imagery 178257920 B > 167772160 B']);
+  });
+
+  // The cap is the fallback: on a hardware GPU each draped layer must read ready from its own
+  // rendered tiles. A software renderer can be slow enough to reach it, so there it is only noted.
+  it('fails a hardware run in which the readiness cap read a draped layer ready', () => {
+    expect(
+      terrainBudgetFailures({
+        ...PASSING,
+        readinessCapped: ['atlas-outlines', 'atlas-surface'],
+      }),
+    ).toEqual([
+      'draped layers read ready by the 3 s cap, not their tiles: atlas-outlines, atlas-surface',
+    ]);
+    expect(
+      terrainBudgetFailures({
+        ...PASSING,
+        profile: 'mobile',
+        peakResidentBytes: 50 * MIB,
+        readinessCapped: ['atlas-surface'],
+      }),
+    ).toEqual([
+      'draped layers read ready by the 3 s cap, not their tiles: atlas-surface',
+    ]);
   });
 });

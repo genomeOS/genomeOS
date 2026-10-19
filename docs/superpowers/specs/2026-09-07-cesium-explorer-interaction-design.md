@@ -281,9 +281,12 @@ fixture catalog's place, restores that file on every exit, and runs the tour. Th
 where the time went, step by step, with the World Terrain click to data visible and each restyle's
 change to its swap as steps of their own: each long frame with the time spent picking the ground
 under the observations or the highlight ring inside it, each step's ground passes by kind and one
-by one, which rule read each draped layer ready (`globe.tilesLoaded` or the 3 s cap, and whether
-the cap had run out too) and how long after its add, and the raster time of the coarse tiles
-(levels 0–2) and each level's request-to-delivery time.
+by one, which rule read each draped layer ready (its own rendered tiles or the 3 s cap, and
+whether the cap had run out too) and how long after its add, and the raster time of the coarse
+tiles (levels 0–2) and each level's request-to-delivery time. A draped layer is ready once the
+tiles the globe draws have its imagery, not once the whole globe has loaded, and a surface
+prepares its outlines beside it; the 3 s cap is a fallback, and a layer it reads ready fails the
+tour on a hardware GPU.
 
 The GitHub Actions secret `CESIUM_TOKEN` is exposed to Astro as a public build variable only for
 the Pages build. A browser token is necessarily readable by the browser, so it is treated as a

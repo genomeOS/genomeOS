@@ -15,6 +15,11 @@
  * `atlas-performance.spec.ts` skips its own. Resident memory is a count of tiles, not a timing,
  * so it is judged on every renderer: the plan's one departure from the spec, which skips every
  * terrain budget there (Phase 4 decision 4, pending the owner's sign-off).
+ *
+ * A draped layer reads ready from its own rendered tiles, or `DRAPED_READY_CAP_MS` (3 s) after
+ * its add or show, a fallback. On a hardware GPU a layer the cap read ready fails the run, since
+ * the fade then began on tiles that had not loaded; a software renderer can be slow enough to
+ * reach the cap, so there it is only reported, with the timings.
  */
 import type { DrapeStats } from '../../src/atlas/scene/types';
 
@@ -68,6 +73,8 @@ export interface TerrainPerformanceMetrics {
   orbitFps: number;
   /** Long-animation-frame durations from the terrain switch on. */
   longFramesMs: number[];
+  /** Each draped layer the 3 s cap read ready, not its tiles, in the order read. */
+  readinessCapped: string[];
   rasterMs: DrapeStats['rasterMs'];
   peakResidentBytes: number;
 }
@@ -139,6 +146,10 @@ export function terrainBudgetFailures(
     for (const ms of metrics.longFramesMs) {
       atMost('long frame', wholeUp(ms), budget.longFrameMs, 'ms');
     }
+    if (metrics.readinessCapped.length > 0)
+      failures.push(
+        `draped layers read ready by the 3 s cap, not their tiles: ${metrics.readinessCapped.join(', ')}`,
+      );
   }
   const p95 = rasterP95UpperMs(metrics.rasterMs);
   if (Number.isNaN(p95)) failures.push('no raster samples at level 3 or finer');
