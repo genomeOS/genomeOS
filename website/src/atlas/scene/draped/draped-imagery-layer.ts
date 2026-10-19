@@ -21,9 +21,10 @@
  *   (`renderedTilesSettled`) and have its imagery loaded (`renderedImageryLoaded`), from the
  *   second frame after it was added or last shown (the first frame's `preRender` still reads the
  *   tiles of the frame before). So after a terrain change it waits for the tiles the view settles
- *   on, not the level-0 tiles drawn while finer terrain loads, and its fade and pre-warm run over
- *   those. Not `globe.tilesLoaded`, which also waits for the basemap, the other layers and tiles
- *   no frame draws. `DRAPED_READY_CAP_MS` after the add or show it is ready whatever its tiles: a
+ *   on, not the level-0 tiles drawn while finer terrain loads, nor the smooth globe's tiles drawn
+ *   until World Terrain's provider loads, and its fade and pre-warm run over those. Not
+ *   `globe.tilesLoaded`, which also waits for the basemap, the other layers and tiles no frame
+ *   draws. `DRAPED_READY_CAP_MS` after the add or show it is ready whatever its tiles: a
  *   fallback, which the World Terrain tour fails on a hardware GPU. Each `preRender` requests a
  *   frame until then. A hidden layer is never ready and requests no frame; shown again, its
  *   readiness starts over. In the e2e build the frame that reads it ready emits a

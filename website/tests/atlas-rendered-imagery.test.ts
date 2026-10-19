@@ -98,17 +98,21 @@ function load(tile: TerrainTile, layer?: ImageryLayer): void {
 
 /**
  * A globe whose last frame rendered `tiles`, with `blockers` tiles that blocked refinement while
- * they loaded and `waiting` tiles drawn in place of descendants still loading (none by default).
+ * they loaded and `waiting` tiles drawn in place of descendants still loading (none by default),
+ * made from World Terrain, or from the smooth globe's `EllipsoidTerrainProvider` when `smooth`.
  */
 function globeRendering(
   tiles: TerrainTile[],
-  { blockers = 0, waiting = 0 } = {},
+  { blockers = 0, waiting = 0, smooth = false } = {},
 ): Globe {
   return {
     _surface: {
       _debug: { tilesWaitingForChildren: waiting },
       _tileLoadQueueHigh: tiles.slice(0, blockers),
       _tilesToRender: tiles,
+      tileProvider: {
+        terrainProvider: smooth ? new EllipsoidTerrainProvider() : {},
+      },
     },
     tilesLoaded: false,
   } as unknown as Globe;
@@ -240,11 +244,22 @@ describe('renderedTilesSettled (#483)', () => {
     expect(renderedTilesSettled(globeRendering(rendered))).toBe(false);
   });
 
+  // A draped layer lies on World Terrain: the smooth globe's tiles, drawn until World Terrain
+  // reaches the quadtree, are thrown away when it does.
+  it('is not settled while the tiles it rendered are still the smooth globe’s', () => {
+    expect(
+      renderedTilesSettled(globeRendering(tiles(), { smooth: true })),
+    ).toBe(false);
+  });
+
   it('fails loudly when the quadtree’s load state is not where Cesium 1.145 keeps it', () => {
     const rendered = tiles();
     expect(() =>
       renderedTilesSettled({
-        _surface: { _tilesToRender: rendered },
+        _surface: {
+          _tilesToRender: rendered,
+          tileProvider: { terrainProvider: {} },
+        },
       } as unknown as Globe),
     ).toThrow(
       /_tileLoadQueueHigh or _debug\.tilesWaitingForChildren is missing/,

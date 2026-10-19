@@ -13,8 +13,12 @@
  *   refinement as it loads (the quadtree's high-priority load queue), while a tile is drawn in
  *   place of descendants that cannot render yet (`_debug.tilesWaitingForChildren`, which Cesium
  *   counts whatever its debug output; those descendants load at medium priority, so the high
- *   queue alone would read settled), or while a rendered tile is a fill, its own terrain not yet
- *   loaded.
+ *   queue alone would read settled), or while a rendered tile is not renderable: a fill, its own
+ *   terrain not yet loaded, a tile with no imagery of any layer loaded yet, or one a layer added
+ *   since must load before it renders (GlobeSurfaceTile.js:390, GlobeSurfaceTileProvider.js:1318).
+ *   Nor while the tiles are still the smooth globe's (`tilesAreSmooth`): the scene drapes as soon
+ *   as World Terrain is asked for, the globe gets its provider only once that loads, and its
+ *   quadtree throws the smooth globe's settled tiles away in the frame after.
  * - `renderedImageryLoaded`: those tiles carry one Atlas imagery layer's imagery, loaded.
  * - `deepestRenderedLevel`: the deepest level rendered, for the e2e build's readiness measure.
  *
@@ -36,6 +40,8 @@
  */
 
 import type { Globe, ImageryLayer } from 'cesium';
+
+import { tilesAreSmooth } from '../ground-points';
 
 /** The members of a terrain tile's `TileImagery` read here. */
 interface TileImageryInternals {
@@ -71,11 +77,12 @@ function renderedTiles(globe: Globe): readonly RenderedTileInternals[] {
 
 /**
  * True when the globe's last frame rendered the tiles it chose for the view: none blocked
- * refinement while it loaded, none stood in for descendants still loading, and each had its own
- * terrain.
+ * refinement while it loaded, none stood in for descendants still loading, each was renderable,
+ * and none was the smooth globe's.
  */
 export function renderedTilesSettled(globe: Globe): boolean {
   const tiles = renderedTiles(globe);
+  if (tilesAreSmooth(globe)) return false;
   const { _debug: debug, _tileLoadQueueHigh: blockers } = quadtree(globe);
   const waiting = debug?.tilesWaitingForChildren;
   if (!Array.isArray(blockers) || typeof waiting !== 'number')

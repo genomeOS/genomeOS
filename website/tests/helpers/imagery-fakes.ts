@@ -154,8 +154,9 @@ export interface FakeRenderedTile {
 export interface FakeDrapedSceneHandles {
   /**
    * The whole globe's load state, and its quadtree's last frame: the tiles it rendered (none at
-   * first), those that blocked refinement while they loaded and the count drawn in place of
-   * descendants still loading (none: settled).
+   * first), those that blocked refinement while they loaded, the count drawn in place of
+   * descendants still loading (none: settled), and the terrain its tiles are made from (World
+   * Terrain's stand-in at first; an `EllipsoidTerrainProvider` for the smooth globe's).
    */
   globe: {
     tilesLoaded: boolean;
@@ -163,6 +164,7 @@ export interface FakeDrapedSceneHandles {
       _tilesToRender: FakeRenderedTile[];
       _tileLoadQueueHigh: unknown[];
       _debug: { tilesWaitingForChildren: number };
+      tileProvider: { terrainProvider: object };
     };
   };
   imageryLayers: ImageryLayerCollection;
@@ -179,6 +181,7 @@ export function fakeDrapedScene(): DrapedScene & FakeDrapedSceneHandles {
         _debug: { tilesWaitingForChildren: 0 },
         _tileLoadQueueHigh: [],
         _tilesToRender: [],
+        tileProvider: { terrainProvider: {} },
       },
       tilesLoaded: false,
     },

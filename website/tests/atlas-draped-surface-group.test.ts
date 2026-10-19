@@ -1,4 +1,4 @@
-import { ImageryLayer, Rectangle } from 'cesium';
+import { EllipsoidTerrainProvider, ImageryLayer, Rectangle } from 'cesium';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DRAPED_READY_MEASURE } from '../src/atlas/e2e-hooks';
@@ -350,6 +350,43 @@ describe('addDrapedImageryLayer', () => {
       scene,
     });
     quadtree._tileLoadQueueHigh = [{}];
+    scene.preRender.raiseEvent();
+    scene.preRender.raiseEvent();
+    expect(capped.isReady()).toBe(false);
+    now.mockReturnValue(3_000);
+    scene.preRender.raiseEvent();
+    expect(capped.isReady()).toBe(true);
+  });
+
+  // The scene drapes as soon as World Terrain is asked for, and the globe gets its provider only
+  // once that loads: a layer added meanwhile must not fade in, or pre-warm, over the smooth
+  // globe's settled tiles, which the terrain swap throws away.
+  it('is not ready while the tiles the globe rendered are still the smooth globe’s', () => {
+    const now = vi.spyOn(performance, 'now').mockReturnValue(0);
+    const layer = addDrapedImageryLayer({
+      alpha: 0,
+      name: 'atlas-surface',
+      provider: fakeProvider(),
+      scene,
+    });
+    const quadtree = scene.globe._surface;
+    quadtree.tileProvider.terrainProvider = new EllipsoidTerrainProvider();
+    renderEveryLayer(scene, 'loaded', 3);
+    scene.preRender.raiseEvent();
+    scene.preRender.raiseEvent();
+    expect(layer.isReady()).toBe(false);
+    expect(scene.requestRender).toHaveBeenCalled();
+    quadtree.tileProvider.terrainProvider = {}; // World Terrain reaches the tiles
+    scene.preRender.raiseEvent();
+    expect(layer.isReady()).toBe(true);
+    // A terrain that never comes: the fallback reads it ready at the cap all the same.
+    const capped = addDrapedImageryLayer({
+      alpha: 0,
+      name: 'atlas-outlines',
+      provider: fakeProvider(),
+      scene,
+    });
+    quadtree.tileProvider.terrainProvider = new EllipsoidTerrainProvider();
     scene.preRender.raiseEvent();
     scene.preRender.raiseEvent();
     expect(capped.isReady()).toBe(false);
