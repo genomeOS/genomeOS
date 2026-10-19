@@ -8,8 +8,10 @@ disagreement is a hard error (design §12), never a skipped file.
 The record is not taken on trust. Beyond agreeing with the file, the file must be what its contract
 promises, checked here without loading the contract: integer counts under its own measurement's
 names (``ac``/``an`` over chromosomes, ``carriers``/``n_individuals`` over people, #133), no other
-measurement's counts, and no frequency column (design §7.1b). The contract revision it cites must
-be one this repository has recorded.
+measurement's counts, no frequency column (design §7.1b), and exactly its contract's columns in its
+order, so a surface value cannot travel in an observation table (design §4, §5). The contract
+revision it cites must be one this repository has recorded. Nothing the project's own reader
+(``genomeos.surfaces.artifacts.read_observations``) would refuse may pass.
 
 Artifacts released before the rule cannot be repaired in place: a released artifact is immutable,
 so it may not gain a file. Each one is named, with a reason, in the builder's reviewed
@@ -47,6 +49,19 @@ INPUT_CONTRACTS: Mapping[str, str] = MappingProxyType(
 #: names, because ``ac``/``an`` over chromosomes and over people must never share a column (#133).
 COUNT_COLUMNS: Mapping[str, tuple[str, str]] = MappingProxyType(
     {"allele_frequency": ("ac", "an"), "carrier_frequency": ("carriers", "n_individuals")}
+)
+#: Each measurement's input columns, exactly and in order (``tuple(INPUT_CONTRACTS[m].schema.columns)``
+#: in ``genomeos.surfaces.fit_input``; a test pins the two). The two contracts differ only in their
+#: counts. Both are strict, so the reader refuses any other column, such as a surface's ``post_mean``.
+INPUT_COLUMNS: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        measurement: (
+            "variant_id", "rsid", "population_id", "lat", "lon", "radius_km", numerator, denominator,
+            "source_record_id", "source", "assay", "date_lower", "date_upper", "sampling_design",
+            "disease_ascertainment_excluded", "cohort_id", "ingest_version",
+        )
+        for measurement, (numerator, denominator) in COUNT_COLUMNS.items()
+    }
 )
 #: Every revision of each contract that an input may cite, as the sha256 of the frozen file. Revising
 #: a contract is a reviewed event: append the new digest (a test fails until it is here) and never
@@ -170,6 +185,11 @@ def _check_record(name: str, manifest: Mapping[str, Any], measured: InputFile) -
             f"{name}: {RECORD_KEY} schema_sha256 {record['schema_sha256']} is not a revision of {contract} "
             "that CONTRACT_REVISIONS records"
         )
+    if not isinstance(record["sha256"], str) or not _SHA256.fullmatch(record["sha256"]):
+        raise DataReleaseError(f"{name}: {RECORD_KEY} sha256 {record['sha256']!r} is not a digest")
+    # 1234.0 == 1234, so equality alone would pass a float the reader refuses.
+    if type(record["bytes"]) is not int:
+        raise DataReleaseError(f"{name}: {RECORD_KEY} bytes {record['bytes']!r} is not an integer")
     if (record["sha256"], record["bytes"]) != (measured.sha256, measured.bytes):
         raise DataReleaseError(
             f"{name}: {INPUT_FILE} has sha256 {measured.sha256} ({measured.bytes} bytes), but its manifest "
@@ -181,6 +201,13 @@ def _check_record(name: str, manifest: Mapping[str, Any], measured: InputFile) -
             f"{name}: {RECORD_KEY} columns {columns!r} are not the file's {list(measured.columns)}"
         )
     _check_counts(name, measurement, measured)
+    expected = INPUT_COLUMNS[measurement]
+    if tuple(columns) != expected:
+        raise DataReleaseError(
+            f"{name}: {INPUT_FILE} columns {columns!r} are not the {measurement} contract's "
+            f"{list(expected)}, in its order: an input carries nothing else, and never a surface value "
+            "(design §4, §5)"
+        )
     n_observations = manifest.get("n_observations")
     if not (type(record["row_count"]) is int and record["row_count"] == measured.rows == n_observations):
         raise DataReleaseError(

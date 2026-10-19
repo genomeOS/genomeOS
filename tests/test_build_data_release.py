@@ -286,6 +286,15 @@ def test_an_input_record_that_misdescribes_the_file_is_refused(
         _build(tree)
 
 
+def test_an_input_record_whose_byte_count_is_not_an_integer_is_refused(tree: Path) -> None:
+    """1234.0 == 1234 in Python, but the project's reader refuses it, so the gate must too."""
+    manifest = json.loads((tree / ARTIFACT / "manifest.json").read_text())
+    manifest["observations"]["bytes"] = float(manifest["observations"]["bytes"])
+    _write(tree, f"{ARTIFACT}/manifest.json", json.dumps(manifest).encode())
+    with pytest.raises(dr.DataReleaseError, match="bytes .* is not an integer"):
+        _build(tree)
+
+
 def test_the_input_row_count_must_be_the_artifacts_n_observations(tree: Path) -> None:
     manifest = json.loads((tree / ARTIFACT / "manifest.json").read_text())
     manifest["n_observations"] = 1071
@@ -358,6 +367,9 @@ def test_the_release_rule_and_the_publisher_agree_on_the_input() -> None:
     assert dict(ai.INPUT_CONTRACTS) == {name: contract.path for name, contract in INPUT_CONTRACTS.items()}
     assert dict(ai.COUNT_COLUMNS) == {name: contract.counts for name, contract in INPUT_CONTRACTS.items()}
     assert ai.COUNT_COLUMNS[ALLELE] == FIT_COUNTS
+    assert dict(ai.INPUT_COLUMNS) == {
+        name: tuple(contract.schema.columns) for name, contract in INPUT_CONTRACTS.items()
+    }
 
 
 @pytest.mark.parametrize("measurement", [ALLELE, CARRIER])
@@ -437,6 +449,28 @@ def test_an_input_that_is_not_integer_counts_is_refused_even_if_its_record_agree
     """§7.1b at the release gate: integer counts, never a frequency, never another measurement's."""
     _hand_written_input(tree, ARTIFACT, change(observation_rows()))
     with pytest.raises(dr.DataReleaseError, match=match):
+        _build(tree)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda rows: rows.assign(post_mean=0.1),
+        lambda rows: rows.drop(columns=["cohort_id"]),
+        lambda rows: rows[["lon", "lat", *[c for c in rows.columns if c not in {"lat", "lon"}]]],
+    ],
+    ids=["a-surface-column", "a-missing-column", "reordered-columns"],
+)
+def test_an_input_whose_columns_are_not_its_contracts_is_refused_even_if_its_record_agrees(
+    tree: Path, change
+) -> None:
+    """A surface's `post_mean` in its observation table conflates the two (AGENTS invariant; §4, §5).
+
+    The project's reader (`read_observations`) refuses any column set but the contract's, in its
+    order, so the gate refuses it too.
+    """
+    _hand_written_input(tree, ARTIFACT, change(observation_rows()))
+    with pytest.raises(dr.DataReleaseError, match="allele_frequency contract"):
         _build(tree)
 
 

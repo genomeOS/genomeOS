@@ -107,7 +107,8 @@ So every artifact carries its own input.
   hash, size, row count, columns or measurement do not match the file and the artifact. It also
   checks the file itself, without loading the contract: its counts must be its measurement's own
   columns with an integer type, it may carry no other measurement's counts and no column named
-  like a frequency, and its `schema_sha256` must be a contract revision listed in
+  like a frequency, its columns must be exactly its contract's, in order (so no surface value such
+  as `post_mean` travels in it), and its `schema_sha256` must be a contract revision listed in
   `CONTRACT_REVISIONS` (`genomeos/publication/artifact_inputs.py`; append a digest there when a
   contract is revised, and never remove one). Nothing is skipped.
 
