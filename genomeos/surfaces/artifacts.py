@@ -22,8 +22,8 @@ withdrawn without rewriting the others — which is what immutability requires i
 
 **The input travels with the output** (#45). Beside ``cells.parquet`` sits ``observations.parquet``,
 exactly the table the fit consumed (``surfaces.fit_input``), and the manifest records its sha256,
-size, row count and contract. ``manifest.json`` is written last, so a directory with a manifest is a
-directory whose files are all there.
+size, row count, measurement and contract. ``manifest.json`` is written last, so a directory with a
+manifest is a directory whose files are all there.
 """
 
 from __future__ import annotations
@@ -115,7 +115,8 @@ class ArtifactManifest:
     #: incomplete, not ready to publish.
     measurement: str
     #: The identity of `observations.parquet`, the table the fit consumed (#45). Required, with no
-    #: default: an artifact whose input cannot be named is not ready to publish.
+    #: default: an artifact whose input cannot be named is not ready to publish. Its measurement is
+    #: this manifest's, so a carrier surface's input is published under the carrier contract.
     observations: ObservationsRecord
     artifact_format: int = ARTIFACT_FORMAT
 
@@ -154,6 +155,11 @@ class ArtifactManifest:
             raise ValueError(
                 f"n_observations {self.n_observations} differs from the input's "
                 f"row_count {self.observations.row_count}"
+            )
+        if self.observations.measurement != self.measurement:
+            raise ValueError(
+                f"measurement {self.measurement!r} differs from the input's "
+                f"{self.observations.measurement!r}: a surface's counts are of one quantity (#133)"
             )
 
     def to_json(self) -> str:
@@ -234,17 +240,18 @@ def publish(
     artifacts under a new `model_version` rather than replacing a map someone has already cited,
     and a silent overwrite is precisely the failure that guarantee exists to prevent.
 
-    `observations` is the fit's own record of its input (`SurfaceFit.observations`). Its bytes are
-    re-derived here and must be the ones `manifest.observations` names, and every row must belong to
-    the artifact's variant. Everything is checked before the directory is created, and the manifest
-    is written last.
+    `observations` is the fit's own record of its input (`SurfaceFit.observations`), in its
+    `ac`/`an` shape. Its bytes are re-derived here under `manifest.measurement`'s contract (a
+    carrier input is written as `carriers`/`n_individuals`, #133) and must be the ones
+    `manifest.observations` names, and every row must belong to the artifact's variant. Everything
+    is checked before the directory is created, and the manifest is written last.
     """
     _validate_current(frame, manifest.__dict__, context="surface artifact")
-    payload, record = serialize_observations(observations)
+    payload, record = serialize_observations(observations, measurement=manifest.measurement)
     if record != manifest.observations:
         raise ValueError(
             "manifest.observations does not describe the observation table being published; build it "
-            "with fit_input.observations_record() from the same table"
+            "with fit_input.observations_record() from the same table and measurement"
         )
     variants = sorted(set(observations["variant_id"].astype(str)))
     if variants != [manifest.variant_id]:
@@ -298,7 +305,11 @@ def read(directory: Path) -> tuple[pd.DataFrame, dict]:
 
 
 def read_observations(directory: Path) -> pd.DataFrame:
-    """The table an artifact's fit consumed, refusing bytes its manifest does not name (#45)."""
+    """The table an artifact's fit consumed, refusing bytes its manifest does not name (#45).
+
+    Returned under its contract's own column names: a carrier artifact's input is
+    `carriers`/`n_individuals`, which `afnd_carriers.as_binomial` turns back into the fit's frame.
+    """
     directory = Path(directory)
     manifest = json.loads((directory / "manifest.json").read_text())
     record = manifest.get("observations")
@@ -310,6 +321,11 @@ def read_observations(directory: Path) -> pd.DataFrame:
     frame = load_observations((directory / OBSERVATIONS_FILE).read_bytes(), record, context=str(directory))
     if len(frame) != manifest.get("n_observations"):
         raise ValueError(f"{directory}: the input's rows differ from n_observations")
+    if record["measurement"] != manifest.get("measurement"):
+        raise ValueError(
+            f"{directory}: the input's measurement {record['measurement']!r} is not the artifact's "
+            f"{manifest.get('measurement')!r} (#133)"
+        )
     return frame
 
 

@@ -1,10 +1,11 @@
-"""A tiny, schema-valid observation table, shared by the fit-input tests (#45)."""
+"""Tiny, schema-valid observation tables, shared by the fit-input tests (#45)."""
 
 from __future__ import annotations
 
 import pandas as pd
 
-from genomeos.observations.schema import OBSERVATIONS_SCHEMA
+from genomeos.observations.schema import CARRIER_OBSERVATIONS_SCHEMA, OBSERVATIONS_SCHEMA
+from genomeos.observations.sources import afnd_carriers
 
 
 def observation_rows(n: int = 6, *, variant_id: str = "chr11-5227002-T-A") -> pd.DataFrame:
@@ -32,3 +33,15 @@ def observation_rows(n: int = 6, *, variant_id: str = "chr11-5227002-T-A") -> pd
             }
         )
     )
+
+
+def carrier_rows(n: int = 6, *, variant_id: str = "kir:2dl1") -> pd.DataFrame:
+    """KIR presence as the adapter emits it: carriers over individuals, not alleles (#133)."""
+    rows = observation_rows(n, variant_id=variant_id).assign(rsid=None)
+    rows = rows.rename(columns={"ac": "carriers", "an": "n_individuals"})
+    return CARRIER_OBSERVATIONS_SCHEMA.validate(rows.assign(source="afnd", assay="kir_presence"))
+
+
+def kir_fit_rows(n: int = 6, *, variant_id: str = "kir:2dl1") -> pd.DataFrame:
+    """What a KIR fit consumes: carrier rows renamed to `ac`/`an` by `as_binomial`, and nothing else."""
+    return OBSERVATIONS_SCHEMA.validate(afnd_carriers.as_binomial(carrier_rows(n, variant_id=variant_id)))

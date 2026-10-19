@@ -1,15 +1,21 @@
 """Inputs travel with outputs: the release rule for an artifact's fit input (#45; data store design §5).
 
 Every artifact a release publishes carries ``observations.parquet``, the exact observation table its
-fit consumed, and its ``manifest.json`` records that file's sha256, size, row count and contract.
-The release builder measures the file and calls ``check_artifact_inputs``; any disagreement is a
-hard error (design §12), never a skipped file.
+fit consumed, and its ``manifest.json`` records that file's sha256, size, row count, measurement and
+contract. The release builder measures the file and calls ``check_artifact_inputs``; any
+disagreement is a hard error (design §12), never a skipped file.
+
+The record is not taken on trust. Beyond agreeing with the file, the file must be what its contract
+promises, checked here without loading the contract: integer counts under its own measurement's
+names (``ac``/``an`` over chromosomes, ``carriers``/``n_individuals`` over people, #133), no other
+measurement's counts, and no frequency column (design §7.1b). The contract revision it cites must
+be one this repository has recorded.
 
 Artifacts released before the rule cannot be repaired in place: a released artifact is immutable,
 so it may not gain a file. Each one is named, with a reason, in the builder's reviewed
-``RELEASED_WITHOUT_INPUT`` table, and that table may name only an artifact an earlier release holds.
-Nothing is exempt by default: a released artifact that is missing from the table and has no input
-fails the build like a new one.
+``RELEASED_WITHOUT_INPUT`` table, and that table may name only an artifact that an earlier release
+holds and that no earlier release holds with its input. Nothing is exempt by default: a released
+artifact that is missing from the table and has no input fails the build like a new one.
 
 Pure and dependency-free, like ``data_release``: the builder must not load the surface stack to
 build a manifest. The publisher's side of the contract is ``genomeos.surfaces.fit_input``, and a
@@ -21,30 +27,63 @@ from __future__ import annotations
 import re
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any
 
 from genomeos.publication.data_release import DataReleaseError
 
 #: The input's name inside each artifact directory (``genomeos.surfaces.fit_input.OBSERVATIONS_FILE``).
 INPUT_FILE = "observations.parquet"
-#: The frozen contract its columns obey (``genomeos.surfaces.fit_input.OBSERVATIONS_CONTRACT``).
-INPUT_CONTRACT = "contract/observations.schema.json"
 #: The manifest key that records it.
 RECORD_KEY = "observations"
-#: Counts, not frequencies (design §7.1b): the binomial likelihood needs the denominator.
-COUNT_COLUMNS = ("ac", "an")
-_RECORD_FIELDS = frozenset({"path", "sha256", "bytes", "row_count", "schema", "schema_sha256", "columns"})
+#: The frozen contract each measurement's input obeys (``genomeos.surfaces.fit_input.INPUT_CONTRACTS``).
+INPUT_CONTRACTS: Mapping[str, str] = MappingProxyType(
+    {
+        "allele_frequency": "contract/observations.schema.json",
+        "carrier_frequency": "contract/carrier_observations.schema.json",
+    }
+)
+#: Counts, not frequencies (design §7.1b): each measurement's numerator and denominator, by its own
+#: names, because ``ac``/``an`` over chromosomes and over people must never share a column (#133).
+COUNT_COLUMNS: Mapping[str, tuple[str, str]] = MappingProxyType(
+    {"allele_frequency": ("ac", "an"), "carrier_frequency": ("carriers", "n_individuals")}
+)
+#: Every revision of each contract that an input may cite, as the sha256 of the frozen file. Revising
+#: a contract is a reviewed event: append the new digest (a test fails until it is here) and never
+#: remove an old one, because an artifact published under it stays valid.
+CONTRACT_REVISIONS: Mapping[str, frozenset[str]] = MappingProxyType(
+    {
+        "contract/observations.schema.json": frozenset(
+            {"94471dc24e099b7f173a588677d07a63f52006ec369d1a2f5acb26e07a2dbda4"}
+        ),
+        "contract/carrier_observations.schema.json": frozenset(
+            {"3a20f70713abc063ff4a2d0bcd68c4cf21b56426cd2a5ee623c2bbdc8617e3a1"}
+        ),
+    }
+)
+_INTEGER_TYPES = frozenset({"int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64"})
+_RECORD_FIELDS = frozenset(
+    {"path", "sha256", "bytes", "row_count", "measurement", "schema", "schema_sha256", "columns"}
+)
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
 @dataclass(frozen=True)
 class InputFile:
-    """What the builder measured from an artifact's ``observations.parquet``."""
+    """What the builder measured from an artifact's ``observations.parquet``.
+
+    ``types`` are the Arrow types of ``columns``, in the same order, as ``str(pyarrow.DataType)``.
+    """
 
     sha256: str
     bytes: int
     rows: int
     columns: tuple[str, ...]
+    types: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if len(self.types) != len(self.columns):
+            raise DataReleaseError(f"{INPUT_FILE}: {len(self.columns)} columns but {len(self.types)} types")
 
 
 def check_artifact_inputs(
@@ -52,17 +91,25 @@ def check_artifact_inputs(
     inputs: Mapping[str, InputFile],
     *,
     released: Collection[str],
+    released_with_input: Collection[str],
     released_without_input: Mapping[str, str],
 ) -> None:
     """Refuse a release in which any artifact lacks the input its fit consumed, or misdescribes it.
 
     ``manifests`` maps each artifact directory in the release to its parsed ``manifest.json``;
     ``inputs`` maps the directories that hold an ``observations.parquet`` to what was measured from
-    it; ``released`` names every artifact directory an earlier release holds.
+    it; ``released`` names every artifact directory an earlier release holds, and
+    ``released_with_input`` those an earlier release holds together with their ``observations.parquet``.
     """
     for name, reason in sorted(released_without_input.items()):
         if not isinstance(reason, str) or not reason.strip():
             raise DataReleaseError(f"{name}: listed as released without its input, but with no reason")
+        if name in released_with_input:
+            raise DataReleaseError(
+                f"{name}: listed as released without its input, but an earlier release holds its "
+                f"{INPUT_FILE}. It was released with its input, so it may not be exempted, and no later "
+                "release may drop that file (#45)"
+            )
         if name not in released:
             raise DataReleaseError(
                 f"{name}: listed as released without its input, but no earlier release holds it. Only an "
@@ -98,11 +145,30 @@ def _check_record(name: str, manifest: Mapping[str, Any], measured: InputFile) -
         )
     if record["path"] != INPUT_FILE:
         raise DataReleaseError(f"{name}: {RECORD_KEY} path {record['path']!r} is not {INPUT_FILE!r}")
-    if record["schema"] != INPUT_CONTRACT:
-        raise DataReleaseError(f"{name}: {RECORD_KEY} schema {record['schema']!r} is not {INPUT_CONTRACT!r}")
+    measurement = record["measurement"]
+    if not isinstance(measurement, str) or measurement not in INPUT_CONTRACTS:
+        raise DataReleaseError(
+            f"{name}: {RECORD_KEY} measurement {measurement!r} is not one of {list(INPUT_CONTRACTS)}"
+        )
+    if measurement != manifest.get("measurement"):
+        raise DataReleaseError(
+            f"{name}: {RECORD_KEY} measurement {measurement!r} is not the artifact's "
+            f"{manifest.get('measurement')!r}: a surface's counts are of one quantity (#133)"
+        )
+    contract = INPUT_CONTRACTS[measurement]
+    if record["schema"] != contract:
+        raise DataReleaseError(
+            f"{name}: {RECORD_KEY} schema {record['schema']!r} is not {contract!r}, the {measurement} "
+            "contract"
+        )
     if not isinstance(record["schema_sha256"], str) or not _SHA256.fullmatch(record["schema_sha256"]):
         raise DataReleaseError(
             f"{name}: {RECORD_KEY} schema_sha256 {record['schema_sha256']!r} is not a digest"
+        )
+    if record["schema_sha256"] not in CONTRACT_REVISIONS[contract]:
+        raise DataReleaseError(
+            f"{name}: {RECORD_KEY} schema_sha256 {record['schema_sha256']} is not a revision of {contract} "
+            "that CONTRACT_REVISIONS records"
         )
     if (record["sha256"], record["bytes"]) != (measured.sha256, measured.bytes):
         raise DataReleaseError(
@@ -114,11 +180,38 @@ def _check_record(name: str, manifest: Mapping[str, Any], measured: InputFile) -
         raise DataReleaseError(
             f"{name}: {RECORD_KEY} columns {columns!r} are not the file's {list(measured.columns)}"
         )
-    if not set(COUNT_COLUMNS) <= set(measured.columns):
-        raise DataReleaseError(f"{name}: {INPUT_FILE} must carry counts {list(COUNT_COLUMNS)} (design §7.1b)")
+    _check_counts(name, measurement, measured)
     n_observations = manifest.get("n_observations")
     if not (type(record["row_count"]) is int and record["row_count"] == measured.rows == n_observations):
         raise DataReleaseError(
             f"{name}: {RECORD_KEY} row_count {record['row_count']!r}, file rows {measured.rows} and "
             f"n_observations {n_observations!r} must all agree"
+        )
+
+
+def _check_counts(name: str, measurement: str, measured: InputFile) -> None:
+    """Counts, not frequencies (§7.1b), under the measurement's own names (#133)."""
+    frequencies = [column for column in measured.columns if "freq" in column.lower()]
+    if frequencies:
+        raise DataReleaseError(
+            f"{name}: {INPUT_FILE} carries {frequencies}; an input holds counts, never frequencies (§7.1b)"
+        )
+    counts = COUNT_COLUMNS[measurement]
+    for other, other_counts in COUNT_COLUMNS.items():
+        mixed = [column for column in other_counts if other != measurement and column in measured.columns]
+        if mixed:
+            raise DataReleaseError(
+                f"{name}: a {measurement} {INPUT_FILE} carries {other}'s count columns {mixed}; its counts "
+                f"are {list(counts)}, and the two never share a table (#133)"
+            )
+    absent = [column for column in counts if column not in measured.columns]
+    if absent:
+        raise DataReleaseError(
+            f"{name}: {INPUT_FILE} must carry counts {list(counts)}, but lacks {absent} (design §7.1b)"
+        )
+    types = dict(zip(measured.columns, measured.types, strict=True))
+    fractional = {column: types[column] for column in counts if types[column] not in _INTEGER_TYPES}
+    if fractional:
+        raise DataReleaseError(
+            f"{name}: {INPUT_FILE} counts must have an integer type, not {fractional} (design §7.1b, §12)"
         )

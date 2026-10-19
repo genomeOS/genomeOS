@@ -85,25 +85,41 @@ So every artifact carries its own input.
 - `fit_surface` keeps the schema-validated observation frame it consumed on the fit
   (`SurfaceFit.observations`), and `save_fit` writes it into the cache (fit format 3).
 - `publish_artifacts.py` writes **that** frame, not a reload, as `observations.parquet` beside
-  `cells.parquet` (`genomeos/surfaces/fit_input.py`). It is exactly the rows and columns the fit
-  consumed, in its row order: the strict `contract/observations.schema.json` table, so counts
-  (`ac`, `an`) and never frequencies. The bytes are deterministic in the locked environment.
+  `cells.parquet` (`genomeos/surfaces/fit_input.py`). It is exactly the rows the fit consumed, in
+  its row order, as integer counts and never frequencies, under the strict frozen contract of the
+  artifact's `measurement`. The bytes are deterministic in the locked environment.
+- **Which counts depends on the measurement** (#133). An `allele_frequency` artifact's input is
+  `contract/observations.schema.json`: `ac` alleles out of `an` chromosomes. A `carrier_frequency`
+  artifact (KIR gene presence) is fitted on `ac`/`an` too, because `afnd_carriers.as_binomial`
+  renames carriers over individuals so the same binomial GP can fit them, but its input is
+  published as what it is: `contract/carrier_observations.schema.json`, with `carriers` out of
+  `n_individuals`. The rename is the only difference, so `as_binomial` applied to the published
+  table gives back the fit's frame exactly. Never pool the two kinds of table as if their counts
+  were the same unit: one counts chromosomes, the other people.
 - The artifact's `manifest.json` records the file's `sha256`, `bytes`, `row_count` (equal to
-  `n_observations`), its `columns` and the contract file with its `schema_sha256`, and is written
-  last.
+  `n_observations`), its `measurement` (equal to the artifact's), its `columns` and the contract
+  file with its `schema_sha256`, and is written last.
 - `publish_artifacts.py` refuses a fit cached before format 3 (what it consumed is unknown: refit
-  it), and refuses flags that supply rows other than the fit's own.
+  it), flags that supply rows other than the fit's own, and a fit with an observation footprint
+  (it also consumed support points, which the table does not describe). It checks every fit's
+  input before writing the first directory, so an input refusal never leaves a run half published.
 - `build_data_release.py` refuses an artifact without `observations.parquet`, or whose recorded
-  hash, size, row count or columns do not match the file. Nothing is skipped.
+  hash, size, row count, columns or measurement do not match the file and the artifact. It also
+  checks the file itself, without loading the contract: its counts must be its measurement's own
+  columns with an integer type, it may carry no other measurement's counts and no column named
+  like a frequency, and its `schema_sha256` must be a contract revision listed in
+  `CONTRACT_REVISIONS` (`genomeos/publication/artifact_inputs.py`; append a digest there when a
+  contract is revised, and never remove one). Nothing is skipped.
 
 Artifacts released before this rule cannot gain the file, because a released artifact is
 immutable: the builder also refuses any new file inside a released artifact directory. They are
 named one by one, each with a reason, in `RELEASED_WITHOUT_INPUT` in
 `scripts/build_data_release.py`: the 61 artifacts of release 2026-10-17. Nothing is exempt by
-default. A released artifact missing from that table fails the build, and an entry that no earlier
-release holds is refused, so the table can never admit a new artifact. Recovering one of their inputs
-means publishing it under a new key (a `validation/` record, or a refit under a new
-`model_version`), never adding a file to a cited directory.
+default. A released artifact missing from that table fails the build. An entry that no earlier
+release holds is refused, so the table can never admit a new artifact, and so is an entry that an
+earlier release holds with its `observations.parquet`, so the table can never hide a dropped input.
+Recovering one of their inputs means publishing it under a new key (a `validation/` record, or a
+refit under a new `model_version`), never adding a file to a cited directory.
 
 ## Building the P4 serving catalog
 

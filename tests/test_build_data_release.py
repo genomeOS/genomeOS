@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 from pathlib import Path
 
@@ -12,14 +13,23 @@ import pytest
 from genomeos.publication import artifact_inputs as ai
 from genomeos.publication import data_release as dr
 from genomeos.publication.commercial_use import COMMERCIAL_USE_FINDINGS
-from genomeos.surfaces.fit_input import OBSERVATIONS_CONTRACT, OBSERVATIONS_FILE, serialize_observations
+from genomeos.surfaces.fit_input import (
+    FIT_COUNTS,
+    INPUT_CONTRACTS,
+    OBSERVATIONS_FILE,
+    contract_sha256,
+    serialize_observations,
+)
 from scripts import build_data_release as build
-from tests.observation_fixtures import observation_rows
+from tests.observation_fixtures import kir_fit_rows, observation_rows
 
 ROOT = Path(__file__).resolve().parents[1]
 RELEASE = "2026-10-17"
 ARTIFACT = "store/artifacts/chr11-5227002-T-A__v3__map-2026-08"
 AFND_ARTIFACT = "store/artifacts/hla__a-02-01__v2__afnd-2026-08"
+KIR_ARTIFACT = "store/artifacts/kir__2dl1__v9__afnd-2026-08"
+ALLELE = "allele_frequency"
+CARRIER = "carrier_frequency"
 
 
 def _write(root: Path, path: str, data: bytes) -> None:
@@ -28,10 +38,24 @@ def _write(root: Path, path: str, data: bytes) -> None:
     target.write_bytes(data)
 
 
-def _artifact(root: Path, directory: str, data_version: str, *, grid: str | None = None, n: int = 6) -> None:
+def _artifact(
+    root: Path,
+    directory: str,
+    data_version: str,
+    *,
+    grid: str | None = None,
+    n: int = 6,
+    measurement: str = ALLELE,
+) -> None:
     """An artifact directory as `publish()` writes it: cells, the fit's input, then the manifest."""
-    payload, record = serialize_observations(observation_rows(n))
-    manifest = {"data_version": data_version, "n_observations": n, "observations": record.__dict__}
+    rows = kir_fit_rows(n) if measurement == CARRIER else observation_rows(n)
+    payload, record = serialize_observations(rows, measurement=measurement)
+    manifest = {
+        "data_version": data_version,
+        "measurement": measurement,
+        "n_observations": n,
+        "observations": record.__dict__,
+    }
     if grid is not None:
         manifest["target_grid_source"] = grid
     _write(root, f"{directory}/cells.parquet", b"PAR1 stand-in")
@@ -233,7 +257,7 @@ def test_a_new_artifact_whose_manifest_does_not_record_its_input_is_refused(tree
 
 
 def test_an_input_whose_recorded_hash_does_not_match_is_refused(tree: Path) -> None:
-    other, _ = serialize_observations(observation_rows(5))
+    other, _ = serialize_observations(observation_rows(5), measurement=ALLELE)
     _write(tree, f"{ARTIFACT}/{OBSERVATIONS_FILE}", other)
     with pytest.raises(dr.DataReleaseError, match="sha256"):
         _build(tree)
@@ -246,6 +270,9 @@ def test_an_input_whose_recorded_hash_does_not_match_is_refused(tree: Path) -> N
         ("columns", ["variant_id", "frequency"], "columns"),
         ("path", "inputs.parquet", "path"),
         ("schema", "contract/carrier_observations.schema.json", "schema"),
+        ("measurement", CARRIER, "measurement"),
+        ("measurement", "phenotype_frequency", "measurement"),
+        ("schema_sha256", "0" * 64, "revision"),
         ("frequency", 0.1, "unknown fields"),
     ],
 )
@@ -289,7 +316,7 @@ def test_a_listed_released_artifact_without_its_input_is_carried_forward(tree: P
 def test_a_released_artifact_cannot_gain_its_input(tree: Path) -> None:
     """Immutable means immutable: backfilling an input is a follow-up, never a new file in a cited key."""
     previous, exempt = _history(tree)
-    payload, _ = serialize_observations(observation_rows())
+    payload, _ = serialize_observations(observation_rows(), measurement=ALLELE)
     _write(tree, f"{ARTIFACT}/{OBSERVATIONS_FILE}", payload)
     with pytest.raises(dr.DataReleaseError, match="cannot gain"):
         _build(tree, previous=previous, released_without_input=exempt)
@@ -328,7 +355,15 @@ def test_the_list_is_exactly_the_committed_artifacts_released_without_their_inpu
 
 def test_the_release_rule_and_the_publisher_agree_on_the_input() -> None:
     assert ai.INPUT_FILE == OBSERVATIONS_FILE
-    assert ai.INPUT_CONTRACT == OBSERVATIONS_CONTRACT
+    assert dict(ai.INPUT_CONTRACTS) == {name: contract.path for name, contract in INPUT_CONTRACTS.items()}
+    assert dict(ai.COUNT_COLUMNS) == {name: contract.counts for name, contract in INPUT_CONTRACTS.items()}
+    assert ai.COUNT_COLUMNS[ALLELE] == FIT_COUNTS
+
+
+@pytest.mark.parametrize("measurement", [ALLELE, CARRIER])
+def test_the_release_rule_knows_the_current_revision_of_every_input_contract(measurement: str) -> None:
+    """A contract revision is a reviewed event: its sha256 is appended to `CONTRACT_REVISIONS`."""
+    assert contract_sha256(measurement) in ai.CONTRACT_REVISIONS[ai.INPUT_CONTRACTS[measurement]]
 
 
 def test_an_artifact_exactly_as_publish_writes_it_is_released(tree: Path) -> None:
@@ -346,3 +381,98 @@ def test_an_artifact_exactly_as_publish_writes_it_is_released(tree: Path) -> Non
     path = f"{dr.ARTIFACT_PREFIX}{directory.name}/{OBSERVATIONS_FILE}"
     assert objects[path]["sha256"] == hashlib.sha256((directory / OBSERVATIONS_FILE).read_bytes()).hexdigest()
     assert objects[path]["sources"] == ["map"]
+
+
+# --- a carrier input is released as carriers over individuals (#133) ---
+
+
+def test_a_kir_artifact_is_released_with_carriers_over_individuals(tree: Path) -> None:
+    _artifact(tree, KIR_ARTIFACT, "afnd-2026-08", measurement=CARRIER)
+    objects = _paths(_build(tree))
+    assert objects[f"{KIR_ARTIFACT}/{OBSERVATIONS_FILE}"]["sources"] == ["afnd"]
+
+
+def test_an_input_whose_measurement_is_not_the_artifacts_is_refused(tree: Path) -> None:
+    manifest = json.loads((tree / ARTIFACT / "manifest.json").read_text())
+    manifest["measurement"] = CARRIER
+    _write(tree, f"{ARTIFACT}/manifest.json", json.dumps(manifest).encode())
+    with pytest.raises(dr.DataReleaseError, match="measurement"):
+        _build(tree)
+
+
+def _hand_written_input(root: Path, directory: str, frame, **record: object) -> None:
+    """An input and a record that agree with each other, written without `serialize_observations`.
+
+    What an older tool or a hand edit could produce: the hash, size and columns all match the file,
+    so only a check of the content itself can refuse it.
+    """
+    buffer = io.BytesIO()
+    frame.to_parquet(buffer, engine="pyarrow", index=False)
+    payload = buffer.getvalue()
+    _write(root, f"{directory}/{OBSERVATIONS_FILE}", payload)
+    manifest = json.loads((root / directory / "manifest.json").read_text())
+    manifest["observations"].update(
+        sha256=hashlib.sha256(payload).hexdigest(),
+        bytes=len(payload),
+        columns=[str(column) for column in frame.columns],
+        **record,
+    )
+    _write(root, f"{directory}/manifest.json", json.dumps(manifest).encode())
+
+
+@pytest.mark.parametrize(
+    ("change", "match"),
+    [
+        (lambda rows: rows.assign(ac=rows["ac"].astype(float)), "integer"),
+        (lambda rows: rows.assign(an=rows["an"].astype(str)), "integer"),
+        (lambda rows: rows.assign(frequency=rows["ac"] / rows["an"]), "freq"),
+        (lambda rows: rows.rename(columns={"ac": "allele_freq"}), "freq"),
+        (lambda rows: rows.drop(columns=["an"]), "counts"),
+        (lambda rows: rows.assign(carriers=rows["ac"]), "carriers"),
+    ],
+)
+def test_an_input_that_is_not_integer_counts_is_refused_even_if_its_record_agrees(
+    tree: Path, change, match: str
+) -> None:
+    """§7.1b at the release gate: integer counts, never a frequency, never another measurement's."""
+    _hand_written_input(tree, ARTIFACT, change(observation_rows()))
+    with pytest.raises(dr.DataReleaseError, match=match):
+        _build(tree)
+
+
+def test_a_carrier_input_written_as_allele_counts_is_refused(tree: Path) -> None:
+    """A KIR table under `ac`/`an` would mix people with chromosomes in any pooled query (#133)."""
+    _artifact(tree, KIR_ARTIFACT, "afnd-2026-08", measurement=CARRIER)
+    _hand_written_input(tree, KIR_ARTIFACT, kir_fit_rows())
+    with pytest.raises(dr.DataReleaseError, match="carriers"):
+        _build(tree)
+
+
+# --- the exemption list cannot hide a dropped input ---
+
+
+def _released_with_input(tree: Path) -> list[dict]:
+    """Release 2026-10-01, in which ARTIFACT was published with its input, as every new one is."""
+    earlier = build.collect(tree, set())
+    used = {name for record in earlier for name in record.sources}
+    available = {**build.REVIEWED_SOURCES, **build._record_sources(tree)}
+    previous = dr.build_manifest(earlier, {name: available[name] for name in used}, "2026-10-01")
+    assert f"{ARTIFACT}/{OBSERVATIONS_FILE}" in _paths(previous)
+    return [previous]
+
+
+def test_an_artifact_released_with_its_input_may_not_be_exempted(tree: Path) -> None:
+    previous = _released_with_input(tree)
+    exempt = {ARTIFACT.split("/")[2]: "a reason that would hide a dropped input"}
+    with pytest.raises(dr.DataReleaseError, match="released with its input"):
+        _build(tree, previous=previous, released_without_input=exempt)
+    _without_input(tree, ARTIFACT)
+    with pytest.raises(dr.DataReleaseError, match="released with its input"):
+        _build(tree, previous=previous, released_without_input=exempt)
+
+
+def test_a_later_release_cannot_drop_an_artifacts_input(tree: Path) -> None:
+    previous = _released_with_input(tree)
+    _without_input(tree, ARTIFACT)
+    with pytest.raises(dr.DataReleaseError, match=f"no {OBSERVATIONS_FILE}"):
+        _build(tree, previous=previous)

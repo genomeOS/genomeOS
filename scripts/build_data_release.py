@@ -61,8 +61,9 @@ PARITY_INPUT = "hbs-piel-parity-2026-09-16"
 
 #: Artifacts the 2026-10-17 release published before an artifact carried the observation table its fit
 #: consumed (#45). A released artifact is immutable and cannot gain a file, so each is named here with
-#: why it has none; ``artifact_inputs`` refuses an entry no earlier release holds, so a new artifact can
-#: never be added. A recovered input is published under a new key, never added to one of these.
+#: why it has none. ``artifact_inputs`` refuses an entry no earlier release holds, so a new artifact can
+#: never be added, and an entry an earlier release holds with its input, so an input once released can
+#: never be dropped. A recovered input is published under a new key, never added to one of these.
 _BARE = "released 2026-10-17, before an artifact carried the table its fit consumed (#45)"
 _MAP_HBS = (
     f"{_BARE}; its fit read MAP HbS survey rows (data_version map-2026-08; its manifest records 1,071), "
@@ -374,16 +375,30 @@ def check_inputs(
             manifests[directory] = json.loads(manifest_path.read_text(encoding="utf-8"))
         if record.path == f"{dr.ARTIFACT_PREFIX}{directory}/{ai.INPUT_FILE}":
             metadata = pq.read_metadata(data_root / record.path)
-            columns = tuple(metadata.schema.to_arrow_schema().names)
-            inputs[directory] = ai.InputFile(record.sha256, record.bytes, metadata.num_rows, columns)
-    released = {
-        dr.artifact_directory(item.path)
-        for manifest in previous
-        for item in dr.validate_manifest(manifest)
-        if item.path.startswith(dr.ARTIFACT_PREFIX)
-    }
+            schema = metadata.schema.to_arrow_schema()
+            inputs[directory] = ai.InputFile(
+                record.sha256,
+                record.bytes,
+                metadata.num_rows,
+                columns=tuple(schema.names),
+                types=tuple(str(field.type) for field in schema),
+            )
+    released: set[str] = set()
+    released_with_input: set[str] = set()
+    for manifest in previous:
+        for item in dr.validate_manifest(manifest):
+            if not item.path.startswith(dr.ARTIFACT_PREFIX):
+                continue
+            directory = dr.artifact_directory(item.path)
+            released.add(directory)
+            if item.path == f"{dr.ARTIFACT_PREFIX}{directory}/{ai.INPUT_FILE}":
+                released_with_input.add(directory)
     ai.check_artifact_inputs(
-        manifests, inputs, released=released, released_without_input=released_without_input
+        manifests,
+        inputs,
+        released=released,
+        released_with_input=released_with_input,
+        released_without_input=released_without_input,
     )
 
 

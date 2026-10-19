@@ -17,6 +17,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from genomeos.observations.schema import OBSERVATIONS_SCHEMA
+from genomeos.observations.sources import afnd_carriers
 from genomeos.surfaces.artifacts import (
     ARTIFACT_COLUMNS,
     ARTIFACT_FORMAT,
@@ -32,7 +34,7 @@ from genomeos.surfaces.fit_input import (
     serialize_observations,
 )
 from genomeos.surfaces.prior import PRIOR_DRAWS, PRIOR_NORMALIZATION
-from tests.observation_fixtures import observation_rows
+from tests.observation_fixtures import kir_fit_rows, observation_rows
 
 HBS = "chr11-5227002-T-A"
 
@@ -63,8 +65,15 @@ def _frame(n: int = 5, variant_id: str = "chr11-5227002-T-A") -> pd.DataFrame:
     )
 
 
+def _measurement(variant_id: str) -> str:
+    """As the publisher decides it: KIR presence is carrier frequency over individuals (#133)."""
+    return "carrier_frequency" if variant_id.startswith("kir:") else "allele_frequency"
+
+
 def _observations(variant_id: str = HBS) -> pd.DataFrame:
     """The table the fit consumed: what an artifact publishes beside its cells (#45)."""
+    if _measurement(variant_id) == "carrier_frequency":
+        return kir_fit_rows(variant_id=variant_id)
     return observation_rows(variant_id=variant_id)
 
 
@@ -85,8 +94,8 @@ def _manifest(variant_id: str = HBS, model_version: str = "v1") -> ArtifactManif
         support_counts={"observed": 2},
         target_grid_source="worldpop-1km-unconstrained",
         target_grid_version="fixture-2020",
-        measurement="allele_frequency",
-        observations=observations_record(_observations(variant_id)),
+        measurement=_measurement(variant_id),
+        observations=observations_record(_observations(variant_id), measurement=_measurement(variant_id)),
     )
 
 
@@ -271,7 +280,7 @@ def test_a_manifest_must_say_which_quantity_it_holds():
             target_grid_source="worldpop-1km-unconstrained",
             target_grid_version="fixture-2020",
             measurement="whatever",
-            observations=observations_record(_observations("kir:2dl1")),
+            observations=observations_record(_observations("kir:2dl1"), measurement="carrier_frequency"),
         )
 
 
@@ -294,7 +303,7 @@ def test_a_new_manifest_refuses_blank_target_grid_provenance(field):
         "target_grid_source": "worldpop-1km-unconstrained",
         "target_grid_version": "fixture-2020",
         "measurement": "allele_frequency",
-        "observations": observations_record(_observations()),
+        "observations": observations_record(_observations(), measurement="allele_frequency"),
     }
     values[field] = ""
     with pytest.raises(ValueError, match=field):
@@ -339,7 +348,7 @@ def test_the_manifest_round_trips_full_float_precision(tmp_path):
         target_grid_source="worldpop-1km-unconstrained",
         target_grid_version="test",
         measurement="allele_frequency",
-        observations=observations_record(_observations()),
+        observations=observations_record(_observations(), measurement="allele_frequency"),
     )
     published = json.loads(manifest.to_json())
     assert published["prior_normalization"] == PRIOR_NORMALIZATION
@@ -556,7 +565,7 @@ def test_publish_refuses_a_record_that_does_not_describe_the_table(tmp_path):
 
 def test_publish_refuses_another_variants_rows_as_the_input(tmp_path):
     rows = _observations("kir:2dl1")
-    manifest = replace(_manifest(), observations=observations_record(rows))
+    manifest = replace(_manifest(), observations=observations_record(rows, measurement="allele_frequency"))
     with pytest.raises(ValueError, match="kir:2dl1"):
         publish(_frame(), tmp_path, manifest=manifest, observations=rows)
     assert not list(tmp_path.iterdir())
@@ -571,7 +580,8 @@ def test_a_manifest_refuses_an_input_record_of_another_size():
 
 def test_reading_the_input_refuses_bytes_that_are_not_the_recorded_table(tmp_path):
     directory = publish(_frame(), tmp_path, manifest=_manifest(), observations=_observations())
-    (directory / OBSERVATIONS_FILE).write_bytes(serialize_observations(observation_rows(5))[0])
+    other = serialize_observations(observation_rows(5), measurement="allele_frequency")[0]
+    (directory / OBSERVATIONS_FILE).write_bytes(other)
     with pytest.raises(ValueError, match="sha256"):
         read_observations(directory)
 
@@ -585,4 +595,45 @@ def test_an_artifact_published_before_the_rule_has_no_input_to_read(tmp_path):
     (directory / OBSERVATIONS_FILE).unlink()
     read(directory)  # the cells stay readable
     with pytest.raises(ValueError, match="does not carry"):
+        read_observations(directory)
+
+
+# --- a KIR artifact's input is carriers over individuals, never allele counts (#133) ---
+
+
+def test_a_manifest_refuses_an_input_record_of_another_measurement():
+    """The input's measurement is the artifact's: a carrier surface cannot cite an allele-count table."""
+    allele_record = observations_record(kir_fit_rows(), measurement="allele_frequency")
+    with pytest.raises(ValueError, match="measurement"):
+        replace(_manifest("kir:2dl1"), observations=allele_record)
+    with pytest.raises(ValueError, match="measurement"):
+        replace(_manifest(), measurement="carrier_frequency")
+
+
+def test_a_kir_artifact_publishes_its_input_under_the_carrier_contract(tmp_path):
+    variant = "kir:2dl1"
+    consumed = _observations(variant)
+    directory = publish(
+        _frame(variant_id=variant), tmp_path, manifest=_manifest(variant), observations=consumed
+    )
+    _, manifest = read(directory)
+    record = manifest["observations"]
+    assert manifest["measurement"] == record["measurement"] == "carrier_frequency"
+    assert record["schema"] == "contract/carrier_observations.schema.json"
+    assert record["columns"][6:8] == ["carriers", "n_individuals"]
+    on_disk = pd.read_parquet(directory / OBSERVATIONS_FILE)
+    assert not {"ac", "an"} & set(on_disk.columns)
+    published = read_observations(directory)
+    pd.testing.assert_frame_equal(
+        OBSERVATIONS_SCHEMA.validate(afnd_carriers.as_binomial(published)), consumed
+    )
+
+
+def test_reading_an_input_refuses_a_record_of_another_measurement(tmp_path):
+    directory = publish(_frame(), tmp_path, manifest=_manifest(), observations=_observations())
+    path = directory / "manifest.json"
+    payload = json.loads(path.read_text())
+    payload["measurement"] = "carrier_frequency"
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="measurement"):
         read_observations(directory)

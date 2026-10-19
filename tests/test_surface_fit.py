@@ -431,12 +431,23 @@ def test_a_saved_fit_keeps_the_table_it_consumed(fit, tmp_path):
 
 
 def test_a_format_two_fit_loads_without_inventing_its_input(fit, tmp_path):
-    """Format 2 predates the record. What such a fit consumed is unknown, and is never guessed."""
+    """Format 2 predates the record. What such a fit consumed is unknown, and is never guessed.
+
+    A real format-2 pickle has no `observations` in its instance state at all, not a None, so that
+    is the shape written here.
+    """
+    import copy
+
     import cloudpickle
 
+    format_two = copy.copy(fit)
+    del format_two.__dict__["observations"]
+    assert "observations" not in format_two.__dict__
     path = tmp_path / "format-2.pkl"
     with path.open("wb") as stream:
-        cloudpickle.dump({"format": 2, "fit": replace(fit, observations=None)}, stream)
+        cloudpickle.dump({"format": 2, "fit": format_two}, stream)
+    with path.open("rb") as stream:
+        assert "observations" not in cloudpickle.load(stream)["fit"].__dict__
     legacy = load_fit(path)
     assert legacy.observations is None
     assert legacy.correlation_range_km == fit.correlation_range_km

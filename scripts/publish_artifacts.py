@@ -23,7 +23,10 @@ artifact rather than re-running NUTS.
 Each artifact carries `observations.parquet`, the table its fit consumed, taken from the fit's own
 record (`SurfaceFit.observations`, fit format 3) rather than reloaded (#45). The flags still name the
 inputs, but only to choose what to publish and to check them: rows that differ from the fit's record
-are refused, and so is a fit cached before it recorded its input.
+are refused, and so is a fit cached before it recorded its input. Every fit's input is checked
+before the first directory is written, so an input refusal never leaves a run half published. A KIR
+input is written as carriers over individuals, under the carrier contract, not as the `ac`/`an` the
+fit read (#133).
 
 Published artifacts live in the public data store, not in git (data store design 2026-10-17). A
 local `data/store/artifacts` may therefore be incomplete, so publishing there also refuses any
@@ -96,7 +99,9 @@ def consumed_observations(
 
     A fit cached before fit format 3 did not record its input, so what it consumed is unknown and it
     cannot publish a new artifact; refit it. The rows the flags supply must be the fit's own, or the
-    artifact would be labelled with one input while its cells came from another (#45).
+    artifact would be labelled with one input while its cells came from another (#45). A fit with
+    an observation footprint also consumed support points that `observations.parquet` does not
+    describe, so it is refused until the support travels with the table.
     """
     recorded = getattr(fit, "observations", None)
     if recorded is None:
@@ -104,12 +109,23 @@ def consumed_observations(
             f"{fit_path}: this fit did not record the observation table it consumed (it predates fit "
             f"format 3), so {variant_id} cannot be published from it. Refit it (#45)."
         )
+    if getattr(fit, "footprint_metadata", None) is not None:
+        raise SystemExit(
+            f"{fit_path}: this fit also consumed observation support points, which an artifact does not "
+            f"yet carry beside its observation table, so {variant_id} would be published with an "
+            "incomplete input (#45)."
+        )
     if not OBSERVATIONS_SCHEMA.validate(supplied).reset_index(drop=True).equals(recorded):
         raise SystemExit(
             f"{fit_path}: the observations supplied for {variant_id} are not the rows this fit "
             "consumed. Point the flags at the export the fit was made from, or refit (#45)."
         )
     return recorded
+
+
+def measurement_of(variant_id: str) -> str:
+    """KIR presence is carrier frequency over individuals; everything else counts chromosomes (#133)."""
+    return "carrier_frequency" if variant_id.startswith("kir:") else "allele_frequency"
 
 
 def _directory_name(variant_id: str, args) -> str:
@@ -216,25 +232,37 @@ def main() -> None:
         print(report)
         # `as_binomial` renames carriers/n_individuals to ac/an so the cell table can be built.
         # The manifest records `measurement="carrier_frequency"` so the distinction survives the
-        # rename and reaches every consumer (#133).
+        # rename and reaches every consumer, and the published input is renamed back (#133).
         binomial = afnd_carriers.as_binomial(carriers)
         for variant_id, rows in binomial.groupby("variant_id", sort=True):
             if (args.fits / f"{variant_id.replace(':', '__')}.fit.pkl").exists():
                 jobs.append((str(variant_id), rows.reset_index(drop=True)))
 
     refuse_released(args.out, [_directory_name(variant_id, args) for variant_id, _ in jobs])
-    print(f"publishing {len(jobs)} variants")
+    ready: list[tuple[str, Path, pd.DataFrame]] = []
     for variant_id, observations in jobs:
-        stem = variant_id.replace(":", "__")
-        fit_path = args.fits / f"{stem}.fit.pkl"
+        fit_path = args.fits / f"{variant_id.replace(':', '__')}.fit.pkl"
         if not fit_path.exists():
             print(f"  {variant_id}: no fit at {fit_path} — skipped")
             continue
+        ready.append((variant_id, fit_path, observations))
+    # Every fit's input is checked, and its record derived, before anything is written: a refusal at
+    # the tenth variant must not leave nine new directories behind, which a rerun would then meet as
+    # FileExistsError. Each fit is loaded again to publish it, so a sweep never holds every posterior
+    # in memory at once.
+    for variant_id, fit_path, observations in ready:
+        consumed = consumed_observations(
+            load_fit(fit_path), observations, variant_id=variant_id, fit_path=fit_path
+        )
+        observations_record(consumed, measurement=measurement_of(variant_id))
 
+    print(f"publishing {len(ready)} variants")
+    for variant_id, fit_path, observations in ready:
         fit = load_fit(fit_path)
         consumed = consumed_observations(
             fit, observations, variant_id=variant_id, fit_path=fit_path
         )
+        measurement = measurement_of(variant_id)
         cells, lat, lon = publication_coordinates(population_grid, consumed)
         frame = cell_table(
             fit,
@@ -263,10 +291,8 @@ def main() -> None:
             support_counts=counts,
             target_grid_source=population_grid.source,
             target_grid_version=population_grid.source_version,
-            measurement=(
-                "carrier_frequency" if variant_id.startswith("kir:") else "allele_frequency"
-            ),
-            observations=observations_record(consumed),
+            measurement=measurement,
+            observations=observations_record(consumed, measurement=measurement),
         )
         directory = publish(
             frame, args.out, manifest=manifest, observations=consumed, overwrite=args.overwrite
