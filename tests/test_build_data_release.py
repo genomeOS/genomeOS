@@ -367,15 +367,51 @@ def test_the_release_rule_and_the_publisher_agree_on_the_input() -> None:
     assert dict(ai.INPUT_CONTRACTS) == {name: contract.path for name, contract in INPUT_CONTRACTS.items()}
     assert dict(ai.COUNT_COLUMNS) == {name: contract.counts for name, contract in INPUT_CONTRACTS.items()}
     assert ai.COUNT_COLUMNS[ALLELE] == FIT_COUNTS
-    assert dict(ai.INPUT_COLUMNS) == {
-        name: tuple(contract.schema.columns) for name, contract in INPUT_CONTRACTS.items()
-    }
 
 
 @pytest.mark.parametrize("measurement", [ALLELE, CARRIER])
 def test_the_release_rule_knows_the_current_revision_of_every_input_contract(measurement: str) -> None:
-    """A contract revision is a reviewed event: its sha256 is appended to `CONTRACT_REVISIONS`."""
-    assert contract_sha256(measurement) in ai.CONTRACT_REVISIONS[ai.INPUT_CONTRACTS[measurement]]
+    """A contract revision is a reviewed event: its sha256 is appended to `CONTRACT_REVISIONS`.
+
+    The publisher writes the current revision's columns, so the gate's columns for that digest are
+    exactly the publisher's.
+    """
+    digest = contract_sha256(measurement)
+    assert digest in ai.CONTRACT_REVISIONS[ai.INPUT_CONTRACTS[measurement]]
+    assert ai.REVISION_COLUMNS[digest] == tuple(INPUT_CONTRACTS[measurement].schema.columns)
+
+
+def test_every_recorded_contract_revision_has_its_columns() -> None:
+    """The gate checks an input against the revision it cites, so no recorded revision may lack columns."""
+    revisions = [digest for digests in ai.CONTRACT_REVISIONS.values() for digest in digests]
+    assert len(revisions) == len(set(revisions))
+    assert set(ai.REVISION_COLUMNS) == set(revisions)
+    for contract, digests in ai.CONTRACT_REVISIONS.items():
+        (measurement,) = [m for m, path in ai.INPUT_CONTRACTS.items() if path == contract]
+        for digest in digests:
+            assert set(ai.COUNT_COLUMNS[measurement]) <= set(ai.REVISION_COLUMNS[digest])
+
+
+def test_an_input_published_under_an_earlier_contract_revision_stays_valid(
+    tree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A revision that changes the columns must not fail every input released before it (#45).
+
+    Simulated: the allele contract gains a column. The artifact on disk was published under the
+    revision before, so it is checked against that revision's columns and still passes; the same
+    file citing the later revision lacks the new column, and is refused.
+    """
+    earlier, later = contract_sha256(ALLELE), "f" * 64
+    revisions = {**ai.CONTRACT_REVISIONS, ai.INPUT_CONTRACTS[ALLELE]: frozenset({earlier, later})}
+    columns = {**ai.REVISION_COLUMNS, later: (*ai.REVISION_COLUMNS[earlier], "added_column")}
+    monkeypatch.setattr(ai, "CONTRACT_REVISIONS", revisions)
+    monkeypatch.setattr(ai, "REVISION_COLUMNS", columns)
+    assert f"{ARTIFACT}/{OBSERVATIONS_FILE}" in _paths(_build(tree))
+    manifest = json.loads((tree / ARTIFACT / "manifest.json").read_text())
+    manifest["observations"]["schema_sha256"] = later
+    _write(tree, f"{ARTIFACT}/manifest.json", json.dumps(manifest).encode())
+    with pytest.raises(dr.DataReleaseError, match="added_column"):
+        _build(tree)
 
 
 def test_an_artifact_exactly_as_publish_writes_it_is_released(tree: Path) -> None:

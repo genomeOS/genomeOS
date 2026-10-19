@@ -8,10 +8,12 @@ disagreement is a hard error (design §12), never a skipped file.
 The record is not taken on trust. Beyond agreeing with the file, the file must be what its contract
 promises, checked here without loading the contract: integer counts under its own measurement's
 names (``ac``/``an`` over chromosomes, ``carriers``/``n_individuals`` over people, #133), no other
-measurement's counts, no frequency column (design §7.1b), and exactly its contract's columns in its
-order, so a surface value cannot travel in an observation table (design §4, §5). The contract
-revision it cites must be one this repository has recorded, and its row count positive, as the
-project's own reader (``genomeos.surfaces.artifacts.read_observations``) requires.
+measurement's counts, no frequency column (design §7.1b), and exactly the columns of the contract
+revision it cites, in their order, so a surface value cannot travel in an observation table
+(design §4, §5). That revision must be one this repository has recorded, and the row count
+positive, as the project's own reader (``genomeos.surfaces.artifacts.read_observations``) requires.
+An input published under an earlier revision is held to that revision's columns, not the current
+one's, because a released artifact stays valid when its contract is revised.
 
 What the gate checks is the record and the file's column set and types, read from its footer, not
 its rows. A row the contract refuses (a latitude of 200, ``ac`` above ``an``, an unknown
@@ -55,19 +57,6 @@ INPUT_CONTRACTS: Mapping[str, str] = MappingProxyType(
 COUNT_COLUMNS: Mapping[str, tuple[str, str]] = MappingProxyType(
     {"allele_frequency": ("ac", "an"), "carrier_frequency": ("carriers", "n_individuals")}
 )
-#: Each measurement's input columns, exactly and in order (``tuple(INPUT_CONTRACTS[m].schema.columns)``
-#: in ``genomeos.surfaces.fit_input``; a test pins the two). The two contracts differ only in their
-#: counts. Both are strict, so the reader refuses any other column, such as a surface's ``post_mean``.
-INPUT_COLUMNS: Mapping[str, tuple[str, ...]] = MappingProxyType(
-    {
-        measurement: (
-            "variant_id", "rsid", "population_id", "lat", "lon", "radius_km", numerator, denominator,
-            "source_record_id", "source", "assay", "date_lower", "date_upper", "sampling_design",
-            "disease_ascertainment_excluded", "cohort_id", "ingest_version",
-        )
-        for measurement, (numerator, denominator) in COUNT_COLUMNS.items()
-    }
-)
 #: Every revision of each contract that an input may cite, as the sha256 of the frozen file. Revising
 #: a contract is a reviewed event: append the new digest (a test fails until it is here) and never
 #: remove an old one, because an artifact published under it stays valid.
@@ -78,6 +67,29 @@ CONTRACT_REVISIONS: Mapping[str, frozenset[str]] = MappingProxyType(
         ),
         "contract/carrier_observations.schema.json": frozenset(
             {"3a20f70713abc063ff4a2d0bcd68c4cf21b56426cd2a5ee623c2bbdc8617e3a1"}
+        ),
+    }
+)
+#: Each revision's input columns, exactly and in order, keyed by its digest in ``CONTRACT_REVISIONS``.
+#: Keyed by revision, not by measurement, because a revision may change the columns while an input
+#: published under an earlier one stays valid: an input is checked against the revision it cites.
+#: Add the new revision's columns with its digest, and never change an old entry. Tests require a
+#: tuple for every recorded digest, and pin the current one to ``tuple(INPUT_CONTRACTS[m].schema
+#: .columns)`` in ``genomeos.surfaces.fit_input``. Every revision so far is strict, so the reader
+#: refuses any other column, such as a surface's ``post_mean``.
+REVISION_COLUMNS: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        # contract/observations.schema.json: alleles over chromosomes.
+        "94471dc24e099b7f173a588677d07a63f52006ec369d1a2f5acb26e07a2dbda4": (
+            "variant_id", "rsid", "population_id", "lat", "lon", "radius_km", "ac", "an",
+            "source_record_id", "source", "assay", "date_lower", "date_upper", "sampling_design",
+            "disease_ascertainment_excluded", "cohort_id", "ingest_version",
+        ),
+        # contract/carrier_observations.schema.json: carriers over individuals (#133).
+        "3a20f70713abc063ff4a2d0bcd68c4cf21b56426cd2a5ee623c2bbdc8617e3a1": (
+            "variant_id", "rsid", "population_id", "lat", "lon", "radius_km", "carriers", "n_individuals",
+            "source_record_id", "source", "assay", "date_lower", "date_upper", "sampling_design",
+            "disease_ascertainment_excluded", "cohort_id", "ingest_version",
         ),
     }
 )
@@ -206,12 +218,12 @@ def _check_record(name: str, manifest: Mapping[str, Any], measured: InputFile) -
             f"{name}: {RECORD_KEY} columns {columns!r} are not the file's {list(measured.columns)}"
         )
     _check_counts(name, measurement, measured)
-    expected = INPUT_COLUMNS[measurement]
+    expected = REVISION_COLUMNS[record["schema_sha256"]]
     if tuple(columns) != expected:
         raise DataReleaseError(
-            f"{name}: {INPUT_FILE} columns {columns!r} are not the {measurement} contract's "
-            f"{list(expected)}, in its order: an input carries nothing else, and never a surface value "
-            "(design §4, §5)"
+            f"{name}: {INPUT_FILE} columns {columns!r} are not those of the {measurement} contract "
+            f"revision it cites ({record['schema_sha256']}), {list(expected)}, in that order: an input "
+            "carries nothing else, and never a surface value (design §4, §5)"
         )
     row_count, n_observations = record["row_count"], manifest.get("n_observations")
     if not (type(row_count) is int and row_count > 0):
