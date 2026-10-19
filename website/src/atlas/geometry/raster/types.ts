@@ -112,12 +112,27 @@ export const DRAPED_SURFACE_ALPHA = 0.9;
  * (`DrapedImageryLayer.prewarm`). */
 export const PREWARM_ALPHA = 0.001;
 
+/** Each row's box in degrees, as `rowBox` gives it; `west`/`east` may pass ±180° by less than a
+ * turn. */
+export interface RowBoxes {
+  west: Float64Array;
+  south: Float64Array;
+  east: Float64Array;
+  north: Float64Array;
+  /** 1 for a row that holds a pole: its unwrapped corners span more than 180° of longitude. */
+  polar: Uint8Array;
+  /** 1 for a row that holds a pole or whose box passes ±180°. */
+  wraps: Uint8Array;
+}
+
 /** Grid rows by rectangle, with ±360° copies of rows that cross the antimeridian. */
 export interface GridIndex {
   /** Each row overlapping `r` once, ascending; `out` is reused when given. */
   rowsIn(r: DegreeRectangle, out?: number[]): number[];
   /** The union of the drawn rows' extents; null when no row is drawn. */
   bounds(drawn: (row: number) => boolean): DegreeRectangle | null;
+  /** Every row's box, built once with the index; read only. */
+  readonly boxes: RowBoxes;
 }
 
 /** What the surface and outline rasterisers read for one artifact. */
