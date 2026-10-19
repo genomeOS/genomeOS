@@ -242,16 +242,27 @@ export const DRAPED_READY_MEASURE = 'atlas-draped-ready';
 /** What a readiness measure carries besides its start and duration. */
 export interface DrapedReadyDetail {
   layer: AtlasImageryLayerName;
-  /** `globe.tilesLoaded` held, or `DRAPED_READY_CAP_MS` ran out first. */
-  branch: 'tilesLoaded' | 'cap';
   /**
-   * Whether `DRAPED_READY_CAP_MS` had run out by this frame, whatever the branch: a `tilesLoaded`
-   * read with the cap run out came on the first frame past it, so either rule would have read the
-   * layer ready.
+   * `tiles`: the tiles the globe rendered had the layer's imagery loaded; `cap`: the fallback,
+   * `DRAPED_READY_CAP_MS`, ran out first.
+   */
+  branch: 'tiles' | 'cap';
+  /**
+   * Whether `DRAPED_READY_CAP_MS` had run out by this frame, whatever the branch: a `tiles` read
+   * with the cap run out came on the first frame past it, so either rule would have read the layer
+   * ready.
    */
   capElapsed: boolean;
   /** The frames counted from the add or show, that one included. */
   frames: number;
+  /**
+   * Whether the tiles the globe rendered in the frame read from were the ones it chose for the
+   * view, not coarser ones drawn while finer terrain loaded: always for `tiles`; a `cap` read
+   * without it waited on the terrain, one with it on the layer's own imagery.
+   */
+  settled: boolean;
+  /** The deepest level of the tiles the globe rendered in the frame read from; −1 with none. */
+  renderedLevel: number;
 }
 
 /** A performance measure from `startMs` to `endMs` (`performance.now()` times), e2e build only. */

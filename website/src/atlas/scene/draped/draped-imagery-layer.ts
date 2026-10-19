@@ -17,13 +17,19 @@
  *   last Atlas layer.
  * - Readiness: Cesium loads the tiles of a layer at alpha 0 without drawing them, and frees every
  *   tile of a hidden one (both pinned in tests/atlas-cesium-internals.test.ts). The layer is ready
- *   once `globe.tilesLoaded` holds from the second frame after it was added or last shown (the
- *   first frame's `preRender` still reads the load queues of the frame before), or
- *   `DRAPED_READY_CAP_MS` after that. Each `preRender` requests a frame until then. A hidden layer
- *   is never ready and requests no frame; shown again, its readiness starts over. In the e2e build
- *   the frame that reads it ready emits a `DRAPED_READY_MEASURE` performance measure from the add
- *   or show, naming the layer, the rule that fired (`tilesLoaded` when both hold) and whether the
- *   cap had run out by then ("Performance budget and measurement").
+ *   from its own tiles: once the tiles the globe rendered are the ones it chose for the view
+ *   (`renderedTilesSettled`) and have its imagery loaded (`renderedImageryLoaded`), from the
+ *   second frame after it was added or last shown (the first frame's `preRender` still reads the
+ *   tiles of the frame before). So after a terrain change it waits for the tiles the view settles
+ *   on, not the level-0 tiles drawn while finer terrain loads, and its fade and pre-warm run over
+ *   those. Not `globe.tilesLoaded`, which also waits for the basemap, the other layers and tiles
+ *   no frame draws. `DRAPED_READY_CAP_MS` after the add or show it is ready whatever its tiles: a
+ *   fallback, which the World Terrain tour fails on a hardware GPU. Each `preRender` requests a
+ *   frame until then. A hidden layer is never ready and requests no frame; shown again, its
+ *   readiness starts over. In the e2e build the frame that reads it ready emits a
+ *   `DRAPED_READY_MEASURE` performance measure from the add or show, naming the layer, the rule
+ *   that fired (`tiles` when both hold), whether the cap had run out by then, whether the globe's
+ *   tiles had settled and the deepest level it rendered ("Performance budget and measurement").
  * - Delivered tiles request a render: worker tiles bypass the RequestScheduler that would.
  * - Pre-warm ("Failure modes": first-draw shader compile hitch): Cesium keeps a globe shader per
  *   number of drawn textures and draws no texture of a layer at alpha 0 (both pinned), so a layer
@@ -62,13 +68,18 @@ import { measureDrapedReady } from '../../e2e-hooks';
 import type { AddDrapedImageryLayer, DrapedImageryLayer } from '../types';
 import { drapeStats } from './drape-stats';
 import { emptyTile } from './raster-imagery-provider';
+import {
+  deepestRenderedLevel,
+  renderedImageryLoaded,
+  renderedTilesSettled,
+} from './rendered-imagery';
 
-/** A new layer reads ready this long after its add, whether or not the globe has loaded. */
+/** A new layer reads ready this long after its add or show, whether or not its tiles loaded. */
 export const DRAPED_READY_CAP_MS = 3_000;
 
 export { PREWARM_ALPHA };
 
-/** Frames after the add before `globe.tilesLoaded` counts. */
+/** Frames after the add or show before the rendered tiles count. */
 const READY_FRAMES = 2;
 
 const names = new WeakMap<ImageryLayer, AtlasImageryLayerName>();
@@ -190,8 +201,10 @@ export const addDrapedImageryLayer: AddDrapedImageryLayer = ({
     const now = performance.now();
     const capElapsed = now - shownAt >= DRAPED_READY_CAP_MS;
     const branch =
-      frames >= READY_FRAMES && scene.globe.tilesLoaded
-        ? 'tilesLoaded'
+      frames >= READY_FRAMES &&
+      renderedTilesSettled(scene.globe) &&
+      renderedImageryLoaded(scene.globe, layer)
+        ? 'tiles'
         : capElapsed
           ? 'cap'
           : null;
@@ -206,6 +219,8 @@ export const addDrapedImageryLayer: AddDrapedImageryLayer = ({
           capElapsed,
           frames,
           layer: name,
+          renderedLevel: deepestRenderedLevel(scene.globe),
+          settled: renderedTilesSettled(scene.globe),
         });
       return;
     }

@@ -264,6 +264,8 @@ describe('the terrain tour’s attribution (#483)', () => {
             capElapsed: true,
             frames: 40,
             layer: 'atlas-surface',
+            renderedLevel: 1,
+            settled: false,
           },
           duration: 3_000,
           startTime: 2_200,
@@ -305,6 +307,8 @@ describe('the terrain tour’s attribution (#483)', () => {
         frames: 40,
         layer: 'atlas-surface',
         ms: 3_000,
+        renderedLevel: 1,
+        settled: false,
         startMs: 2_200,
       },
     ]);
@@ -329,16 +333,20 @@ describe('the terrain tour’s attribution (#483)', () => {
             capElapsed: true,
             frames: 90,
             layer: 'atlas-outlines',
+            renderedLevel: 6,
+            settled: true,
           },
           duration: 3_000,
           startTime: 1_800,
         },
         {
           detail: {
-            branch: 'tilesLoaded',
+            branch: 'tiles',
             capElapsed: false,
             frames: 12,
             layer: 'atlas-surface',
+            renderedLevel: 6,
+            settled: true,
           },
           duration: 640,
           startTime: 1_100,
@@ -349,11 +357,13 @@ describe('the terrain tour’s attribution (#483)', () => {
     // Each in the step its layer was added in, in the order they were read ready.
     expect(steps[0].readiness).toEqual([
       {
-        branch: 'tilesLoaded',
+        branch: 'tiles',
         capElapsed: false,
         frames: 12,
         layer: 'atlas-surface',
         ms: 640,
+        renderedLevel: 6,
+        settled: true,
         startMs: 1_100,
       },
       {
@@ -362,6 +372,8 @@ describe('the terrain tour’s attribution (#483)', () => {
         frames: 90,
         layer: 'atlas-outlines',
         ms: 3_000,
+        renderedLevel: 6,
+        settled: true,
         startMs: 1_800,
       },
     ]);

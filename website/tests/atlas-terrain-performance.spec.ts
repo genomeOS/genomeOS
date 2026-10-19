@@ -35,17 +35,21 @@
  * scripts, and the e2e build's performance measures: `atlas-ground-pass`, one per pass that reads
  * the ground under the draped observations or the grounded highlight ring (its kind, the points
  * it picked, 0 if none; its duration is the pass's ms), and `atlas-draped-ready`, one per draped
- * layer read ready (the layer, the rule that fired, `tilesLoaded` or the 3 s cap, whether the cap
- * had run out by then, and the ms since its add or show). So each long frame lands in the step its
- * longest script began in, with the ground-pass time inside it: its scripts alone would not name
- * the pass, which runs inside Cesium's render callback. Each step sums its ground passes in all
- * and per kind; its readiness entries carry the layer's add on the page's clock, so the step from
- * the click to data visible splits into the time before the add, the readiness wait and the
- * fade's start. The drape stats' running counts at each step's bounds give the tiles each step
- * delivered: the raster time of levels 0–2, which the budget's histogram leaves out, and the
- * request-to-delivery time per level. The console prints each step's longest frames and its sums;
- * the JSON attachment, kept in the test's output directory, also holds every frame, script and
- * ground pass.
+ * layer read ready (the layer, the rule that fired, its rendered tiles or the 3 s cap, whether the
+ * cap had run out by then, whether the globe's tiles had settled, the deepest level it drew, and
+ * the ms since its add or show). So each long frame lands in the step its longest script began in,
+ * with the ground-pass time inside it: its scripts alone would not name the pass, which runs
+ * inside Cesium's render callback. Each step sums its ground passes in all and per kind; its
+ * readiness entries carry the layer's add on the page's clock, so the step from the click to data
+ * visible splits into the time before the add, the readiness wait and the fade's start. The drape
+ * stats' running counts at each step's bounds give the tiles each step delivered: the raster time
+ * of levels 0–2, which the budget's histogram leaves out, and the request-to-delivery time per
+ * level. The console prints each step's longest frames and its sums; the JSON attachment, kept in
+ * the test's output directory, also holds every frame, script and ground pass.
+ *
+ * The cap is a fallback: a draped layer that the 3 s cap read ready, not its rendered tiles, fails
+ * the run on a hardware GPU (`terrain-budgets.ts`); under a software renderer, slow enough to
+ * reach it, an annotation names each such layer instead.
  *
  * The phone's profile slows only the page's CPU, ×4, as the spec's "mobile ×4" long-frame budget
  * reads. The data worker that rasterises the draped tiles runs at full speed, so the phone's
@@ -661,6 +665,9 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
     restyleMs: restyles,
     orbitFps: orbited.fps,
     longFramesMs: record.longFrames.map((frame) => frame.duration),
+    readinessCapped: record.readiness
+      .filter((ready) => ready.detail.branch === 'cap')
+      .map((ready) => ready.detail.layer),
     rasterMs: budgeted.rasterMs,
     peakResidentBytes:
       missed.length === 0 ? budgeted.peakResidentBytes : Number.NaN,
@@ -710,6 +717,12 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
     testInfo.annotations.push({
       type: 'timing budgets skipped',
       description: `software renderer: ${metrics.renderer}`,
+    });
+  // Judged on a hardware GPU only (terrain-budgets.ts); a software renderer may reach the cap.
+  if (software && metrics.readinessCapped.length > 0)
+    testInfo.annotations.push({
+      type: 'draped readiness by the cap',
+      description: `read ready by the 3 s cap, not their tiles: ${metrics.readinessCapped.join(', ')}`,
     });
   expect(
     terrainBudgetFailures(metrics),
