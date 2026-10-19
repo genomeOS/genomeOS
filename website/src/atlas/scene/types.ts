@@ -364,8 +364,15 @@ export interface DrapeStats {
   delivered: number;
   empty: number;
   queueDepth: number;
-  /** Raster time per tile at level ≥ 3; `upperMs` 0.5, 1, 2, 4, 8, 16, Infinity. */
+  /** Raster time per tile at level ≥ 3, the budget's; `upperMs` 0.5, 1, 2, 4, 8, 16, Infinity. */
   rasterMs: { upperMs: readonly number[]; counts: number[] };
+  /** Raster time per tile at levels 0–2, in `rasterMs`'s bins, which leave them out. */
+  coarseRasterMs: { upperMs: readonly number[]; counts: number[] };
+  /**
+   * Request to delivery per tile: `byLevel[level][bin]` for levels 0–11, over `upperMs` 8, 16, …,
+   * 4,096 ms, Infinity.
+   */
+  deliveryMs: { upperMs: readonly number[]; byLevel: number[][] };
   /** Non-empty cached tiles × `RESIDENT_TILE_BYTES`. */
   residentBytes: number;
 }

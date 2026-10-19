@@ -2,13 +2,16 @@
  * Test-only hooks for the e2e build (fast-load design §B.8; #453), with the synthetic World
  * Terrain's probe and peak, and the placement readers that find a point above the rendered ground
  * and a label's clearance over it (terrain draping design, "Test plan" and "Per layer under World
- * Terrain"; #483), and the drape stats reader ("Performance budget and measurement"). Each is
- * inert unless the build sets `PUBLIC_ATLAS_E2E_HOOKS=1`, which only `npm run build:e2e` may do
- * (`assertE2eHooks`, lib/catalog-build.ts), so no production build carries them.
+ * Terrain"; #483), the drape stats reader, and the performance measures the World Terrain tour
+ * attributes its long frames with ("Performance budget and measurement"): one per ground pass
+ * under the draped observations, and one per draped layer read ready, naming the rule that fired.
+ * Each is inert unless the build sets `PUBLIC_ATLAS_E2E_HOOKS=1`, which only `npm run build:e2e`
+ * may do (`assertE2eHooks`, lib/catalog-build.ts), so no production build carries them.
  */
 
 import type { CesiumWidget, TerrainProvider } from 'cesium';
 
+import type { AtlasImageryLayerName } from './geometry/raster/types';
 import type { DrapeStats } from './scene/types';
 
 /** Whether the camera is still moving, as `window.__atlasCameraMotion` reports it. */
@@ -205,6 +208,61 @@ export function drapeStatsTestHook(
   return () => {
     if (window.__atlasDrapeStats === read) delete window.__atlasDrapeStats;
   };
+}
+
+/** The performance measure of one ground pass (`scene/ground-heights.ts`), e2e build only. */
+export const GROUND_PASS_MEASURE = 'atlas-ground-pass';
+
+/** What a ground pass measure carries besides its start and duration. */
+export interface GroundPassDetail {
+  /** The points the pass picked the ground under (`globe.getHeight` calls). */
+  points: number;
+  /** The sample at creation, a throttled re-sample, or a final one (relief at rest, queue empty). */
+  kind: 'create' | 'resample' | 'final';
+}
+
+/**
+ * The performance measure of a draped layer read ready (`scene/draped/draped-imagery-layer.ts`),
+ * from its add or last show to the frame that read it ready; e2e build only.
+ */
+export const DRAPED_READY_MEASURE = 'atlas-draped-ready';
+
+/** What a readiness measure carries besides its start and duration. */
+export interface DrapedReadyDetail {
+  layer: AtlasImageryLayerName;
+  /** `globe.tilesLoaded` held, or `DRAPED_READY_CAP_MS` ran out first. */
+  branch: 'tilesLoaded' | 'cap';
+  /** The frames counted from the add or show, that one included. */
+  frames: number;
+}
+
+/** A performance measure from `startMs` to `endMs` (`performance.now()` times), e2e build only. */
+function e2eMeasure(
+  name: string,
+  startMs: number,
+  endMs: number,
+  detail: GroundPassDetail | DrapedReadyDetail,
+): void {
+  if (import.meta.env.PUBLIC_ATLAS_E2E_HOOKS !== '1') return;
+  performance.measure(name, { detail, end: endMs, start: startMs });
+}
+
+/** Emits `GROUND_PASS_MEASURE` for a pass from `startMs` to `endMs`; nothing outside the e2e build. */
+export function measureGroundPass(
+  startMs: number,
+  endMs: number,
+  detail: GroundPassDetail,
+): void {
+  e2eMeasure(GROUND_PASS_MEASURE, startMs, endMs, detail);
+}
+
+/** Emits `DRAPED_READY_MEASURE` from `startMs` to `endMs`; nothing outside the e2e build. */
+export function measureDrapedReady(
+  startMs: number,
+  endMs: number,
+  detail: DrapedReadyDetail,
+): void {
+  e2eMeasure(DRAPED_READY_MEASURE, startMs, endMs, detail);
 }
 
 interface CameraEvent {

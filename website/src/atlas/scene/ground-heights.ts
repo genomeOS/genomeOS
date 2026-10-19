@@ -23,6 +23,11 @@
  * re-samples after a relief change; `createReliefResampler` arms it for each relief frame, and
  * once more, final, when the slider rests. `throttleResample` is the 50 ms rule, which the scene
  * also applies to the highlight it grounds.
+ *
+ * In the e2e build each pass that picks the ground emits a `GROUND_PASS_MEASURE` performance
+ * measure with the points it picked and why it ran ("Performance budget and measurement"), so the
+ * World Terrain tour can tell a long frame spent picking from one spent elsewhere. A production
+ * build emits none.
  */
 
 import {
@@ -31,6 +36,8 @@ import {
   type Event,
   type Globe,
 } from 'cesium';
+
+import { measureGroundPass, type GroundPassDetail } from '../e2e-hooks';
 
 /** The shortest interval between two throttled re-samples (a relief drag, loading tiles). */
 export const GROUND_RESAMPLE_MS = 50;
@@ -93,7 +100,8 @@ export interface GroundHeights {
 
 /**
  * Samples the ground under `lonLat` (WGS84 degree pairs) at once, then re-samples as terrain
- * tiles load and after each morph between views. Throws unless `lonLat` holds finite pairs.
+ * tiles load and after each morph between views. Throws unless `lonLat` holds finite pairs. `now`
+ * is the performance timeline's clock: the throttle reads it, and the e2e build's pass measures.
  */
 export function createGroundHeights(
   scene: {
@@ -113,13 +121,21 @@ export function createGroundHeights(
   }
   const points = lonLat.slice();
   const { globe } = scene;
-  const current = sampleGroundHeights(globe, points);
-  const next = new Float64Array(current.length);
+  const count = points.length / 2;
+  /** One pass over every point, measured in the e2e build. */
+  const pass = (into: Float64Array, kind: GroundPassDetail['kind']): void => {
+    const start = now();
+    sampleGroundHeights(globe, points, into);
+    measureGroundPass(start, now(), { kind, points: count });
+  };
+  const current = new Float64Array(count);
+  pass(current, 'create');
+  const next = new Float64Array(count);
   const listeners = new Set<(h: Float64Array) => void>();
   let destroyed = false;
 
-  const sample = (): void => {
-    sampleGroundHeights(globe, points, next);
+  const sample = (final: boolean): void => {
+    pass(next, final ? 'final' : 'resample');
     let changed = false;
     for (let i = 0; i < next.length; i += 1) {
       if (!Object.is(next[i], current[i])) {

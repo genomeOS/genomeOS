@@ -20,7 +20,9 @@
  *   once `globe.tilesLoaded` holds from the second frame after it was added or last shown (the
  *   first frame's `preRender` still reads the load queues of the frame before), or
  *   `DRAPED_READY_CAP_MS` after that. Each `preRender` requests a frame until then. A hidden layer
- *   is never ready and requests no frame; shown again, its readiness starts over.
+ *   is never ready and requests no frame; shown again, its readiness starts over. In the e2e build
+ *   the frame that reads it ready emits a `DRAPED_READY_MEASURE` performance measure from the add
+ *   or show, naming the layer and the rule that fired ("Performance budget and measurement").
  * - Delivered tiles request a render: worker tiles bypass the RequestScheduler that would.
  * - Pre-warm ("Failure modes": first-draw shader compile hitch): Cesium keeps a globe shader per
  *   number of drawn textures and draws no texture of a layer at alpha 0 (both pinned), so a layer
@@ -55,6 +57,7 @@ import {
   RASTER_TILE_SIZE,
   type AtlasImageryLayerName,
 } from '../../geometry/raster/types';
+import { measureDrapedReady } from '../../e2e-hooks';
 import type { AddDrapedImageryLayer, DrapedImageryLayer } from '../types';
 import { drapeStats } from './drape-stats';
 import { emptyTile } from './raster-imagery-provider';
@@ -183,12 +186,17 @@ export const addDrapedImageryLayer: AddDrapedImageryLayer = ({
 
   const checkReady = () => {
     frames += 1;
-    if (
-      (frames >= READY_FRAMES && scene.globe.tilesLoaded) ||
-      performance.now() - shownAt >= DRAPED_READY_CAP_MS
-    ) {
+    const now = performance.now();
+    const branch =
+      frames >= READY_FRAMES && scene.globe.tilesLoaded
+        ? 'tilesLoaded'
+        : now - shownAt >= DRAPED_READY_CAP_MS
+          ? 'cap'
+          : null;
+    if (branch !== null) {
       ready = true;
       stopChecking();
+      measureDrapedReady(shownAt, now, { branch, frames, layer: name });
       return;
     }
     scene.requestRender();

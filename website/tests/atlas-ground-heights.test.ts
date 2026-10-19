@@ -1,8 +1,11 @@
-/** Ground heights under World Terrain: sampling, throttling and the triggers that re-sample them
+/** Ground heights under World Terrain: sampling, throttling, the triggers that re-sample them
  * (terrain draping design, "Per layer under World Terrain", "Exaggeration", "2D and Columbus" and
- * "Failure modes"; #483). */
+ * "Failure modes"; #483), and the e2e build's measure of each pass ("Performance budget and
+ * measurement"). */
 import { Math as CesiumMath, type Cartographic } from 'cesium';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { GROUND_PASS_MEASURE } from '../src/atlas/e2e-hooks';
 
 import {
   afterNextRender,
@@ -178,6 +181,62 @@ describe('ground heights under World Terrain', () => {
     expect(Array.from(sampleGroundHeights(globe as never, shifted))).toEqual([
       6_000, 6_000,
     ]);
+  });
+});
+
+describe('ground pass measures (e2e build)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    performance.clearMeasures();
+  });
+
+  /** Each pick takes 1 ms on the clock the ground heights read. */
+  function timedSetup() {
+    const clock = { now: 100 };
+    const globe = {
+      getHeight: () => {
+        clock.now += 1;
+        return 1_000;
+      },
+      tileLoadProgressEvent: new ProgressEvent(),
+    };
+    const heights = createGroundHeights(
+      { globe, morphComplete: new FakeEvent() } as never,
+      POINTS,
+      () => clock.now,
+    );
+    return { clock, globe, heights };
+  }
+
+  const passes = () =>
+    performance.getEntriesByName(GROUND_PASS_MEASURE, 'measure').map((e) => ({
+      detail: (e as PerformanceMeasure).detail as unknown,
+      duration: e.duration,
+      startTime: e.startTime,
+    }));
+
+  it('measures each pass that picks the ground: its points, its kind and its ms', () => {
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const { clock, globe, heights } = timedSetup();
+    clock.now = 110;
+    heights.resample(); // within 50 ms of the creation sample: no pass
+    clock.now = 200;
+    globe.tileLoadProgressEvent.raiseEvent(3);
+    clock.now = 300;
+    heights.resample(true);
+    expect(passes()).toEqual([
+      { detail: { kind: 'create', points: 2 }, duration: 2, startTime: 100 },
+      { detail: { kind: 'resample', points: 2 }, duration: 2, startTime: 200 },
+      { detail: { kind: 'final', points: 2 }, duration: 2, startTime: 300 },
+    ]);
+  });
+
+  it('measures nothing outside the e2e build', () => {
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '');
+    const { clock, heights } = timedSetup();
+    clock.now = 300;
+    heights.resample(true);
+    expect(passes()).toEqual([]);
   });
 });
 

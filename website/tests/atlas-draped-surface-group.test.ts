@@ -1,9 +1,11 @@
 import { ImageryLayer, Rectangle } from 'cesium';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { DRAPED_READY_MEASURE } from '../src/atlas/e2e-hooks';
 import type { AtlasImageryLayerName } from '../src/atlas/geometry/raster/types';
 import {
   createDrapeStats,
+  DRAPE_DELIVERY_BINS_MS,
   DRAPE_RASTER_BINS_MS,
   drapeStats,
 } from '../src/atlas/scene/draped/drape-stats';
@@ -237,6 +239,92 @@ describe('addDrapedImageryLayer', () => {
     scene.preRender.raiseEvent();
     expect(capped.isReady()).toBe(true);
     expect(layer.isReady()).toBe(true);
+  });
+
+  describe('readiness measures (e2e build)', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      performance.clearMeasures();
+    });
+
+    const readiness = () =>
+      performance
+        .getEntriesByName(DRAPED_READY_MEASURE, 'measure')
+        .map((e) => ({
+          detail: (e as PerformanceMeasure).detail as unknown,
+          duration: e.duration,
+          startTime: e.startTime,
+        }));
+
+    it('records which rule read a layer ready, its name, and the ms since its add or show', () => {
+      vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+      const now = vi.spyOn(performance, 'now').mockReturnValue(1_000);
+      const loaded = addDrapedImageryLayer({
+        alpha: 0,
+        name: 'atlas-surface',
+        provider: fakeProvider(),
+        scene,
+      });
+      scene.globe.tilesLoaded = true;
+      scene.preRender.raiseEvent();
+      now.mockReturnValue(1_040);
+      scene.preRender.raiseEvent();
+      expect(loaded.isReady()).toBe(true);
+      scene.globe.tilesLoaded = false;
+      now.mockReturnValue(2_000);
+      const capped = addDrapedImageryLayer({
+        alpha: 0,
+        name: 'atlas-outlines',
+        provider: fakeProvider(),
+        scene,
+      });
+      scene.preRender.raiseEvent();
+      scene.preRender.raiseEvent();
+      // tilesLoaded never held: the cap read it ready, 3 s after its add.
+      now.mockReturnValue(5_000);
+      scene.preRender.raiseEvent();
+      expect(capped.isReady()).toBe(true);
+      // Shown again, its readiness counts from the show.
+      now.mockReturnValue(9_000);
+      loaded.setShown(false);
+      loaded.setShown(true);
+      scene.globe.tilesLoaded = true;
+      scene.preRender.raiseEvent();
+      now.mockReturnValue(9_016);
+      scene.preRender.raiseEvent();
+      expect(readiness()).toEqual([
+        {
+          detail: { branch: 'tilesLoaded', frames: 2, layer: 'atlas-surface' },
+          duration: 40,
+          startTime: 1_000,
+        },
+        {
+          detail: { branch: 'cap', frames: 3, layer: 'atlas-outlines' },
+          duration: 3_000,
+          startTime: 2_000,
+        },
+        {
+          detail: { branch: 'tilesLoaded', frames: 2, layer: 'atlas-surface' },
+          duration: 16,
+          startTime: 9_000,
+        },
+      ]);
+    });
+
+    it('records nothing outside the e2e build', () => {
+      vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '');
+      const layer = addDrapedImageryLayer({
+        alpha: 0,
+        name: 'atlas-surface',
+        provider: fakeProvider(),
+        scene,
+      });
+      scene.globe.tilesLoaded = true;
+      scene.preRender.raiseEvent();
+      scene.preRender.raiseEvent();
+      expect(layer.isReady()).toBe(true);
+      expect(readiness()).toEqual([]);
+    });
   });
 
   it('requests frames until ready, writes numeric alpha and show, and renders each delivered tile', () => {
@@ -502,6 +590,74 @@ describe('drape stats', () => {
     expect(DRAPE_RASTER_BINS_MS).toEqual([0.5, 1, 2, 4, 8, 16, Infinity]);
   });
 
+  it('bins raster time of level 0–2 tiles apart, in the same bins, so the level-3 histogram keeps its meaning', async () => {
+    for (const [level, ms] of [
+      [0, 108],
+      [0, 56],
+      [1, 21],
+      [2, 0.3],
+      [2, 4],
+      [3, 0.4],
+    ] as const)
+      await deliver(wrapped, level, ms);
+    const read = stats.read();
+    expect(read.coarseRasterMs).toEqual({
+      counts: [1, 0, 0, 1, 0, 0, 3],
+      upperMs: [0.5, 1, 2, 4, 8, 16, Infinity],
+    });
+    expect(read.rasterMs.counts).toEqual([1, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it('bins each delivered tile’s request-to-delivery time by its level, and no failed tile’s', async () => {
+    const clock = { now: 1_000 };
+    const timed = createDrapeStats(() => clock.now);
+    const into = timed.source(source);
+    const coarse = into.tile(body(0, 0, 0));
+    const fine = into.tile(body(5, 3, 7));
+    const failed = into.tile(body(6, 3, 7));
+    clock.now = 1_006;
+    source.tiles.get('5/3/7')!.resolve(message(5, 3, 7, null));
+    await fine;
+    clock.now = 1_300;
+    source.tiles.get('0/0/0')!.resolve(message(0, 0, 0, null));
+    await coarse;
+    source.tiles.get('6/3/7')!.reject(new Error('boom'));
+    await expect(failed).rejects.toThrow('boom');
+    const { deliveryMs } = timed.read();
+    expect(DRAPE_DELIVERY_BINS_MS).toEqual([
+      8,
+      16,
+      32,
+      64,
+      128,
+      256,
+      512,
+      1_024,
+      2_048,
+      4_096,
+      Infinity,
+    ]);
+    expect(deliveryMs.upperMs).toEqual(DRAPE_DELIVERY_BINS_MS);
+    // One histogram per level, 0 to 11.
+    expect(deliveryMs.byLevel).toHaveLength(12);
+    expect(deliveryMs.byLevel[0]).toEqual([0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]);
+    expect(deliveryMs.byLevel[7]).toEqual([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(
+      deliveryMs.byLevel.flat().reduce((sum, count) => sum + count, 0),
+    ).toBe(2);
+  });
+
+  it('rejects a tile whose level is outside 0–11, closes its bitmap and counts it as failed', async () => {
+    const close = vi.fn();
+    const pending = wrapped.tile(body(0, 0, 12));
+    source.tiles
+      .get('0/0/12')!
+      .resolve(message(0, 0, 12, { close } as unknown as ImageBitmap));
+    await expect(pending).rejects.toThrow(RangeError);
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(stats.read()).toMatchObject({ delivered: 0, queueDepth: 0 });
+  });
+
   it.each([Number.NaN, Infinity, -1])(
     'rejects a tile whose raster time is %s ms, closes its bitmap and counts it as failed',
     async (rasterMs) => {
@@ -530,7 +686,10 @@ describe('drape stats', () => {
   it('reads a snapshot that later tiles do not change', async () => {
     const before = stats.read();
     await deliver(wrapped, 3, 0.4);
+    await deliver(wrapped, 0, 0.4);
     expect(before.rasterMs.counts).toEqual([0, 0, 0, 0, 0, 0, 0]);
+    expect(before.coarseRasterMs.counts).toEqual([0, 0, 0, 0, 0, 0, 0]);
+    expect(before.deliveryMs.byLevel.flat().every((n) => n === 0)).toBe(true);
     expect(before.requested).toBe(0);
   });
 
