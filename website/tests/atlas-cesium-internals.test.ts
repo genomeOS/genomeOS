@@ -3,7 +3,8 @@
  * modes", #483). A Cesium upgrade that changes one of them fails here before the draped layers
  * misbehave: a layer at alpha 0 draws no texture, a hidden layer frees its tiles, alpha is a plain
  * number the tile shader reads, the imagery cache layout that resident bytes count, the flipped
- * decode that south-first bitmaps match, and the base-layer rule the draped base guard answers.
+ * decode that south-first bitmaps match, the base-layer rule the draped base guard answers, and
+ * the globe shader cache, keyed by the number of drawn textures, that a draped pre-warm fills.
  * Also the cache of ground positions a relief change leaves stale ("Exaggeration"), which the
  * terrain shading empties so the labels clamped to the ground follow Physical relief.
  */
@@ -151,6 +152,12 @@ describe('Cesium 1.145 internals the draped layers rely on (#483)', () => {
     below.show = true;
     expect(imagerySkeletons(collection, clipped)).toEqual([]);
     expect([below.isBaseLayer(), clipped.isBaseLayer()]).toEqual([true, false]);
+  });
+
+  it('keys globe shaders by the number of drawn textures (why the pre-warm works)', () => {
+    expect(cesiumSource('Scene/GlobeSurfaceShaderSet.js')).toContain(
+      'this._shadersByTexturesFlags[numberOfDayTextures]',
+    );
   });
 
   it('decodes imagery flipped, so a south-first bitmap matches what Cesium uploads', () => {

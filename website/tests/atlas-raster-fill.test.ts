@@ -1,11 +1,16 @@
-import { latLngToCell } from 'h3-js';
+import { cellToLatLng, gridDisk, latLngToCell } from 'h3-js';
 import { describe, expect, it } from 'vitest';
 
+import {
+  honmoonTexel,
+  triangleValueGradient,
+} from '../src/atlas/geometry/raster/contours';
 import {
   HONMOON_FILL_ALPHA,
   HONMOON_FILL_SHADE,
   rasterSurfaceTile,
 } from '../src/atlas/geometry/raster/fill-raster';
+import { buildGridIndex } from '../src/atlas/geometry/raster/grid-index';
 import {
   texelCentre,
   tileRectangle,
@@ -19,15 +24,24 @@ import {
 } from '../src/atlas/geometry/raster/triangle-scan';
 import {
   RASTER_TILE_SIZE,
+  type DrapedGeometry,
+  type SurfaceRasterInput,
   type SurfaceRasterSpec,
   type TileAddress,
+  type TileRaster,
 } from '../src/atlas/geometry/raster/types';
 import { isSupportedCode } from '../src/atlas/geometry/support-codes';
 import {
   buildSurfaceChunk,
   paletteBins,
+  vertexMeans,
 } from '../src/atlas/geometry/surface-buffers';
 import type { Support } from '../src/atlas/contracts';
+import {
+  colorBytesAtStops,
+  linearStops,
+  normalizedValue,
+} from '../src/atlas/visual-encoding';
 import {
   barycentricColour,
   centreTexel,
@@ -47,6 +61,7 @@ import {
   wholeGridChunk,
   type TestCell,
 } from './helpers/raster-fixtures';
+import { meshInputFor, sortedU64 } from './helpers/mesh-input';
 
 /** The Kenya disk with every third row unknown and every third prior-dominated. */
 const MIXED_CELLS: TestCell[] = KENYA_CELLS.map((cell, row) => ({
@@ -334,5 +349,350 @@ describe('surface fill raster (terrain draping design, #483)', () => {
     expect(() =>
       rasterSurfaceTile(input, tileContaining(36.793, -1.836, 7)),
     ).toThrow('Honmoon contours need the honmoon or honmoon-fill geometry');
+  });
+});
+
+/** One supported row's fan as `buildSmoothChunk` meshes it: the centre, then its topology corners,
+ * longitudes unwrapped to within 180° of the centre. Values are what the chunk writes (centre
+ * `normalizedValue(values[row])`, corners `vertexMeans(input).values[id]`), colours their
+ * `colorBytesAtStops` bytes / 255. */
+interface OracleFan {
+  lon: number[];
+  lat: number[];
+  value: number[];
+  colour: number[][];
+  west: number;
+  east: number;
+  south: number;
+  north: number;
+}
+
+const oracleFans = new WeakMap<SurfaceRasterInput, OracleFan[]>();
+
+function fansOf(input: SurfaceRasterInput): OracleFan[] {
+  const cached = oracleFans.get(input);
+  if (cached) return cached;
+  const { topology } = input;
+  const stops = linearStops(input.palette);
+  const means = vertexMeans(input).values;
+  const fans: OracleFan[] = [];
+  for (let row = 0; row < topology.n; row += 1) {
+    if (!isSupportedCode(input.support[row])) continue;
+    const centre = topology.centreLon[row];
+    const lon = [centre];
+    const lat = [topology.centreLat[row]];
+    const value = [normalizedValue(input.values[row], input.domain)];
+    for (
+      let k = topology.cornerOffsets[row];
+      k < topology.cornerOffsets[row + 1];
+      k += 1
+    ) {
+      const id = topology.cornerIds[k];
+      const raw = topology.vertexLon[id];
+      lon.push(raw - 360 * Math.round((raw - centre) / 360));
+      lat.push(topology.vertexLat[id]);
+      value.push(means[id]);
+    }
+    fans.push({
+      colour: value.map((v) =>
+        colorBytesAtStops(stops, v).map((byte) => byte / 255),
+      ),
+      east: Math.max(...lon),
+      lat,
+      lon,
+      north: Math.max(...lat),
+      south: Math.min(...lat),
+      value,
+      west: Math.min(...lon),
+    });
+  }
+  oracleFans.set(input, fans);
+  return fans;
+}
+
+/** buildSmoothChunk's fan at a point, by brute force: the supported row whose triangle (centre,
+ * ring[k], ring[k+1]) contains (lon, lat), the point tried at lon and lon ± 360, with barycentric
+ * weights in degrees; the gradient is `triangleValueGradient` over that triangle. Serves rows that
+ * hold no pole. */
+function fanAt(
+  input: SurfaceRasterInput,
+  lon: number,
+  lat: number,
+): { colour: number[]; value: number; gradient: Float64Array } | null {
+  for (const fan of fansOf(input)) {
+    if (lat < fan.south || lat > fan.north) continue;
+    for (const x of [lon, lon - 360, lon + 360]) {
+      if (x < fan.west || x > fan.east) continue;
+      const { lat: ys, lon: xs } = fan;
+      const n = xs.length - 1;
+      for (let k = 1; k <= n; k += 1) {
+        const [a, b, c] = [0, k, (k % n) + 1];
+        const area =
+          (xs[b] - xs[a]) * (ys[c] - ys[a]) - (ys[b] - ys[a]) * (xs[c] - xs[a]);
+        if (area === 0) continue;
+        const w1 =
+          ((x - xs[a]) * (ys[c] - ys[a]) - (lat - ys[a]) * (xs[c] - xs[a])) /
+          area;
+        const w2 =
+          ((xs[b] - xs[a]) * (lat - ys[a]) - (ys[b] - ys[a]) * (x - xs[a])) /
+          area;
+        const w0 = 1 - w1 - w2;
+        if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+        const mixed = (at: (vertex: number) => number) =>
+          w0 * at(a) + w1 * at(b) + w2 * at(c);
+        return {
+          colour: [0, 1, 2].map((channel) =>
+            mixed((vertex) => fan.colour[vertex][channel]),
+          ),
+          gradient: triangleValueGradient(
+            xs[a],
+            ys[a],
+            fan.value[a],
+            xs[b],
+            ys[b],
+            fan.value[b],
+            xs[c],
+            ys[c],
+            fan.value[c],
+          ),
+          value: mixed((vertex) => fan.value[vertex]),
+        };
+      }
+    }
+  }
+  return null;
+}
+
+const KENYA = { lat: -1.836, lon: 36.793 }; // the Task 7 fixtures' disk centre
+const FIJI = { lat: -17.7, lon: 179.95 };
+const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
+
+/** The res-4 disk of radius `k` round `at`, each cell valued by `value(its centre longitude)`;
+ * contours on for both Honmoon geometries. */
+function honmoonInput(
+  at: { lat: number; lon: number },
+  k: number,
+  geometry: DrapedGeometry,
+  value: (lon: number) => number,
+  support: (row: number) => Support = () => 'interpolated',
+): SurfaceRasterInput {
+  const cells = sortedU64(gridDisk(latLngToCell(at.lat, at.lon, 4), k));
+  const mesh = meshInputFor(
+    cells.map((h3, row) => ({
+      h3,
+      support: support(row),
+      value: value(cellToLatLng(h3)[1]),
+    })),
+  );
+  return {
+    ...mesh,
+    cells: { masked: true, supported: true },
+    contours: geometry === 'honmoon' || geometry === 'honmoon-fill',
+    geometry,
+    index: buildGridIndex(mesh.topology),
+  };
+}
+
+/** Mismatches listed before the rest are only counted. */
+const LISTED_MISMATCHES = 20;
+/** Far above the 1e-13 by which the scan's and the oracle's sums of the same barycentric terms
+ * differ, far below a byte's 0.0039. */
+const TIE_NUDGE = 1e-9;
+
+/** Bytes of the texels whose centre lies in a supported fan, against honmoonTexel at the oracle's
+ * value and gradient (|∂v/∂column| + |∂v/∂row| = texel degrees × (|∂v/∂lon| + |∂v/∂lat|)). Exact,
+ * except at a tie: a channel that lands on a half byte (0.55 × 210 = 115.5 beyond the halo, where a
+ * channel's byte is constant across a palette segment) rounds either way with the summation order,
+ * so a channel also matches the byte honmoonTexel gives with the colour nudged by ±`TIE_NUDGE`. */
+function honmoonMismatches(
+  input: SurfaceRasterInput,
+  tile: TileAddress,
+  mode: 1 | 2,
+): { compared: number; mismatches: string[] } {
+  const raster = rasterSurfaceTile(input, tile);
+  const rect = tileRectangle(tile);
+  const texelDegrees = (rect.east - rect.west) / RASTER_TILE_SIZE;
+  const expected = new Uint8ClampedArray(4);
+  const nudged = [new Uint8ClampedArray(4), new Uint8ClampedArray(4)];
+  const mismatches: string[] = [];
+  let compared = 0;
+  let unlisted = 0;
+  for (let row = 0; row < RASTER_TILE_SIZE; row += 1)
+    for (let column = 0; column < RASTER_TILE_SIZE; column += 1) {
+      const { lat, lon } = texelCentre(tile, column, row);
+      const fan = fanAt(input, lon, lat);
+      if (!fan) continue;
+      compared += 1;
+      const derivative =
+        texelDegrees * (Math.abs(fan.gradient[0]) + Math.abs(fan.gradient[1]));
+      honmoonTexel(fan.colour, fan.value, derivative, mode, expected, 0);
+      [-TIE_NUDGE, TIE_NUDGE].forEach((nudge, k) =>
+        honmoonTexel(
+          fan.colour.map((c) => c + nudge),
+          fan.value,
+          derivative,
+          mode,
+          nudged[k],
+          0,
+        ),
+      );
+      const actual = raster ? texel(raster, column, row) : [0, 0, 0, 0];
+      if (
+        actual.every(
+          (byte, channel) =>
+            byte === expected[channel] ||
+            byte === nudged[0][channel] ||
+            byte === nudged[1][channel],
+        )
+      )
+        continue;
+      if (mismatches.length < LISTED_MISMATCHES)
+        mismatches.push(
+          `(${column}, ${row}): [${actual.join(', ')}], expected [${[...expected].join(', ')}]`,
+        );
+      else unlisted += 1;
+    }
+  if (unlisted > 0) mismatches.push(`and ${unlisted} more`);
+  return { compared, mismatches };
+}
+
+/** α of every texel of `raster` whose centre lies in a supported fan of `input`. */
+function alphaOfFanTexels(
+  raster: TileRaster,
+  input: SurfaceRasterInput,
+  tile: TileAddress,
+): number[] {
+  const alphas: number[] = [];
+  forEachTexel(raster, tile, ({ lat, lon, rgba }) => {
+    if (fanAt(input, lon, lat)) alphas.push(rgba[3]);
+  });
+  return alphas;
+}
+
+describe('Honmoon contours in the surface raster (terrain draping design, #483)', () => {
+  it.each([
+    ['honmoon', 1],
+    ['honmoon-fill', 2],
+  ] as const)(
+    'draws %s contours to the smooth-globe formula at every texel centre',
+    (geometry, mode) => {
+      const { compared, mismatches } = honmoonMismatches(
+        honmoonInput(KENYA, 5, geometry, (lon) => clamp01((lon - 35.4) / 3)),
+        { level: 7, x: 154, y: 65 },
+        mode,
+      );
+      expect(mismatches).toEqual([]);
+      expect(compared).toBeGreaterThan(50_000);
+    },
+  );
+
+  it('meets its contours across the antimeridian', () => {
+    const input = honmoonInput(FIJI, 3, 'honmoon', (lon) =>
+      clamp01((((lon + 360) % 360) - 177) / 6),
+    );
+    for (const tile of [
+      { level: 6, x: 127, y: 38 },
+      { level: 6, x: 0, y: 38 },
+    ]) {
+      const { compared, mismatches } = honmoonMismatches(input, tile, 1);
+      expect(mismatches).toEqual([]);
+      expect(compared).toBeGreaterThan(5_000);
+    }
+  });
+
+  it('leaves the support masks as they are', () => {
+    const support = (row: number): Support =>
+      (['unknown', 'prior_dominated', 'interpolated'] as const)[row % 3];
+    const ramp = (lon: number) => clamp01((lon - 35.4) / 3);
+    const tile = { level: 7, x: 154, y: 65 };
+    const honmoon = honmoonInput(KENYA, 5, 'honmoon', ramp, support);
+    const plain = rasterSurfaceTile(
+      honmoonInput(KENYA, 5, 'triangles', ramp, support),
+      tile,
+    )!;
+    const lined = rasterSurfaceTile(honmoon, tile)!;
+    const changed: number[] = [];
+    let outside = 0;
+    for (let row = 0; row < 256; row += 1)
+      for (let column = 0; column < 256; column += 1) {
+        const { lat, lon } = texelCentre(tile, column, row);
+        if (fanAt(honmoon, lon, lat)) continue;
+        outside += 1;
+        const offset = (row * 256 + column) * 4;
+        for (let channel = 0; channel < 4; channel += 1)
+          if (lined.rgba[offset + channel] !== plain.rgba[offset + channel])
+            changed.push(offset);
+      }
+    expect(changed).toEqual([]);
+    expect(outside).toBeGreaterThan(30_000); // two rows in three are masked
+  });
+
+  it('returns no tile where line-only Honmoon draws nothing', () => {
+    const tile = { level: 7, x: 154, y: 65 };
+    // mid-band: 36v = 18.5
+    expect(
+      rasterSurfaceTile(
+        honmoonInput(KENYA, 5, 'honmoon', () => 37 / 72),
+        tile,
+      ),
+    ).toBeNull();
+    const input = honmoonInput(KENYA, 5, 'honmoon-fill', () => 37 / 72);
+    const fill = rasterSurfaceTile(input, tile)!;
+    expect(new Set(alphaOfFanTexels(fill, input, tile))).toEqual(new Set([71])); // 0.28 × 255
+  });
+
+  it.each(['triangles', 'hexagons'] as const)(
+    'refuses contours on a geometry that has none: %s',
+    (geometry) => {
+      const input = {
+        ...honmoonInput(KENYA, 1, geometry, () => 0.5),
+        contours: true,
+      };
+      expect(() =>
+        rasterSurfaceTile(input, { level: 7, x: 154, y: 65 }),
+      ).toThrow('Honmoon contours need the honmoon or honmoon-fill geometry');
+    },
+  );
+
+  it('draws a pole cell through the contour path, with no gap', () => {
+    const top = { level: 3, x: 8, y: 0 };
+    // 36 × 0.5 = 18: every texel lies on a contour line
+    const onLine = rasterSurfaceTile(
+      honmoonInput({ lat: 90, lon: 0 }, 1, 'honmoon', () => 0.5),
+      top,
+    )!;
+    // mid-band: only the fill
+    const between = rasterSurfaceTile(
+      honmoonInput({ lat: 90, lon: 0 }, 1, 'honmoon-fill', () => 37 / 72),
+      top,
+    )!;
+    for (let column = 0; column < 256; column += 1) {
+      expect(texel(onLine, column, 255)[3]).toBe(255);
+      expect(texel(between, column, 255)[3]).toBe(71);
+    }
+  });
+
+  // A pole-holding row reads its value's change across one texel only when the mesh asks for it
+  // (`derivatives`). Ramped round the pole, the pole cell's corners differ, so its lines are as
+  // wide as that change makes them, not the 0.006-clamped narrowest a zero change would draw.
+  it("widens a pole cell's contours by its value's change across a texel", () => {
+    const top = { level: 7, x: 0, y: 0 }; // 88.6–90° N: the pole cell fills its top rows
+    const input = honmoonInput({ lat: 90, lon: 0 }, 1, 'honmoon', (lon) =>
+      clamp01((lon + 180) / 360),
+    );
+    const raster = rasterSurfaceTile(input, top)!;
+    let compared = 0;
+    let lit = 0;
+    let halo = 0;
+    for (let row = 255; row > 255 - 16; row -= 1)
+      for (let column = 0; column < 256; column += 1) {
+        const alpha = texel(raster, column, row)[3];
+        compared += 1;
+        if (alpha > 0) lit += 1;
+        if (alpha > 0 && alpha < 255) halo += 1;
+      }
+    // The narrowest line lights at most 2 × 4.5 × 0.006 of a band: under 6% of the texels.
+    expect(lit / compared).toBeGreaterThan(0.5);
+    expect(halo).toBeGreaterThan(0);
   });
 });

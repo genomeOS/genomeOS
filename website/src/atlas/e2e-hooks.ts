@@ -15,7 +15,10 @@ import type { DrapeStats } from './scene/types';
 export interface CameraMotion {
   /** A flight the scene started has neither completed nor been cancelled. */
   flying: boolean;
-  /** Cesium raised `moveStart` and no `moveEnd` since (the camera changed in the last 0.5 s). */
+  /**
+   * A frame drawn in the last `CAMERA_QUIET_MS` moved the camera by more than
+   * `CAMERA_STILL_TOLERANCE` of its pose (`cameraMotionTestHook`).
+   */
   moving: boolean;
 }
 
@@ -63,6 +66,9 @@ export interface TerrainProbe {
   verticalExaggerationRelativeHeight: number;
   /** Metres above the ellipsoid. */
   cameraHeight: number;
+  /** The camera's latitude and longitude, in degrees. */
+  cameraLat: number;
+  cameraLon: number;
   /** The rendered (exaggerated) ground under the camera; null until its tile has loaded. */
   groundHeight: number | null;
   tilesLoaded: boolean;
@@ -71,6 +77,12 @@ export interface TerrainProbe {
    * (terrain draping design, "Per layer under World Terrain").
    */
   draped: boolean;
+  /**
+   * The largest alpha among the shown `atlas-surface` layers, 0 with none. `draped` also holds in
+   * the one frame a new surface layer draws at `PREWARM_ALPHA` (0.001) to compile its globe shader
+   * unseen; its fade has begun once this is above that.
+   */
+  surfaceAlpha: number;
   /**
    * The imagery layers shown at alpha > 0, bottom to top, by their Atlas names
    * (`AtlasImageryLayerName`); every other layer is `'basemap'`.
@@ -199,6 +211,68 @@ interface CameraEvent {
   addEventListener(listener: () => void): () => void;
 }
 
+interface Vector3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** The members of Cesium's camera the motion hook reads: its pose and its frustum's extent. */
+export interface CameraPose {
+  positionWC: Vector3;
+  directionWC: Vector3;
+  upWC: Vector3;
+  /** `fov` in 3D, `right` and `top` in 2D (an off-centre orthographic frustum), else `width`. */
+  frustum: { fov?: number; right?: number; top?: number; width?: number };
+}
+
+/**
+ * A frame that changes no component of the camera's pose by more than this (relative to the
+ * component, or absolute below 1) leaves the camera still. Cesium's own `moveStart` and `moveEnd`
+ * compare at 1e-15 (`View.checkForCameraUpdates`), which the camera's float drift crosses: every
+ * CesiumWidget's default EntityCluster listens to `camera.changed`, so Cesium reads the heading
+ * and roll on each frame (`Camera._updateCameraChanged`), and each read writes the pose back
+ * through an east-north-up frame (`Camera._setTransform`). Each crossing restarts Cesium's 0.5 s
+ * wait, so at a hardware GPU's frame rate its `moveEnd` can be held off past a test's 30 s wait.
+ */
+export const CAMERA_STILL_TOLERANCE = 1e-12;
+
+/** The camera is at rest once no frame has moved it this long: Cesium's `cameraEventWaitTime`. */
+export const CAMERA_QUIET_MS = 500;
+
+function poseOf({
+  directionWC: d,
+  frustum: f,
+  positionWC: p,
+  upWC: u,
+}: CameraPose): number[] {
+  return [
+    p.x,
+    p.y,
+    p.z,
+    d.x,
+    d.y,
+    d.z,
+    u.x,
+    u.y,
+    u.z,
+    f.fov ?? 0,
+    f.right ?? 0,
+    f.top ?? 0,
+    f.width ?? 0,
+  ];
+}
+
+function poseMoved(next: readonly number[], last: readonly number[]): boolean {
+  return next.some((value, index) => {
+    const before = last[index];
+    return (
+      Math.abs(value - before) >
+      CAMERA_STILL_TOLERANCE * Math.max(1, Math.abs(value), Math.abs(before))
+    );
+  });
+}
+
 export interface CameraMotionHook {
   /** Called as the scene moves the camera; the returned callback runs when that move settles. */
   flight(): () => void;
@@ -211,12 +285,16 @@ export interface CameraMotionHook {
  * so the wait depends on no other content and needs no frame of the page (a screenshot waits for
  * several, each over a second under CI's software WebGL). A flight counts from the call that
  * starts it, before its first frame moves the camera; a flight that a newer one cancels settles
- * nothing.
+ * nothing. Motion is the camera's pose compared from one drawn frame (`postRender`) to the next,
+ * not Cesium's `moveStart` and `moveEnd`, whose 1e-15 test the camera's float drift keeps failing
+ * (`CAMERA_STILL_TOLERANCE`). Cesium draws every frame that moves the camera by more than that, so
+ * no move goes unseen, and a camera at rest reads still `CAMERA_QUIET_MS` after its last move,
+ * whether or not another frame is drawn.
  */
-export function cameraMotionTestHook(camera: {
-  moveStart: CameraEvent;
-  moveEnd: CameraEvent;
-}): CameraMotionHook | undefined {
+export function cameraMotionTestHook(
+  scene: { camera: CameraPose; postRender: CameraEvent },
+  now: () => number = () => performance.now(),
+): CameraMotionHook | undefined {
   if (
     import.meta.env.PUBLIC_ATLAS_E2E_HOOKS !== '1' ||
     typeof window === 'undefined'
@@ -224,14 +302,17 @@ export function cameraMotionTestHook(camera: {
     return undefined;
   let started = 0;
   let settled = 0;
-  let moving = false;
-  const removeStart = camera.moveStart.addEventListener(() => {
-    moving = true;
+  let pose: number[] | undefined;
+  let movedAt = Number.NEGATIVE_INFINITY;
+  const removeRender = scene.postRender.addEventListener(() => {
+    const next = poseOf(scene.camera);
+    if (pose !== undefined && poseMoved(next, pose)) movedAt = now();
+    pose = next;
   });
-  const removeEnd = camera.moveEnd.addEventListener(() => {
-    moving = false;
+  const read = (): CameraMotion => ({
+    flying: settled !== started,
+    moving: now() - movedAt < CAMERA_QUIET_MS,
   });
-  const read = (): CameraMotion => ({ flying: settled !== started, moving });
   window.__atlasCameraMotion = read;
   return {
     flight() {
@@ -241,8 +322,7 @@ export function cameraMotionTestHook(camera: {
       };
     },
     destroy() {
-      removeStart();
-      removeEnd();
+      removeRender();
       // Only this scene's reader: a newer scene's stays published.
       if (window.__atlasCameraMotion === read)
         delete window.__atlasCameraMotion;

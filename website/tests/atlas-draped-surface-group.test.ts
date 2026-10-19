@@ -12,6 +12,7 @@ import {
   DRAPED_READY_CAP_MS,
   drapedLayerName,
   isDrapedBaseGuard,
+  PREWARM_ALPHA,
 } from '../src/atlas/scene/draped/draped-imagery-layer';
 import {
   createDrapedSurfaceGroup,
@@ -578,6 +579,12 @@ describe('DrapedSurfaceGroup', () => {
     for (let i = 0; i < count; i += 1) scene.preRender.raiseEvent();
   }
 
+  /** One rendered frame: preRender, the draw, then postRender. */
+  function drawFrame(): void {
+    scene.preRender.raiseEvent();
+    scene.postRender.raiseEvent();
+  }
+
   beforeEach(() => {
     source = fakeSource();
     signal = new AbortController().signal;
@@ -807,7 +814,7 @@ describe('DrapedSurfaceGroup', () => {
     expect(alphas(scene)[1]).toEqual(['atlas-outlines', 1]);
   });
 
-  it('is ready with its surface layer, and counts one ready chunk after its first drawn tile', async () => {
+  it('is ready once its layers have loaded and drawn their pre-warm frame, and counts one ready chunk after its first drawn tile', async () => {
     const group = createDrapedSurfaceGroup({
       ...OPTIONS,
       cellEdges: true,
@@ -824,7 +831,11 @@ describe('DrapedSurfaceGroup', () => {
     ]);
     scene.globe.tilesLoaded = true;
     frames(2);
-    expect([group.isReady(), group.readyCount()]).toEqual([true, 1]);
+    expect([group.isReady(), group.readyCount()]).toEqual([false, 0]); // loaded: pre-warm next
+    drawFrame();
+    await vi.waitFor(() =>
+      expect([group.isReady(), group.readyCount()]).toEqual([true, 1]),
+    );
     const [surface] = named(scene, 'atlas-surface');
     const [outlines] = named(scene, 'atlas-outlines');
     expect(group.readyChunkCount()).toBe(0);
@@ -851,7 +862,10 @@ describe('DrapedSurfaceGroup', () => {
     frames(2);
     const [surface] = named(scene, 'atlas-surface');
     providerOf(surface).tileLoaded.raiseEvent(message(1, 0, 3, BITMAP));
-    expect([group.isReady(), group.readyChunkCount()]).toEqual([true, 1]);
+    // Drawn at rest, its layers need no pre-warm frame: ready once that settles.
+    await vi.waitFor(() =>
+      expect([group.isReady(), group.readyChunkCount()]).toEqual([true, 1]),
+    );
     expect(group.outlinesReady()).toBe(true);
 
     group.collection.show = false;
@@ -861,7 +875,7 @@ describe('DrapedSurfaceGroup', () => {
     expect([group.isReady(), group.readyChunkCount()]).toEqual([false, 0]);
     expect(group.outlinesReady()).toBe(false);
     frames(2);
-    expect(group.isReady()).toBe(true);
+    expect(group.isReady()).toBe(true); // warm already: no second pre-warm
     expect(group.outlinesReady()).toBe(true);
     expect(group.readyChunkCount()).toBe(0);
     providerOf(surface).tileLoaded.raiseEvent(message(1, 0, 3, BITMAP));
@@ -1140,9 +1154,332 @@ describe('DrapedSurfaceGroup', () => {
     await group.prepare(signal);
     scene.globe.tilesLoaded = true;
     frames(2);
-    expect(group.isReady()).toBe(true);
+    expect(group.isReady()).toBe(false); // loaded: its pre-warm frame comes next
+    drawFrame();
+    await vi.waitFor(() => expect(group.isReady()).toBe(true));
     scene.requestRender.mockClear();
     frames(2);
+    drawFrame();
+    expect(scene.requestRender).not.toHaveBeenCalled();
+  });
+});
+
+describe('pre-warm (#483 phase 4)', () => {
+  type FakeScene = ReturnType<typeof fakeDrapedScene>;
+  const REST: DrapeWave = { progress: () => 1, running: () => false };
+
+  /** The frame listeners on `s`, preRender and postRender together. */
+  function listeners(s: FakeScene): number {
+    return s.preRender.numberOfListeners + s.postRender.numberOfListeners;
+  }
+
+  /** One rendered frame: preRender, the draw, then postRender. */
+  function drawFrame(s: FakeScene): void {
+    s.preRender.raiseEvent();
+    s.postRender.raiseEvent();
+  }
+
+  /** A loaded `atlas-surface` layer at `alpha` on a scene of its own, with no frame requested. */
+  function drapedLayerAt(alpha: number) {
+    const s = fakeDrapedScene();
+    const layer = addDrapedImageryLayer({
+      alpha,
+      name: 'atlas-surface',
+      provider: fakeProvider(),
+      scene: s,
+    });
+    s.globe.tilesLoaded = true;
+    drawFrame(s);
+    drawFrame(s);
+    expect(layer.isReady()).toBe(true);
+    s.requestRender.mockClear();
+    return { layer, scene: s };
+  }
+
+  /** A prepared group at opacity 0 with its tiles loaded, and its Atlas layers by name. */
+  async function loadedGroup(o: Partial<DrapedSurfaceGroupOptions> = {}) {
+    const s = fakeDrapedScene();
+    const group = createDrapedSurfaceGroup({
+      artifactKey: SURFACE_SPEC.artifactKey,
+      cellEdges: false,
+      edgeColor: { mode: 'matched' },
+      onError: vi.fn(),
+      scene: s,
+      source: fakeSource(),
+      surface: SURFACE_SPEC,
+      surfaceOpacity: 0.58,
+      wave: REST,
+      ...o,
+    });
+    group.setOpacity(0); // ScientificLayers' wait: hidden until ready
+    await group.prepare(new AbortController().signal);
+    s.globe.tilesLoaded = true;
+    drawFrame(s);
+    drawFrame(s);
+    const layers: Partial<Record<AtlasImageryLayerName, ImageryLayer>> = {};
+    for (const layer of order(s)) {
+      const name = drapedLayerName(layer);
+      if (name) layers[name] = layer;
+    }
+    s.requestRender.mockClear();
+    return { group, layers, scene: s };
+  }
+
+  it('draws a layer at α 0.001 for one frame, then restores its α', async () => {
+    expect(PREWARM_ALPHA).toBe(0.001);
+    const { scene, layer } = drapedLayerAt(0);
+    const baseline = listeners(scene);
+    const warmed = layer.prewarm();
+    expect(layer.prewarm()).toBe(warmed);
+    expect(layer.layer.alpha).toBe(PREWARM_ALPHA);
+    expect(scene.requestRender).toHaveBeenCalled();
+    scene.postRender.raiseEvent(); // that frame began before the pre-warm, so it does not count
+    expect(layer.layer.alpha).toBe(PREWARM_ALPHA);
+    scene.preRender.raiseEvent();
+    expect(layer.layer.alpha).toBe(PREWARM_ALPHA); // drawn in this frame
+    scene.requestRender.mockClear();
+    scene.postRender.raiseEvent();
+    await warmed;
+    expect(layer.layer.alpha).toBe(0);
+    expect(scene.requestRender).toHaveBeenCalled(); // a frame without the floor
+    expect(listeners(scene)).toBe(baseline);
+    expect(layer.prewarm()).toBe(warmed);
+    scene.requestRender.mockClear();
+    drawFrame(scene);
+    expect(scene.requestRender).not.toHaveBeenCalled();
+  });
+
+  it('keeps an α set during the pre-warm frame', async () => {
+    const { scene, layer } = drapedLayerAt(0);
+    const warmed = layer.prewarm();
+    layer.setAlpha(0); // the group writes its alpha on every frame
+    expect(layer.layer.alpha).toBe(PREWARM_ALPHA);
+    scene.preRender.raiseEvent();
+    layer.setAlpha(0.3);
+    expect(layer.layer.alpha).toBe(0.3);
+    scene.postRender.raiseEvent();
+    await warmed;
+    expect(layer.layer.alpha).toBe(0.3);
+
+    const faint = drapedLayerAt(0);
+    const faintWarmed = faint.layer.prewarm();
+    faint.scene.preRender.raiseEvent();
+    faint.layer.setAlpha(0.0004);
+    expect(faint.layer.layer.alpha).toBe(PREWARM_ALPHA);
+    faint.scene.postRender.raiseEvent();
+    await faintWarmed;
+    expect(faint.layer.layer.alpha).toBe(0.0004);
+  });
+
+  it('leaves a drawn or hidden layer alone', async () => {
+    for (const alpha of [0.5, PREWARM_ALPHA]) {
+      const drawn = drapedLayerAt(alpha);
+      const baseline = listeners(drawn.scene);
+      await drawn.layer.prewarm();
+      expect(drawn.layer.layer.alpha).toBe(alpha);
+      expect(listeners(drawn.scene)).toBe(baseline);
+      expect(drawn.scene.requestRender).not.toHaveBeenCalled();
+    }
+    const hidden = drapedLayerAt(0);
+    hidden.layer.setShown(false);
+    hidden.scene.requestRender.mockClear();
+    const baseline = listeners(hidden.scene);
+    await hidden.layer.prewarm();
+    expect(hidden.layer.layer.alpha).toBe(0);
+    expect(listeners(hidden.scene)).toBe(baseline);
+    expect(hidden.scene.requestRender).not.toHaveBeenCalled();
+  });
+
+  it('settles and lets go of the scene when destroyed mid pre-warm', async () => {
+    const { scene, layer } = drapedLayerAt(0);
+    const baseline = listeners(scene);
+    const warmed = layer.prewarm();
+    layer.destroy();
+    await expect(warmed).resolves.toBeUndefined();
+    expect(listeners(scene)).toBe(baseline);
+
+    const during = drapedLayerAt(0);
+    const duringWarmed = during.layer.prewarm();
+    during.scene.preRender.raiseEvent(); // destroyed inside its pre-warm frame
+    during.layer.destroy();
+    await expect(duringWarmed).resolves.toBeUndefined();
+    expect(listeners(during.scene)).toBe(0);
+    during.scene.requestRender.mockClear();
+    during.scene.postRender.raiseEvent();
+    expect(during.scene.requestRender).not.toHaveBeenCalled();
+    await expect(during.layer.prewarm()).resolves.toBeUndefined();
+  });
+
+  // Cesium defers a listener's removal while its event raises (FakeEvent snapshots the same
+  // way), so the pre-warm's own postRender listener still runs in the raise that destroyed it.
+  it('writes and asks for nothing when destroyed inside its pre-warm frame’s postRender', async () => {
+    const { scene, layer } = drapedLayerAt(0);
+    const destroyer = scene.postRender.addEventListener(() => {
+      layer.destroy();
+      scene.requestRender.mockClear();
+    });
+    const warmed = layer.prewarm();
+    expect(layer.layer.alpha).toBe(PREWARM_ALPHA);
+    scene.preRender.raiseEvent();
+    scene.postRender.raiseEvent();
+    destroyer();
+    await expect(warmed).resolves.toBeUndefined();
+    expect(scene.requestRender).not.toHaveBeenCalled();
+    expect(layer.layer.alpha).toBe(PREWARM_ALPHA); // the destroyed layer is not written
+    expect(listeners(scene)).toBe(0);
+  });
+
+  it('is ready only after its pre-warm frame has drawn', async () => {
+    const { scene, group, layers } = await loadedGroup({ cellEdges: false });
+    expect(group.isReady()).toBe(false);
+    expect(layers['atlas-surface']!.alpha).toBe(PREWARM_ALPHA);
+    scene.preRender.raiseEvent();
+    expect(layers['atlas-surface']!.alpha).toBe(PREWARM_ALPHA); // the group's frame write keeps it
+    expect(group.isReady()).toBe(false);
+    scene.postRender.raiseEvent();
+    await vi.waitFor(() => expect(group.isReady()).toBe(true));
+    expect(group.readyCount()).toBe(1);
+    expect(layers['atlas-surface']!.alpha).toBe(0);
+    expect(listeners(scene)).toBe(1); // the group's own frame listener
+  });
+
+  it('pre-warms the outlines with the surface when edges are on', async () => {
+    const { scene, group, layers } = await loadedGroup({ cellEdges: true });
+    expect(group.isReady()).toBe(false);
+    expect(layers['atlas-surface']!.alpha).toBe(PREWARM_ALPHA);
+    expect(layers['atlas-outlines']!.alpha).toBe(PREWARM_ALPHA);
+    drawFrame(scene);
+    await vi.waitFor(() => expect(group.isReady()).toBe(true));
+    expect(layers['atlas-surface']!.alpha).toBe(0);
+    expect(layers['atlas-outlines']!.alpha).toBe(0);
+  });
+
+  it('waits for outlines that load after the surface, then pre-warms both in one frame', async () => {
+    const s = fakeDrapedScene();
+    const source = fakeSource();
+    const outlines = deferred<RasterReady>();
+    source.prepare.mockImplementation(async (spec) =>
+      spec.layer === 'outlines'
+        ? outlines.promise
+        : { bounds: FAKE_BOUNDS, rasterId: 7 },
+    );
+    const group = createDrapedSurfaceGroup({
+      artifactKey: SURFACE_SPEC.artifactKey,
+      cellEdges: true,
+      edgeColor: { mode: 'matched' },
+      onError: vi.fn(),
+      scene: s,
+      source,
+      surface: SURFACE_SPEC,
+      surfaceOpacity: 0.58,
+      wave: REST,
+    });
+    group.setOpacity(0);
+    const preparing = group.prepare(new AbortController().signal);
+    await vi.waitFor(() => expect(order(s).length).toBe(2)); // guard and surface
+    const [surface] = order(s).filter(
+      (l) => drapedLayerName(l) === 'atlas-surface',
+    );
+    s.globe.tilesLoaded = true;
+    drawFrame(s);
+    drawFrame(s);
+    expect(group.isReady()).toBe(false); // the outlines the fade draws are still preparing
+    expect(surface.alpha).toBe(0);
+    outlines.resolve({ bounds: FAKE_BOUNDS, rasterId: 8 });
+    await preparing;
+    const [outline] = order(s).filter(
+      (l) => drapedLayerName(l) === 'atlas-outlines',
+    );
+    expect(group.isReady()).toBe(false); // added, not yet loaded
+    expect([surface.alpha, outline.alpha]).toEqual([0, 0]);
+    drawFrame(s);
+    drawFrame(s);
+    expect(group.isReady()).toBe(false);
+    expect([surface.alpha, outline.alpha]).toEqual([
+      PREWARM_ALPHA,
+      PREWARM_ALPHA,
+    ]);
+    drawFrame(s);
+    await vi.waitFor(() => expect(group.isReady()).toBe(true));
+  });
+
+  it('pre-warms only the layers its fade will draw', async () => {
+    const edgesOnly = await loadedGroup({ cellEdges: true, surfaceOpacity: 0 });
+    expect(edgesOnly.group.isReady()).toBe(false);
+    expect(edgesOnly.layers['atlas-surface']!.alpha).toBe(0);
+    expect(edgesOnly.layers['atlas-outlines']!.alpha).toBe(PREWARM_ALPHA);
+
+    const unsupported = await loadedGroup({
+      cellEdges: true,
+      surface: { ...SURFACE_SPEC, cells: { masked: true, supported: false } },
+    });
+    expect(unsupported.layers['atlas-outlines']).toBeUndefined();
+    expect(unsupported.group.isReady()).toBe(false);
+    expect(unsupported.layers['atlas-surface']!.alpha).toBe(PREWARM_ALPHA);
+
+    const hidden = await loadedGroup({ cellEdges: true });
+    hidden.group.setVisibility(false, false); // both cell sets off: the fade draws nothing
+    expect(hidden.group.isReady()).toBe(true);
+    expect(hidden.layers['atlas-surface']!.alpha).toBe(0);
+    expect(hidden.layers['atlas-outlines']!.alpha).toBe(0);
+    expect(listeners(hidden.scene)).toBe(1);
+  });
+
+  it('asks for the frame that reads it ready when no pre-warm frame was drawn', async () => {
+    const { scene, group, layers } = await loadedGroup({ cellEdges: true });
+    group.setOpacity(1); // layers already drawn need no pre-warm frame
+    expect(layers['atlas-surface']!.alpha).toBeGreaterThan(PREWARM_ALPHA);
+    scene.requestRender.mockClear();
+    expect(group.isReady()).toBe(false);
+    await vi.waitFor(() => expect(group.isReady()).toBe(true));
+    expect(scene.requestRender).toHaveBeenCalled();
+  });
+
+  // A hidden layer holds no tiles, so a group hidden as its layers load is not loaded: its one
+  // pre-warm waits for it to be shown, rather than being used up with no frame drawn.
+  it('keeps its pre-warm for when a group hidden as it loads is shown', async () => {
+    const { scene, group, layers } = await loadedGroup({ cellEdges: true });
+    group.collection.show = false;
+    expect(group.isReady()).toBe(false);
+    await Promise.resolve();
+    expect(group.isReady()).toBe(false);
+    expect(layers['atlas-surface']!.alpha).toBe(0);
+    group.collection.show = true;
+    drawFrame(scene);
+    drawFrame(scene);
+    expect(group.isReady()).toBe(false);
+    expect(layers['atlas-surface']!.alpha).toBe(PREWARM_ALPHA);
+    expect(layers['atlas-outlines']!.alpha).toBe(PREWARM_ALPHA);
+    drawFrame(scene);
+    await vi.waitFor(() => expect(group.isReady()).toBe(true));
+    expect(layers['atlas-surface']!.alpha).toBe(0);
+  });
+
+  it('pre-warms once: a later edge toggle is instant', async () => {
+    const { scene, group, layers } = await loadedGroup({ cellEdges: false });
+    expect(group.isReady()).toBe(false);
+    drawFrame(scene);
+    await vi.waitFor(() => expect(group.isReady()).toBe(true));
+    group.setOpacity(1);
+    await group.setCellEdges(true);
+    const [outline] = order(scene).filter(
+      (l) => drapedLayerName(l) === 'atlas-outlines',
+    );
+    expect(group.isReady()).toBe(true);
+    expect(outline.alpha).toBe(1);
+    expect(layers['atlas-surface']!.alpha).toBeCloseTo(0.9 * 0.58, 9);
+  });
+
+  it('settles a group destroyed mid pre-warm and asks for no frame after', async () => {
+    const { scene, group } = await loadedGroup({ cellEdges: true });
+    expect(group.isReady()).toBe(false);
+    scene.preRender.raiseEvent();
+    group.destroy();
+    expect(listeners(scene)).toBe(0);
+    scene.requestRender.mockClear();
+    scene.postRender.raiseEvent();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(group.isReady()).toBe(false);
     expect(scene.requestRender).not.toHaveBeenCalled();
   });
 });

@@ -12,7 +12,9 @@
  * atmosphere (terrain draping design, "Per layer under World Terrain"), which changes the summit's
  * pixels even while the terrain buries the surface. Through `window.__atlasWindowOf` they also
  * find any point a given height above the rendered ground on the page, to click a grounded symbol
- * above the summit or read the pixels of a draped footprint.
+ * above the summit or read the pixels of a draped footprint. `drapeSettled` waits, with
+ * `window.__atlasDrapeStats`, until no draped tile is still being drawn; `drapeUnsettled` waits
+ * as long, up to a deadline, and says what was still pending.
  */
 
 import { expect, type Locator, type Page } from '@playwright/test';
@@ -52,6 +54,75 @@ export async function cameraSettled(page: Page): Promise<void> {
       { timeout: 30_000 },
     )
     .toBe(true);
+}
+
+/** How long `drapeSettled` waits for the draped data to settle before it fails. */
+export const DRAPE_SETTLE_MS = 90_000;
+
+/**
+ * Waits up to `timeoutMs` for the draped data to settle: the camera at rest
+ * (`window.__atlasCameraMotion`), every tile in view loaded (`globe.tilesLoaded`) and no draped
+ * tile still being rasterised (`window.__atlasDrapeStats`'s queue empty), all in one read. Null
+ * once it has; otherwise what still held it back when the time ran out.
+ *
+ * Nothing is read before two animation frames have passed. The scene renders in its own frame
+ * callback, queued before this one, so by then it has drawn whatever the caller's last step
+ * changed. A camera control such as Zoom in moves the camera at once, with no flight, and until
+ * that frame is drawn the motion hook and the globe still describe the old view, at rest and
+ * loaded. A settled read is then confirmed two frames later before it counts: under a software
+ * renderer the frames of one move can be further apart than the hook's `CAMERA_QUIET_MS`, so a
+ * camera still coasting reads still between two of them.
+ */
+export async function drapeUnsettled(
+  page: Page,
+  timeoutMs: number,
+): Promise<string | null> {
+  return page.evaluate(
+    (timeoutMs) =>
+      new Promise<string | null>((resolve) => {
+        const started = performance.now();
+        const afterTwoFrames = (then: () => void) =>
+          requestAnimationFrame(() => requestAnimationFrame(then));
+        const pending = (): string | null => {
+          const motion = window.__atlasCameraMotion?.();
+          if (!motion) return 'no camera motion is published';
+          if (motion.flying) return 'the camera is flying';
+          if (motion.moving) return 'the camera is moving';
+          const terrain = window.__atlasTerrainProbe?.();
+          if (!terrain) return 'no terrain probe is published';
+          if (!terrain.tilesLoaded) return 'the tiles in view are loading';
+          const stats = window.__atlasDrapeStats?.();
+          if (!stats) return 'no drape stats are published';
+          return stats.queueDepth === 0
+            ? null
+            : `${stats.queueDepth} draped tiles are being rasterised`;
+        };
+        const outOfTime = () => performance.now() - started >= timeoutMs;
+        const check = () => {
+          const held = pending();
+          if (held !== null) {
+            if (outOfTime()) resolve(held);
+            else setTimeout(check, 100);
+            return;
+          }
+          afterTwoFrames(() => {
+            const again = pending();
+            if (again === null || outOfTime()) resolve(again);
+            else setTimeout(check, 100);
+          });
+        };
+        afterTwoFrames(check);
+      }),
+    timeoutMs,
+  );
+}
+
+/** The draped data has settled (`drapeUnsettled`) within `DRAPE_SETTLE_MS`, or the test fails. */
+export async function drapeSettled(page: Page): Promise<void> {
+  expect(
+    await drapeUnsettled(page, DRAPE_SETTLE_MS),
+    'the camera is at rest and the draped tiles in view have loaded',
+  ).toBeNull();
 }
 
 /** Opens the 'Basemap and terrain' dialog and returns it. */

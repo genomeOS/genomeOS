@@ -181,6 +181,8 @@ export interface FakeDrapedLayer extends DrapedImageryLayer {
   readonly destroy: Mock<DrapedImageryLayer['destroy']>;
   readonly setAlpha: Mock<DrapedImageryLayer['setAlpha']>;
   readonly setShown: Mock<DrapedImageryLayer['setShown']>;
+  /** Settles at once: these fakes draw no frames, so there is no pre-warm frame to wait for. */
+  readonly prewarm: Mock<DrapedImageryLayer['prewarm']>;
 }
 
 export function fakeDrapedRuntime(): {
@@ -212,6 +214,7 @@ export function fakeDrapedRuntime(): {
           isReady: () => layer.ready,
           layer: {} as ImageryLayer,
           name,
+          prewarm: vi.fn(() => Promise.resolve()),
           provider: owned,
           ready: false,
           setAlpha: vi.fn((value: number) => {

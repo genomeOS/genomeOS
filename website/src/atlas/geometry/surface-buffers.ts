@@ -9,6 +9,9 @@
  * Flat geometry also gives each vertex its cell's centre (`cellCentres`), so
  * the reveal wave can grow every cell from its own centre (#453; §B.6.7 as
  * amended 2026-10-13); a smooth surface fades per vertex and carries none.
+ * The Honmoon band count and mode table live here, Cesium-free, so the
+ * worker's draped contours and the smooth-globe shader share one owner
+ * (terrain draping design, "Per layer under World Terrain", #483).
  */
 
 import type { SurfaceGeometry } from '../url-state';
@@ -89,6 +92,18 @@ export function isSmoothGeometry(geometry: SurfaceGeometry): boolean {
     geometry === 'honmoon' ||
     geometry === 'honmoon-fill'
   );
+}
+
+// Dense enough that a regional viewport still crosses several value isolines. Read by the
+// smooth-globe shader (`scene/surface-appearance.ts`, which re-exports both Honmoon exports) and
+// the draped contours (`raster/contours.ts`).
+export const HONMOON_CONTOUR_BANDS = 36;
+
+/** 0: no contours; 1: lines (`honmoon`); 2: lines and fill (`honmoon-fill`). */
+export function honmoonModeForGeometry(geometry: SurfaceGeometry): 0 | 1 | 2 {
+  if (geometry === 'honmoon') return 1;
+  if (geometry === 'honmoon-fill') return 2;
+  return 0;
 }
 
 interface MeansEntry {

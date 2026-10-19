@@ -8,7 +8,8 @@
  *   (spec 2026-10-07 §B.6.8), and outlined by a sliced worker edge build (§B.6.9).
  * - A draped group reads a surface raster spec. Extruded drapes as hexagons, since data elevation
  *   is off under World Terrain, and the cell layers that are on choose the cells baked into its
- *   texture, so a toggle that changes them rebuilds it. Honmoon contours are not drawn yet.
+ *   texture, so a toggle that changes them rebuilds it. The Honmoon geometries draw their contour
+ *   lines into it ("honmoon contours from an analytic gradient", "Build phases" item 4).
  * - A draped group's outlines are waited on only while it is in view. A group drawing no supported
  *   cell has none, so they are ready at once, and a stalled wait warns but never reverts the globe:
  *   only a raster failure does.
@@ -22,6 +23,7 @@ import { Ellipsoid, Math as CesiumMath } from 'cesium';
 
 import type { Observation, ObservationArtifact } from '../contracts';
 import type { EdgeColorSpec } from '../geometry/edge-buffers';
+import { honmoonModeForGeometry } from '../geometry/surface-buffers';
 import type {
   DrapedGeometry,
   SurfaceRasterSpec,
@@ -182,7 +184,7 @@ export function drapedSurfaceSpec(
   return {
     artifactKey: load.artifactKey,
     cells: drapedCells(style.layers),
-    contours: false,
+    contours: honmoonModeForGeometry(geometry) !== 0,
     geometry,
     gridSha256: surface.grid.gridSha256,
     layer: 'surface',

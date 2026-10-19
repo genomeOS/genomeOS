@@ -25,7 +25,7 @@ export default defineConfig({
     'atlas-terrain.spec.ts',
     // The data draped onto the synthetic terrain (#483).
     'atlas-drape.spec.ts',
-    // The World Terrain budgets, reported (#483). Here, not in playwright.performance.config.ts,
+    // The World Terrain budgets, asserted (#483). Here, not in playwright.performance.config.ts,
     // which asserts a production build: they need the e2e build's synthetic terrain.
     'atlas-terrain-performance.spec.ts',
     'analytics.spec.ts',
