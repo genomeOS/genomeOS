@@ -28,7 +28,7 @@ values.
 | `catalog.json` | committed; inlined into `/app/` | `export_atlas_web.py`, then `encode_atlas_web.py` | `parseAtlasCatalog` (`website/src/atlas/contracts.ts`) | `format_version`, the format version |
 | GOSA grid, render and detail objects | bucket | `genomeos/publication/surface_codec.py` | `website/src/atlas/gosa/` | container u16 `format_version` = 1; header `schema_version` = 1 |
 | Surface and observations JSON | bucket (the site fetches the observations; the surface is a download) | `export_atlas_web.py` | `observationArtifactSchema` (`surfaceArtifactSchema` describes the download) | `schema_version` = 1 |
-| Manifest JSON | bucket (download only) | copied byte-for-byte from the P2 artifact | not parsed by the site | the P2 manifest contract |
+| Manifest JSON | bucket (download only) | copied from the P2 artifact by `export_atlas_web.py`, less `observations.path`, which names a data-store file (#45; `genomeos/publication/web_inputs.py`) | not parsed by the site | the P2 manifest contract |
 | External caches, `external/<source>/*.json` | committed | `fetch_external_variant_info.py`, copied by the exporter | `externalInfoSchema` | `schema_version`: gnomAD 2, dbSNP 1, AlphaGenome 1 |
 | Natural Earth borders, `ne-50m-admin-0.borders.bin` | committed | `scripts/encode_natural_earth_borders.py` | `website/src/atlas/geometry/natural-earth-codec.ts` | GOBD u16 `format_version` = 1 |
 | Data keys, digests, the two bases | the catalog | `genomeos/publication/web_layout.py` | `website/src/lib/data-url.ts` | — |

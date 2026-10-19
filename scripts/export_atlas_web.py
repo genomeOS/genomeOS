@@ -29,6 +29,7 @@ from genomeos.observations.sources import (  # noqa: E402
     map_g6pd,
     map_surveys,
 )
+from genomeos.publication import web_inputs  # noqa: E402
 from genomeos.publication.atlas_discovery import (  # noqa: E402
     validate_artifact_discovery,
     validate_discovery_groups,
@@ -44,6 +45,7 @@ from genomeos.registry.sources import afnd as afnd_registry  # noqa: E402
 from genomeos.registry.variants import load as load_variant_registry  # noqa: E402
 from genomeos.registry.variants import normalized_identity  # noqa: E402
 from genomeos.surfaces.artifacts import read as read_surface_artifact  # noqa: E402
+from genomeos.surfaces.artifacts import read_observations  # noqa: E402
 from scripts import encode_natural_earth_borders as natural_earth_borders  # noqa: E402
 
 SCHEMA_VERSION = 1
@@ -653,6 +655,13 @@ def export_catalog(
             source_root / "artifacts" / artifact_name,
             variant_id,
         )
+        # Since #45 an artifact pins the table its fit consumed: read it back (refusing unnamed bytes)
+        # in the fit's `ac`/`an` shape, as a carrier input is published as carriers (#133).
+        consumed = None
+        if manifest.get("observations") is not None:
+            consumed = read_observations(source_root / "artifacts" / artifact_name)
+            if manifest["measurement"] == "carrier_frequency":
+                consumed = afnd_carriers.as_binomial(consumed)
         observation_source = entry["observation_source"]
         observation_rows: list[dict[str, Any]] | None = None
         if observation_source is not None:
@@ -672,6 +681,10 @@ def export_catalog(
                 raise ValueError(
                     f"{artifact_id}: manifest n_observations={manifest['n_observations']} but "
                     f"adapter retained {len(observations)}"
+                )
+            if consumed is not None:
+                web_inputs.require_consumed_rows(
+                    consumed, observations, columns=OBSERVATION_FIELDS, context=artifact_id
                 )
 
         surface = _surface_payload(
@@ -695,7 +708,7 @@ def export_catalog(
         surface_path = out_dir / f"{artifact_id}.surface.json"
         surface_hash = _write_json(surface_path, surface)
         manifest_path = out_dir / f"{artifact_id}.manifest.json"
-        manifest_hash = _write_json(manifest_path, manifest)
+        manifest_hash = _write_json(manifest_path, web_inputs.web_manifest(manifest))
         observations_path: Path | None = None
         observation_hash: str | None = None
         if observation_rows is not None:
