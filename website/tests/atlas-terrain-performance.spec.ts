@@ -52,8 +52,12 @@
  * reach it, an annotation names each such layer instead.
  *
  * The phone's profile slows only the page's CPU, ×4, as the spec's "mobile ×4" long-frame budget
- * reads. The data worker that rasterises the draped tiles runs at full speed, so the phone's
- * data-visible and raster numbers are optimistic for a real phone.
+ * reads, and what is asserted stays that. The data worker that rasterises the draped tiles runs at
+ * full speed, since CDP cannot throttle a worker, so the phone's data-visible and raster numbers
+ * are optimistic for a real phone. As the cold-load suite scales its worker steps for the same
+ * reason, the tour reports, and never judges, a worker-scaled estimate of each milestone (data
+ * visible and each restyle): its time plus (rate − 1) × the raster time of the tiles delivered
+ * within it, an upper bound (`workerScaled`); rate 1 on the desktop leaves it as observed.
  *
  * After each step the tour waits for the draped data to settle (`drapeUnsettled`, which first
  * lets the step's own frame draw). A hardware run must settle. Under a software renderer, whose
@@ -115,7 +119,9 @@ import {
 import {
   attributeTour,
   longestScript,
+  milestoneStep,
   milestoneSteps,
+  workerScaled,
   type StepAttribution,
   type TourLongFrame,
   type TourMark,
@@ -149,6 +155,10 @@ const SOFTWARE_SETTLE = { eachMs: 150_000, totalMs: 720_000 } as const;
 
 /** The whole tour, its settles included, on any renderer. */
 const TOUR_TIMEOUT_MS = 1_200_000;
+
+/** The page's CPU slowdown per profile (`Emulation.setCPUThrottlingRate`), which the worker-scaled
+ * estimate applies to the worker's raster time too. */
+const PAGE_CPU_RATE: Record<TerrainProfile, number> = { desktop: 1, mobile: 4 };
 
 /** What the init script keeps in the page. */
 type TourWindow = Window & {
@@ -417,7 +427,7 @@ async function pageMeasures(page: Page): Promise<{
 }> {
   return page.evaluate(() => {
     const tour = window as never as TourWindow;
-    const { coarseRasterMs, deliveryMs, rasterMs } =
+    const { coarseRasterMs, deliveryMs, rasterMs, rasterMsByLevel } =
       window.__atlasDrapeStats!();
     return {
       bins: {
@@ -436,6 +446,7 @@ async function pageMeasures(page: Page): Promise<{
         endTiles: {
           coarseRasterCounts: coarseRasterMs.counts,
           deliveryByLevel: deliveryMs.byLevel,
+          rasterMsByLevel,
         },
         groundPasses: [...tour.__atlasGroundPasses],
         longFrames: [...tour.__atlasLongFrames],
@@ -447,8 +458,9 @@ async function pageMeasures(page: Page): Promise<{
 
 /**
  * Each step for the console: its longest frames (`REPORTED_FRAMES`) with their ground-pass time
- * and longest script, its ground passes in sum and per kind, readiness and the tiles it delivered,
- * only the levels it delivered any at. The attachment carries every frame, script and pass.
+ * and longest script, its ground passes in sum and per kind, readiness and the tiles it delivered
+ * with their worker raster time, only the levels it delivered any at. The attachment carries every
+ * frame, script and pass.
  */
 function attributionSummary(steps: StepAttribution[]) {
   return steps.map((step) => ({
@@ -478,6 +490,12 @@ function attributionSummary(steps: StepAttribution[]) {
         step.tiles.deliveryByLevel
           .map((bins, level) => [level, bins] as const)
           .filter(([, bins]) => bins.some((count) => count > 0)),
+      ),
+      // The worker's raster ms per level, to a tenth.
+      rasterMsByLevel: Object.fromEntries(
+        step.tiles.rasterMsByLevel
+          .map((ms, level) => [level, Math.round(ms * 10) / 10] as const)
+          .filter(([, ms]) => ms > 0),
       ),
     },
   }));
@@ -513,6 +531,7 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
             ? {
                 coarseRasterCounts: stats.coarseRasterMs.counts,
                 deliveryByLevel: stats.deliveryMs.byLevel,
+                rasterMsByLevel: stats.rasterMsByLevel,
               }
             : null,
         };
@@ -566,10 +585,10 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
     },
     { drapedReady: DRAPED_READY_MEASURE, groundPass: GROUND_PASS_MEASURE },
   );
-  if (profile === 'mobile')
+  if (PAGE_CPU_RATE[profile] !== 1)
     await (
       await page.context().newCDPSession(page)
-    ).send('Emulation.setCPUThrottlingRate', { rate: 4 });
+    ).send('Emulation.setCPUThrottlingRate', { rate: PAGE_CPU_RATE[profile] });
 
   // 1. The smooth globe, settled; the long frames count from the terrain switch.
   await page.goto(`/app/?${START_QUERY}`);
@@ -601,6 +620,13 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
   steps.push(
     ...milestoneSteps('World Terrain', 'click', 'data visible', click, visible),
   );
+  // The milestones the worker-scaled estimate reports, by the steps they bound; null never came.
+  const milestones: { observedMs: number | null; step: string }[] = [
+    {
+      observedMs: visible ? dataVisibleMs : null,
+      step: milestoneStep('World Terrain', 'click', 'data visible'),
+    },
+  ];
   await settle('World Terrain');
 
   // 3. An orbit.
@@ -639,15 +665,20 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
     await beginStep(step);
     const restyled = await restyle(page, change, !software);
     restyles.push(restyled.ms);
+    const swapped = software ? 'swap' : 'tiles loaded';
     steps.push(
       ...milestoneSteps(
         step,
         'change',
-        software ? 'swap' : 'tiles loaded',
+        swapped,
         restyled.change,
         restyled.done,
       ),
     );
+    milestones.push({
+      observedMs: restyled.done ? restyled.ms : null,
+      step: milestoneStep(step, 'change', swapped),
+    });
     await settle(step);
   }
 
@@ -699,11 +730,20 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
       steps: attributionSummary(attribution),
     })}`,
   );
+  // The milestones with the worker's raster time scaled as the page's CPU is: reported, not judged.
+  const scaled = workerScaled(attribution, milestones, PAGE_CPU_RATE[profile]);
+  console.log(
+    `atlas terrain worker-scaled (${testInfo.project.name}): ${reportJson(scaled)}`,
+  );
   // A file in the test's output directory, which outlives the run whatever the reporter.
   const report = testInfo.outputPath('atlas-terrain-performance.json');
   writeFileSync(
     report,
-    reportJson({ ...metrics, attribution: { bins, steps: attribution } }),
+    reportJson({
+      ...metrics,
+      attribution: { bins, steps: attribution },
+      reported: { workerScaled: scaled },
+    }),
   );
   await testInfo.attach('atlas-terrain-performance.json', {
     contentType: 'application/json',

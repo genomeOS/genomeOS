@@ -785,6 +785,23 @@ describe('drape stats', () => {
     expect(read.rasterMs.counts).toEqual([1, 0, 0, 0, 0, 0, 0]);
   });
 
+  it('sums each delivered tile’s raster time per level, for the tour’s worker-scaled estimate', async () => {
+    for (const [level, ms] of [
+      [0, 12.5],
+      [0, 0.25],
+      [2, 4],
+      [7, 1.5],
+      [7, 0.5],
+    ] as const)
+      await deliver(wrapped, level, ms);
+    const failed = wrapped.tile(body(1, 1, 7));
+    source.tiles.get('1/1/7')!.reject(new Error('boom'));
+    await expect(failed).rejects.toThrow('boom');
+    const sums = stats.read().rasterMsByLevel;
+    expect(sums).toHaveLength(12);
+    expect(sums).toEqual([12.75, 0, 4, 0, 0, 0, 0, 2, 0, 0, 0, 0]);
+  });
+
   it('bins each delivered tile’s request-to-delivery time by its level, and no failed tile’s', async () => {
     const clock = { now: 1_000 };
     const timed = createDrapeStats(() => clock.now);
@@ -867,6 +884,7 @@ describe('drape stats', () => {
     expect(before.rasterMs.counts).toEqual([0, 0, 0, 0, 0, 0, 0]);
     expect(before.coarseRasterMs.counts).toEqual([0, 0, 0, 0, 0, 0, 0]);
     expect(before.deliveryMs.byLevel.flat().every((n) => n === 0)).toBe(true);
+    expect(before.rasterMsByLevel.every((ms) => ms === 0)).toBe(true);
     expect(before.requested).toBe(0);
   });
 

@@ -2,9 +2,16 @@
  * The World Terrain tour's attribution (terrain draping design, "Performance budget and
  * measurement", #483): which of the tour's steps each long animation frame, ground pass and draped
  * readiness fell in, how much of each long frame was spent picking the ground, each step's ground
- * passes in sum, per kind and one by one, and how many draped tiles each step delivered, per level.
- * The budgets judge the tour's totals (`terrain-budgets.ts`); this says where they went. Pure: no
- * Playwright or browser dependency.
+ * passes in sum, per kind and one by one, and how many draped tiles each step delivered, per level,
+ * with the worker's raster time they took. The budgets judge the tour's totals
+ * (`terrain-budgets.ts`); this says where they went. Pure: no Playwright or browser dependency.
+ *
+ * The phone's profile throttles the page's CPU only: CDP cannot throttle a dedicated worker, which
+ * the cold-load suite records and answers by scaling its worker steps (`scaleCriticalPath`). The
+ * tour does the same for its milestones, reported and never judged (`workerScaled`): each
+ * milestone's time plus (rate − 1) × the raster time of the tiles delivered within it. That counts
+ * every worker millisecond as delaying the milestone, so it is an upper bound; the worker's bitmap
+ * creation and raster preparation are not in the raster time, so it is not a full one.
  *
  * A step is any span the tour bounds on the page's clock: an action from the moment the tour
  * reaches for its control, or a milestone such as the World Terrain click to data visible, whose
@@ -24,6 +31,7 @@ import type {
   DrapedReadyDetail,
   GroundPassDetail,
 } from '../../src/atlas/e2e-hooks';
+import { OUTLINE_MIN_LEVEL } from '../../src/atlas/geometry/raster/types';
 
 /** One script of a long animation frame, as `PerformanceScriptTiming` reports it. */
 export interface TourScript {
@@ -58,6 +66,8 @@ export interface TourTiles {
   coarseRasterCounts: number[];
   /** Request-to-delivery bins per level (`DrapeStats.deliveryMs.byLevel`). */
   deliveryByLevel: number[][];
+  /** The worker's raster time summed per level (`DrapeStats.rasterMsByLevel`). */
+  rasterMsByLevel: number[];
 }
 
 /** A moment on the page's clock, with the drape stats' running counts then. */
@@ -178,6 +188,7 @@ function zeroTiles(like: TourTiles): TourTiles {
   return {
     coarseRasterCounts: like.coarseRasterCounts.map(() => 0),
     deliveryByLevel: like.deliveryByLevel.map((bins) => bins.map(() => 0)),
+    rasterMsByLevel: like.rasterMsByLevel.map(() => 0),
   };
 }
 
@@ -220,7 +231,21 @@ function tilesBetween(
     deliveryByLevel: to.deliveryByLevel.map((bins, level) =>
       difference(bins, start.deliveryByLevel[level], `level ${level} delivery`),
     ),
+    rasterMsByLevel: difference(
+      to.rasterMsByLevel,
+      start.rasterMsByLevel,
+      'raster time per level',
+    ),
   };
+}
+
+/** The step from `action` to `milestone` within `step`, as `milestoneSteps` names it. */
+export function milestoneStep(
+  step: string,
+  action: string,
+  milestone: string,
+): string {
+  return `${step}: ${action} → ${milestone}`;
 }
 
 /**
@@ -237,7 +262,7 @@ export function milestoneSteps(
 ): TourStep[] {
   return reached
     ? [
-        { step: `${step}: ${action} → ${milestone}`, ...at },
+        { step: milestoneStep(step, action, milestone), ...at },
         { step: `${step}: ${milestone} → settled`, ...reached },
       ]
     : [{ step: `${step}: ${action}, ${milestone} never came`, ...at }];
@@ -354,6 +379,60 @@ export function attributeTour(record: TourRecord): StepAttribution[] {
       startMs: tenth(bucket.startMs),
       step: bucket.step,
       tiles: tilesBetween(from, to, bucket.step),
+    };
+  });
+}
+
+/** A milestone's time with the worker's raster time scaled by the CPU rate, for the report. */
+export interface WorkerScaledMilestone {
+  step: string;
+  /** Null where the milestone never came. */
+  observedMs: number | null;
+  /** The raster time of the tiles delivered in the milestone's step: every level, and 0–2 alone. */
+  workerMs: number;
+  coarseWorkerMs: number;
+  rate: number;
+  /** `observedMs + (rate − 1) × workerMs`; NaN where the milestone never came. */
+  scaledMs: number;
+}
+
+/**
+ * Each milestone, named by the step it bounds (`milestoneSteps`), with the worker's raster time in
+ * that step scaled by `rate`, as a phone's slower CPU would take it. A milestone that never came
+ * (`observedMs` null), or whose step read no tile counts, scales to NaN. One that came yet bounds
+ * no step, or whose time is not finite, is an error.
+ */
+export function workerScaled(
+  steps: StepAttribution[],
+  milestones: { step: string; observedMs: number | null }[],
+  rate: number,
+): WorkerScaledMilestone[] {
+  return milestones.map(({ observedMs, step }) => {
+    if (observedMs !== null && !Number.isFinite(observedMs))
+      throw new Error(
+        `the milestone '${step}' has a time of ${observedMs} ms: null when it never came, else finite`,
+      );
+    let tiles: TourTiles | null = null;
+    if (observedMs !== null) {
+      const attributed = steps.find((each) => each.step === step);
+      if (!attributed)
+        throw new Error(
+          `the milestone '${step}' came at ${observedMs} ms, yet bounds no step of the tour`,
+        );
+      tiles = attributed.tiles;
+    }
+    const sum = (levels: number[]) =>
+      levels.reduce((total, ms) => total + ms, 0);
+    const workerMs = tiles ? sum(tiles.rasterMsByLevel) : Number.NaN;
+    return {
+      coarseWorkerMs: tiles
+        ? sum(tiles.rasterMsByLevel.slice(0, OUTLINE_MIN_LEVEL))
+        : Number.NaN,
+      observedMs,
+      rate,
+      scaledMs: (observedMs ?? Number.NaN) + (rate - 1) * workerMs,
+      step,
+      workerMs,
     };
   });
 }
