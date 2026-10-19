@@ -43,6 +43,8 @@ import {
   fakeSource,
   imagerySkeletons,
   message,
+  renderedTile,
+  renderEveryLayer,
   stubCesiumBrowserImageTypes,
   type FakeRasterSource,
 } from './helpers/imagery-fakes';
@@ -211,7 +213,7 @@ describe('addDrapedImageryLayer', () => {
     expect(drapedLayerName(basemap)).toBeUndefined();
   });
 
-  it('is ready once tilesLoaded holds from the second frame after the add, or after 3 s', () => {
+  it('is ready once the tiles the globe rendered have its imagery, from the second frame after the add, or after 3 s', () => {
     expect(DRAPED_READY_CAP_MS).toBe(3_000);
     const now = vi.spyOn(performance, 'now').mockReturnValue(0);
     const layer = addDrapedImageryLayer({
@@ -220,12 +222,12 @@ describe('addDrapedImageryLayer', () => {
       provider: fakeProvider(),
       scene,
     });
-    scene.globe.tilesLoaded = true;
+    renderEveryLayer(scene, 'loaded');
     scene.preRender.raiseEvent();
     expect(layer.isReady()).toBe(false);
     scene.preRender.raiseEvent();
     expect(layer.isReady()).toBe(true);
-    scene.globe.tilesLoaded = false;
+    renderEveryLayer(scene, 'loading');
     const capped = addDrapedImageryLayer({
       alpha: 0,
       name: 'atlas-surface',
@@ -238,6 +240,71 @@ describe('addDrapedImageryLayer', () => {
     now.mockReturnValue(3_000);
     scene.preRender.raiseEvent();
     expect(capped.isReady()).toBe(true);
+    expect(layer.isReady()).toBe(true);
+  });
+
+  // The whole globe's `tilesLoaded` also waits for terrain, the basemap, the other layers and
+  // tiles no frame draws; a layer is ready once the tiles in view have its own imagery.
+  it('reads its own imagery on the rendered tiles, not the whole globe’s tilesLoaded', () => {
+    vi.spyOn(performance, 'now').mockReturnValue(0);
+    const basemap = scene.imageryLayers.addImageryProvider(fakeProvider());
+    const layer = addDrapedImageryLayer({
+      alpha: 0,
+      name: 'atlas-surface',
+      provider: fakeProvider(),
+      scene,
+    });
+    scene.globe.tilesLoaded = false; // stuck: the basemap and the terrain still load
+    scene.globe._surface._tilesToRender = [
+      renderedTile({ loaded: [layer.layer], loading: [basemap] }),
+      renderedTile({ loading: [basemap] }), // a tile outside the layer's bounds
+    ];
+    scene.preRender.raiseEvent();
+    expect(layer.isReady()).toBe(false); // the first frame reads the tiles of the frame before
+    scene.preRender.raiseEvent();
+    expect(layer.isReady()).toBe(true);
+  });
+
+  it('is not ready while a rendered tile still loads its imagery, though tilesLoaded holds, until the cap', () => {
+    const now = vi.spyOn(performance, 'now').mockReturnValue(0);
+    const layer = addDrapedImageryLayer({
+      alpha: 0,
+      name: 'atlas-outlines',
+      provider: fakeProvider(),
+      scene,
+    });
+    scene.globe.tilesLoaded = true;
+    scene.globe._surface._tilesToRender = [
+      renderedTile({ loaded: [layer.layer] }),
+      renderedTile({ loaded: [layer.layer], loading: [layer.layer] }), // one of its two still loads
+    ];
+    scene.preRender.raiseEvent();
+    now.mockReturnValue(2_999);
+    scene.preRender.raiseEvent();
+    expect(layer.isReady()).toBe(false);
+    expect(scene.requestRender).toHaveBeenCalled();
+    now.mockReturnValue(3_000);
+    scene.preRender.raiseEvent();
+    expect(layer.isReady()).toBe(true); // the cap, the fallback
+  });
+
+  // Right after a terrain change nothing renders until the new level-0 tiles load: no tile in
+  // view is no proof that the layer's tiles have loaded.
+  it('is not ready while the globe renders no tile', () => {
+    const now = vi.spyOn(performance, 'now').mockReturnValue(0);
+    const layer = addDrapedImageryLayer({
+      alpha: 0,
+      name: 'atlas-surface',
+      provider: fakeProvider(),
+      scene,
+    });
+    scene.globe.tilesLoaded = true;
+    scene.preRender.raiseEvent();
+    now.mockReturnValue(2_999);
+    scene.preRender.raiseEvent();
+    expect(layer.isReady()).toBe(false);
+    now.mockReturnValue(3_000);
+    scene.preRender.raiseEvent();
     expect(layer.isReady()).toBe(true);
   });
 
@@ -265,12 +332,12 @@ describe('addDrapedImageryLayer', () => {
         provider: fakeProvider(),
         scene,
       });
-      scene.globe.tilesLoaded = true;
+      renderEveryLayer(scene, 'loaded');
       scene.preRender.raiseEvent();
       now.mockReturnValue(1_040);
       scene.preRender.raiseEvent();
       expect(loaded.isReady()).toBe(true);
-      scene.globe.tilesLoaded = false;
+      renderEveryLayer(scene, 'loading');
       now.mockReturnValue(2_000);
       const capped = addDrapedImageryLayer({
         alpha: 0,
@@ -280,7 +347,7 @@ describe('addDrapedImageryLayer', () => {
       });
       scene.preRender.raiseEvent();
       scene.preRender.raiseEvent();
-      // tilesLoaded never held: the cap read it ready, 3 s after its add.
+      // Its rendered tiles never loaded: the cap read it ready, 3 s after its add.
       now.mockReturnValue(5_000);
       scene.preRender.raiseEvent();
       expect(capped.isReady()).toBe(true);
@@ -288,14 +355,14 @@ describe('addDrapedImageryLayer', () => {
       now.mockReturnValue(9_000);
       loaded.setShown(false);
       loaded.setShown(true);
-      scene.globe.tilesLoaded = true;
+      renderEveryLayer(scene, 'loaded');
       scene.preRender.raiseEvent();
       now.mockReturnValue(9_016);
       scene.preRender.raiseEvent();
       expect(readiness()).toEqual([
         {
           detail: {
-            branch: 'tilesLoaded',
+            branch: 'tiles',
             capElapsed: false,
             frames: 2,
             layer: 'atlas-surface',
@@ -315,7 +382,7 @@ describe('addDrapedImageryLayer', () => {
         },
         {
           detail: {
-            branch: 'tilesLoaded',
+            branch: 'tiles',
             capElapsed: false,
             frames: 2,
             layer: 'atlas-surface',
@@ -326,10 +393,10 @@ describe('addDrapedImageryLayer', () => {
       ]);
     });
 
-    // Under a software renderer a frame can take a second, so the frame that first reads
-    // `tilesLoaded` may also be past the cap: either rule would read it ready, so the measure
-    // names `tilesLoaded` and says the cap had run out as well.
-    it('names tilesLoaded when it and the cap both hold on one frame, and says the cap ran out too', () => {
+    // Under a software renderer a frame can take a second, so the frame that first finds the
+    // rendered tiles loaded may also be past the cap: either rule would read it ready, so the
+    // measure names the tiles and says the cap had run out as well.
+    it('names the tiles when they and the cap both hold on one frame, and says the cap ran out too', () => {
       vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
       const now = vi.spyOn(performance, 'now').mockReturnValue(1_000);
       const layer = addDrapedImageryLayer({
@@ -338,19 +405,19 @@ describe('addDrapedImageryLayer', () => {
         provider: fakeProvider(),
         scene,
       });
-      scene.globe.tilesLoaded = false;
+      renderEveryLayer(scene, 'loading');
       scene.preRender.raiseEvent();
       now.mockReturnValue(2_100);
       scene.preRender.raiseEvent();
       expect(layer.isReady()).toBe(false);
-      scene.globe.tilesLoaded = true;
+      renderEveryLayer(scene, 'loaded');
       now.mockReturnValue(4_018);
       scene.preRender.raiseEvent();
       expect(layer.isReady()).toBe(true);
       expect(readiness()).toEqual([
         {
           detail: {
-            branch: 'tilesLoaded',
+            branch: 'tiles',
             capElapsed: true,
             frames: 3,
             layer: 'atlas-surface',
@@ -369,7 +436,7 @@ describe('addDrapedImageryLayer', () => {
         provider: fakeProvider(),
         scene,
       });
-      scene.globe.tilesLoaded = true;
+      renderEveryLayer(scene, 'loaded');
       scene.preRender.raiseEvent();
       scene.preRender.raiseEvent();
       expect(layer.isReady()).toBe(true);
@@ -388,7 +455,7 @@ describe('addDrapedImageryLayer', () => {
     expect(l.layer.alpha).toBe(0.4);
     expect(l.name).toBe('atlas-surface');
     scene.requestRender.mockClear();
-    scene.globe.tilesLoaded = false;
+    renderEveryLayer(scene, 'loading');
     scene.preRender.raiseEvent();
     expect(scene.requestRender).toHaveBeenCalledTimes(1);
     scene.preRender.raiseEvent();
@@ -409,7 +476,7 @@ describe('addDrapedImageryLayer', () => {
       provider: fakeProvider(),
       scene,
     });
-    scene.globe.tilesLoaded = true;
+    renderEveryLayer(scene, 'loaded');
     scene.preRender.raiseEvent();
     scene.preRender.raiseEvent();
     scene.requestRender.mockClear();
@@ -419,7 +486,7 @@ describe('addDrapedImageryLayer', () => {
 
   // Cesium frees every tile of a hidden layer (pinned in tests/atlas-cesium-internals.test.ts), so a
   // layer shown again has none until the globe loads them anew.
-  it('is not ready after a hide until tilesLoaded holds again from the second frame, or the cap', () => {
+  it('is not ready after a hide until its rendered tiles load again from the second frame, or the cap', () => {
     const now = vi.spyOn(performance, 'now').mockReturnValue(0);
     const layer = addDrapedImageryLayer({
       alpha: 0,
@@ -427,7 +494,7 @@ describe('addDrapedImageryLayer', () => {
       provider: fakeProvider(),
       scene,
     });
-    scene.globe.tilesLoaded = true;
+    renderEveryLayer(scene, 'loaded');
     scene.preRender.raiseEvent();
     scene.preRender.raiseEvent();
     expect(layer.isReady()).toBe(true);
@@ -445,21 +512,21 @@ describe('addDrapedImageryLayer', () => {
     now.mockReturnValue(20_000);
     layer.setShown(true);
     expect(layer.isReady()).toBe(false);
-    // The first frame after the show still reads the load queues of the frame before it.
+    // The first frame after the show still reads the tiles of the frame before it.
     scene.preRender.raiseEvent();
     expect(layer.isReady()).toBe(false);
     expect(scene.requestRender).toHaveBeenCalled();
-    scene.globe.tilesLoaded = false;
+    renderEveryLayer(scene, 'loading');
     scene.preRender.raiseEvent();
     expect(layer.isReady()).toBe(false);
-    scene.globe.tilesLoaded = true;
+    renderEveryLayer(scene, 'loaded');
     scene.preRender.raiseEvent();
     expect(layer.isReady()).toBe(true);
 
     // The cap counts from the show, not from the add.
     layer.setShown(false);
     layer.setShown(true);
-    scene.globe.tilesLoaded = false;
+    renderEveryLayer(scene, 'loading');
     now.mockReturnValue(22_999);
     scene.preRender.raiseEvent();
     expect(layer.isReady()).toBe(false);
@@ -891,7 +958,7 @@ describe('DrapedSurfaceGroup', () => {
     expect(source.prepare).toHaveBeenCalledTimes(2);
     expect(alphas(scene)[1]).toEqual(['atlas-outlines', 1]);
     expect(group.outlinesReady()).toBe(false);
-    scene.globe.tilesLoaded = true;
+    renderEveryLayer(scene, 'loaded');
     frames(2);
     expect(group.outlinesReady()).toBe(true);
   });
@@ -957,7 +1024,7 @@ describe('DrapedSurfaceGroup', () => {
     ]);
     expect(group.outlinesReady()).toBe(false);
     expect(source.release).not.toHaveBeenCalled();
-    scene.globe.tilesLoaded = true;
+    renderEveryLayer(scene, 'loaded');
     frames(1);
     scene.requestRender.mockClear();
     frames(1); // the new layer turns ready and stops asking: the group asks for the swap frame
@@ -995,7 +1062,7 @@ describe('DrapedSurfaceGroup', () => {
     await first;
     expect(source.release).toHaveBeenCalledWith(42);
     expect(named(scene, 'atlas-outlines')).toHaveLength(2);
-    scene.globe.tilesLoaded = true;
+    renderEveryLayer(scene, 'loaded');
     frames(3);
     expect(named(scene, 'atlas-outlines')).toHaveLength(1);
     expect(source.release.mock.calls).toEqual([[42], [8]]);
@@ -1038,7 +1105,7 @@ describe('DrapedSurfaceGroup', () => {
       0,
       1,
     ]);
-    scene.globe.tilesLoaded = true;
+    renderEveryLayer(scene, 'loaded');
     frames(2);
     expect([group.isReady(), group.readyCount()]).toEqual([false, 0]); // loaded: pre-warm next
     drawFrame();
@@ -1067,7 +1134,7 @@ describe('DrapedSurfaceGroup', () => {
       wave: REST,
     });
     await group.prepare(signal);
-    scene.globe.tilesLoaded = true;
+    renderEveryLayer(scene, 'loaded');
     frames(2);
     const [surface] = named(scene, 'atlas-surface');
     providerOf(surface).tileLoaded.raiseEvent(message(1, 0, 3, BITMAP));
@@ -1361,7 +1428,7 @@ describe('DrapedSurfaceGroup', () => {
       wave: REST,
     });
     await group.prepare(signal);
-    scene.globe.tilesLoaded = true;
+    renderEveryLayer(scene, 'loaded');
     frames(2);
     expect(group.isReady()).toBe(false); // loaded: its pre-warm frame comes next
     drawFrame();
@@ -1397,7 +1464,7 @@ describe('pre-warm (#483 phase 4)', () => {
       provider: fakeProvider(),
       scene: s,
     });
-    s.globe.tilesLoaded = true;
+    renderEveryLayer(s, 'loaded');
     drawFrame(s);
     drawFrame(s);
     expect(layer.isReady()).toBe(true);
@@ -1422,7 +1489,7 @@ describe('pre-warm (#483 phase 4)', () => {
     });
     group.setOpacity(0); // ScientificLayers' wait: hidden until ready
     await group.prepare(new AbortController().signal);
-    s.globe.tilesLoaded = true;
+    renderEveryLayer(s, 'loaded');
     drawFrame(s);
     drawFrame(s);
     const layers: Partial<Record<AtlasImageryLayerName, ImageryLayer>> = {};
@@ -1589,7 +1656,7 @@ describe('pre-warm (#483 phase 4)', () => {
     const [surface] = order(s).filter(
       (l) => drapedLayerName(l) === 'atlas-surface',
     );
-    s.globe.tilesLoaded = true;
+    renderEveryLayer(s, 'loaded');
     drawFrame(s);
     drawFrame(s);
     expect(group.isReady()).toBe(false); // the outlines the fade draws are still preparing

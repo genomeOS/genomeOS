@@ -6,13 +6,15 @@
  * decode that south-first bitmaps match, the base-layer rule the draped base guard answers, and
  * the globe shader cache, keyed by the number of drawn textures, that a draped pre-warm fills.
  * Also the cache of ground positions a relief change leaves stale ("Exaggeration"), which the
- * terrain shading empties so the labels clamped to the ground follow Physical relief.
+ * terrain shading empties so the labels clamped to the ground follow Physical relief, and the
+ * rendered tiles and their per-layer imagery states that a draped layer's readiness reads.
  */
 
 import * as Cesium from 'cesium';
 import {
   Cartesian3,
   Cartographic,
+  EllipsoidTerrainProvider,
   GeographicTilingScheme,
   ImageryLayer,
   ImageryLayerCollection,
@@ -76,6 +78,44 @@ interface TerrainInternals {
   };
 }
 const terrain = Cesium as unknown as TerrainInternals;
+
+/** An imagery tile's private members (Cesium's `Imagery`). */
+interface ImageryInternals {
+  imageryLayer: unknown;
+  parent?: ImageryInternals;
+  state: number;
+  texture?: unknown;
+}
+/** A terrain tile's imagery of one imagery tile (Cesium's `TileImagery`). */
+interface TileImageryInternals {
+  readyImagery?: ImageryInternals;
+  loadingImagery?: ImageryInternals;
+  processStateMachine(
+    tile: unknown,
+    frameState: object,
+    skip: boolean,
+  ): boolean;
+}
+interface SkeletonInternals {
+  _createTileImagerySkeletons(tile: unknown, terrain: unknown): boolean;
+}
+const { ImageryState } = Cesium as unknown as {
+  ImageryState: { READY: number };
+};
+
+/** A geographic level-3 terrain tile at 0..22.5 E, 0..22.5 N. */
+const LEVEL_3 = {
+  level: 3,
+  rectangle: new GeographicTilingScheme().tileXYToRectangle(8, 3, 3),
+  x: 8,
+  y: 3,
+};
+
+/** An imagery tile whose texture Cesium has made: ready, with nothing left to reproject. */
+function readyImagery(imagery: ImageryInternals): void {
+  imagery.state = ImageryState.READY;
+  imagery.texture = {};
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -220,6 +260,65 @@ describe('Cesium 1.145 internals the draped layers rely on (#483)', () => {
     );
     expect(typeof terrain.QuadtreePrimitive.prototype.forEachLoadedTile).toBe(
       'function',
+    );
+  });
+
+  // A draped layer is ready once the tiles the globe rendered carry its imagery, loaded
+  // (scene/draped/rendered-imagery.ts), not once the whole globe's load queues are empty.
+  it('keeps the tiles it rendered in _tilesToRender, read before the next render, each layer’s imagery loading until its own tile is ready', () => {
+    const collection = new ImageryLayerCollection();
+    collection.addImageryProvider(fakeProvider()); // the base layer
+    const layer = collection.addImageryProvider(fakeProvider());
+    const tile = {
+      data: { imagery: [] as TileImageryInternals[] },
+      ...LEVEL_3,
+    };
+    (layer as unknown as SkeletonInternals)._createTileImagerySkeletons(
+      tile,
+      new EllipsoidTerrainProvider(),
+    );
+    const [entry] = tile.data.imagery;
+    expect(tile.data.imagery).toHaveLength(1);
+    // A new tile's imagery of a layer is loading: no imagery ready, its own tile asked for.
+    expect(entry.readyImagery).toBeUndefined();
+    expect(entry.loadingImagery!.imageryLayer).toBe(layer);
+    // An ancestor's imagery, once ready, is drawn meanwhile; the tile's own still loads.
+    const own = entry.loadingImagery!;
+    readyImagery(own.parent!);
+    expect(entry.processStateMachine(tile, {}, true)).toBe(false);
+    expect(entry.readyImagery).toBe(own.parent);
+    expect(entry.loadingImagery).toBe(own);
+    // Its own tile ready, the imagery moves from loading to ready.
+    readyImagery(own);
+    expect(entry.processStateMachine(tile, {}, true)).toBe(true);
+    expect(entry.loadingImagery).toBeUndefined();
+    expect(entry.readyImagery).toBe(own);
+    expect(own.imageryLayer).toBe(layer);
+    // A layer that has not loaded its provider holds a placeholder of its own, loading too.
+    expect(
+      (layer as unknown as { _skeletonPlaceholder: TileImageryInternals })
+        ._skeletonPlaceholder.loadingImagery!.imageryLayer,
+    ).toBe(layer);
+
+    // The rendered tiles: the globe's quadtree refills `_tilesToRender` with each frame's
+    // selection, which `preRender` reads before the frame's own (after the update that raises a
+    // layer's show, whose handler gives every loaded tile that layer's imagery at once, as an add).
+    const quadtree = cesiumSource('Scene/QuadtreePrimitive.js');
+    expect(quadtree).toMatch(
+      /const tilesToRender = primitive\._tilesToRender;\s*tilesToRender\.length = 0;/,
+    );
+    expect(quadtree).toMatch(
+      /function addTileToRenderList\(primitive, tile\) \{\s*primitive\._tilesToRender\.push\(tile\);/,
+    );
+    expect(cesiumSource('Scene/Scene.js')).toMatch(
+      /tryAndCatchError\(this, prePassesUpdate\);[\s\S]*this\._preRender\.raiseEvent\(this, time\);\s*frameState\.creditDisplay\.beginFrame\(\);\s*tryAndCatchError\(this, render\);/,
+    );
+    expect(cesiumSource('Scene/GlobeSurfaceTileProvider.js')).toMatch(
+      /this\._quadtree\.forEachLoadedTile\(function \(tile\) \{\s*if \(layer\._createTileImagerySkeletons\(tile, terrainProvider\)\) \{/,
+    );
+    // The whole globe's `tilesLoaded` waits on every load queue: terrain and every layer.
+    expect(cesiumSource('Scene/Globe.js')).toMatch(
+      /this\._surface\._tileLoadQueueHigh\.length === 0 &&\s*this\._surface\._tileLoadQueueMedium\.length === 0 &&\s*this\._surface\._tileLoadQueueLow\.length === 0/,
     );
   });
 });

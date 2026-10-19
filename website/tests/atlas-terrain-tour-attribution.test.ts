@@ -335,7 +335,7 @@ describe('the terrain tour’s attribution (#483)', () => {
         },
         {
           detail: {
-            branch: 'tilesLoaded',
+            branch: 'tiles',
             capElapsed: false,
             frames: 12,
             layer: 'atlas-surface',
@@ -349,7 +349,7 @@ describe('the terrain tour’s attribution (#483)', () => {
     // Each in the step its layer was added in, in the order they were read ready.
     expect(steps[0].readiness).toEqual([
       {
-        branch: 'tilesLoaded',
+        branch: 'tiles',
         capElapsed: false,
         frames: 12,
         layer: 'atlas-surface',
