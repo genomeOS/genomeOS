@@ -226,10 +226,11 @@ export interface GroundPassDetail {
   /**
    * Under the observations: `create`, the sample at creation; `resample`, a throttled re-sample
    * (a relief frame, a tile load); `final`, an unthrottled one (the relief at rest, the tile load
-   * queue empty, a morph between views complete). `highlight`: the hover or selection ring
-   * grounded under World Terrain.
+   * queue empty, a morph between views complete); `continue`, the next frame's pass that picks
+   * what a frame's budget of picks left. `highlight`: the hover or selection ring grounded under
+   * World Terrain.
    */
-  kind: 'create' | 'resample' | 'final' | 'highlight';
+  kind: 'create' | 'resample' | 'final' | 'continue' | 'highlight';
 }
 
 /**

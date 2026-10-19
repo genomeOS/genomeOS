@@ -20,6 +20,14 @@
  * hear only real changes, compared value by value, so a pass that finds the same ground moves
  * nothing.
  *
+ * Picks are bounded: the passes of one frame spend at most `GROUND_PICK_BUDGET_MS` of picks
+ * between them (`createFramePickBudget`, renewed at each `preRender`, and shared by every draped
+ * group), the points above the camera's horizon first. A pass that leaves points unpicked asks for
+ * the next frame and goes on there (`continue`), until none is left. Nothing is read while the
+ * globe's tiles are still the smooth globe's: a World Terrain request reaches the tiles only in
+ * the next frame, so the heights start at NaN, which keeps today's heights, until a World Terrain
+ * mesh exists.
+ *
  * Cesium re-exaggerates the loaded tile meshes inside the frame after `verticalExaggeration`
  * changes, so until that frame renders the meshes still hold the old relief. `afterNextRender`
  * asks for that frame and runs its callback once the frame has rendered, which is when the scene
@@ -35,7 +43,9 @@
  */
 
 import {
+  Cartesian3,
   Cartographic,
+  Ellipsoid,
   Math as CesiumMath,
   type Event,
   type Globe,
@@ -44,12 +54,20 @@ import {
 import { measuredGroundPass, type GroundPassDetail } from '../e2e-hooks';
 import {
   GroundPoints,
+  tilesAreSmooth,
   type GroundGlobe,
   type GroundPass,
+  type PickBudget,
 } from './ground-points';
 
 /** The shortest interval between two throttled re-samples (a relief drag, loading tiles). */
 export const GROUND_RESAMPLE_MS = 50;
+
+/**
+ * The pick time ground heights may spend in one frame: the rest of the points to pick wait for
+ * the next frame.
+ */
+export const GROUND_PICK_BUDGET_MS = 3;
 
 /** One scratch position, reused for every point: sampling allocates nothing per point. */
 const SCRATCH = new Cartographic();
@@ -107,31 +125,87 @@ export interface GroundHeights {
   destroy(): void;
 }
 
+/** A per-frame budget of pick time, which several ground heights can share. */
+export interface FramePickBudget extends PickBudget {
+  /** Stops counting frames. */
+  destroy(): void;
+}
+
+/** `ms` of picks a frame, renewed as each frame begins (`preRender`). */
+export function createFramePickBudget(
+  scene: { preRender: Pick<Event, 'addEventListener'> },
+  ms = GROUND_PICK_BUDGET_MS,
+): FramePickBudget {
+  let spent = 0;
+  const removePreRender = scene.preRender.addEventListener(() => {
+    spent = 0;
+  });
+  return {
+    remainingMs: () => ms - spent,
+    spend(picked) {
+      spent += picked;
+    },
+    destroy: removePreRender,
+  };
+}
+
+/** The scene ground heights read: the globe, its frames, its morphs and its camera. */
+export interface GroundScene {
+  globe: GroundGlobe & Pick<Globe, 'tileLoadProgressEvent'>;
+  morphComplete: Event;
+  preRender: Pick<Event, 'addEventListener'>;
+  postRender: Parameters<typeof afterNextRender>[0]['postRender'];
+  requestRender(): void;
+  camera: { readonly positionCartographic: Cartographic };
+}
+
+const SCRATCH_VIEWER = new Cartesian3();
+
 /**
  * Samples the ground under `lonLat` (WGS84 degree pairs) at once, then re-samples as terrain
  * tiles load and after each morph between views. Throws unless `lonLat` holds finite pairs. `now`
- * is the performance timeline's clock: the throttle reads it, and the e2e build's pass measures.
+ * is the performance timeline's clock: the throttle, the pick budget and the e2e build's pass
+ * measures read it. Picks spend `budget`, shared with other ground heights, or one of their own.
  */
 export function createGroundHeights(
-  scene: {
-    globe: GroundGlobe & Pick<Globe, 'tileLoadProgressEvent'>;
-    morphComplete: Event;
-  },
+  scene: GroundScene,
   lonLat: Float64Array,
   now: () => number = () => performance.now(),
+  budget?: FramePickBudget,
 ): GroundHeights {
   const points = new GroundPoints(lonLat);
   const { globe } = scene;
+  const frameBudget = budget ?? createFramePickBudget(scene);
   const listeners = new Set<(h: Float64Array) => void>();
   let destroyed = false;
+  /** Cancels the pass armed for the next frame, which picks what this frame's budget left. */
+  let cancelCarry: (() => void) | null = null;
 
   const sample = (kind: GroundPassDetail['kind']): void => {
+    if (tilesAreSmooth(globe)) return;
     let pass: GroundPass | undefined;
-    const read = () => (pass = points.update(globe)).picked;
+    const read = () =>
+      (pass = points.update(globe, {
+        budget: frameBudget,
+        now,
+        viewer: Ellipsoid.WGS84.cartographicToCartesian(
+          scene.camera.positionCartographic,
+          SCRATCH_VIEWER,
+        ),
+      })).picked;
     if (import.meta.env.PUBLIC_ATLAS_E2E_HOOKS === '1')
       measuredGroundPass(kind, read, now);
     else read();
-    if (!pass?.changed) return;
+    if (pass!.pending > 0)
+      cancelCarry ??= afterNextRender(scene, () => {
+        cancelCarry = null;
+        sample('continue');
+      });
+    else {
+      cancelCarry?.();
+      cancelCarry = null;
+    }
+    if (!pass!.changed) return;
     for (const listener of [...listeners]) listener(points.heights);
   };
   sample('create');
@@ -165,6 +239,9 @@ export function createGroundHeights(
       destroyed = true;
       removeTileProgress();
       removeMorphComplete();
+      cancelCarry?.();
+      cancelCarry = null;
+      if (!budget) frameBudget.destroy();
       listeners.clear();
     },
   };

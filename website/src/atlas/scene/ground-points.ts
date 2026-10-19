@@ -17,16 +17,23 @@
  * its neighbours' edges while the tile's own is not ready, has no terrain data of its own, so a
  * point on one is picked again when the relief changes.
  *
- * Points start at NaN, and read NaN where no tile under them has a mesh, as `getHeight` reads
- * undefined there ("Failure modes": a symbol keeps its height until its ground loads).
+ * A pass may be limited to a budget of pick time: points in view (above the horizon from the
+ * camera) are picked first, and the rest wait for the next pass. Points start at NaN, and read NaN
+ * where no tile under them has a mesh, as `getHeight` reads undefined there ("Failure modes": a
+ * symbol keeps its height until its ground loads). Nothing is read while the globe's tiles are
+ * still the smooth globe's ellipsoid, which World Terrain replaces only in the next frame.
  *
  * The mesh under a point is found as `Globe.getHeight` finds it, through Cesium 1.145's private
  * terrain quadtree (Globe.js `_surface`): `renderedTileAt` copies that descent, and a globe without
- * the quadtree is an error. Both are pinned in atlas-cesium-internals.test.ts.
+ * the quadtree is an error. Both are pinned in atlas-cesium-internals.test.ts, with the terrain
+ * the quadtree's tiles are made from.
  */
 
 import {
+  Cartesian3,
   Cartographic,
+  Ellipsoid,
+  EllipsoidTerrainProvider,
   Math as CesiumMath,
   Rectangle,
   type Globe,
@@ -72,15 +79,35 @@ export interface TerrainTileInternals {
 /** The globe's terrain quadtree (Globe.js `_surface`, a `QuadtreePrimitive`). */
 interface TerrainQuadtreeInternals {
   readonly _levelZeroTiles: readonly TerrainTileInternals[] | undefined;
+  /** The terrain its tiles are made from: the globe's own only from the frame after a change. */
+  readonly tileProvider: { readonly terrainProvider: unknown };
 }
 
 /** The globe the ground is picked on; its terrain quadtree is reached through Cesium internals. */
 export type GroundGlobe = Pick<Globe, 'getHeight'>;
 
+/** The pick time a limited pass may spend. */
+export interface PickBudget {
+  /** Milliseconds of picks left. */
+  remainingMs(): number;
+  /** Counts `ms` of picks against the budget. */
+  spend(ms: number): void;
+}
+
+/** What limits a pass: its budget of pick time, the clock it is spent on, and the camera. */
+export interface PassLimit {
+  budget: PickBudget;
+  now: () => number;
+  /** The camera's position (ECEF metres): points above its horizon are picked first. */
+  viewer?: Cartesian3;
+}
+
 /** What one pass did. */
 export interface GroundPass {
   /** Points picked: `globe.getHeight` calls. */
   picked: number;
+  /** Points still to pick, the budget spent. */
+  pending: number;
   /** Whether any height changed. */
   changed: boolean;
 }
@@ -93,6 +120,18 @@ function quadtreeOf(globe: GroundGlobe): TerrainQuadtreeInternals {
       'the ground under the observations needs the globe’s terrain quadtree (Globe._surface), which this Cesium lacks',
     );
   return surface;
+}
+
+/**
+ * Whether the globe's tiles are still the smooth globe's (`EllipsoidTerrainProvider`): World
+ * Terrain set on the globe reaches its quadtree, which frees the old tiles, only as the next frame
+ * begins (Globe.js:1043, QuadtreePrimitive.js:336), and their ground is no terrain's.
+ */
+export function tilesAreSmooth(globe: GroundGlobe): boolean {
+  return (
+    quadtreeOf(globe).tileProvider.terrainProvider instanceof
+    EllipsoidTerrainProvider
+  );
 }
 
 function containing(
@@ -190,6 +229,11 @@ export class GroundPoints {
   readonly #longitude: Float64Array;
   readonly #latitude: Float64Array;
   readonly #picked: (Picked | undefined)[];
+  /**
+   * Each point on the ellipsoid and its surface normal (ECEF), six numbers a point, made on the
+   * first pass that orders points by view.
+   */
+  #tangentPlanes: Float64Array | undefined;
   /** This pass's tile under each point still to pick; reused from pass to pass. */
   readonly #tiles: (TerrainTileInternals | undefined)[];
 
@@ -212,9 +256,11 @@ export class GroundPoints {
 
   /**
    * Reads the ground under every point: a point on the mesh it was picked on follows that mesh's
-   * relief, the others are picked.
+   * relief, the others are picked, in view first, until `limit`'s budget is spent (all of them
+   * without a limit).
    */
-  update(globe: GroundGlobe): GroundPass {
+  update(globe: GroundGlobe, limit?: PassLimit): GroundPass {
+    if (tilesAreSmooth(globe)) return { changed: false, pending: 0, picked: 0 };
     const levelZero = quadtreeOf(globe)._levelZeroTiles;
     const pending: number[] = [];
     let changed = false;
@@ -240,9 +286,19 @@ export class GroundPoints {
         pending.push(i);
       } else changed = this.#write(i, height) || changed;
     }
-    for (const i of pending) changed = this.#pick(globe, i) || changed;
+    const order = limit?.viewer
+      ? this.#inViewFirst(pending, limit.viewer)
+      : pending;
+    let picked = 0;
+    for (const i of order) {
+      if (limit && limit.budget.remainingMs() <= 0) break;
+      const start = limit?.now();
+      changed = this.#pick(globe, i) || changed;
+      if (limit) limit.budget.spend(limit.now() - start!);
+      picked += 1;
+    }
     this.#tiles.fill(undefined);
-    return { changed, picked: pending.length };
+    return { changed, pending: pending.length - picked, picked };
   }
 
   #at(i: number): Cartographic {
@@ -281,5 +337,43 @@ export class GroundPoints {
       source,
     };
     return this.#write(i, height);
+  }
+
+  /**
+   * `pending`, those above the horizon from `viewer` first, each part in its own order. A point is
+   * above it when the camera is above the point's tangent plane on the ellipsoid.
+   */
+  #inViewFirst(pending: number[], viewer: Cartesian3): number[] {
+    if (pending.length === 0) return pending;
+    const planes = (this.#tangentPlanes ??= this.#planes());
+    const inView = (i: number) =>
+      (viewer.x - planes[6 * i]) * planes[6 * i + 3] +
+        (viewer.y - planes[6 * i + 1]) * planes[6 * i + 4] +
+        (viewer.z - planes[6 * i + 2]) * planes[6 * i + 5] >
+      0;
+    const first = pending.filter(inView);
+    if (first.length === pending.length || first.length === 0) return pending;
+    return [...first, ...pending.filter((i) => !inView(i))];
+  }
+
+  #planes(): Float64Array {
+    const planes = new Float64Array(6 * this.heights.length);
+    const point = new Cartesian3();
+    const normal = new Cartesian3();
+    for (let i = 0; i < this.heights.length; i += 1) {
+      Cartesian3.fromRadians(
+        this.#longitude[i],
+        this.#latitude[i],
+        0,
+        Ellipsoid.WGS84,
+        point,
+      );
+      Ellipsoid.WGS84.geodeticSurfaceNormal(point, normal);
+      planes.set(
+        [point.x, point.y, point.z, normal.x, normal.y, normal.z],
+        6 * i,
+      );
+    }
+    return planes;
   }
 }

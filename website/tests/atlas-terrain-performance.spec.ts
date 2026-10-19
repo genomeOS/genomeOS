@@ -32,16 +32,16 @@
  * from each restyle's change to its swap (`tilesLoaded` on a hardware GPU), then on from there.
  * So the step from the click to data visible is as long as `dataVisibleMs`, and holds the ground
  * passes between the two. The init script keeps each long animation frame's start, duration and
- * scripts, and the e2e build's performance measures: `atlas-ground-pass`, one per pass that picks
+ * scripts, and the e2e build's performance measures: `atlas-ground-pass`, one per pass that reads
  * the ground under the draped observations or the grounded highlight ring (its kind, the points
- * picked; its duration is the pass's ms), and `atlas-draped-ready`, one per draped layer read
- * ready (the layer, the rule that fired, `tilesLoaded` or the 3 s cap, whether the cap had run out
- * by then, and the ms since its add or show). So each long frame lands in the step its longest
- * script began in, with the ground-pass time inside it: its scripts alone would not name the pass,
- * which runs inside Cesium's render callback. Each step sums its ground passes in all and per
- * kind; its readiness entries carry the layer's add on the page's clock, so the step from the
- * click to data visible splits into the time before the add, the readiness wait and the fade's
- * start. The drape stats' running counts at each step's bounds give the tiles each step
+ * it picked, 0 if none; its duration is the pass's ms), and `atlas-draped-ready`, one per draped
+ * layer read ready (the layer, the rule that fired, `tilesLoaded` or the 3 s cap, whether the cap
+ * had run out by then, and the ms since its add or show). So each long frame lands in the step its
+ * longest script began in, with the ground-pass time inside it: its scripts alone would not name
+ * the pass, which runs inside Cesium's render callback. Each step sums its ground passes in all
+ * and per kind; its readiness entries carry the layer's add on the page's clock, so the step from
+ * the click to data visible splits into the time before the add, the readiness wait and the
+ * fade's start. The drape stats' running counts at each step's bounds give the tiles each step
  * delivered: the raster time of levels 0–2, which the budget's histogram leaves out, and the
  * request-to-delivery time per level. The console prints each step's longest frames and its sums;
  * the JSON attachment, kept in the test's output directory, also holds every frame, script and

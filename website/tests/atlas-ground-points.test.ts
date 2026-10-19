@@ -3,6 +3,7 @@
  * "Exaggeration" and "Failure modes"; #483): on a fake quadtree that counts picks, and on real
  * Cesium 1.145 heightmap meshes of the e2e build's synthetic terrain. */
 import {
+  Cartesian3,
   Cartographic,
   GeographicTilingScheme,
   Globe,
@@ -40,6 +41,7 @@ describe('ground points on World Terrain', () => {
     expect(Array.from(points.heights)).toEqual([Number.NaN, Number.NaN]);
     expect(points.update(terrain.globe)).toEqual({
       changed: true,
+      pending: 0,
       picked: 1,
     });
     expect(Array.from(points.heights)).toEqual([WEST, Number.NaN]);
@@ -53,6 +55,7 @@ describe('ground points on World Terrain', () => {
     expect(Array.from(points.heights)).toEqual([6_000, Number.NaN]);
     expect(points.update(terrain.globe)).toEqual({
       changed: false,
+      pending: 0,
       picked: 0,
     });
     expect(terrain.globe.getHeight).toHaveBeenCalledTimes(2);
@@ -64,6 +67,7 @@ describe('ground points on World Terrain', () => {
     points.update(terrain.globe);
     expect(points.update(terrain.globe)).toEqual({
       changed: false,
+      pending: 0,
       picked: 0,
     });
     expect(terrain.globe.getHeight).toHaveBeenCalledTimes(2);
@@ -77,6 +81,7 @@ describe('ground points on World Terrain', () => {
     terrain.setRelief(3);
     expect(points.update(terrain.globe)).toEqual({
       changed: true,
+      pending: 0,
       picked: 0,
     });
     expect(terrain.globe.getHeight).not.toHaveBeenCalled();
@@ -110,6 +115,7 @@ describe('ground points on World Terrain', () => {
     terrain.load(() => 2_000, 'east');
     expect(points.update(terrain.globe)).toEqual({
       changed: true,
+      pending: 0,
       picked: 1,
     });
     expect(Array.from(points.heights)).toEqual([WEST, 2_000]);
@@ -127,6 +133,7 @@ describe('ground points on World Terrain', () => {
     terrain.setRelief(2);
     expect(points.update(terrain.globe)).toEqual({
       changed: true,
+      pending: 0,
       picked: 1,
     });
     expect(points.heights[0]).toBeCloseTo(WEST * 2, 9);
@@ -140,6 +147,7 @@ describe('ground points on World Terrain', () => {
     terrain.unload('east');
     expect(points.update(terrain.globe)).toEqual({
       changed: true,
+      pending: 0,
       picked: 0,
     });
     expect(Array.from(points.heights)).toEqual([WEST, Number.NaN]);
@@ -157,6 +165,96 @@ describe('ground points on World Terrain', () => {
     points.update(terrain.globe);
     expect(points.heights[0]).toBeCloseTo(WEST, 9);
     expect(points.heights[1]).toBeCloseTo(EAST, 9);
+  });
+
+  it('reads nothing while the tiles on the globe are still the smooth globe’s', () => {
+    // World Terrain is on the globe, but Cesium makes its tiles only in the next frame.
+    const terrain = fakeTerrain(slope, { applied: false });
+    const points = new GroundPoints(POINTS);
+    expect(points.update(terrain.globe)).toEqual({
+      changed: false,
+      pending: 0,
+      picked: 0,
+    });
+    expect(terrain.globe.getHeight).not.toHaveBeenCalled();
+    expect(Array.from(points.heights)).toEqual([Number.NaN, Number.NaN]);
+    terrain.apply();
+    expect(points.update(terrain.globe)).toMatchObject({ picked: 2 });
+    expect(Array.from(points.heights)).toEqual([WEST, EAST]);
+  });
+
+  it('spends no more pick time than its budget, and leaves the rest for the next pass', () => {
+    const clock = { now: 0 };
+    const terrain = fakeTerrain(slope);
+    const pick = terrain.globe.getHeight.getMockImplementation()!;
+    terrain.globe.getHeight.mockImplementation((c) => {
+      clock.now += 1; // each pick takes 1 ms
+      return pick(c);
+    });
+    const many = Float64Array.from({ length: 16 }, (_, i) =>
+      i % 2 === 0 ? -60 + 10 * i : -30 + 4 * i,
+    );
+    const points = new GroundPoints(many);
+    let left = 3;
+    const budget = {
+      remainingMs: () => left,
+      spend: (ms: number) => {
+        left -= ms;
+      },
+    };
+    const limit = { budget, now: () => clock.now };
+    expect(points.update(terrain.globe, limit)).toEqual({
+      changed: true,
+      pending: 5,
+      picked: 3,
+    });
+    expect(left).toBe(0);
+    expect(points.update(terrain.globe, limit)).toEqual({
+      changed: false,
+      pending: 5,
+      picked: 0,
+    });
+    left = 3;
+    expect(points.update(terrain.globe, limit)).toMatchObject({
+      pending: 2,
+      picked: 3,
+    });
+    left = 3;
+    expect(points.update(terrain.globe, limit)).toMatchObject({
+      pending: 0,
+      picked: 2,
+    });
+    expect(terrain.globe.getHeight).toHaveBeenCalledTimes(8);
+    expect(Array.from(points.heights).every(Number.isFinite)).toBe(true);
+  });
+
+  it('picks the points above the camera’s horizon first', () => {
+    const terrain = fakeTerrain(slope);
+    // Behind the globe, in view, behind, in view: the camera is 2,000 km over Madrid.
+    const points = new GroundPoints(
+      Float64Array.of(176, -40, -3.7, 40.4, 150, 10, 2, 45),
+    );
+    let left = 2;
+    const limit = {
+      budget: {
+        remainingMs: () => left,
+        spend: () => {
+          left -= 1;
+        },
+      },
+      now: () => 0,
+      viewer: Cartesian3.fromDegrees(-3.7, 40.4, 2_000_000),
+    };
+    expect(points.update(terrain.globe, limit)).toMatchObject({
+      pending: 2,
+      picked: 2,
+    });
+    expect(Array.from(points.heights, Number.isFinite)).toEqual([
+      false,
+      true,
+      false,
+      true,
+    ]);
   });
 
   it('refuses points that are not finite lon, lat pairs', () => {
