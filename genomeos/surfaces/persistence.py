@@ -15,7 +15,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pandas as pd
 
+from genomeos.observations.schema import OBSERVATIONS_SCHEMA
 from genomeos.surfaces.config import FitConfig
 
 # `fit` re-exports this module's functions from its last lines, so importing `fit` here at module
@@ -25,8 +27,11 @@ from genomeos.surfaces.config import FitConfig
 if TYPE_CHECKING:
     from genomeos.surfaces.fit import SurfaceFit
 
-#: Bumped whenever `SurfaceFit`'s fields change in a way that makes an older file unreadable.
-FIT_FORMAT = 2
+#: Bumped whenever `SurfaceFit`'s fields change in a way that makes an older file unreadable, or
+#: that a reader must be able to rely on. Format 3 carries the observation table the fit consumed
+#: (#45); formats 1 and 2 predate it and load with `observations=None`, never a guessed table.
+FIT_FORMAT = 3
+READABLE_FIT_FORMATS = frozenset({1, 2, FIT_FORMAT})
 
 _FIT_FIELDS = (
     "variant_id",
@@ -85,6 +90,7 @@ def save_fit(fit: SurfaceFit, path: str | Path) -> Path:
     """
     import cloudpickle
 
+    _require_observations(fit, f"fit for {fit.variant_id}")
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     persisted = replace(fit, idata=_materialize_inference_data(fit.idata))
@@ -93,12 +99,28 @@ def save_fit(fit: SurfaceFit, path: str | Path) -> Path:
     return path
 
 
+def _require_observations(fit: object, context: str) -> None:
+    """A current-format fit carries the non-empty, schema-shaped table it consumed (#45)."""
+    observations = getattr(fit, "observations", None)
+    if (
+        not isinstance(observations, pd.DataFrame)
+        or observations.empty
+        or tuple(observations.columns) != tuple(OBSERVATIONS_SCHEMA.columns)
+    ):
+        raise ValueError(
+            f"{context} does not carry the observation table it consumed, which fit format "
+            f"{FIT_FORMAT} requires; a fit loaded from an older cache keeps that file instead"
+        )
+
+
 def load_fit(path: str | Path) -> SurfaceFit:
-    """Reload a trusted-owner cache, reconstructing known format 1 without refitting.
+    """Reload a trusted-owner cache, reconstructing known formats 1 and 2 without refitting.
 
     Format 1 retained the posterior and predictive graph but stored an obsolete scalar prior SD.
     Reconstruction keeps the expensive scientific work and discards only that scalar; unknown or
-    incomplete payloads refuse rather than guessing. The input file is never rewritten.
+    incomplete payloads refuse rather than guessing. Formats 1 and 2 did not record the table the
+    fit consumed, so they load with `observations=None` and cannot publish a new artifact. The
+    input file is never rewritten.
     """
     import cloudpickle
 
@@ -110,15 +132,16 @@ def load_fit(path: str | Path) -> SurfaceFit:
     if (
         isinstance(fit_format, bool)
         or not isinstance(fit_format, int)
-        or fit_format not in {1, FIT_FORMAT}
+        or fit_format not in READABLE_FIT_FORMATS
     ):
         raise ValueError(
-            f"{path} is not a surface fit of a supported format (readable: 1, {FIT_FORMAT}); "
+            f"{path} is not a surface fit of a supported format (readable: "
+            f"{', '.join(map(str, sorted(READABLE_FIT_FORMATS)))}); "
             "preserve it and investigate rather than guessing"
         )
     fit = payload.get("fit")
-    if fit_format == FIT_FORMAT and not isinstance(fit, SurfaceFit):
-        raise ValueError(f"{path}: format {FIT_FORMAT} payload does not contain a SurfaceFit")
+    if fit_format != 1 and not isinstance(fit, SurfaceFit):
+        raise ValueError(f"{path}: format {fit_format} payload does not contain a SurfaceFit")
     missing = [field for field in _FIT_FIELDS if not hasattr(fit, field)]
     if missing:
         raise ValueError(f"{path}: surface fit is missing required fields {missing}")
@@ -130,9 +153,10 @@ def load_fit(path: str | Path) -> SurfaceFit:
     if missing_nodes:
         raise ValueError(f"{path}: retained model is missing predictive nodes {missing_nodes}")
     if fit_format == FIT_FORMAT and isinstance(fit, SurfaceFit):
+        _require_observations(fit, str(path))
         return fit
     fields = {field: getattr(fit, field) for field in _FIT_FIELDS}
     for metadata_field in ("prediction_metadata", "footprint_metadata"):
         if hasattr(fit, metadata_field):
             fields[metadata_field] = getattr(fit, metadata_field)
-    return SurfaceFit(**fields)
+    return SurfaceFit(**fields, observations=None)

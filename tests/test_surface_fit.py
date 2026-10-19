@@ -33,6 +33,7 @@ from genomeos.surfaces.fit import (
 )
 from genomeos.surfaces.footprint import ObservationSupportMetadata, uniform_area_disc_support
 from genomeos.surfaces.observation import SurveyQueries
+from genomeos.surfaces.persistence import FIT_FORMAT
 from genomeos.surfaces.prior import PRIOR_DRAWS
 from genomeos.validation.predictive import CountPredictive, predictive_diagnostics
 
@@ -417,6 +418,48 @@ def test_footprint_metadata_survives_save_and_load(fit, tmp_path):
     assert reloaded.footprint_metadata == metadata
 
 
+def test_the_fit_records_the_table_it_consumed(fit):
+    """The validated rows, in the fit's own order, are what an artifact publishes as its input (#45)."""
+    consumed = OBSERVATIONS_SCHEMA.validate(_observations()).reset_index(drop=True)
+    pd.testing.assert_frame_equal(fit.observations, consumed)
+    assert {"ac", "an"} <= set(fit.observations.columns)
+
+
+def test_a_saved_fit_keeps_the_table_it_consumed(fit, tmp_path):
+    reloaded = load_fit(save_fit(fit, tmp_path / "surface.pkl"))
+    pd.testing.assert_frame_equal(reloaded.observations, fit.observations)
+
+
+def test_a_format_two_fit_loads_without_inventing_its_input(fit, tmp_path):
+    """Format 2 predates the record. What such a fit consumed is unknown, and is never guessed."""
+    import cloudpickle
+
+    path = tmp_path / "format-2.pkl"
+    with path.open("wb") as stream:
+        cloudpickle.dump({"format": 2, "fit": replace(fit, observations=None)}, stream)
+    legacy = load_fit(path)
+    assert legacy.observations is None
+    assert legacy.correlation_range_km == fit.correlation_range_km
+
+
+def test_a_fit_without_its_input_is_neither_cached_nor_loaded_as_the_current_format(fit, tmp_path):
+    import cloudpickle
+
+    bare = replace(fit, observations=None)
+    with pytest.raises(ValueError, match="observation table"):
+        save_fit(bare, tmp_path / "bare.pkl")
+    path = tmp_path / "forged.pkl"
+    with path.open("wb") as stream:
+        cloudpickle.dump({"format": FIT_FORMAT, "fit": bare}, stream)
+    with pytest.raises(ValueError, match="observation table"):
+        load_fit(path)
+    without_an = replace(fit, observations=fit.observations.drop(columns="an"))
+    with path.open("wb") as stream:
+        cloudpickle.dump({"format": FIT_FORMAT, "fit": without_an}, stream)
+    with pytest.raises(ValueError, match="observation table"):
+        load_fit(path)
+
+
 def test_owned_legacy_fit_is_reconstructed_without_refit_or_rewrite(fit, tmp_path):
     import cloudpickle
 
@@ -433,6 +476,7 @@ def test_owned_legacy_fit_is_reconstructed_without_refit_or_rewrite(fit, tmp_pat
 
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before_hash
     assert not hasattr(migrated, "prior_frequency_sd")
+    assert migrated.observations is None  # format 1 predates the recorded input
     np.testing.assert_allclose(
         migrated.predict(query[:, 0], query[:, 1])[["post_median", "post_sd"]],
         expected_post[["post_median", "post_sd"]],
