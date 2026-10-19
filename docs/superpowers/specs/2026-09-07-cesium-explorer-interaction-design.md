@@ -289,7 +289,9 @@ chose for the view and carry the layer's imagery, not once the whole globe has l
 the switch the globe draws its two level-0 tiles while finer terrain loads; those carry the
 layer's coarsest imagery early, but the layer waits for the tiles the view settles on, so the
 fade and the shader pre-warm run over the tiles the view keeps rather than coarse ones about to be
-replaced. A surface prepares its outlines beside it. The 3 s cap is a fallback, and a layer it
+replaced. Nor is it ready on the smooth globe's tiles, which the globe still draws until World
+Terrain's provider has loaded and which the swap then throws away. A surface prepares its outlines
+beside it. The 3 s cap is a fallback, and a layer it
 reads ready fails the tour on a hardware GPU.
 
 The GitHub Actions secret `CESIUM_TOKEN` is exposed to Astro as a public build variable only for
