@@ -18,7 +18,9 @@
  * point on one is picked again when the relief changes.
  *
  * A pass may be limited to a budget of pick time: points in view (above the horizon from the
- * camera) are picked first, and the rest wait for the next pass. Points start at NaN, and read NaN
+ * camera) are picked first, and the rest wait for the next pass. A point whose new mesh still
+ * waits for its pick keeps its old mesh's ground, followed through relief the same way, so a
+ * relief change between a tile load and the pick moves it too. Points start at NaN, and read NaN
  * where no tile under them has a mesh, as `getHeight` reads undefined there ("Failure modes": a
  * symbol keeps its height until its ground loads). Nothing is read while the globe's tiles are
  * still the smooth globe's ellipsoid, which World Terrain replaces only in the next frame.
@@ -275,12 +277,17 @@ export class GroundPoints {
       if (mesh === undefined) {
         this.#picked[i] = undefined;
         height = Number.NaN;
-      } else if (picked !== undefined && mesh === picked.mesh)
-        height = followRelief(
+      } else if (picked !== undefined) {
+        const followed = followRelief(
           picked,
           mesh.encoding.exaggeration,
           mesh.encoding.exaggerationRelativeHeight,
         );
+        if (mesh === picked.mesh) height = followed;
+        // A new mesh waits for its pick: until then the old mesh's ground follows the relief.
+        else if (followed !== undefined)
+          changed = this.#write(i, followed) || changed;
+      }
       if (height === undefined) {
         this.#tiles[i] = tile;
         pending.push(i);

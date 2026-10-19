@@ -123,6 +123,37 @@ describe('ground points on World Terrain', () => {
     expect(CesiumMath.toDegrees(picked.longitude)).toBeCloseTo(12.686, 9);
   });
 
+  it('follows relief on the old mesh’s ground while the pick of a point’s new mesh waits for budget', () => {
+    const terrain = fakeTerrain(slope);
+    const points = new GroundPoints(POINTS);
+    points.update(terrain.globe);
+    terrain.load(() => 2_000, 'east'); // a tile loads under the Gabon survey
+    terrain.setRelief(3); // and the relief rises before a pass can pick it
+    let left = 0;
+    const limit = {
+      budget: {
+        remainingMs: () => left,
+        spend: (ms: number) => {
+          left -= ms;
+        },
+      },
+      now: () => 0,
+    };
+    expect(points.update(terrain.globe, limit)).toEqual({
+      changed: true,
+      pending: 1,
+      picked: 0,
+    });
+    expect(points.heights[0]).toBeCloseTo(WEST * 3, 9);
+    expect(points.heights[1]).toBeCloseTo(EAST * 3, 9);
+    left = 3;
+    expect(points.update(terrain.globe, limit)).toMatchObject({
+      pending: 0,
+      picked: 1,
+    });
+    expect(points.heights[1]).toBe(6_000);
+  });
+
   it('picks again, as the relief changes, a point drawn on a fill mesh, whose source height it cannot read', () => {
     const terrain = fakeTerrain(slope);
     terrain.fill(() => 2_500, 'east');
