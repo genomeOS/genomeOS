@@ -13,6 +13,11 @@ rebuild reports "unchanged", a different one is a hard error.
 Nothing outside ``INCLUDE`` is published: fits (pickles, design §8) and the raw third-party harvests
 (phase 2) stay local. A pickle or an object-dtype ``.npy`` inside an include root is refused, and so
 is a path no rule claims; nothing is ever given a source by default.
+
+Inputs travel with outputs (#45): every artifact carries ``observations.parquet``, the table its fit
+consumed, recorded in its ``manifest.json``. An artifact without it, or whose record does not match the
+file, is refused. The artifacts released before that rule are named in ``RELEASED_WITHOUT_INPUT``, each
+with a reason; they are immutable, so none of them may gain the file.
 """
 
 from __future__ import annotations
@@ -27,11 +32,13 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pyarrow.parquet as pq
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from genomeos.publication import artifact_inputs as ai  # noqa: E402
 from genomeos.publication import data_release as dr  # noqa: E402
 
 DATA = ROOT / "data"
@@ -51,6 +58,92 @@ INCLUDE = (
 
 #: The 994 MAP HbS surveys the 2026-09-16 golden-test-1 run fit, as that run serialized them (#45).
 PARITY_INPUT = "hbs-piel-parity-2026-09-16"
+
+#: Artifacts the 2026-10-17 release published before an artifact carried the observation table its fit
+#: consumed (#45). A released artifact is immutable and cannot gain a file, so each is named here with
+#: why it has none; ``artifact_inputs`` refuses an entry no earlier release holds, so a new artifact can
+#: never be added. A recovered input is published under a new key, never added to one of these.
+_BARE = "released 2026-10-17, before an artifact carried the table its fit consumed (#45)"
+_MAP_HBS = (
+    f"{_BARE}; its fit read MAP HbS survey rows (data_version map-2026-08; its manifest records 1,071), "
+    "which the data store does not hold. The 994 rows under validation/hbs-piel-parity-2026-09-16/ are "
+    "the 2026-09-16 parity run's input, not this artifact's"
+)
+_MAP_G6PD = (
+    f"{_BARE}; its fit read MAP G6PD survey rows (data_version map-2026-08) from a raw MAP export the "
+    "data store does not hold"
+)
+_AFND = (
+    f"{_BARE}; its fit read allele counts from the AFND frequency harvest (data_version afnd-2026-08), "
+    "a raw harvest the data store does not hold"
+)
+_AFND_KIR = (
+    f"{_BARE}; its fit read KIR carrier counts from the AFND frequency harvest (data_version "
+    "afnd-2026-08), a raw harvest the data store does not hold"
+)
+RELEASED_WITHOUT_INPUT: dict[str, str] = {
+    "chr11-5227002-T-A__v1__map-2026-08": _MAP_HBS,
+    "chr11-5227002-T-A__v2__map-2026-08": _MAP_HBS,
+    "chr11-5227002-T-A__v3__map-2026-08": _MAP_HBS,
+    "cyt__il-10-1082-g__v2__afnd-2026-08": _AFND,
+    "cyt__il-10-1082-g__v3__afnd-2026-08": _AFND,
+    "cyt__il-10-819-t__v2__afnd-2026-08": _AFND,
+    "cyt__il-10-819-t__v3__afnd-2026-08": _AFND,
+    "cyt__il-6-174-c__v2__afnd-2026-08": _AFND,
+    "cyt__il-6-174-c__v3__afnd-2026-08": _AFND,
+    "cyt__tnfalpha-308-a__v2__afnd-2026-08": _AFND,
+    "cyt__tnfalpha-308-a__v3__afnd-2026-08": _AFND,
+    "hla__a-02-01__v2__afnd-2026-08": _AFND,
+    "hla__a-02-01__v3__afnd-2026-08": _AFND,
+    "hla__a-26-01__v2__afnd-2026-08": _AFND,
+    "hla__a-26-01__v3__afnd-2026-08": _AFND,
+    "hla__a-32-01__v2__afnd-2026-08": _AFND,
+    "hla__a-32-01__v3__afnd-2026-08": _AFND,
+    "hla__b-40-01__v2__afnd-2026-08": _AFND,
+    "hla__b-40-01__v3__afnd-2026-08": _AFND,
+    "hla__b-40-02__v2__afnd-2026-08": _AFND,
+    "hla__b-40-02__v3__afnd-2026-08": _AFND,
+    "hla__b-58-01__v2__afnd-2026-08": _AFND,
+    "hla__b-58-01__v3__afnd-2026-08": _AFND,
+    "hla__c-03-03__v2__afnd-2026-08": _AFND,
+    "hla__c-03-03__v3__afnd-2026-08": _AFND,
+    "hla__c-06-02__v2__afnd-2026-08": _AFND,
+    "hla__c-06-02__v3__afnd-2026-08": _AFND,
+    "hla__c-07-02__v2__afnd-2026-08": _AFND,
+    "hla__c-07-02__v3__afnd-2026-08": _AFND,
+    "hla__dpb1-04-01__v2__afnd-2026-08": _AFND,
+    "hla__dpb1-04-01__v3__afnd-2026-08": _AFND,
+    "hla__dpb1-04-02__v2__afnd-2026-08": _AFND,
+    "hla__dpb1-04-02__v3__afnd-2026-08": _AFND,
+    "hla__dpb1-13-01__v2__afnd-2026-08": _AFND,
+    "hla__dpb1-13-01__v3__afnd-2026-08": _AFND,
+    "hla__dqb1-03-01__v2__afnd-2026-08": _AFND,
+    "hla__dqb1-03-01__v3__afnd-2026-08": _AFND,
+    "hla__dqb1-06-02__v2__afnd-2026-08": _AFND,
+    "hla__dqb1-06-02__v3__afnd-2026-08": _AFND,
+    "hla__drb1-01-01__v2__afnd-2026-08": _AFND,
+    "hla__drb1-01-01__v3__afnd-2026-08": _AFND,
+    "hla__drb1-04-03__v2__afnd-2026-08": _AFND,
+    "hla__drb1-04-03__v3__afnd-2026-08": _AFND,
+    "hla__drb1-07-01__v2__afnd-2026-08": _AFND,
+    "hla__drb1-07-01__v3__afnd-2026-08": _AFND,
+    "hla__drb1-11-01__v2__afnd-2026-08": _AFND,
+    "hla__drb1-11-01__v3__afnd-2026-08": _AFND,
+    "hla__drb1-14-01__v2__afnd-2026-08": _AFND,
+    "hla__drb1-14-01__v3__afnd-2026-08": _AFND,
+    "hla__drb1-15-01__v2__afnd-2026-08": _AFND,
+    "hla__drb1-15-01__v3__afnd-2026-08": _AFND,
+    "kir__2dl1__v2__afnd-2026-08": _AFND_KIR,
+    "kir__2dl1__v3__afnd-2026-08": _AFND_KIR,
+    "kir__2dl2__v2__afnd-2026-08": _AFND_KIR,
+    "kir__2dl2__v3__afnd-2026-08": _AFND_KIR,
+    "kir__2ds1__v2__afnd-2026-08": _AFND_KIR,
+    "kir__2ds1__v3__afnd-2026-08": _AFND_KIR,
+    "kir__3ds1__v2__afnd-2026-08": _AFND_KIR,
+    "kir__3ds1__v3__afnd-2026-08": _AFND_KIR,
+    "phenotype__g6pd-deficiency__v1__map-2026-08": _MAP_G6PD,
+    "phenotype__g6pd-deficiency__v3__map-2026-08": _MAP_G6PD,
+}
 
 CPIC_RECORD = "sources/cpic/v1.60.0/SOURCE.json"
 CURATED_RECORD = "sources/curated/SOURCE.json"
@@ -183,6 +276,9 @@ def _artifact_sources(data_root: Path, path: str) -> tuple[str, ...]:
             f"{path}: directory data_version {data_version!r} differs from its manifest's "
             f"{manifest.get('data_version')!r}"
         )
+    # The grid chose the cells a surface is predicted on; it contributed nothing to the input's rows.
+    if path.endswith(f"/{ai.INPUT_FILE}"):
+        return (source,)
     grid = manifest.get("target_grid_source") or ""
     return (source, "worldpop") if grid.startswith("worldpop") else (source,)
 
@@ -260,10 +356,47 @@ def collect(data_root: Path, tracked: set[str]) -> list[dr.FileRecord]:
     return records
 
 
+def check_inputs(
+    data_root: Path,
+    records: Sequence[dr.FileRecord],
+    previous: Sequence[Mapping[str, Any]],
+    released_without_input: Mapping[str, str],
+) -> None:
+    """Measure every artifact's ``observations.parquet`` and refuse a missing or misdescribed one (#45)."""
+    manifests: dict[str, dict[str, Any]] = {}
+    inputs: dict[str, ai.InputFile] = {}
+    for record in records:
+        if not record.path.startswith(dr.ARTIFACT_PREFIX):
+            continue
+        directory = dr.artifact_directory(record.path)
+        if directory not in manifests:
+            manifest_path = data_root / dr.ARTIFACT_PREFIX / directory / "manifest.json"
+            manifests[directory] = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if record.path == f"{dr.ARTIFACT_PREFIX}{directory}/{ai.INPUT_FILE}":
+            metadata = pq.read_metadata(data_root / record.path)
+            columns = tuple(metadata.schema.to_arrow_schema().names)
+            inputs[directory] = ai.InputFile(record.sha256, record.bytes, metadata.num_rows, columns)
+    released = {
+        dr.artifact_directory(item.path)
+        for manifest in previous
+        for item in dr.validate_manifest(manifest)
+        if item.path.startswith(dr.ARTIFACT_PREFIX)
+    }
+    ai.check_artifact_inputs(
+        manifests, inputs, released=released, released_without_input=released_without_input
+    )
+
+
 def build(
-    data_root: Path, release: str, *, tracked: set[str], previous: Sequence[Mapping[str, Any]] = ()
+    data_root: Path,
+    release: str,
+    *,
+    tracked: set[str],
+    released_without_input: Mapping[str, str],
+    previous: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     records = collect(data_root, tracked)
+    check_inputs(data_root, records, previous, released_without_input)
     used = {name for record in records for name in record.sources}
     available = {**REVIEWED_SOURCES, **_record_sources(data_root)}
     return dr.build_manifest(records, {name: available[name] for name in used}, release, previous)
@@ -297,7 +430,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         tracked = set() if args.no_git else git_tracked(args.data)
         previous = earlier_releases(out.parent, args.release)
-        manifest = build(args.data, args.release, tracked=tracked, previous=previous)
+        manifest = build(
+            args.data,
+            args.release,
+            tracked=tracked,
+            released_without_input=RELEASED_WITHOUT_INPUT,
+            previous=previous,
+        )
     except (dr.DataReleaseError, OSError, KeyError, ValueError, subprocess.CalledProcessError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
