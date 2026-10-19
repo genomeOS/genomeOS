@@ -200,12 +200,13 @@ describe('ground pass measures (e2e build)', () => {
       },
       tileLoadProgressEvent: new ProgressEvent(),
     };
+    const morphComplete = new FakeEvent();
     const heights = createGroundHeights(
-      { globe, morphComplete: new FakeEvent() } as never,
+      { globe, morphComplete } as never,
       POINTS,
       () => clock.now,
     );
-    return { clock, globe, heights };
+    return { clock, globe, heights, morphComplete };
   }
 
   const passes = () =>
@@ -217,17 +218,24 @@ describe('ground pass measures (e2e build)', () => {
 
   it('measures each pass that picks the ground: its points, its kind and its ms', () => {
     vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
-    const { clock, globe, heights } = timedSetup();
+    const { clock, globe, heights, morphComplete } = timedSetup();
     clock.now = 110;
     heights.resample(); // within 50 ms of the creation sample: no pass
     clock.now = 200;
     globe.tileLoadProgressEvent.raiseEvent(3);
     clock.now = 300;
-    heights.resample(true);
+    heights.resample(true); // the relief at rest
+    clock.now = 400;
+    globe.tileLoadProgressEvent.raiseEvent(0); // the load queue empty
+    clock.now = 410;
+    morphComplete.raiseEvent(); // a morph between views complete
+    expect(heights.heights()).toEqual(new Float64Array([1_000, 1_000]));
     expect(passes()).toEqual([
       { detail: { kind: 'create', points: 2 }, duration: 2, startTime: 100 },
       { detail: { kind: 'resample', points: 2 }, duration: 2, startTime: 200 },
       { detail: { kind: 'final', points: 2 }, duration: 2, startTime: 300 },
+      { detail: { kind: 'final', points: 2 }, duration: 2, startTime: 400 },
+      { detail: { kind: 'final', points: 2 }, duration: 2, startTime: 410 },
     ]);
   });
 

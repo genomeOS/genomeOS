@@ -3,8 +3,9 @@
  * Terrain's probe and peak, and the placement readers that find a point above the rendered ground
  * and a label's clearance over it (terrain draping design, "Test plan" and "Per layer under World
  * Terrain"; #483), the drape stats reader, and the performance measures the World Terrain tour
- * attributes its long frames with ("Performance budget and measurement"): one per ground pass
- * under the draped observations, and one per draped layer read ready, naming the rule that fired.
+ * attributes its long frames with ("Performance budget and measurement"): one per pass that picks
+ * the ground under the draped observations or the grounded highlight, and one per draped layer
+ * read ready, naming the rule that fired.
  * Each is inert unless the build sets `PUBLIC_ATLAS_E2E_HOOKS=1`, which only `npm run build:e2e`
  * may do (`assertE2eHooks`, lib/catalog-build.ts), so no production build carries them.
  */
@@ -210,15 +211,24 @@ export function drapeStatsTestHook(
   };
 }
 
-/** The performance measure of one ground pass (`scene/ground-heights.ts`), e2e build only. */
+/**
+ * The performance measure of one pass that picks the ground: under the draped observations
+ * (`scene/ground-heights.ts`) or under the grounded highlight ring (`scene/highlight-layer.ts`);
+ * e2e build only.
+ */
 export const GROUND_PASS_MEASURE = 'atlas-ground-pass';
 
 /** What a ground pass measure carries besides its start and duration. */
 export interface GroundPassDetail {
   /** The points the pass picked the ground under (`globe.getHeight` calls). */
   points: number;
-  /** The sample at creation, a throttled re-sample, or a final one (relief at rest, queue empty). */
-  kind: 'create' | 'resample' | 'final';
+  /**
+   * Under the observations: `create`, the sample at creation; `resample`, a throttled re-sample
+   * (a relief frame, a tile load); `final`, an unthrottled one (the relief at rest, the tile load
+   * queue empty, a morph between views complete). `highlight`: the hover or selection ring
+   * grounded under World Terrain.
+   */
+  kind: 'create' | 'resample' | 'final' | 'highlight';
 }
 
 /**
@@ -232,6 +242,12 @@ export interface DrapedReadyDetail {
   layer: AtlasImageryLayerName;
   /** `globe.tilesLoaded` held, or `DRAPED_READY_CAP_MS` ran out first. */
   branch: 'tilesLoaded' | 'cap';
+  /**
+   * Whether `DRAPED_READY_CAP_MS` had run out by this frame, whatever the branch: a `tilesLoaded`
+   * read with the cap run out came on the first frame past it, so either rule would have read the
+   * layer ready.
+   */
+  capElapsed: boolean;
   /** The frames counted from the add or show, that one included. */
   frames: number;
 }
@@ -247,13 +263,30 @@ function e2eMeasure(
   performance.measure(name, { detail, end: endMs, start: startMs });
 }
 
-/** Emits `GROUND_PASS_MEASURE` for a pass from `startMs` to `endMs`; nothing outside the e2e build. */
+/** Emits `GROUND_PASS_MEASURE` from `startMs` to `endMs`; nothing outside the e2e build. */
 export function measureGroundPass(
   startMs: number,
   endMs: number,
   detail: GroundPassDetail,
 ): void {
   e2eMeasure(GROUND_PASS_MEASURE, startMs, endMs, detail);
+}
+
+/**
+ * Runs `pick`, a pass that picks the ground, and emits `GROUND_PASS_MEASURE` for it on `now`, of
+ * `kind` and with one point per entry of its result. A caller reaches it only through the build
+ * constant (`import.meta.env.PUBLIC_ATLAS_E2E_HOOKS === '1' ? measuredGroundPass(…) : pass`), so a
+ * production build keeps the bare pass and carries none of this.
+ */
+export function measuredGroundPass<T extends ArrayLike<unknown>>(
+  kind: GroundPassDetail['kind'],
+  pick: () => T,
+  now: () => number = () => performance.now(),
+): T {
+  const start = now();
+  const picked = pick();
+  measureGroundPass(start, now(), { kind, points: picked.length });
+  return picked;
 }
 
 /** Emits `DRAPED_READY_MEASURE` from `startMs` to `endMs`; nothing outside the e2e build. */

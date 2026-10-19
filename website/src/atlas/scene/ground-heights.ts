@@ -26,8 +26,9 @@
  *
  * In the e2e build each pass that picks the ground emits a `GROUND_PASS_MEASURE` performance
  * measure with the points it picked and why it ran ("Performance budget and measurement"), so the
- * World Terrain tour can tell a long frame spent picking from one spent elsewhere. A production
- * build emits none.
+ * World Terrain tour can tell a long frame spent picking from one spent elsewhere. The build
+ * constant picks the measured pass at each call site, so a production build keeps the bare pass
+ * and carries no measuring code.
  */
 
 import {
@@ -37,7 +38,7 @@ import {
   type Globe,
 } from 'cesium';
 
-import { measureGroundPass, type GroundPassDetail } from '../e2e-hooks';
+import { measuredGroundPass } from '../e2e-hooks';
 
 /** The shortest interval between two throttled re-samples (a relief drag, loading tiles). */
 export const GROUND_RESAMPLE_MS = 50;
@@ -121,21 +122,26 @@ export function createGroundHeights(
   }
   const points = lonLat.slice();
   const { globe } = scene;
-  const count = points.length / 2;
-  /** One pass over every point, measured in the e2e build. */
-  const pass = (into: Float64Array, kind: GroundPassDetail['kind']): void => {
-    const start = now();
-    sampleGroundHeights(globe, points, into);
-    measureGroundPass(start, now(), { kind, points: count });
-  };
-  const current = new Float64Array(count);
-  pass(current, 'create');
-  const next = new Float64Array(count);
+  const current =
+    import.meta.env.PUBLIC_ATLAS_E2E_HOOKS === '1'
+      ? measuredGroundPass(
+          'create',
+          () => sampleGroundHeights(globe, points),
+          now,
+        )
+      : sampleGroundHeights(globe, points);
+  const next = new Float64Array(current.length);
   const listeners = new Set<(h: Float64Array) => void>();
   let destroyed = false;
 
   const sample = (final: boolean): void => {
-    pass(next, final ? 'final' : 'resample');
+    if (import.meta.env.PUBLIC_ATLAS_E2E_HOOKS === '1')
+      measuredGroundPass(
+        final ? 'final' : 'resample',
+        () => sampleGroundHeights(globe, points, next),
+        now,
+      );
+    else sampleGroundHeights(globe, points, next);
     let changed = false;
     for (let i = 0; i < next.length; i += 1) {
       if (!Object.is(next[i], current[i])) {

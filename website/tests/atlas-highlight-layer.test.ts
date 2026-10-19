@@ -10,6 +10,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ObservationArtifact } from '../src/atlas/contracts';
+import { GROUND_PASS_MEASURE } from '../src/atlas/e2e-hooks';
 import {
   HIGHLIGHT_EDGE_SEGMENTS,
   HIGHLIGHT_GROUND_CLEARANCE_METRES,
@@ -259,5 +260,63 @@ describe('highlights on World Terrain', () => {
       ).toBeLessThan(10_000);
       expect(heightOf(p)).toBeGreaterThan(1_000); // the ground was found, not the ellipsoid
     });
+  });
+});
+
+describe('ground pass measures of the grounded highlight (e2e build)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    performance.clearMeasures();
+  });
+
+  const passes = () =>
+    performance.getEntriesByName(GROUND_PASS_MEASURE, 'measure').map((e) => ({
+      detail: (e as PerformanceMeasure).detail as unknown,
+      duration: e.duration,
+    }));
+
+  /** A ground whose every pick takes 1 ms of the page's clock. */
+  function timedGround() {
+    const clock = { now: 500 };
+    vi.spyOn(performance, 'now').mockImplementation(() => clock.now);
+    return {
+      getHeight: (c: Cartographic) => {
+        clock.now += 1;
+        return slope.getHeight(c);
+      },
+    };
+  }
+
+  it('measures each grounded ring as a highlight pass, one point per pick', () => {
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const { layer, surface } = setup();
+    const ground = timedGround();
+    layer.setGround(ground);
+    layer.setSelection({
+      artifactKey: surface.artifactKey,
+      h3Index: CELL,
+      kind: 'surface',
+      row: 0,
+    });
+    layer.setGround(ground); // a re-sample: tiles loaded, or relief changed
+    expect(passes()).toEqual([
+      { detail: { kind: 'highlight', points: 96 }, duration: 96 },
+      { detail: { kind: 'highlight', points: 96 }, duration: 96 },
+    ]);
+  });
+
+  it('measures nothing outside the e2e build', () => {
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '');
+    const { layer, lines, surface } = setup();
+    layer.setGround(timedGround());
+    layer.setSelection({
+      artifactKey: surface.artifactKey,
+      h3Index: CELL,
+      kind: 'surface',
+      row: 0,
+    });
+    expect(lines.get(1).positions).toHaveLength(96);
+    expect(passes()).toEqual([]);
   });
 });

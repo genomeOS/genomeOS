@@ -10,6 +10,7 @@ import {
   drapeStatsTestHook,
   GROUND_PASS_MEASURE,
   measureDrapedReady,
+  measuredGroundPass,
   measureGroundPass,
 } from '../src/atlas/e2e-hooks';
 import type { DrapeStats } from '../src/atlas/scene/types';
@@ -234,6 +235,7 @@ describe('e2e performance measures', () => {
     measureGroundPass(10, 30, { kind: 'create', points: 1_071 });
     measureDrapedReady(100, 3_100, {
       branch: 'cap',
+      capElapsed: true,
       frames: 40,
       layer: 'atlas-surface',
     });
@@ -254,17 +256,45 @@ describe('e2e performance measures', () => {
     ]);
   });
 
+  it('times a pass that picks the ground on the clock given, one point per entry of its result', () => {
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const clock = { now: 40 };
+    const ring = [1, 2, 3];
+    const picked = measuredGroundPass(
+      'highlight',
+      () => {
+        clock.now += 12.5;
+        return ring;
+      },
+      () => clock.now,
+    );
+    expect(picked).toBe(ring);
+    expect(measures(GROUND_PASS_MEASURE)).toEqual([
+      {
+        detail: { kind: 'highlight', points: 3 },
+        duration: 12.5,
+        startTime: 40,
+      },
+    ]);
+  });
+
   it('measures a draped layer from its add or show to the frame that read it ready, and why', () => {
     vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
     expect(DRAPED_READY_MEASURE).toBe('atlas-draped-ready');
     measureDrapedReady(100, 3_100, {
       branch: 'cap',
+      capElapsed: true,
       frames: 40,
       layer: 'atlas-outlines',
     });
     expect(measures(DRAPED_READY_MEASURE)).toEqual([
       {
-        detail: { branch: 'cap', frames: 40, layer: 'atlas-outlines' },
+        detail: {
+          branch: 'cap',
+          capElapsed: true,
+          frames: 40,
+          layer: 'atlas-outlines',
+        },
         duration: 3_000,
         startTime: 100,
       },

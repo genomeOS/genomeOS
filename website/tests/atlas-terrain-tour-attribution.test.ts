@@ -168,12 +168,22 @@ describe('the terrain tour’s attribution (#483)', () => {
       longFrames: [],
       readiness: [
         {
-          detail: { branch: 'cap', frames: 90, layer: 'atlas-outlines' },
+          detail: {
+            branch: 'cap',
+            capElapsed: true,
+            frames: 90,
+            layer: 'atlas-outlines',
+          },
           duration: 3_000,
           startTime: 1_800,
         },
         {
-          detail: { branch: 'tilesLoaded', frames: 12, layer: 'atlas-surface' },
+          detail: {
+            branch: 'tilesLoaded',
+            capElapsed: false,
+            frames: 12,
+            layer: 'atlas-surface',
+          },
           duration: 640,
           startTime: 1_100,
         },
@@ -184,6 +194,7 @@ describe('the terrain tour’s attribution (#483)', () => {
     expect(steps[0].readiness).toEqual([
       {
         branch: 'tilesLoaded',
+        capElapsed: false,
         frames: 12,
         layer: 'atlas-surface',
         ms: 640,
@@ -191,6 +202,7 @@ describe('the terrain tour’s attribution (#483)', () => {
       },
       {
         branch: 'cap',
+        capElapsed: true,
         frames: 90,
         layer: 'atlas-outlines',
         ms: 3_000,

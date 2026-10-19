@@ -294,19 +294,69 @@ describe('addDrapedImageryLayer', () => {
       scene.preRender.raiseEvent();
       expect(readiness()).toEqual([
         {
-          detail: { branch: 'tilesLoaded', frames: 2, layer: 'atlas-surface' },
+          detail: {
+            branch: 'tilesLoaded',
+            capElapsed: false,
+            frames: 2,
+            layer: 'atlas-surface',
+          },
           duration: 40,
           startTime: 1_000,
         },
         {
-          detail: { branch: 'cap', frames: 3, layer: 'atlas-outlines' },
+          detail: {
+            branch: 'cap',
+            capElapsed: true,
+            frames: 3,
+            layer: 'atlas-outlines',
+          },
           duration: 3_000,
           startTime: 2_000,
         },
         {
-          detail: { branch: 'tilesLoaded', frames: 2, layer: 'atlas-surface' },
+          detail: {
+            branch: 'tilesLoaded',
+            capElapsed: false,
+            frames: 2,
+            layer: 'atlas-surface',
+          },
           duration: 16,
           startTime: 9_000,
+        },
+      ]);
+    });
+
+    // Under a software renderer a frame can take a second, so the frame that first reads
+    // `tilesLoaded` may also be past the cap: either rule would read it ready, so the measure
+    // names `tilesLoaded` and says the cap had run out as well.
+    it('names tilesLoaded when it and the cap both hold on one frame, and says the cap ran out too', () => {
+      vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+      const now = vi.spyOn(performance, 'now').mockReturnValue(1_000);
+      const layer = addDrapedImageryLayer({
+        alpha: 0,
+        name: 'atlas-surface',
+        provider: fakeProvider(),
+        scene,
+      });
+      scene.globe.tilesLoaded = false;
+      scene.preRender.raiseEvent();
+      now.mockReturnValue(2_100);
+      scene.preRender.raiseEvent();
+      expect(layer.isReady()).toBe(false);
+      scene.globe.tilesLoaded = true;
+      now.mockReturnValue(4_018);
+      scene.preRender.raiseEvent();
+      expect(layer.isReady()).toBe(true);
+      expect(readiness()).toEqual([
+        {
+          detail: {
+            branch: 'tilesLoaded',
+            capElapsed: true,
+            frames: 3,
+            layer: 'atlas-surface',
+          },
+          duration: 3_018,
+          startTime: 1_000,
         },
       ]);
     });

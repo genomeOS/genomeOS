@@ -2,7 +2,11 @@
  * Terrain the outline is a densified ring 300 m above the ground, in the same
  * PolylineCollection, and it follows Physical relief when re-sampled (terrain
  * draping design, "Per layer under World Terrain" (highlight), "Exaggeration"
- * and "Failure modes" (antimeridian cells), #483).
+ * and "Failure modes" (antimeridian cells), #483). In the e2e build each
+ * grounded ring is a `GROUND_PASS_MEASURE` of kind `highlight`, one point per
+ * pick ("Performance budget and measurement"), picked by the build constant at
+ * its call site, so a production build keeps the bare ring; the one pick under
+ * a highlighted observation is not measured.
  */
 
 import {
@@ -21,6 +25,7 @@ import {
 } from 'cesium';
 
 import type { Observation, ObservationArtifact } from '../contracts';
+import { measuredGroundPass } from '../e2e-hooks';
 import { h3BoundaryDegrees } from '../geometry/polygon-parts';
 import type { Metric } from '../visual-encoding';
 import { surfaceHeightAt, type SurfaceHeightSource } from './surface-heights';
@@ -278,7 +283,11 @@ export class HighlightLayer {
         return;
       }
       entry.line.positions = this.#ground
-        ? groundRing(this.#ground, pick.h3Index)
+        ? import.meta.env.PUBLIC_ATLAS_E2E_HOOKS === '1'
+          ? measuredGroundPass('highlight', () =>
+              groundRing(this.#ground!, pick.h3Index),
+            )
+          : groundRing(this.#ground, pick.h3Index)
         : this.#raisedRing(pick.h3Index, height);
       entry.line.show = true;
       entry.point.show = false;
