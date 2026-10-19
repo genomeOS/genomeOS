@@ -20,6 +20,11 @@ be cited as. Separated from fitting on purpose: fitting is expensive and environ
 publishing is cheap and must be repeatable, and a figure or a national rollup should read the
 artifact rather than re-running NUTS.
 
+Each artifact carries `observations.parquet`, the table its fit consumed, taken from the fit's own
+record (`SurfaceFit.observations`, fit format 3) rather than reloaded (#45). The flags still name the
+inputs, but only to choose what to publish and to check them: rows that differ from the fit's record
+are refused, and so is a fit cached before it recorded its input.
+
 Published artifacts live in the public data store, not in git (data store design 2026-10-17). A
 local `data/store/artifacts` may therefore be incomplete, so publishing there also refuses any
 directory a committed release already holds, even with `--overwrite`: immutability may not depend on
@@ -35,11 +40,13 @@ from pathlib import Path
 
 import h3
 import numpy as np
+import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from genomeos.geo.population import PopulationGrid, publication_target_cells  # noqa: E402
+from genomeos.observations.schema import OBSERVATIONS_SCHEMA  # noqa: E402
 from genomeos.observations.sources import (  # noqa: E402
     afnd_carriers,
     afnd_cytokines,
@@ -49,6 +56,7 @@ from genomeos.observations.sources import (  # noqa: E402
 )
 from genomeos.surfaces.artifacts import ArtifactManifest, cell_table, publish  # noqa: E402
 from genomeos.surfaces.fit import load_fit  # noqa: E402
+from genomeos.surfaces.fit_input import observations_record  # noqa: E402
 from genomeos.surfaces.prior import PRIOR_DRAWS, PRIOR_NORMALIZATION  # noqa: E402
 
 try:
@@ -79,6 +87,29 @@ def publication_coordinates(
     cells = publication_target_cells(population_grid)
     centres = np.asarray([h3.cell_to_latlng(cell) for cell in cells], dtype=float)
     return cells, centres[:, 0], centres[:, 1]
+
+
+def consumed_observations(
+    fit, supplied: pd.DataFrame, *, variant_id: str, fit_path: Path
+) -> pd.DataFrame:
+    """The table `fit` consumed: what its artifact publishes, and what its cells are computed from.
+
+    A fit cached before fit format 3 did not record its input, so what it consumed is unknown and it
+    cannot publish a new artifact; refit it. The rows the flags supply must be the fit's own, or the
+    artifact would be labelled with one input while its cells came from another (#45).
+    """
+    recorded = getattr(fit, "observations", None)
+    if recorded is None:
+        raise SystemExit(
+            f"{fit_path}: this fit did not record the observation table it consumed (it predates fit "
+            f"format 3), so {variant_id} cannot be published from it. Refit it (#45)."
+        )
+    if not OBSERVATIONS_SCHEMA.validate(supplied).reset_index(drop=True).equals(recorded):
+        raise SystemExit(
+            f"{fit_path}: the observations supplied for {variant_id} are not the rows this fit "
+            "consumed. Point the flags at the export the fit was made from, or refit (#45)."
+        )
+    return recorded
 
 
 def _directory_name(variant_id: str, args) -> str:
@@ -140,7 +171,7 @@ def main() -> None:
         )
     print(population_grid)
 
-    jobs: list[tuple[str, object]] = []
+    jobs: list[tuple[str, pd.DataFrame]] = []
     for layer, loader in LAYERS.items():
         path = getattr(args, layer)
         if path is None:
@@ -201,13 +232,16 @@ def main() -> None:
             continue
 
         fit = load_fit(fit_path)
-        cells, lat, lon = publication_coordinates(population_grid, observations)
+        consumed = consumed_observations(
+            fit, observations, variant_id=variant_id, fit_path=fit_path
+        )
+        cells, lat, lon = publication_coordinates(population_grid, consumed)
         frame = cell_table(
             fit,
             h3_index=cells,
             lat=lat,
             lon=lon,
-            observations=observations,
+            observations=consumed,
             variant_id=variant_id,
             model_version=args.model_version,
             data_version=args.data_version,
@@ -225,15 +259,18 @@ def main() -> None:
             prior_seed=fit.config.seed,
             likelihood=fit.config.likelihood,
             lengthscale_sigma=float(fit.config.lengthscale_sigma),
-            n_observations=len(observations),
+            n_observations=len(consumed),
             support_counts=counts,
             target_grid_source=population_grid.source,
             target_grid_version=population_grid.source_version,
             measurement=(
                 "carrier_frequency" if variant_id.startswith("kir:") else "allele_frequency"
             ),
+            observations=observations_record(consumed),
         )
-        directory = publish(frame, args.out, manifest=manifest, overwrite=args.overwrite)
+        directory = publish(
+            frame, args.out, manifest=manifest, observations=consumed, overwrite=args.overwrite
+        )
         size = (directory / "cells.parquet").stat().st_size / 1024
         print(f"  {variant_id}: {len(frame)} cells, {size:.0f} KB -> {directory}")
         print(f"      rho {fit.correlation_range_km:.0f} km   support {counts}")

@@ -19,12 +19,17 @@ of values alone would strip exactly the column that makes the surface honest.
 
 Written with ``partition_cols=["variant_id"]`` so one variant can be published, superseded or
 withdrawn without rewriting the others — which is what immutability requires in practice.
+
+**The input travels with the output** (#45). Beside ``cells.parquet`` sits ``observations.parquet``,
+exactly the table the fit consumed (``surfaces.fit_input``), and the manifest records its sha256,
+size, row count and contract. ``manifest.json`` is written last, so a directory with a manifest is a
+directory whose files are all there.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
@@ -32,6 +37,12 @@ import pandas as pd
 from pandas.api.types import is_bool_dtype, is_complex_dtype, is_numeric_dtype
 
 from genomeos.surfaces.fit import SurfaceFit
+from genomeos.surfaces.fit_input import (
+    OBSERVATIONS_FILE,
+    ObservationsRecord,
+    load_observations,
+    serialize_observations,
+)
 from genomeos.surfaces.mask import MaskConfig, classify_support
 from genomeos.surfaces.prior import PRIOR_DRAWS, PRIOR_NORMALIZATION
 
@@ -103,6 +114,9 @@ class ArtifactManifest:
     #: nothing downstream can detect (#133). A publisher that cannot say which it holds is
     #: incomplete, not ready to publish.
     measurement: str
+    #: The identity of `observations.parquet`, the table the fit consumed (#45). Required, with no
+    #: default: an artifact whose input cannot be named is not ready to publish.
+    observations: ObservationsRecord
     artifact_format: int = ARTIFACT_FORMAT
 
     def __post_init__(self) -> None:
@@ -134,9 +148,16 @@ class ArtifactManifest:
             or self.prior_seed < 0
         ):
             raise ValueError("prior_seed must be a nonnegative integer")
+        if not isinstance(self.observations, ObservationsRecord):
+            raise ValueError("observations must be the ObservationsRecord of the fit's input")
+        if self.observations.row_count != self.n_observations:
+            raise ValueError(
+                f"n_observations {self.n_observations} differs from the input's "
+                f"row_count {self.observations.row_count}"
+            )
 
     def to_json(self) -> str:
-        return json.dumps(self.__dict__, indent=2, sort_keys=True) + "\n"
+        return json.dumps(asdict(self), indent=2, sort_keys=True) + "\n"
 
 
 def cell_table(
@@ -200,15 +221,37 @@ def cell_table(
 
 
 def publish(
-    frame: pd.DataFrame, root: Path, *, manifest: ArtifactManifest, overwrite: bool = False
+    frame: pd.DataFrame,
+    root: Path,
+    *,
+    manifest: ArtifactManifest,
+    observations: pd.DataFrame,
+    overwrite: bool = False,
 ) -> Path:
-    """Write one variant's artifact and its manifest under `root`.
+    """Write one variant's artifact, the table its fit consumed, and its manifest under `root`.
 
     Refuses to overwrite by default. §5's immutability is the point: a model change publishes new
     artifacts under a new `model_version` rather than replacing a map someone has already cited,
     and a silent overwrite is precisely the failure that guarantee exists to prevent.
+
+    `observations` is the fit's own record of its input (`SurfaceFit.observations`). Its bytes are
+    re-derived here and must be the ones `manifest.observations` names, and every row must belong to
+    the artifact's variant. Everything is checked before the directory is created, and the manifest
+    is written last.
     """
     _validate_current(frame, manifest.__dict__, context="surface artifact")
+    payload, record = serialize_observations(observations)
+    if record != manifest.observations:
+        raise ValueError(
+            "manifest.observations does not describe the observation table being published; build it "
+            "with fit_input.observations_record() from the same table"
+        )
+    variants = sorted(set(observations["variant_id"].astype(str)))
+    if variants != [manifest.variant_id]:
+        raise ValueError(
+            f"the input holds rows for {variants}, so it is not the input of {manifest.variant_id!r}'s "
+            "artifact"
+        )
     root = Path(root)
     stem = manifest.variant_id.replace(":", "__")
     directory = root / f"{stem}__{manifest.model_version}__{manifest.data_version}"
@@ -218,7 +261,11 @@ def publish(
             "model_version rather than overwriting, or pass overwrite=True deliberately."
         )
     directory.mkdir(parents=True, exist_ok=True)
+    # An overwritten directory loses its old manifest first, so no manifest ever describes a
+    # half-written set of files.
+    (directory / "manifest.json").unlink(missing_ok=True)
     frame.to_parquet(directory / "cells.parquet", index=False)
+    (directory / OBSERVATIONS_FILE).write_bytes(payload)
     (directory / "manifest.json").write_text(manifest.to_json())
     return directory
 
@@ -248,6 +295,22 @@ def read(directory: Path) -> tuple[pd.DataFrame, dict]:
     if artifact_format == ARTIFACT_FORMAT:
         _validate_current(frame, manifest, context=str(directory))
     return frame, manifest
+
+
+def read_observations(directory: Path) -> pd.DataFrame:
+    """The table an artifact's fit consumed, refusing bytes its manifest does not name (#45)."""
+    directory = Path(directory)
+    manifest = json.loads((directory / "manifest.json").read_text())
+    record = manifest.get("observations")
+    if record is None:
+        raise ValueError(
+            f"{directory} does not carry the observation table its fit consumed: it was published "
+            "before inputs travelled with outputs (#45)"
+        )
+    frame = load_observations((directory / OBSERVATIONS_FILE).read_bytes(), record, context=str(directory))
+    if len(frame) != manifest.get("n_observations"):
+        raise ValueError(f"{directory}: the input's rows differ from n_observations")
+    return frame
 
 
 def _validate_current(frame: pd.DataFrame, manifest: dict, *, context: str) -> None:
