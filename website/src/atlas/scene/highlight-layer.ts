@@ -3,9 +3,10 @@
  * PolylineCollection, and it follows Physical relief when re-read (terrain
  * draping design, "Per layer under World Terrain" (highlight), "Exaggeration"
  * and "Failure modes" (antimeridian cells), #483). Each highlight keeps the
- * ground under its points (`ground-points.ts`), so a re-read picks only the
- * points whose terrain mesh changed, and follows a relief change without a
- * pick. In the e2e build each re-read ring is a `GROUND_PASS_MEASURE` of kind
+ * ground under its points (`ground-points.ts`) while it is shown, so a re-read
+ * picks only the points whose terrain mesh changed, and follows a relief
+ * change without a pick; hidden, it lets go of that ground and of the terrain
+ * meshes it holds, and picks afresh when shown again. In the e2e build each re-read ring is a `GROUND_PASS_MEASURE` of kind
  * `highlight` with the points it picked ("Performance budget and
  * measurement"), picked by the build constant at its call site, so a
  * production build keeps the bare ring; the point under a highlighted
@@ -250,9 +251,11 @@ export class HighlightLayer {
     this.#scene.requestRender();
   }
 
+  /** Hides `entry`, and lets go of its ground: each point keeps the terrain mesh it was picked on. */
   #hide(entry: HighlightEntry): void {
     entry.line.show = false;
     entry.point.show = false;
+    entry.ground = null;
   }
 
   #show(entry: HighlightEntry, pick: AtlasPick | null): void {

@@ -220,6 +220,24 @@ describe('highlights on World Terrain', () => {
     expect(terrain.globe.getHeight).toHaveBeenCalledTimes(96);
   });
 
+  // Each point keeps the terrain mesh it was picked on, which Cesium may free meanwhile.
+  it('lets go of a hidden highlight’s ground: shown again, it picks afresh', () => {
+    const { layer, surface } = setup();
+    const terrain = fakeTerrain(() => 1_000);
+    layer.setGround(terrain.globe);
+    const cell = {
+      artifactKey: surface.artifactKey,
+      h3Index: CELL,
+      kind: 'surface',
+      row: 0,
+    } as const;
+    layer.setSelection(cell);
+    layer.setSelection(null);
+    terrain.globe.getHeight.mockClear();
+    layer.setSelection(cell);
+    expect(terrain.globe.getHeight).toHaveBeenCalledTimes(96);
+  });
+
   it('follows relief under a highlighted observation without a pick', () => {
     const { layer, observations, points, surface } = setup();
     const terrain = fakeTerrain(slopeAt);
