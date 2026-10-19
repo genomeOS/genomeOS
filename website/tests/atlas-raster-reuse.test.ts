@@ -4,8 +4,13 @@
  * tile holds about 39,000 rows, so per-tile work per row must be the scan alone: each masked
  * cell's H3 boundary and st frame are built once per grid, each row's colour once per style, and a
  * restyle on the same grid recolours without touching the boundaries. `atlas-raster-bytes.test.ts`
- * pins that the bytes stay the same.
+ * pins that the bytes stay the same. What is kept is kept by its input's columns, so nothing of an
+ * input stays reachable once its tiles are drawn and the input is let go: a full collection, which
+ * Node runs on demand here as Jest's leak detector does, takes it.
  */
+
+import { setFlagsFromString } from 'node:v8';
+import { runInNewContext } from 'node:vm';
 
 import { cellToBoundary, gridDisk, latLngToCell } from 'h3-js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -55,11 +60,41 @@ function drawLevels(input: SurfaceRasterInput, levels: number[]): void {
     for (const a of tilesCovering(input, level)) rasterSurfaceTile(input, a);
 }
 
+/** Every tile of each level that holds one of the input's cells, as drawn: its bytes, or null. */
+function tileBytes(
+  input: SurfaceRasterInput,
+  levels: number[],
+): (Uint8ClampedArray | null)[] {
+  return levels.flatMap((level) =>
+    tilesCovering(input, level).map(
+      (a) => rasterSurfaceTile(input, a)?.rgba.slice() ?? null,
+    ),
+  );
+}
+
+/** How many of two equal-length tile lists' tiles differ in any byte. */
+function differingTiles(
+  a: (Uint8ClampedArray | null)[],
+  b: (Uint8ClampedArray | null)[],
+): number {
+  expect(a).toHaveLength(b.length);
+  return a.filter((tile, k) => {
+    const other = b[k];
+    return tile === null || other === null
+      ? tile !== other
+      : tile.some((byte, at) => byte !== other[at]);
+  }).length;
+}
+
 function maskedRows(input: SurfaceRasterInput): number {
   return input.support.filter(
     (code) => code === UNKNOWN_CODE || code === PRIOR_DOMINATED_CODE,
   ).length;
 }
+
+/** A full garbage collection, on demand. */
+setFlagsFromString('--expose-gc');
+const collectGarbage = runInNewContext('gc') as () => void;
 
 let input: SurfaceRasterInput;
 
@@ -96,5 +131,43 @@ describe('per-tile work of the surface raster (#483)', () => {
     vi.mocked(colorBytesAtStops).mockClear();
     drawLevels(restyled, [0, 1, 2, 3, 4]);
     expect(vi.mocked(colorBytesAtStops)).not.toHaveBeenCalled();
+  });
+
+  it('draws a restyle on the same values as a cold draw of that style: its palette and domain key the kept colours', () => {
+    expect(input.palette).toBe('rainbow');
+    const levels = [3, 5];
+    // Every row's colour kept under the rainbow style, as a worker keeps it on its render tier.
+    const rainbow = tileBytes(input, levels);
+    for (const [what, restyle] of [
+      ['palette', { palette: 'viridis' }],
+      ['domain', { domain: [input.domain[0], 2 * input.domain[1]] }],
+    ] as const) {
+      const warm = tileBytes({ ...input, ...restyle }, levels);
+      // A copy of the values shares no kept colour, so it draws the style from nothing.
+      const cold = tileBytes(
+        { ...input, ...restyle, values: Float32Array.from(input.values) },
+        levels,
+      );
+      expect(differingTiles(warm, rainbow), what).toBeGreaterThan(0);
+      expect(differingTiles(warm, cold), what).toBe(0);
+    }
+  });
+
+  it('holds nothing of an input once its tiles are drawn and it is let go', async () => {
+    const held = (() => {
+      // Its own input, so no test variable holds it.
+      const own = rasterInputFor(CELLS);
+      drawLevels(own, [5, 2]);
+      return { input: new WeakRef(own), values: new WeakRef(own.values) };
+    })();
+    // A weak reference holds its target until the job that made it ends.
+    for (let pass = 0; pass < 3; pass += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      collectGarbage();
+    }
+    expect({
+      input: held.input.deref() === undefined,
+      values: held.values.deref() === undefined,
+    }).toEqual({ input: true, values: true });
   });
 });

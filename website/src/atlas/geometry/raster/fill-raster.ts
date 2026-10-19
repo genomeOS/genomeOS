@@ -84,7 +84,8 @@ const fan = {
 /** Rows of the tile being drawn, reused from tile to tile. */
 const rows: number[] = [];
 
-/** The supported row in `fan`, whose attributes `fillAttributes` writes once a texel needs them. */
+/** The supported row in `fan`, whose attributes `fillAttributes` writes once a texel needs them;
+ * its style is cleared once the tile's fill is drawn, since the style holds its input's columns. */
 const pending = { count: 0, first: 0, row: 0, style: null as FillStyle | null };
 
 function fillAttributes(): void {
@@ -216,8 +217,12 @@ export function rasterSurfaceTile(
   for (const row of rows) supportName(i.support[row]);
   if (i.cells.supported) {
     const style = fillStyleOf(i, honmoonMode, i.contours);
-    for (const row of rows)
-      if (isSupportedCode(i.support[row])) drawFill(t, i, row, style);
+    try {
+      for (const row of rows)
+        if (isSupportedCode(i.support[row])) drawFill(t, i, row, style);
+    } finally {
+      pending.style = null;
+    }
   }
   if (i.cells.masked) {
     const prior = paletteBins(i, 'prior_dominated');
