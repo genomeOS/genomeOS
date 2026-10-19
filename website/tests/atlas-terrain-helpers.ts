@@ -64,6 +64,14 @@ export const DRAPE_SETTLE_MS = 90_000;
  * (`window.__atlasCameraMotion`), every tile in view loaded (`globe.tilesLoaded`) and no draped
  * tile still being rasterised (`window.__atlasDrapeStats`'s queue empty), all in one read. Null
  * once it has; otherwise what still held it back when the time ran out.
+ *
+ * Nothing is read before two animation frames have passed. The scene renders in its own frame
+ * callback, queued before this one, so by then it has drawn whatever the caller's last step
+ * changed. A camera control such as Zoom in moves the camera at once, with no flight, and until
+ * that frame is drawn the motion hook and the globe still describe the old view, at rest and
+ * loaded. A settled read is then confirmed two frames later before it counts: under a software
+ * renderer the frames of one move can be further apart than the hook's `CAMERA_QUIET_MS`, so a
+ * camera still coasting reads still between two of them.
  */
 export async function drapeUnsettled(
   page: Page,
@@ -73,6 +81,8 @@ export async function drapeUnsettled(
     (timeoutMs) =>
       new Promise<string | null>((resolve) => {
         const started = performance.now();
+        const afterTwoFrames = (then: () => void) =>
+          requestAnimationFrame(() => requestAnimationFrame(then));
         const pending = (): string | null => {
           const motion = window.__atlasCameraMotion?.();
           if (!motion) return 'no camera motion is published';
@@ -87,13 +97,21 @@ export async function drapeUnsettled(
             ? null
             : `${stats.queueDepth} draped tiles are being rasterised`;
         };
+        const outOfTime = () => performance.now() - started >= timeoutMs;
         const check = () => {
           const held = pending();
-          if (held === null || performance.now() - started >= timeoutMs)
-            resolve(held);
-          else setTimeout(check, 100);
+          if (held !== null) {
+            if (outOfTime()) resolve(held);
+            else setTimeout(check, 100);
+            return;
+          }
+          afterTwoFrames(() => {
+            const again = pending();
+            if (again === null || outOfTime()) resolve(again);
+            else setTimeout(check, 100);
+          });
         };
-        check();
+        afterTwoFrames(check);
       }),
     timeoutMs,
   );
