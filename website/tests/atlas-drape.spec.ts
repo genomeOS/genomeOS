@@ -330,11 +330,11 @@ test.describe('terrain draping @desktop-chromium', () => {
       await drapeSettled(page);
       return summitPatch(page, await apexOnPage(page), 160);
     };
-    const triangles = await shot('triangles');
-    const honmoon = await shot('honmoon');
-    expect(await changedShare(page, triangles, honmoon)).toBeGreaterThan(0.2);
     // Without contours both Honmoon patches are the same faint fill (a share of 0); with them, the
     // line and its halo cross the patch (about 0.23), where the mean's Honmoon leaves the ground.
+    // Two cold loads, not three: Honmoon against triangles differs as much without contours (a
+    // share of 0.97), so it would test nothing and only spend this describe's 150 s.
+    const honmoon = await shot('honmoon');
     const noLine = await shot('honmoon', 'post_mean');
     expect(await changedShare(page, noLine, honmoon)).toBeGreaterThan(0.1);
   });
