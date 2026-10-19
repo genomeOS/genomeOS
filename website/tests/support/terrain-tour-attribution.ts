@@ -1,9 +1,14 @@
 /**
  * The World Terrain tour's attribution (terrain draping design, "Performance budget and
  * measurement", #483): which of the tour's steps each long animation frame, ground pass and draped
- * readiness fell in, how much of each long frame was spent picking the ground, and how many draped
- * tiles each step delivered, per level. The budgets judge the tour's totals
- * (`terrain-budgets.ts`); this says where they went. Pure: no Playwright or browser dependency.
+ * readiness fell in, how much of each long frame was spent picking the ground, each step's ground
+ * passes in sum, per kind and one by one, and how many draped tiles each step delivered, per level.
+ * The budgets judge the tour's totals (`terrain-budgets.ts`); this says where they went. Pure: no
+ * Playwright or browser dependency.
+ *
+ * A step is any span the tour bounds on the page's clock: an action from the moment the tour
+ * reaches for its control, or a milestone such as the World Terrain click to data visible, whose
+ * bounds the page reads itself. So a window between two such moments is a step of its own.
  *
  * Every time is the page's `performance.now()`. An entry belongs to the step it started in: from
  * that step's start to the next one's, the last to the tour's end. A long frame starts where its
@@ -55,11 +60,16 @@ export interface TourTiles {
   deliveryByLevel: number[][];
 }
 
-export interface TourStep {
-  step: string;
+/** A moment on the page's clock, with the drape stats' running counts then. */
+export interface TourMark {
   startMs: number;
   /** Null before the draped runtime has published its stats: no tile counted yet. */
   tiles: TourTiles | null;
+}
+
+/** A step of the tour, from its mark to the next step's. */
+export interface TourStep extends TourMark {
+  step: string;
 }
 
 export interface TourRecord {
@@ -84,17 +94,78 @@ export interface StepAttribution {
     groundPassMs: number;
     scripts: TourScript[];
   }[];
-  groundPasses: {
-    count: number;
-    /** Points picked over all the step's passes. */
-    picked: number;
-    totalMs: number;
+  groundPasses: GroundPassSums & {
     maxMs: number;
+    /** The same sums per kind of pass, for the kinds the step ran, in `GROUND_PASS_KINDS` order. */
+    byKind: Partial<Record<GroundPassKind, GroundPassSums>>;
+    /** Every pass that began in the step, in order. */
+    passes: {
+      startMs: number;
+      ms: number;
+      kind: GroundPassKind;
+      points: number;
+    }[];
   };
   /** The draped layers added or shown in this step, in the order they were read ready. */
   readiness: (DrapedReadyDetail & { startMs: number; ms: number })[];
   /** The draped tiles delivered in this step; null where the tour read no counts. */
   tiles: TourTiles | null;
+}
+
+type GroundPassKind = GroundPassDetail['kind'];
+
+/** The order a step's per-kind sums are listed in. */
+const GROUND_PASS_KINDS: readonly GroundPassKind[] = [
+  'create',
+  'resample',
+  'final',
+  'highlight',
+];
+
+interface GroundPassSums {
+  count: number;
+  /** Points picked over the passes. */
+  picked: number;
+  totalMs: number;
+}
+
+function sumPasses(passes: TourMeasure<GroundPassDetail>[]): GroundPassSums {
+  return {
+    count: passes.length,
+    picked: passes.reduce((sum, pass) => sum + pass.detail.points, 0),
+    totalMs: tenth(passes.reduce((sum, pass) => sum + pass.duration, 0)),
+  };
+}
+
+/** A step's ground passes: in sum, per kind and one by one. */
+function groundPassesOf(
+  passes: TourMeasure<GroundPassDetail>[],
+): StepAttribution['groundPasses'] {
+  const byKind: Partial<Record<GroundPassKind, GroundPassSums>> = {};
+  for (const kind of GROUND_PASS_KINDS) {
+    const ofKind = passes.filter((pass) => pass.detail.kind === kind);
+    if (ofKind.length > 0) byKind[kind] = sumPasses(ofKind);
+  }
+  const unknown = passes.find(
+    (pass) => !GROUND_PASS_KINDS.includes(pass.detail.kind),
+  );
+  if (unknown)
+    throw new Error(
+      `a ground pass of an unknown kind '${String(unknown.detail.kind)}' at ${unknown.startTime} ms`,
+    );
+  return {
+    ...sumPasses(passes),
+    byKind,
+    maxMs: tenth(passes.reduce((max, pass) => Math.max(max, pass.duration), 0)),
+    passes: [...passes]
+      .sort((a, b) => a.startTime - b.startTime)
+      .map((pass) => ({
+        kind: pass.detail.kind,
+        ms: tenth(pass.duration),
+        points: pass.detail.points,
+        startMs: tenth(pass.startTime),
+      })),
+  };
 }
 
 /** Milliseconds to a tenth. */
@@ -149,6 +220,26 @@ function tilesBetween(
       difference(bins, start.deliveryByLevel[level], `level ${level} delivery`),
     ),
   };
+}
+
+/**
+ * The steps a milestone bounds: from the action that starts it (`at`, the page's clock as the tour
+ * reached for the control) to the milestone, and from the milestone to the next step; with the
+ * milestone never reached, only the first, named for the miss.
+ */
+export function milestoneSteps(
+  step: string,
+  action: string,
+  milestone: string,
+  at: TourMark,
+  reached: TourMark | null,
+): TourStep[] {
+  return reached
+    ? [
+        { step: `${step}: ${action} → ${milestone}`, ...at },
+        { step: `${step}: ${milestone} → settled`, ...reached },
+      ]
+    : [{ step: `${step}: ${action}, ${milestone} never came`, ...at }];
 }
 
 /** The frame's longest script; undefined for a frame without one. */
@@ -234,17 +325,9 @@ export function attributeTour(record: TourRecord): StepAttribution[] {
       entries: T[],
       start: (entry: T) => number = (entry) => entry.startTime,
     ): T[] => entries.filter((entry) => bucketOf(start(entry)) === index);
-    const passes = inBucket(record.groundPasses);
     const [from, to] = bucket.tiles;
     return {
-      groundPasses: {
-        count: passes.length,
-        maxMs: tenth(
-          passes.reduce((max, pass) => Math.max(max, pass.duration), 0),
-        ),
-        picked: passes.reduce((sum, pass) => sum + pass.detail.points, 0),
-        totalMs: tenth(passes.reduce((sum, pass) => sum + pass.duration, 0)),
-      },
+      groundPasses: groundPassesOf(inBucket(record.groundPasses)),
       longFrames: inBucket(record.longFrames, frameStart)
         .sort((a, b) => a.startTime - b.startTime)
         .map((frame) => ({

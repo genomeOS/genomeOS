@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   attributeTour,
+  milestoneSteps,
   type TourLongFrame,
   type TourTiles,
 } from './support/terrain-tour-attribution';
@@ -153,11 +154,166 @@ describe('the terrain tour’s attribution (#483)', () => {
       readiness: [],
       steps: STEPS.map((s) => ({ ...s, tiles: null })),
     });
-    expect(steps.map((s) => s.groundPasses)).toEqual([
-      { count: 3, maxMs: 304, picked: 3_213, totalMs: 390 },
-      { count: 0, maxMs: 0, picked: 0, totalMs: 0 },
-      { count: 1, maxMs: 345, picked: 1_071, totalMs: 345 },
+    expect(
+      steps.map(({ groundPasses: { passes: _, ...sums } }) => sums),
+    ).toEqual([
+      {
+        byKind: {
+          create: { count: 1, picked: 1_071, totalMs: 77 },
+          resample: { count: 1, picked: 1_071, totalMs: 304 },
+          final: { count: 1, picked: 1_071, totalMs: 9 },
+        },
+        count: 3,
+        maxMs: 304,
+        picked: 3_213,
+        totalMs: 390,
+      },
+      { byKind: {}, count: 0, maxMs: 0, picked: 0, totalMs: 0 },
+      {
+        byKind: { resample: { count: 1, picked: 1_071, totalMs: 345 } },
+        count: 1,
+        maxMs: 345,
+        picked: 1_071,
+        totalMs: 345,
+      },
     ]);
+    // The kinds in a fixed order, whatever the passes' order.
+    expect(Object.keys(steps[0].groundPasses.byKind)).toEqual([
+      'create',
+      'resample',
+      'final',
+    ]);
+  });
+
+  it('keeps every ground pass of a step, in order: its start, ms, kind and points', () => {
+    const steps = attributeTour({
+      endMs: 12_000,
+      endTiles: tiles(),
+      groundPasses: [
+        {
+          detail: { kind: 'highlight', points: 96 },
+          duration: 21.04,
+          startTime: 9_400.06,
+        },
+        {
+          detail: { kind: 'resample', points: 1_071 },
+          duration: 345.12,
+          startTime: 9_100,
+        },
+      ],
+      longFrames: [],
+      readiness: [],
+      steps: STEPS.map((s) => ({ ...s, tiles: null })),
+    });
+    expect(steps.map((s) => s.groundPasses.passes)).toEqual([
+      [],
+      [],
+      [
+        { kind: 'resample', ms: 345.1, points: 1_071, startMs: 9_100 },
+        { kind: 'highlight', ms: 21, points: 96, startMs: 9_400.1 },
+      ],
+    ]);
+  });
+
+  // The tour bounds a step at the World Terrain click and another at data visible, both on the
+  // page's clock, so the step between them holds what ran from one to the other.
+  it('sums the ground passes between the click and data visible, by kind, in the step those marks bound', () => {
+    const steps = attributeTour({
+      endMs: 20_000,
+      endTiles: null,
+      groundPasses: [
+        // While the chooser opened, on the smooth globe: before the click.
+        {
+          detail: { kind: 'highlight', points: 96 },
+          duration: 5,
+          startTime: 1_500,
+        },
+        // The creation sample over the smooth globe's tiles, then World Terrain's tiles meshing.
+        {
+          detail: { kind: 'create', points: 1_071 },
+          duration: 80,
+          startTime: 2_010,
+        },
+        {
+          detail: { kind: 'resample', points: 1_071 },
+          duration: 210,
+          startTime: 2_400,
+        },
+        {
+          detail: { kind: 'highlight', points: 96 },
+          duration: 20,
+          startTime: 2_700,
+        },
+        {
+          detail: { kind: 'resample', points: 1_071 },
+          duration: 150,
+          startTime: 3_000,
+        },
+        // After data visible.
+        {
+          detail: { kind: 'final', points: 1_071 },
+          duration: 9,
+          startTime: 5_800,
+        },
+      ],
+      longFrames: [],
+      readiness: [
+        {
+          detail: {
+            branch: 'cap',
+            capElapsed: true,
+            frames: 40,
+            layer: 'atlas-surface',
+          },
+          duration: 3_000,
+          startTime: 2_200,
+        },
+      ],
+      steps: [
+        { startMs: 1_000, step: 'World Terrain', tiles: null },
+        {
+          startMs: 2_000,
+          step: 'World Terrain: click → data visible',
+          tiles: null,
+        },
+        {
+          startMs: 5_791,
+          step: 'World Terrain: data visible → settled',
+          tiles: null,
+        },
+      ],
+    });
+    const [opening, toVisible, afterVisible] = steps;
+    expect(toVisible.ms).toBe(3_791);
+    expect(toVisible.groundPasses).toMatchObject({
+      byKind: {
+        create: { count: 1, picked: 1_071, totalMs: 80 },
+        resample: { count: 2, picked: 2_142, totalMs: 360 },
+        highlight: { count: 1, picked: 96, totalMs: 20 },
+      },
+      count: 4,
+      maxMs: 210,
+      picked: 3_309,
+      totalMs: 460,
+    });
+    // The surface added 200 ms after the click, read ready by the cap 3 s later, and data
+    // visible 591 ms after that.
+    expect(toVisible.readiness).toEqual([
+      {
+        branch: 'cap',
+        capElapsed: true,
+        frames: 40,
+        layer: 'atlas-surface',
+        ms: 3_000,
+        startMs: 2_200,
+      },
+    ]);
+    expect(opening.groundPasses.byKind).toEqual({
+      highlight: { count: 1, picked: 96, totalMs: 5 },
+    });
+    expect(afterVisible.groundPasses.byKind).toEqual({
+      final: { count: 1, picked: 1_071, totalMs: 9 },
+    });
   });
 
   it('lists each step’s draped readiness: the layer, the rule that fired and the ms since its add', () => {
@@ -255,7 +411,23 @@ describe('the terrain tour’s attribution (#483)', () => {
     ]);
   });
 
-  it('refuses steps out of order, an entry after the end, and running counts that shrink', () => {
+  it('bounds a step at an action and another at the milestone it waits for, or names the miss', () => {
+    const click = { startMs: 2_000, tiles: null };
+    const visible = { startMs: 5_791, tiles: tiles([1, 0, 0, 0, 0, 0, 0]) };
+    expect(
+      milestoneSteps('World Terrain', 'click', 'data visible', click, visible),
+    ).toEqual([
+      { step: 'World Terrain: click → data visible', ...click },
+      { step: 'World Terrain: data visible → settled', ...visible },
+    ]);
+    expect(
+      milestoneSteps('palette restyle', 'change', 'tiles loaded', click, null),
+    ).toEqual([
+      { step: 'palette restyle: change, tiles loaded never came', ...click },
+    ]);
+  });
+
+  it('refuses steps out of order, an entry after the end, a pass of no known kind, and running counts that shrink', () => {
     const base = {
       endMs: 12_000,
       endTiles: tiles(),
@@ -270,6 +442,18 @@ describe('the terrain tour’s attribution (#483)', () => {
     expect(() =>
       attributeTour({ ...base, longFrames: [frame(12_000, 60)] }),
     ).toThrow(/after the tour's end/);
+    expect(() =>
+      attributeTour({
+        ...base,
+        groundPasses: [
+          {
+            detail: { kind: 'ring' as never, points: 96 },
+            duration: 20,
+            startTime: 2_000,
+          },
+        ],
+      }),
+    ).toThrow(/unknown kind 'ring'/);
     expect(() =>
       attributeTour({
         ...base,

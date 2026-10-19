@@ -26,17 +26,26 @@
  *
  * Attribution, reported and never judged (`support/terrain-tour-attribution.ts`): the tour reads
  * the page's clock at each step's start (World Terrain, the orbit, each zoom-in, relief 3, each
- * restyle, Home), and the init script keeps each long animation frame's start, duration and
+ * restyle, Home), from before it opens the step's controls. The milestones bound steps of their
+ * own, read by the page in the frames it measures them in: from the World Terrain click (the
+ * data-visible clock's start, just before the click) to data visible, then on from data visible;
+ * from each restyle's change to its swap (`tilesLoaded` on a hardware GPU), then on from there.
+ * So the step from the click to data visible is as long as `dataVisibleMs`, and holds the ground
+ * passes between the two. The init script keeps each long animation frame's start, duration and
  * scripts, and the e2e build's performance measures: `atlas-ground-pass`, one per pass that picks
- * the ground under the draped observations (the points picked; its duration is the pass's ms),
- * and `atlas-draped-ready`, one per draped layer read ready (the layer, the rule that fired,
- * `tilesLoaded` or the 3 s cap, and the ms since its add or show). So each long frame lands in the
- * step its longest script began in, with the ground-pass time inside it: its scripts alone would
- * not name the pass, which runs inside Cesium's render callback. The drape stats' running counts at each step's start give the
- * tiles each step delivered: the raster time of levels 0–2, which the budget's histogram leaves
- * out, and the request-to-delivery time per level. The console prints each step's longest frames
- * and its sums; the JSON attachment, kept in the test's output directory, holds every frame and
- * script.
+ * the ground under the draped observations or the grounded highlight ring (its kind, the points
+ * picked; its duration is the pass's ms), and `atlas-draped-ready`, one per draped layer read
+ * ready (the layer, the rule that fired, `tilesLoaded` or the 3 s cap, whether the cap had run out
+ * by then, and the ms since its add or show). So each long frame lands in the step its longest
+ * script began in, with the ground-pass time inside it: its scripts alone would not name the pass,
+ * which runs inside Cesium's render callback. Each step sums its ground passes in all and per
+ * kind; its readiness entries carry the layer's add on the page's clock, so the step from the
+ * click to data visible splits into the time before the add, the readiness wait and the fade's
+ * start. The drape stats' running counts at each step's bounds give the tiles each step
+ * delivered: the raster time of levels 0–2, which the budget's histogram leaves out, and the
+ * request-to-delivery time per level. The console prints each step's longest frames and its sums;
+ * the JSON attachment, kept in the test's output directory, also holds every frame, script and
+ * ground pass.
  *
  * The phone's profile slows only the page's CPU, ×4, as the spec's "mobile ×4" long-frame budget
  * reads. The data worker that rasterises the draped tiles runs at full speed, so the phone's
@@ -102,8 +111,10 @@ import {
 import {
   attributeTour,
   longestScript,
+  milestoneSteps,
   type StepAttribution,
   type TourLongFrame,
+  type TourMark,
   type TourMeasure,
   type TourRecord,
   type TourStep,
@@ -141,6 +152,8 @@ type TourWindow = Window & {
   __atlasPeakResident: number;
   __atlasGroundPasses: TourMeasure<GroundPassDetail>[];
   __atlasReadiness: TourMeasure<DrapedReadyDetail>[];
+  /** The page's clock (`at`, or now) and the drape stats' running tile counts as they stand. */
+  __atlasTourMark: (at?: number) => TourMark;
 };
 
 /** How many of a step's longest frames the console report lists; the attachment has them all. */
@@ -180,23 +193,31 @@ async function lowerSheet(page: Page): Promise<void> {
  * From the World Terrain choice in the chooser to the first frame with a tile delivered and the
  * surface drawn above `PREWARM_ALPHA`: its fade has begun. The phase 2 report took the first frame
  * with the surface draped, which since the pre-warm is the one frame a new layer draws unseen to
- * compile its shader, before its fade. NaN if that frame never came.
+ * compile its shader, before its fade. NaN if that frame never came. Both ends are marks on the
+ * page's clock: `click`, read as the clock starts just before the click, and `visible`, read in
+ * the frame that saw the data (null if it never came).
  */
-async function switchToWorldTerrain(page: Page): Promise<number> {
+async function switchToWorldTerrain(page: Page): Promise<{
+  dataVisibleMs: number;
+  click: TourMark;
+  visible: TourMark | null;
+}> {
   await openSection(page, 'Map');
   const chooser = await openTerrainChooser(page);
   const visible = page.evaluate(
     ({ prewarmAlpha, timeoutMs }) =>
-      new Promise<number>((resolve) => {
-        const started = performance.now();
+      new Promise<{ click: TourMark; visible: TourMark | null }>((resolve) => {
+        const tour = window as never as TourWindow;
+        const click = tour.__atlasTourMark();
         const sample = () => {
-          const elapsed = performance.now() - started;
+          const now = performance.now();
           if (
             (window.__atlasTerrainProbe?.().surfaceAlpha ?? 0) > prewarmAlpha &&
             (window.__atlasDrapeStats?.().delivered ?? 0) > 0
           )
-            resolve(elapsed);
-          else if (elapsed > timeoutMs) resolve(Number.NaN);
+            resolve({ click, visible: tour.__atlasTourMark(now) });
+          else if (now - click.startMs > timeoutMs)
+            resolve({ click, visible: null });
           else requestAnimationFrame(sample);
         };
         requestAnimationFrame(sample);
@@ -206,10 +227,15 @@ async function switchToWorldTerrain(page: Page): Promise<number> {
   await chooser
     .getByRole('radio', { name: 'Cesium World Terrain terrain' })
     .click();
-  const dataVisibleMs = await visible;
+  const marks = await visible;
   await page.keyboard.press('Escape');
   await expect(chooser).toBeHidden();
-  return dataVisibleMs;
+  return {
+    ...marks,
+    dataVisibleMs: marks.visible
+      ? marks.visible.startMs - marks.click.startMs
+      : Number.NaN,
+  };
 }
 
 /**
@@ -288,18 +314,21 @@ async function setRelief(page: Page, relief: number): Promise<void> {
  * From a surface restyle (`change`) to one `atlas-surface` layer again, after the new one was
  * added beside the old, and with `untilTilesLoaded` every tile in view loaded; NaN if that never
  * came. The probe's `layerStack` lists the incoming layer from its add at alpha 0, so a sample
- * need not land inside the 300 ms cross-fade, which a slow first swap frame can end at once.
+ * need not land inside the 300 ms cross-fade, which a slow first swap frame can end at once. Both
+ * ends are marks on the page's clock: `change`, read as the clock starts just before the change,
+ * and `done`, read in the frame that saw the swap (null if it never came).
  */
-async function restyleMs(
+async function restyle(
   page: Page,
   change: () => Promise<unknown>,
   untilTilesLoaded: boolean,
-): Promise<number> {
+): Promise<{ ms: number; change: TourMark; done: TourMark | null }> {
   await openSection(page, 'Inferred surface');
   const done = page.evaluate(
     ({ timeoutMs, untilTilesLoaded }) =>
-      new Promise<number>((resolve) => {
-        const started = performance.now();
+      new Promise<{ change: TourMark; done: TourMark | null }>((resolve) => {
+        const tour = window as never as TourWindow;
+        const changed = tour.__atlasTourMark();
         let added = false;
         let retired = false;
         const sample = () => {
@@ -307,12 +336,13 @@ async function restyleMs(
           const surfaces = probe.layerStack.filter(
             (name) => name === 'atlas-surface',
           ).length;
-          const elapsed = performance.now() - started;
+          const now = performance.now();
           if (surfaces > 1) added = true;
           if (added && surfaces === 1) retired = true;
           if (retired && (!untilTilesLoaded || probe.tilesLoaded))
-            resolve(elapsed);
-          else if (elapsed > timeoutMs) resolve(Number.NaN);
+            resolve({ change: changed, done: tour.__atlasTourMark(now) });
+          else if (now - changed.startMs > timeoutMs)
+            resolve({ change: changed, done: null });
           else requestAnimationFrame(sample);
         };
         requestAnimationFrame(sample);
@@ -320,7 +350,11 @@ async function restyleMs(
     { timeoutMs: MILESTONE_TIMEOUT_MS, untilTilesLoaded },
   );
   await change();
-  return done;
+  const marks = await done;
+  return {
+    ...marks,
+    ms: marks.done ? marks.done.startMs - marks.change.startMs : Number.NaN,
+  };
 }
 
 /** `UNMASKED_RENDERER_WEBGL`, or 'unknown'. */
@@ -361,19 +395,8 @@ function tourSettler(page: Page, software: boolean) {
  * The page's clock and the drape stats' running tile counts, read at a step's start; null counts
  * before the draped runtime has published its stats.
  */
-async function stepMark(page: Page): Promise<Omit<TourStep, 'step'>> {
-  return page.evaluate(() => {
-    const stats = window.__atlasDrapeStats?.();
-    return {
-      startMs: performance.now(),
-      tiles: stats
-        ? {
-            coarseRasterCounts: stats.coarseRasterMs.counts,
-            deliveryByLevel: stats.deliveryMs.byLevel,
-          }
-        : null,
-    };
-  });
+async function stepMark(page: Page): Promise<TourMark> {
+  return page.evaluate(() => (window as never as TourWindow).__atlasTourMark());
 }
 
 /**
@@ -420,8 +443,8 @@ async function pageMeasures(page: Page): Promise<{
 
 /**
  * Each step for the console: its longest frames (`REPORTED_FRAMES`) with their ground-pass time
- * and longest script, its ground passes, readiness and the tiles it delivered, only the levels it
- * delivered any at. The attachment carries every frame and script.
+ * and longest script, its ground passes in sum and per kind, readiness and the tiles it delivered,
+ * only the levels it delivered any at. The attachment carries every frame, script and pass.
  */
 function attributionSummary(steps: StepAttribution[]) {
   return steps.map((step) => ({
@@ -443,7 +466,7 @@ function attributionSummary(steps: StepAttribution[]) {
             : null,
         };
       }),
-    groundPasses: step.groundPasses,
+    groundPasses: (({ passes: _passes, ...sums }) => sums)(step.groundPasses),
     readiness: step.readiness,
     tiles: step.tiles && {
       coarseRasterCounts: step.tiles.coarseRasterCounts,
@@ -478,6 +501,18 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
       tour.__atlasLongFrames = [];
       tour.__atlasGroundPasses = [];
       tour.__atlasReadiness = [];
+      tour.__atlasTourMark = (at = performance.now()) => {
+        const stats = window.__atlasDrapeStats?.();
+        return {
+          startMs: at,
+          tiles: stats
+            ? {
+                coarseRasterCounts: stats.coarseRasterMs.counts,
+                deliveryByLevel: stats.deliveryMs.byLevel,
+              }
+            : null,
+        };
+      };
       // A long animation frame and its scripts, as TourLongFrame keeps them; the DOM lib in
       // use declares neither PerformanceLongAnimationFrameTiming nor PerformanceScriptTiming.
       new PerformanceObserver((list) =>
@@ -556,9 +591,12 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
   const beginStep = async (step: string) =>
     steps.push({ step, ...(await stepMark(page)) });
 
-  // 2. World Terrain, from the chooser.
+  // 2. World Terrain, from the chooser: its opening, the click to data visible, and on.
   await beginStep('World Terrain');
-  const dataVisibleMs = await switchToWorldTerrain(page);
+  const { click, dataVisibleMs, visible } = await switchToWorldTerrain(page);
+  steps.push(
+    ...milestoneSteps('World Terrain', 'click', 'data visible', click, visible),
+  );
   await settle('World Terrain');
 
   // 3. An orbit.
@@ -578,29 +616,36 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
   await setRelief(page, 3);
   await settle('relief 3');
 
-  // 6. A palette restyle, then a geometry restyle to Honmoon.
+  // 6. A palette restyle, then a geometry restyle to Honmoon: each from its section's opening, the
+  // change to its swap (`tilesLoaded` on a hardware GPU), and on.
   const restyles: number[] = [];
-  await beginStep('palette restyle');
-  restyles.push(
-    await restyleMs(
-      page,
+  for (const [step, change] of [
+    [
+      'palette restyle',
       () =>
         page
           .getByLabel('Surface palette', { exact: true })
           .selectOption('viridis'),
-      !software,
-    ),
-  );
-  await settle('palette restyle');
-  await beginStep('Honmoon restyle');
-  restyles.push(
-    await restyleMs(
-      page,
+    ],
+    [
+      'Honmoon restyle',
       () => page.locator('#atlas-surface-geometry').selectOption('honmoon'),
-      !software,
-    ),
-  );
-  await settle('Honmoon restyle');
+    ],
+  ] as const) {
+    await beginStep(step);
+    const restyled = await restyle(page, change, !software);
+    restyles.push(restyled.ms);
+    steps.push(
+      ...milestoneSteps(
+        step,
+        'change',
+        software ? 'swap' : 'tiles loaded',
+        restyled.change,
+        restyled.done,
+      ),
+    );
+    await settle(step);
+  }
 
   // 7. Home.
   await beginStep('Home');
