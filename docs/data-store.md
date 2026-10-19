@@ -100,7 +100,9 @@ So every artifact carries its own input.
   `n_observations`), its `measurement` (equal to the artifact's), its `columns` and the contract
   file with its `schema_sha256`, and is written last.
 - `publish_artifacts.py` refuses a fit cached before format 3 (what it consumed is unknown: refit
-  it), flags that supply rows other than the fit's own, and a fit with an observation footprint
+  it), a format-3 cache written under an earlier observation contract revision (refit it, or
+  re-serialize it with its table migrated, before publishing), flags that supply rows other than
+  the fit's own, and a fit with an observation footprint
   (it also consumed support points, which the table does not describe). It checks every fit's
   input before writing the first directory, so an input refusal never leaves a run half published.
 - `build_data_release.py` refuses an artifact without `observations.parquet`, an empty one, or one

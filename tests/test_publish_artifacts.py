@@ -187,6 +187,27 @@ def test_publisher_refuses_supplied_rows_that_the_fit_did_not_consume(tmp_path, 
         _run_publisher(tmp_path / "fewer", monkeypatch, supplied=recorded.iloc[:5], recorded=recorded)
 
 
+@pytest.mark.parametrize(
+    "earlier",
+    [
+        lambda rows: rows.assign(retired_column="x"),
+        lambda rows: rows.drop(columns=["cohort_id"]),
+        lambda rows: rows[["lon", "lat", *[c for c in rows.columns if c not in {"lat", "lon"}]]],
+    ],
+    ids=["a-retired-column", "a-column-added-since", "reordered-columns"],
+)
+def test_publisher_refuses_a_fit_cached_under_an_earlier_observation_contract(tmp_path, monkeypatch, earlier):
+    """A format-3 cache loads across a contract revision, but cannot publish until it is refit (#45).
+
+    No rows the current contract validates can equal its table, so the refusal must name the
+    revision, not blame the flags for supplying the wrong rows.
+    """
+    rows = observation_rows()
+    with pytest.raises(SystemExit, match="earlier observation contract revision") as refused:
+        _run_publisher(tmp_path, monkeypatch, supplied=rows, recorded=earlier(rows))
+    assert "not the rows" not in str(refused.value)
+
+
 def test_publisher_refuses_a_fit_that_also_consumed_support_points(tmp_path, monkeypatch):
     """`observations.parquet` does not describe a footprint's support points, so it would be incomplete."""
     rows = observation_rows()
