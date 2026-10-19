@@ -329,3 +329,20 @@ def test_the_list_is_exactly_the_committed_artifacts_released_without_their_inpu
 def test_the_release_rule_and_the_publisher_agree_on_the_input() -> None:
     assert ai.INPUT_FILE == OBSERVATIONS_FILE
     assert ai.INPUT_CONTRACT == OBSERVATIONS_CONTRACT
+
+
+def test_an_artifact_exactly_as_publish_writes_it_is_released(tree: Path) -> None:
+    """The publisher's manifest record and the release rule are one contract, end to end."""
+    from genomeos.surfaces.artifacts import publish
+    from tests.test_artifacts import _frame, _manifest, _observations
+
+    directory = publish(
+        _frame(),
+        tree / dr.ARTIFACT_PREFIX,
+        manifest=_manifest(model_version="v9"),
+        observations=_observations(),
+    )
+    objects = _paths(_build(tree))
+    path = f"{dr.ARTIFACT_PREFIX}{directory.name}/{OBSERVATIONS_FILE}"
+    assert objects[path]["sha256"] == hashlib.sha256((directory / OBSERVATIONS_FILE).read_bytes()).hexdigest()
+    assert objects[path]["sources"] == ["map"]
