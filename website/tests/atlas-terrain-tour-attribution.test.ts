@@ -427,6 +427,43 @@ describe('the terrain tour’s attribution (#483)', () => {
     ]);
   });
 
+  it('sums the passes that carry a frame’s leftover picks to the next frame as their own kind', () => {
+    const steps = attributeTour({
+      endMs: 12_000,
+      endTiles: tiles(),
+      groundPasses: [
+        {
+          detail: { kind: 'continue', points: 9 },
+          duration: 3.04,
+          startTime: 9_120,
+        },
+        {
+          detail: { kind: 'highlight', points: 0 },
+          duration: 0.1,
+          startTime: 9_110,
+        },
+        {
+          detail: { kind: 'resample', points: 10 },
+          duration: 3.02,
+          startTime: 9_100,
+        },
+      ],
+      longFrames: [],
+      readiness: [],
+      steps: STEPS.map((s) => ({ ...s, tiles: null })),
+    });
+    expect(steps[2].groundPasses.byKind).toEqual({
+      continue: { count: 1, picked: 9, totalMs: 3 },
+      highlight: { count: 1, picked: 0, totalMs: 0.1 },
+      resample: { count: 1, picked: 10, totalMs: 3 },
+    });
+    expect(Object.keys(steps[2].groundPasses.byKind)).toEqual([
+      'resample',
+      'continue',
+      'highlight',
+    ]);
+  });
+
   it('refuses steps out of order, an entry after the end, a pass of no known kind, and running counts that shrink', () => {
     const base = {
       endMs: 12_000,

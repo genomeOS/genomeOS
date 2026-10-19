@@ -119,6 +119,7 @@ const GROUND_PASS_KINDS: readonly GroundPassKind[] = [
   'create',
   'resample',
   'final',
+  'continue',
   'highlight',
 ];
 

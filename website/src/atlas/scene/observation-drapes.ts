@@ -5,9 +5,11 @@
  *
  * While the scene drapes, each observation group in view stands on the rendered ground and drapes
  * its sampling footprints:
- * - Ground: one `GroundHeights` per group samples `globe.getHeight` under its observations, and
- *   each change lifts the symbols by it, today's clearance kept. It re-samples as terrain tiles
- *   load, after each morph between views, and whenever `resample` is called (a relief change).
+ * - Ground: one `GroundHeights` per group reads the ground under its observations, and each change
+ *   lifts the symbols by it, today's clearance kept. It re-reads as terrain tiles load, after each
+ *   morph between views, and whenever `resample` is called (a relief change). Every group's picks
+ *   share one frame's budget (`GROUND_PICK_BUDGET_MS`), which counts frames only while a group
+ *   is draped.
  * - Footprints: the worker rasterises the group's circles in its sampling colour as the
  *   `atlas-footprints` imagery layer, never part of the surface texture. The layer is added at
  *   α 0 and handed to the group, which then hides its rings, once the globe has its tiles
@@ -27,7 +29,12 @@
  */
 
 import type { Observation } from '../contracts';
-import { createGroundHeights, type GroundHeights } from './ground-heights';
+import {
+  createFramePickBudget,
+  createGroundHeights,
+  type FramePickBudget,
+  type GroundHeights,
+} from './ground-heights';
 import {
   footprintSpec,
   type ObservationPrimitiveGroup,
@@ -50,6 +57,7 @@ import type {
 export interface ObservationDrapesOptions {
   scene: Pick<
     ScientificScene,
+    | 'camera'
     | 'globe'
     | 'imageryLayers'
     | 'morphComplete'
@@ -90,6 +98,8 @@ export class ObservationDrapes {
   readonly #options: ObservationDrapesOptions;
   readonly #tracked = new Map<ObservationPrimitiveGroup, Tracked>();
   readonly #rasterSource: (runtime: DrapedRuntime) => RasterTileSource;
+  /** The draped groups' budget of picks a frame; null while none is draped. */
+  #pickBudget: FramePickBudget | null = null;
   #destroyed = false;
 
   constructor(options: ObservationDrapesOptions) {
@@ -110,9 +120,12 @@ export class ObservationDrapes {
   ): void {
     if (!style.draped || this.#destroyed) return this.release(group);
     if (!this.#tracked.has(group)) {
+      this.#pickBudget ??= createFramePickBudget(this.#options.scene);
       const ground = createGroundHeights(
         this.#options.scene,
         observationPoints({ observations })!,
+        undefined,
+        this.#pickBudget,
       );
       this.#tracked.set(group, {
         artifactKey,
@@ -150,6 +163,7 @@ export class ObservationDrapes {
     if (!entry) return;
     this.#tracked.delete(group);
     this.#drop(entry);
+    if (this.#tracked.size === 0) this.#dropPickBudget();
     group.setFootprints(null);
     group.setGroundHeights(null);
     this.#options.scene.requestRender();
@@ -169,6 +183,12 @@ export class ObservationDrapes {
       group.setFootprints(null);
     }
     this.#tracked.clear();
+    this.#dropPickBudget();
+  }
+
+  #dropPickBudget(): void {
+    this.#pickBudget?.destroy();
+    this.#pickBudget = null;
   }
 
   #lift(group: ObservationPrimitiveGroup, heights: Float64Array): void {

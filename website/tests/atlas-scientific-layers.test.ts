@@ -63,6 +63,7 @@ import {
   type FakeRasterProvider,
 } from './helpers/draped-fakes';
 import { FakeEvent, flushTasks } from './helpers/scene-fakes';
+import { fakeTerrain } from './helpers/terrain-fakes';
 
 // Every group the layers build, so a test can read the opacity the swap gives each one. The
 // wrappers pass straight through to the real factories.
@@ -175,8 +176,14 @@ function harness(
   const preRender = new FakeEvent();
   const postRender = new FakeEvent();
   const primitives = new PrimitiveCollection();
-  // The rendered ground everywhere, as World Terrain's loaded tiles give it (#483).
-  const ground = { value: 0 };
+  // The rendered ground everywhere, as World Terrain's loaded tiles give it (#483): setting it
+  // loads new terrain meshes drawing it, as tiles loading do.
+  const terrain = fakeTerrain(() => 0);
+  const ground = {
+    set value(metres: number) {
+      terrain.load(() => metres);
+    },
+  };
   const scene = {
     camera: {
       pickEllipsoid: () => undefined,
@@ -184,11 +191,10 @@ function harness(
       ...camera,
     },
     canvas: { clientHeight: 600, clientWidth: 800 },
-    globe: {
-      getHeight: () => ground.value,
+    globe: Object.assign(terrain.globe, {
       tileLoadProgressEvent: new ArgEvent<number>(),
       tilesLoaded: true,
-    },
+    }),
     imageryLayers: {},
     morphComplete: new FakeEvent(),
     postRender,
