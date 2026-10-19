@@ -256,19 +256,18 @@ describe('e2e performance measures', () => {
     ]);
   });
 
-  it('times a pass that picks the ground on the clock given, one point per entry of its result', () => {
+  it('times a pass that reads the ground on the clock given, with the points it says it picked', () => {
     vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
     const clock = { now: 40 };
-    const ring = [1, 2, 3];
     const picked = measuredGroundPass(
       'highlight',
       () => {
         clock.now += 12.5;
-        return ring;
+        return 3;
       },
       () => clock.now,
     );
-    expect(picked).toBe(ring);
+    expect(picked).toBe(3);
     expect(measures(GROUND_PASS_MEASURE)).toEqual([
       {
         detail: { kind: 'highlight', points: 3 },

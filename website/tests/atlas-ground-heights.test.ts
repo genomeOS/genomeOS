@@ -17,6 +17,7 @@ import {
   throttleResample,
 } from '../src/atlas/scene/ground-heights';
 import { FakeEvent } from './helpers/scene-fakes';
+import { fakeTerrain, type GroundAt } from './helpers/terrain-fakes';
 
 class ProgressEvent {
   // Cesium raises tileLoadProgressEvent with the tile queue's length
@@ -34,15 +35,16 @@ class ProgressEvent {
 /** The Spain survey on the synthetic peak (map-surveys:1135), then the Gabon survey (map-surveys:996). */
 const POINTS = Float64Array.of(-3.709, 40.419, 12.686, -1.844);
 
-function setup(initial: (lon: number) => number | undefined) {
+/**
+ * Ground heights over a fake terrain that counts its picks (tests/helpers/terrain-fakes.ts):
+ * `setGround` loads new terrain meshes under both points, drawing `next`, as tiles loading do.
+ */
+function setup(initial: GroundAt) {
   const clock = { now: 0 };
-  let ground = initial;
-  const globe = {
-    getHeight: vi.fn((c: Cartographic) =>
-      ground(CesiumMath.toDegrees(c.longitude)),
-    ),
+  const terrain = fakeTerrain(initial);
+  const globe = Object.assign(terrain.globe, {
     tileLoadProgressEvent: new ProgressEvent(),
-  };
+  });
   const morphComplete = new FakeEvent();
   const heights = createGroundHeights(
     { globe, morphComplete } as never,
@@ -54,9 +56,8 @@ function setup(initial: (lon: number) => number | undefined) {
     globe,
     heights,
     morphComplete,
-    setGround: (next: typeof initial) => {
-      ground = next;
-    },
+    terrain,
+    setGround: (next: GroundAt) => terrain.load(next),
   };
 }
 
@@ -131,6 +132,22 @@ describe('ground heights under World Terrain', () => {
     expect(heights.heights()[0]).toBe(2_000);
   });
 
+  it('follows a relief change without a pick, and picks again only under meshes that changed', () => {
+    const { globe, heights, terrain } = setup(() => 1_000);
+    expect(globe.getHeight).toHaveBeenCalledTimes(2);
+    globe.getHeight.mockClear();
+    terrain.setRelief(3); // the frame after a relief change re-exaggerates every mesh
+    heights.resample(true);
+    expect(globe.getHeight).not.toHaveBeenCalled();
+    expect(Array.from(heights.heights())).toEqual([3_000, 3_000]);
+    heights.resample(true); // a pass over unchanged tiles
+    expect(globe.getHeight).not.toHaveBeenCalled();
+    terrain.load(() => 1_200, 'east'); // a tile loads under the Gabon survey only
+    heights.resample(true);
+    expect(globe.getHeight).toHaveBeenCalledTimes(1);
+    expect(Array.from(heights.heights())).toEqual([3_000, 3_600]);
+  });
+
   it('stops listening once destroyed, and tells no unsubscribed listener', () => {
     const { globe, heights, morphComplete, setGround } = setup(() => 1_000);
     const kept = vi.fn(),
@@ -193,20 +210,22 @@ describe('ground pass measures (e2e build)', () => {
   /** Each pick takes 1 ms on the clock the ground heights read. */
   function timedSetup() {
     const clock = { now: 100 };
-    const globe = {
-      getHeight: () => {
-        clock.now += 1;
-        return 1_000;
-      },
+    const terrain = fakeTerrain(() => 1_000);
+    const pick = terrain.globe.getHeight.getMockImplementation()!;
+    terrain.globe.getHeight.mockImplementation((c) => {
+      clock.now += 1;
+      return pick(c);
+    });
+    const globe = Object.assign(terrain.globe, {
       tileLoadProgressEvent: new ProgressEvent(),
-    };
+    });
     const morphComplete = new FakeEvent();
     const heights = createGroundHeights(
       { globe, morphComplete } as never,
       POINTS,
       () => clock.now,
     );
-    return { clock, globe, heights, morphComplete };
+    return { clock, globe, heights, morphComplete, terrain };
   }
 
   const passes = () =>
@@ -216,26 +235,28 @@ describe('ground pass measures (e2e build)', () => {
       startTime: e.startTime,
     }));
 
-  it('measures each pass that picks the ground: its points, its kind and its ms', () => {
+  it('measures each pass that reads the ground: the points it picked, its kind and its ms', () => {
     vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
-    const { clock, globe, heights, morphComplete } = timedSetup();
+    const { clock, globe, heights, morphComplete, terrain } = timedSetup();
     clock.now = 110;
     heights.resample(); // within 50 ms of the creation sample: no pass
     clock.now = 200;
+    terrain.load(() => 1_500); // tiles loaded under both points
     globe.tileLoadProgressEvent.raiseEvent(3);
     clock.now = 300;
-    heights.resample(true); // the relief at rest
+    terrain.setRelief(2);
+    heights.resample(true); // the relief at rest: followed without a pick
     clock.now = 400;
-    globe.tileLoadProgressEvent.raiseEvent(0); // the load queue empty
+    globe.tileLoadProgressEvent.raiseEvent(0); // the load queue empty, no tile changed
     clock.now = 410;
     morphComplete.raiseEvent(); // a morph between views complete
-    expect(heights.heights()).toEqual(new Float64Array([1_000, 1_000]));
+    expect(heights.heights()).toEqual(new Float64Array([3_000, 3_000]));
     expect(passes()).toEqual([
       { detail: { kind: 'create', points: 2 }, duration: 2, startTime: 100 },
       { detail: { kind: 'resample', points: 2 }, duration: 2, startTime: 200 },
-      { detail: { kind: 'final', points: 2 }, duration: 2, startTime: 300 },
-      { detail: { kind: 'final', points: 2 }, duration: 2, startTime: 400 },
-      { detail: { kind: 'final', points: 2 }, duration: 2, startTime: 410 },
+      { detail: { kind: 'final', points: 0 }, duration: 0, startTime: 300 },
+      { detail: { kind: 'final', points: 0 }, duration: 0, startTime: 400 },
+      { detail: { kind: 'final', points: 0 }, duration: 0, startTime: 410 },
     ]);
   });
 

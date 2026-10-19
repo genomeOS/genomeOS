@@ -23,6 +23,10 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  renderedTileAt,
+  type TerrainTileInternals,
+} from '../src/atlas/scene/ground-points';
+import {
   cesiumSource,
   FAKE_RECTANGLE,
   fakeProvider,
@@ -221,5 +225,126 @@ describe('Cesium 1.145 internals the draped layers rely on (#483)', () => {
     expect(typeof terrain.QuadtreePrimitive.prototype.forEachLoadedTile).toBe(
       'function',
     );
+  });
+});
+
+/** A terrain tile's data as `Globe.getHeight` reads it: its rendered mesh, and its pick. */
+interface PickedTileData {
+  renderedMesh: { id: number };
+  pick(): Cartesian3;
+}
+interface TreeTile {
+  readonly rectangle: Rectangle;
+  readonly level: number;
+  readonly x: number;
+  readonly y: number;
+  readonly southwestChild: TreeTile;
+  readonly southeastChild: TreeTile;
+  readonly northwestChild: TreeTile;
+  readonly northeastChild: TreeTile;
+  data: PickedTileData | undefined;
+}
+
+// The ground under the draped observations and the highlight finds each point's mesh as
+// Globe.getHeight does, through the globe's private quadtree (scene/ground-points.ts), and reads
+// the relief a mesh is drawn at from its encoding ("Exaggeration").
+describe('Cesium 1.145 internals the ground under the observations relies on (#483)', () => {
+  it('finds the tile Globe.getHeight picks: the deepest under the point with a rendered mesh', () => {
+    const globe = new Cesium.Globe();
+    const surface = (
+      globe as unknown as {
+        _surface: {
+          _levelZeroTiles: TreeTile[] | undefined;
+          tileProvider: { terrainProvider: unknown; tilingScheme: unknown };
+        };
+      }
+    )._surface;
+    // The quadtree's tiles, made by its tiling scheme as Cesium makes them.
+    const levelZero = (
+      Cesium as unknown as {
+        QuadtreeTile: { createLevelZeroTiles(s: unknown): TreeTile[] };
+      }
+    ).QuadtreeTile.createLevelZeroTiles(surface.tileProvider.tilingScheme);
+    surface._levelZeroTiles = levelZero;
+    // Four levels below each root; about two tiles in three have a mesh, some deep under none.
+    let id = 0;
+    const visit = (tile: TreeTile) => {
+      id += 1;
+      if ((tile.x * 7 + tile.y * 13 + tile.level * 5) % 3 !== 0) {
+        const height = id;
+        tile.data = {
+          pick: () => Cartesian3.fromDegrees(0, 0, height),
+          renderedMesh: { id: height },
+        };
+      }
+      if (tile.level < 4)
+        for (const child of [
+          tile.southwestChild,
+          tile.southeastChild,
+          tile.northwestChild,
+          tile.northeastChild,
+        ])
+          visit(child);
+    };
+    levelZero.forEach(visit);
+    // Every tile corner and edge to level 4 (11.25° apart), where several tiles contain the
+    // point and the order of the descent decides, and the points between them.
+    let compared = 0;
+    for (let lon = -180; lon <= 180; lon += 11.25 / 2)
+      for (let lat = -90; lat <= 90; lat += 11.25 / 2) {
+        const point = Cartographic.fromDegrees(lon, lat);
+        const picked = globe.getHeight(point);
+        const found = renderedTileAt(
+          levelZero as unknown as TerrainTileInternals[],
+          point,
+        );
+        const mesh = found?.data?.renderedMesh as { id: number } | undefined;
+        expect([lon, lat, mesh?.id]).toEqual([
+          lon,
+          lat,
+          picked === undefined ? undefined : Math.round(picked),
+        ]);
+        compared += 1;
+      }
+    expect(compared).toBe(65 * 33);
+    // Ground points read the terrain the tiles were made from, to skip the smooth globe's.
+    expect(surface.tileProvider.terrainProvider).toBeInstanceOf(
+      Cesium.EllipsoidTerrainProvider,
+    );
+  });
+
+  it('draws a tile’s own mesh once it has a vertex array, else its fill mesh, and re-exaggerates the drawn mesh’s encoding', () => {
+    const surfaceTile = new terrain.GlobeSurfaceTile() as unknown as {
+      mesh: unknown;
+      vertexArray: unknown;
+      fill: unknown;
+      readonly renderedMesh: unknown;
+      updateExaggeration(t: unknown, f: object, q: undefined): void;
+    };
+    const own = {
+      encoding: {
+        exaggeration: 1,
+        exaggerationRelativeHeight: 0,
+        hasGeodeticSurfaceNormals: true,
+      },
+      updateExaggeration: vi.fn(),
+    };
+    const fill = { mesh: { ...own, encoding: { ...own.encoding } } };
+    surfaceTile.mesh = own;
+    surfaceTile.fill = fill;
+    expect(surfaceTile.renderedMesh).toBe(fill.mesh);
+    surfaceTile.vertexArray = {};
+    expect(surfaceTile.renderedMesh).toBe(own);
+    surfaceTile.updateExaggeration(
+      {},
+      { verticalExaggeration: 3, verticalExaggerationRelativeHeight: 250 },
+      undefined,
+    );
+    // Written into the mesh's encoding, where a pass reads the relief its ground follows.
+    expect(own.encoding).toMatchObject({
+      exaggeration: 3,
+      exaggerationRelativeHeight: 250,
+    });
+    expect(own.updateExaggeration).toHaveBeenCalledWith(3, 250);
   });
 });

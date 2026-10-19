@@ -212,15 +212,16 @@ export function drapeStatsTestHook(
 }
 
 /**
- * The performance measure of one pass that picks the ground: under the draped observations
+ * The performance measure of one pass that reads the ground: under the draped observations
  * (`scene/ground-heights.ts`) or under the grounded highlight ring (`scene/highlight-layer.ts`);
- * e2e build only.
+ * e2e build only. A pass picks only the points whose terrain mesh changed, so one over unchanged
+ * tiles, or after a relief change, picks none (`scene/ground-points.ts`).
  */
 export const GROUND_PASS_MEASURE = 'atlas-ground-pass';
 
 /** What a ground pass measure carries besides its start and duration. */
 export interface GroundPassDetail {
-  /** The points the pass picked the ground under (`globe.getHeight` calls). */
+  /** The points the pass picked the ground under (`globe.getHeight` calls); 0 if none. */
   points: number;
   /**
    * Under the observations: `create`, the sample at creation; `resample`, a throttled re-sample
@@ -273,20 +274,21 @@ export function measureGroundPass(
 }
 
 /**
- * Runs `pick`, a pass that picks the ground, and emits `GROUND_PASS_MEASURE` for it on `now`, of
- * `kind` and with one point per entry of its result. A caller reaches it only through the build
- * constant (`import.meta.env.PUBLIC_ATLAS_E2E_HOOKS === '1' ? measuredGroundPass(…) : pass`), so a
- * production build keeps the bare pass and carries none of this.
+ * Runs `pass`, a pass that reads the ground and returns the points it picked, and emits
+ * `GROUND_PASS_MEASURE` for it on `now`, of `kind` and with those points. A caller reaches it only
+ * through the build constant (`import.meta.env.PUBLIC_ATLAS_E2E_HOOKS === '1' ?
+ * measuredGroundPass(…) : pass()`), so a production build keeps the bare pass and carries none of
+ * this.
  */
-export function measuredGroundPass<T extends ArrayLike<unknown>>(
+export function measuredGroundPass(
   kind: GroundPassDetail['kind'],
-  pick: () => T,
+  pass: () => number,
   now: () => number = () => performance.now(),
-): T {
+): number {
   const start = now();
-  const picked = pick();
-  measureGroundPass(start, now(), { kind, points: picked.length });
-  return picked;
+  const points = pass();
+  measureGroundPass(start, now(), { kind, points });
+  return points;
 }
 
 /** Emits `DRAPED_READY_MEASURE` from `startMs` to `endMs`; nothing outside the e2e build. */

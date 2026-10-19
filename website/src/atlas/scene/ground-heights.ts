@@ -10,25 +10,28 @@
  * comes back here as NaN, and the symbol keeps the height it had until a tile loads ("Failure
  * modes": it may pop once). Terrain height only places symbols; it never enters a metric.
  *
- * The heights are re-sampled when the ground they read can have changed: as terrain tiles load
+ * The heights are re-read when the ground they read can have changed: as terrain tiles load
  * (`tileLoadProgressEvent`, at most every `GROUND_RESAMPLE_MS`, and once more, unthrottled, when
  * the load queue empties); once a morph between 3D, 2D and Columbus view completes ("2D and
  * Columbus"); and whenever the owner calls `resample`, which a Physical relief drag does every
- * 50 ms and once more, final, when the slider rests ("Exaggeration"). Listeners hear only real
- * changes, compared value by value, so a re-sample that finds the same ground moves nothing.
+ * 50 ms and once more, final, when the slider rests ("Exaggeration"). A pass picks only the points
+ * whose rendered terrain mesh changed, and follows a relief change from each point's source height
+ * without a pick (`ground-points.ts`), so a pass over unchanged tiles picks nothing. Listeners
+ * hear only real changes, compared value by value, so a pass that finds the same ground moves
+ * nothing.
  *
  * Cesium re-exaggerates the loaded tile meshes inside the frame after `verticalExaggeration`
- * changes, so until that frame renders `getHeight` still returns the old relief. `afterNextRender`
+ * changes, so until that frame renders the meshes still hold the old relief. `afterNextRender`
  * asks for that frame and runs its callback once the frame has rendered, which is when the scene
- * re-samples after a relief change; `createReliefResampler` arms it for each relief frame, and
- * once more, final, when the slider rests. `throttleResample` is the 50 ms rule, which the scene
- * also applies to the highlight it grounds.
+ * re-reads the ground after a relief change; `createReliefResampler` arms it for each relief
+ * frame, and once more, final, when the slider rests. `throttleResample` is the 50 ms rule, which
+ * the scene also applies to the highlight it grounds. `sampleGroundHeights` picks every point
+ * once, for a one-off read.
  *
- * In the e2e build each pass that picks the ground emits a `GROUND_PASS_MEASURE` performance
- * measure with the points it picked and why it ran ("Performance budget and measurement"), so the
- * World Terrain tour can tell a long frame spent picking from one spent elsewhere. The build
- * constant picks the measured pass at each call site, so a production build keeps the bare pass
- * and carries no measuring code.
+ * In the e2e build each pass emits a `GROUND_PASS_MEASURE` performance measure with the points it
+ * picked and why it ran ("Performance budget and measurement"), so the World Terrain tour can
+ * tell a long frame spent picking from one spent elsewhere. The build constant picks the measured
+ * pass at each call site, so a production build keeps the bare pass and carries no measuring code.
  */
 
 import {
@@ -38,7 +41,12 @@ import {
   type Globe,
 } from 'cesium';
 
-import { measuredGroundPass } from '../e2e-hooks';
+import { measuredGroundPass, type GroundPassDetail } from '../e2e-hooks';
+import {
+  GroundPoints,
+  type GroundGlobe,
+  type GroundPass,
+} from './ground-points';
 
 /** The shortest interval between two throttled re-samples (a relief drag, loading tiles). */
 export const GROUND_RESAMPLE_MS = 50;
@@ -106,55 +114,33 @@ export interface GroundHeights {
  */
 export function createGroundHeights(
   scene: {
-    globe: Pick<Globe, 'getHeight' | 'tileLoadProgressEvent'>;
+    globe: GroundGlobe & Pick<Globe, 'tileLoadProgressEvent'>;
     morphComplete: Event;
   },
   lonLat: Float64Array,
   now: () => number = () => performance.now(),
 ): GroundHeights {
-  assertLonLatPairs(lonLat);
-  const firstBad = lonLat.findIndex((value) => !Number.isFinite(value));
-  if (firstBad !== -1) {
-    const pair = Math.floor(firstBad / 2);
-    throw new Error(
-      `ground heights need finite lon, lat pairs: pair ${pair} is (${lonLat[2 * pair]}, ${lonLat[2 * pair + 1]})`,
-    );
-  }
-  const points = lonLat.slice();
+  const points = new GroundPoints(lonLat);
   const { globe } = scene;
-  const current =
-    import.meta.env.PUBLIC_ATLAS_E2E_HOOKS === '1'
-      ? measuredGroundPass(
-          'create',
-          () => sampleGroundHeights(globe, points),
-          now,
-        )
-      : sampleGroundHeights(globe, points);
-  const next = new Float64Array(current.length);
   const listeners = new Set<(h: Float64Array) => void>();
   let destroyed = false;
 
-  const sample = (final: boolean): void => {
+  const sample = (kind: GroundPassDetail['kind']): void => {
+    let pass: GroundPass | undefined;
+    const read = () => (pass = points.update(globe)).picked;
     if (import.meta.env.PUBLIC_ATLAS_E2E_HOOKS === '1')
-      measuredGroundPass(
-        final ? 'final' : 'resample',
-        () => sampleGroundHeights(globe, points, next),
-        now,
-      );
-    else sampleGroundHeights(globe, points, next);
-    let changed = false;
-    for (let i = 0; i < next.length; i += 1) {
-      if (!Object.is(next[i], current[i])) {
-        changed = true;
-        break;
-      }
-    }
-    if (!changed) return;
-    current.set(next);
-    for (const listener of [...listeners]) listener(current);
+      measuredGroundPass(kind, read, now);
+    else read();
+    if (!pass?.changed) return;
+    for (const listener of [...listeners]) listener(points.heights);
   };
+  sample('create');
   // The sample at creation counts as the last one.
-  const throttled = throttleResample(sample, now, now());
+  const throttled = throttleResample(
+    (final) => sample(final ? 'final' : 'resample'),
+    now,
+    now(),
+  );
   const resample = (final = false): void => {
     if (!destroyed) throttled(final);
   };
@@ -165,7 +151,7 @@ export function createGroundHeights(
   });
 
   return {
-    heights: () => current,
+    heights: () => points.heights,
     onChange(l) {
       if (destroyed) return () => {};
       listeners.add(l);
