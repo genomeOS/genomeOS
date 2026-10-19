@@ -47,16 +47,32 @@ LAYERS = {"hbs": map_surveys.load, "g6pd": map_g6pd.load}
 #: assert the composite is a good model, which #116 still questions.
 LENGTHSCALE_SIGMA: dict[str, float] = {"phenotype:g6pd-deficiency": 0.4}
 
+#: Sampling budget per chain, used for warm-up and for retained draws alike. 1,200 is what the
+#: HbS parity run converged with (docs/research/hbs-piel-parity-2026-09-16.md) and what the
+#: data-store rebuild passes (docs/data-store.md). The previous default, 400, is the budget at
+#: which HbS missed the ESS floor at 199 and G6PD never mixed (#111), so a run that omitted
+#: --draws reproduced a known failure.
+DEFAULT_DRAWS = 1200
 
-def main() -> None:
+
+def batch_config(draws: int, n_inducing: int) -> FitConfig:
+    """The shared fit configuration; per-variant priors are applied on top of it in `main`."""
+    return FitConfig(draws=draws, tune=draws, approximation="inducing", n_inducing=n_inducing)
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser()
     ap.add_argument("--hbs", type=Path, help="curated MAP HbS CSV with explicit spatial support")
     ap.add_argument("--g6pd", type=Path, help="MAP G6PD survey export CSV")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--data-version", default="map-2026-08")
     ap.add_argument("--n-inducing", type=int, default=150)
-    ap.add_argument("--draws", type=int, default=400)
-    args = ap.parse_args()
+    ap.add_argument("--draws", type=int, default=DEFAULT_DRAWS)
+    return ap.parse_args(argv)
+
+
+def main() -> None:
+    args = parse_args()
 
     sources: dict[str, pd.DataFrame] = {}
     for layer, loader in LAYERS.items():
@@ -69,9 +85,7 @@ def main() -> None:
     if not sources:
         raise SystemExit("supply at least one of --hbs or --g6pd")
 
-    config = FitConfig(
-        draws=args.draws, tune=args.draws, approximation="inducing", n_inducing=args.n_inducing
-    )
+    config = batch_config(args.draws, args.n_inducing)
     jobs = [
         replace(job, config=replace(job.config, lengthscale_sigma=sigma))
         if (sigma := LENGTHSCALE_SIGMA.get(job.variant_id)) is not None
