@@ -103,14 +103,17 @@ So every artifact carries its own input.
   it), flags that supply rows other than the fit's own, and a fit with an observation footprint
   (it also consumed support points, which the table does not describe). It checks every fit's
   input before writing the first directory, so an input refusal never leaves a run half published.
-- `build_data_release.py` refuses an artifact without `observations.parquet`, or whose recorded
-  hash, size, row count, columns or measurement do not match the file and the artifact. It also
-  checks the file itself, without loading the contract: its counts must be its measurement's own
-  columns with an integer type, it may carry no other measurement's counts and no column named
-  like a frequency, its columns must be exactly its contract's, in order (so no surface value such
-  as `post_mean` travels in it), and its `schema_sha256` must be a contract revision listed in
-  `CONTRACT_REVISIONS` (`genomeos/publication/artifact_inputs.py`; append a digest there when a
-  contract is revised, and never remove one). Nothing is skipped.
+- `build_data_release.py` refuses an artifact without `observations.parquet`, an empty one, or one
+  whose recorded hash, size, row count, columns or measurement do not match the file and the
+  artifact. It also checks the file's columns and types from its footer, without loading the
+  contract: its counts must be its measurement's own columns with an integer type, it may carry no
+  other measurement's counts and no column named like a frequency, its columns must be exactly its
+  contract's, in order (so no surface value such as `post_mean` travels in it), and its
+  `schema_sha256` must be a contract revision listed in `CONTRACT_REVISIONS`
+  (`genomeos/publication/artifact_inputs.py`; append a digest there when a contract is revised,
+  and never remove one). It does not read the rows: a row value the contract refuses is refused by
+  the contract itself, when the artifact is published and when its input is read. Nothing is
+  skipped.
 - In the release manifest, `observations.parquet` carries its data source's terms alone: `map` or
   `afnd`, from the `data_version` prefix, never `worldpop`. The WorldPop grid chose the cells the
   surface is predicted on and contributed none of the input's rows. The artifact's other files

@@ -474,6 +474,16 @@ def test_an_input_whose_columns_are_not_its_contracts_is_refused_even_if_its_rec
         _build(tree)
 
 
+def test_an_empty_input_is_refused_even_if_its_record_and_artifact_agree(tree: Path) -> None:
+    """An empty table fits nothing; the reader refuses a `row_count` of 0, so the gate does too."""
+    _hand_written_input(tree, ARTIFACT, observation_rows().iloc[:0], row_count=0)
+    manifest = json.loads((tree / ARTIFACT / "manifest.json").read_text())
+    manifest["n_observations"] = 0
+    _write(tree, f"{ARTIFACT}/manifest.json", json.dumps(manifest).encode())
+    with pytest.raises(dr.DataReleaseError, match="row_count 0 is not a positive integer"):
+        _build(tree)
+
+
 def test_a_carrier_input_written_as_allele_counts_is_refused(tree: Path) -> None:
     """A KIR table under `ac`/`an` would mix people with chromosomes in any pooled query (#133)."""
     _artifact(tree, KIR_ARTIFACT, "afnd-2026-08", measurement=CARRIER)

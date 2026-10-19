@@ -10,8 +10,13 @@ promises, checked here without loading the contract: integer counts under its ow
 names (``ac``/``an`` over chromosomes, ``carriers``/``n_individuals`` over people, #133), no other
 measurement's counts, no frequency column (design §7.1b), and exactly its contract's columns in its
 order, so a surface value cannot travel in an observation table (design §4, §5). The contract
-revision it cites must be one this repository has recorded. Nothing the project's own reader
-(``genomeos.surfaces.artifacts.read_observations``) would refuse may pass.
+revision it cites must be one this repository has recorded, and its row count positive, as the
+project's own reader (``genomeos.surfaces.artifacts.read_observations``) requires.
+
+What the gate checks is the record and the file's column set and types, read from its footer, not
+its rows. A row the contract refuses (a latitude of 200, ``ac`` above ``an``, an unknown
+``sampling_design``) is refused by the contract itself: by ``serialize_observations`` when the
+artifact is published, and by ``read_observations`` when it is read.
 
 Artifacts released before the rule cannot be repaired in place: a released artifact is immutable,
 so it may not gain a file. Each one is named, with a reason, in the builder's reviewed
@@ -208,10 +213,15 @@ def _check_record(name: str, manifest: Mapping[str, Any], measured: InputFile) -
             f"{list(expected)}, in its order: an input carries nothing else, and never a surface value "
             "(design §4, §5)"
         )
-    n_observations = manifest.get("n_observations")
-    if not (type(record["row_count"]) is int and record["row_count"] == measured.rows == n_observations):
+    row_count, n_observations = record["row_count"], manifest.get("n_observations")
+    if not (type(row_count) is int and row_count > 0):
         raise DataReleaseError(
-            f"{name}: {RECORD_KEY} row_count {record['row_count']!r}, file rows {measured.rows} and "
+            f"{name}: {RECORD_KEY} row_count {row_count!r} is not a positive integer: an empty table "
+            "fits nothing, and the reader refuses it"
+        )
+    if not row_count == measured.rows == n_observations:
+        raise DataReleaseError(
+            f"{name}: {RECORD_KEY} row_count {row_count!r}, file rows {measured.rows} and "
             f"n_observations {n_observations!r} must all agree"
         )
 
