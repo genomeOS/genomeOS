@@ -48,6 +48,9 @@ restore() {
   backup=
 }
 trap restore EXIT
+# On HUP, INT or TERM, exit 128 + the signal's number once the running child has ended, which runs
+# the EXIT trap. Untrapped, bash would restore at once under a build still reading the catalog
+# (HUP, TERM), or go on to run the tour after an INT the child survived.
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM

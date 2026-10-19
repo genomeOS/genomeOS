@@ -33,7 +33,11 @@ const FIXTURE = 'tests/fixtures/atlas/e2e/catalog.json';
 const PRODUCTION = 'public/data/atlas/catalog.json';
 const BASE = 'https://storage.googleapis.com/example-bucket/atlas/web/';
 
-/** A stub that logs its arguments, the data base and the fixture catalog, then exits as told. */
+/**
+ * A stub that logs its arguments, the data base and the fixture catalog, then exits as told. Told
+ * to, it signals the script (`STUB_SIGNAL`, TERM by default), runs on a moment and logs the
+ * fixture catalog again, as an interrupted build still running would read it.
+ */
 const STUB = `#!/usr/bin/env bash
 {
   echo "args: $*"
@@ -41,7 +45,11 @@ const STUB = `#!/usr/bin/env bash
   echo "catalog: $(cat ${FIXTURE})"
 } >> "$STUB_LOG"
 name=$(basename "$0")
-if [ "\${STUB_SIGNAL_FROM:-}" = "$name" ]; then kill -TERM "$PPID"; fi
+if [ "\${STUB_SIGNAL_FROM:-}" = "$name" ]; then
+  kill -"\${STUB_SIGNAL:-TERM}" "$PPID"
+  sleep 0.3
+  echo "catalog after the signal: $(cat ${FIXTURE})" >> "$STUB_LOG"
+fi
 status_var="STUB_STATUS_$name"
 exit "\${!status_var:-0}"
 `;
@@ -133,15 +141,30 @@ describe('the production-density terrain tour script (#483)', () => {
     expect(leftovers).toEqual([]);
   });
 
-  it('restores the fixture catalog when the build is interrupted', () => {
-    const { catalog, leftovers, status } = run([], {
-      PUBLIC_ATLAS_DATA_BASE_URL: BASE,
-      STUB_SIGNAL_FROM: 'npm',
-    });
-    expect(status).not.toBe(0);
-    expect(catalog).toBe('fixture');
-    expect(leftovers).toEqual([]);
-  });
+  // Each signal's trap: bash would run the EXIT trap on a fatal HUP or TERM anyway, but at once,
+  // restoring the catalog under a build still reading it; and after an INT the child survived, it
+  // would go on, restore the catalog and run the tour.
+  it.each([
+    ['HUP', 129],
+    ['INT', 130],
+    ['TERM', 143],
+  ])(
+    'on SIG%s during the build, waits for the build to end, restores the fixture catalog and runs no tour (exit %i)',
+    (signal, code) => {
+      const { catalog, leftovers, log, status } = run([], {
+        PUBLIC_ATLAS_DATA_BASE_URL: BASE,
+        STUB_SIGNAL: signal,
+        STUB_SIGNAL_FROM: 'npm',
+      });
+      expect(status).toBe(code);
+      expect(log.filter((line) => line.startsWith('args:'))).toEqual([
+        'args: run build:e2e',
+      ]);
+      expect(log).toContain('catalog after the signal: production');
+      expect(catalog).toBe('fixture');
+      expect(leftovers).toEqual([]);
+    },
+  );
 
   it('exits with the tour’s status, the fixture catalog in place', () => {
     const { catalog, status } = run([], {
