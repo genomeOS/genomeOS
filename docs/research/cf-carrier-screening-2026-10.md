@@ -16,13 +16,25 @@ abstract-level and closed access; they enter the literature-evidence contract as
 ## Source and reading record
 
 Five papers, each retrieved as a Europe PMC abstract record on **2026-10-23** through the REST search API
-(`resultType=core`). No full text was obtained for any of them: all five are `isOpenAccess: N` and none is in
-PMC. What was read, and what was not:
+(`resultType=core`). All five are `isOpenAccess: N` and none is in PMC, so the abstracts were what we had.
+
+**Castellani 2009 was then read in full**, from the authors' own institutional copy in the Ca' Foscari
+repository (IRIS, handle [`10278/3757472`](https://hdl.handle.net/10278/3757472)), which is a green
+open-access copy: 7 pages, 39,068 characters, retrieved 2026-11-08 as a 297,772-byte PDF and never
+committed. That is why its two rows carry `reading_level = full_text` and the other four do not.
 
 | Read | Not read |
 |---|---|
-| Abstract text, title, author list, journal, year, PMID and DOI for each of the five | Full texts, methods sections, tables, figures, supplements |
-| The paper's own stated design and counts, as quoted below | Any page locator, which is why no row carries one |
+| Abstract text, title, author list, journal, year, PMID and DOI for each of the five | Full texts of Kapoor 2006, Raskin 2008, Roqué 2001 and Archibald 2018 |
+| Castellani 2009 in full, including Table 2 and the methods paragraph on the mutation panel | Any page locator for the four abstract-level rows |
+
+**What the full text changed, which is the reason to say this out loud.** The abstract prints counts, so
+the two Italian rows were originally marked `computed`: this note divided 314 by 2,559 and 3,650 by 87,025.
+The paper prints the carrier rate itself, as **1 in 8.1** in the west and **1 in 23.8** in the east, so
+both rows are `published` and the raw division is kept in the note on each row. The paper also states that
+the **mutation panel widened during the 1993-2007 study period** and that this would raise sensitivity, so
+the two regions are not measured with one constant test across the whole period. And it reports no
+F508del-specific figure anywhere, which is why both rows stay panel totals.
 
 **One candidate row was dropped rather than inferred.** A Romanian random sample (415 adults, 1 in 32, *Rev
 Rom Med Lab* 2021) appears in the scoping discussion on #47. It is not indexed in Europe PMC, PubMed or

@@ -33,17 +33,22 @@ def test_the_table_is_the_six_transcribed_rows(targets):
 
 
 def test_every_row_cites_something_a_reader_can_resolve(targets):
-    """Abstract-level rows are still citable: a PMID and a DOI each, and a stated reading level.
+    """Every row is citable: a PMID and a DOI each, and a stated reading level.
 
-    The reading level is the honesty column. These five papers are closed access, so every row is
-    `abstract`; a row claiming `full_text` without a page locator would be the first sign that
-    somebody pasted a memory instead of a quote.
+    The reading level is the honesty column. Two rows were read in full from the authors' own
+    institutional copy and say so; the other four are abstract-level because those papers are closed
+    access. A row claiming `full_text` without a locator would be the first sign that somebody pasted
+    a memory instead of a quote.
     """
     assert targets["source_pmid"].notna().all()
     assert targets["source_doi"].notna().all()
     assert targets["source_pmid"].astype(str).str.fullmatch(r"\d{7,8}").all()
     assert targets["source_doi"].str.startswith("10.").all()
-    assert set(targets["reading_level"]) == {"abstract"}
+    assert set(targets["reading_level"]) <= {"abstract", "full_text"}
+    assert set(targets.loc[targets["reading_level"] == "full_text", "place_id"]) == {
+        "italy-northeast-east",
+        "italy-northeast-west",
+    }
 
 
 def test_design_classes_are_from_the_closed_set(targets):
@@ -72,7 +77,8 @@ def test_computed_frequencies_reproduce_their_counts(targets):
     """Rows marked `computed` are carriers divided by n_tested. If those two drift apart, the row
     was edited and the note beside it was not."""
     computed = targets[targets["frequency_source"] == "computed"]
-    assert len(computed) == 3
+    assert len(computed) == 1
+    assert set(computed["place_id"]) == {"australia-victoria"}
     assert computed["carriers_f508del"].notna().all()
     for row in computed.itertuples():
         expected = row.carriers_f508del / row.n_tested
@@ -80,13 +86,24 @@ def test_computed_frequencies_reproduce_their_counts(targets):
 
 
 def test_published_frequencies_agree_with_their_own_counts(targets):
-    """Delhi is the only row that prints both a count and a frequency, so it is the one place where
-    the printed rate can be checked against the arithmetic: 4/955 is 0.42%, printed as 1 in 238."""
-    delhi = targets.set_index("place_id").loc["india-delhi-cord-blood"]
+    """Rows that print both a count and a rate must agree with their own arithmetic.
+
+    Delhi prints 0.42% against 4/955, so the tolerance is the paper's rounding. The Italian rows print
+    a rate to one decimal place of the ratio (1 in 8.1 and 1 in 23.8), which is 2559/314 and 87025/3650
+    rounded, so they are held to a looser tolerance and the note on each row records the raw division.
+    """
+    by_place = targets.set_index("place_id")
+    delhi = by_place.loc["india-delhi-cord-blood"]
     assert delhi["carriers_f508del"] == 4
     assert delhi["n_tested"] == 955
     assert delhi["carrier_frequency"] == pytest.approx(4 / 955, abs=1e-4)
     assert 1 / delhi["carrier_frequency"] == pytest.approx(238, abs=1)
+
+    for place in ("italy-northeast-east", "italy-northeast-west"):
+        row = by_place.loc[place]
+        assert row["carrier_frequency"] == pytest.approx(
+            row["carriers_f508del"] / row["n_tested"], abs=1e-3
+        )
 
 
 def test_exactly_three_rows_are_f508del_specific(targets):

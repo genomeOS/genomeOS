@@ -39,11 +39,21 @@ target citable at a fixed version, the same way `piel2013.py` fixes golden test 
    recovering this table from the abstracts will not find 4.19% or 12.27% printed anywhere, and
    should not conclude a transcription error when that search fails.
 
-**What this table is not.** It is abstract-level, not full text: all five papers are closed access,
-so no row carries a page locator and each enters the literature-evidence contract as
-`automated_proposal` / `pending` rather than a verified observation. It is a *screening-derived truth
-set* for §8, not an observation layer: CF has no surface to fit, because #180 excludes
-CFTR/F508del from surface eligibility and #3 grades CFTR2 G1 for being patient-denominated.
+**Four rows are abstract-level and two are not.** Castellani 2009 was read in full from the authors'
+own institutional copy (IRIS Ca' Foscari, handle 10278/3757472), which is a green open-access copy, so
+its two rows carry `reading_level = full_text`. The other four papers are closed access with no
+repository copy reachable from here, so those rows are abstract-level and carry no page locator. Every
+row still enters the literature-evidence contract as `automated_proposal` / `pending`, because
+`verified_by` has to be independent of the extractor. This is a *screening-derived truth set* for §8,
+not an observation layer: CF has no surface to fit, because #180 excludes CFTR/F508del from surface
+eligibility and #3 grades CFTR2 G1 for being patient-denominated.
+
+**What the full text changed.** Two things, both of which a reader would otherwise get wrong from the
+abstract alone. The paper prints the carrier rate itself, as **1 in 8.1** in the west and **1 in 23.8**
+in the east, so those frequencies are published rather than divided by us. And the **mutation panel
+widened during the 1993-2007 study period**, which the paper notes would raise sensitivity, so the two
+regions are not being measured with one constant test. It also does not report F508del separately
+anywhere, which is why both rows stay panel totals.
 
 **One open schema question, raised here rather than settled silently.** The closed `sampling_design`
 set in `docs/literature-evidence-curation.md` has no value meaning "unselected sample that is not a
