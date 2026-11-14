@@ -77,6 +77,7 @@ describe('the terrain tour’s attribution (#483)', () => {
           startTime: 1_040,
         },
       ],
+      pointerMoves: [],
       longFrames: [frame(1_000, 80), frame(9_500, 346), frame(4_990, 60)],
       readiness: [],
       steps: STEPS,
@@ -119,6 +120,7 @@ describe('the terrain tour’s attribution (#483)', () => {
       endMs: 12_000,
       endTiles: tiles(),
       groundPasses: [],
+      pointerMoves: [],
       longFrames: [straddling, scriptless],
       readiness: [],
       steps: STEPS.map((s) => ({ ...s, tiles: null })),
@@ -156,6 +158,7 @@ describe('the terrain tour’s attribution (#483)', () => {
           startTime: 9_100,
         },
       ],
+      pointerMoves: [],
       longFrames: [],
       readiness: [],
       steps: STEPS.map((s) => ({ ...s, tiles: null })),
@@ -207,6 +210,7 @@ describe('the terrain tour’s attribution (#483)', () => {
           startTime: 9_100,
         },
       ],
+      pointerMoves: [],
       longFrames: [],
       readiness: [],
       steps: STEPS.map((s) => ({ ...s, tiles: null })),
@@ -262,6 +266,7 @@ describe('the terrain tour’s attribution (#483)', () => {
           startTime: 5_800,
         },
       ],
+      pointerMoves: [],
       longFrames: [],
       readiness: [
         {
@@ -331,6 +336,7 @@ describe('the terrain tour’s attribution (#483)', () => {
       endMs: 12_000,
       endTiles: tiles(),
       groundPasses: [],
+      pointerMoves: [],
       longFrames: [],
       readiness: [
         {
@@ -393,6 +399,7 @@ describe('the terrain tour’s attribution (#483)', () => {
       endMs: 12_000,
       endTiles: tiles([1, 0, 0, 0, 0, 0, 3], { 0: level0Later }),
       groundPasses: [],
+      pointerMoves: [],
       longFrames: [],
       readiness: [],
       steps: [
@@ -417,6 +424,7 @@ describe('the terrain tour’s attribution (#483)', () => {
       endMs: 12_000,
       endTiles: tiles(undefined, undefined, { 0: 40, 2: 9, 7: 6.5 }),
       groundPasses: [],
+      pointerMoves: [],
       longFrames: [],
       readiness: [],
       steps: [
@@ -441,6 +449,7 @@ describe('the terrain tour’s attribution (#483)', () => {
       endMs: 12_000,
       endTiles: tiles(undefined, undefined, { 0: 40, 2: 10, 7: 20 }),
       groundPasses: [],
+      pointerMoves: [],
       longFrames: [],
       readiness: [],
       steps: [
@@ -498,6 +507,7 @@ describe('the terrain tour’s attribution (#483)', () => {
       endMs: 12_000,
       endTiles: tiles(),
       groundPasses: [],
+      pointerMoves: [],
       longFrames: [],
       readiness: [],
       steps: [
@@ -534,6 +544,7 @@ describe('the terrain tour’s attribution (#483)', () => {
       endMs: 12_000,
       endTiles: tiles(),
       groundPasses: [],
+      pointerMoves: [],
       longFrames: [frame(900, 120)],
       readiness: [],
       steps: STEPS.map((s) => ({ ...s, tiles: null })),
@@ -583,6 +594,7 @@ describe('the terrain tour’s attribution (#483)', () => {
           startTime: 9_100,
         },
       ],
+      pointerMoves: [],
       longFrames: [],
       readiness: [],
       steps: STEPS.map((s) => ({ ...s, tiles: null })),
@@ -599,11 +611,70 @@ describe('the terrain tour’s attribution (#483)', () => {
     ]);
   });
 
+  // A pointer over the globe hovers it, and a hover picks: a move the tour did not make shows here
+  // with its time and position (#483). Every move is the browser's own, whoever made it.
+  it('lists each step’s pointer moves over the globe, in order: time, position and trust', () => {
+    const steps = attributeTour({
+      endMs: 12_000,
+      endTiles: tiles(),
+      groundPasses: [],
+      longFrames: [],
+      pointerMoves: [
+        { clientX: 600, clientY: 410, isTrusted: true, startTime: 5_412.34 },
+        { clientX: 412, clientY: 288, isTrusted: true, startTime: 3_120 },
+        { clientX: 760, clientY: 450, isTrusted: false, startTime: 5_400 },
+      ],
+      readiness: [],
+      steps: STEPS.map((s) => ({ ...s, tiles: null })),
+    });
+    expect(steps.map((s) => s.pointerMoves)).toEqual([
+      [{ clientX: 412, clientY: 288, isTrusted: true, startMs: 3_120 }],
+      [
+        { clientX: 760, clientY: 450, isTrusted: false, startMs: 5_400 },
+        { clientX: 600, clientY: 410, isTrusted: true, startMs: 5_412.3 },
+      ],
+      [],
+    ]);
+    // One before the first step gets a step of its own; one at the end is an error.
+    expect(
+      attributeTour({
+        endMs: 12_000,
+        endTiles: tiles(),
+        groundPasses: [],
+        longFrames: [],
+        pointerMoves: [
+          { clientX: 1, clientY: 2, isTrusted: true, startTime: 400 },
+        ],
+        readiness: [],
+        steps: STEPS.map((s) => ({ ...s, tiles: null })),
+      }).map((s) => [s.step, s.pointerMoves.length]),
+    ).toEqual([
+      ['before World Terrain', 1],
+      ['World Terrain', 0],
+      ['orbit', 0],
+      ['relief 3', 0],
+    ]);
+    expect(() =>
+      attributeTour({
+        endMs: 12_000,
+        endTiles: tiles(),
+        groundPasses: [],
+        longFrames: [],
+        pointerMoves: [
+          { clientX: 1, clientY: 2, isTrusted: true, startTime: 12_000 },
+        ],
+        readiness: [],
+        steps: STEPS.map((s) => ({ ...s, tiles: null })),
+      }),
+    ).toThrow(/after the tour's end/);
+  });
+
   it('refuses steps out of order, an entry after the end, a pass of no known kind, and running counts that shrink', () => {
     const base = {
       endMs: 12_000,
       endTiles: tiles(),
       groundPasses: [],
+      pointerMoves: [],
       longFrames: [],
       readiness: [],
       steps: STEPS.map((s) => ({ ...s, tiles: null })),

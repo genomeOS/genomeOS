@@ -1,10 +1,17 @@
 /**
  * The World Terrain tour's attribution (terrain draping design, "Performance budget and
- * measurement", #483): which of the tour's steps each long animation frame, ground pass and draped
- * readiness fell in, how much of each long frame was spent picking the ground, each step's ground
- * passes in sum, per kind and one by one, and how many draped tiles each step delivered, per level,
- * with the worker's raster time they took. The budgets judge the tour's totals
- * (`terrain-budgets.ts`); this says where they went. Pure: no Playwright or browser dependency.
+ * measurement", #483): which of the tour's steps each long animation frame, ground pass, draped
+ * readiness and pointer move over the globe fell in, how much of each long frame was spent picking
+ * the ground, each step's ground passes in sum, per kind and one by one, and how many draped tiles
+ * each step delivered, per level, with the worker's raster time they took. The budgets judge the
+ * tour's totals (`terrain-budgets.ts`); this says where they went. Pure: no Playwright or browser
+ * dependency.
+ *
+ * A pointer over the globe hovers it, and a hover once ran a GPU pick that held a headed run's
+ * frame for 690 ms, from a move the tour never made (owner decision 2026-11-14 on #483). So each
+ * step lists its pointer moves over the globe, with their time, position and `isTrusted`: a move
+ * the tour did not make shows at a position it never uses. Playwright's moves are trusted too, so
+ * trust tells a script's synthetic event from the browser's, not the tour's from a person's.
  *
  * The phone's profile throttles the page's CPU only: CDP cannot throttle a dedicated worker, which
  * the cold-load suite records and answers by scaling its worker steps (`scaleCriticalPath`). The
@@ -82,6 +89,14 @@ export interface TourStep extends TourMark {
   step: string;
 }
 
+/** A `pointermove` over the globe's canvas, as the page's listener saw it. */
+export interface TourPointerMove {
+  startTime: number;
+  clientX: number;
+  clientY: number;
+  isTrusted: boolean;
+}
+
 export interface TourRecord {
   steps: TourStep[];
   endMs: number;
@@ -89,6 +104,7 @@ export interface TourRecord {
   longFrames: TourLongFrame[];
   groundPasses: TourMeasure<GroundPassDetail>[];
   readiness: TourMeasure<DrapedReadyDetail>[];
+  pointerMoves: TourPointerMove[];
 }
 
 export interface StepAttribution {
@@ -118,6 +134,8 @@ export interface StepAttribution {
   };
   /** The draped layers added or shown in this step, in the order they were read ready. */
   readiness: (DrapedReadyDetail & { startMs: number; ms: number })[];
+  /** The pointer moves over the globe in this step, in order. */
+  pointerMoves: (Omit<TourPointerMove, 'startTime'> & { startMs: number })[];
   /** The draped tiles delivered in this step; null where the tour read no counts. */
   tiles: TourTiles | null;
 }
@@ -312,6 +330,7 @@ export function attributeTour(record: TourRecord): StepAttribution[] {
     ...record.longFrames.map(frameStart),
     ...record.groundPasses.map((pass) => pass.startTime),
     ...record.readiness.map((ready) => ready.startTime),
+    ...record.pointerMoves.map((move) => move.startTime),
   ];
   for (const start of starts)
     if (!(start < endMs))
@@ -369,6 +388,12 @@ export function attributeTour(record: TourRecord): StepAttribution[] {
           startMs: tenth(frame.startTime),
         })),
       ms: tenth(endOf - bucket.startMs),
+      pointerMoves: inBucket(record.pointerMoves)
+        .sort((a, b) => a.startTime - b.startTime)
+        .map(({ startTime, ...move }) => ({
+          ...move,
+          startMs: tenth(startTime),
+        })),
       readiness: inBucket(record.readiness)
         .sort((a, b) => a.startTime + a.duration - (b.startTime + b.duration))
         .map((ready) => ({
