@@ -79,7 +79,7 @@ def _build(root: Path, release: str = RELEASE, **options) -> dict:
 
 @pytest.fixture()
 def tree(tmp_path: Path) -> Path:
-    """A tiny data/ tree with one file under every include root and both committed SOURCE.json files."""
+    """A tiny data/ tree with one file under every required include root and both SOURCE.json files."""
     root = tmp_path / "data"
     _artifact(root, ARTIFACT, "map-2026-08", grid="worldpop-1km-unconstrained")
     _artifact(root, AFND_ARTIFACT, "afnd-2026-08")
@@ -229,6 +229,31 @@ def test_committed_releases_validate() -> None:
 def test_include_roots_cover_the_committed_inputs() -> None:
     for path in ("raw/afnd_populations.tsv", "registry", "sources", "store/INVENTORY.json"):
         assert any(path == root or path.startswith(f"{root}/") for root in build.INCLUDE), path
+
+
+# --- optional include roots (Atlas data platform design 2026-10-18 §2.3, step 1.2) ---
+
+
+def test_optional_roots_may_be_absent_until_a_release_publishes_under_them(tree: Path) -> None:
+    assert {"catalog", "tables"} <= set(build.OPTIONAL_ROOTS) <= set(build.INCLUDE)
+    assert not (tree / "catalog").exists() and not (tree / "tables").exists()
+    assert not any(path.startswith(("catalog/", "tables/")) for path in _paths(_build(tree)))
+
+
+def test_an_optional_root_is_required_once_a_release_published_under_it(tree: Path) -> None:
+    published = "tables/v1/meta/served.parquet"
+    with pytest.raises(dr.DataReleaseError, match="include root data/tables is missing"):
+        build.included_files(tree, published={published})
+    record = dr.FileRecord(published, 1, "a" * 64, False, ("genomeos",))
+    earlier = dr.build_manifest([record], {"genomeos": build.REVIEWED_SOURCES["genomeos"]}, "2026-10-01")
+    with pytest.raises(dr.DataReleaseError, match="include root data/tables is missing"):
+        _build(tree, previous=[earlier])
+
+
+def test_an_optional_root_file_needs_a_reviewed_source_rule(tree: Path) -> None:
+    _write(tree, "catalog/x.txt", b"x\n")
+    with pytest.raises(dr.DataReleaseError, match="no reviewed source rule"):
+        _build(tree)
 
 
 # --- inputs travel with outputs (#45) ---

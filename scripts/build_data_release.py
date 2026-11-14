@@ -27,7 +27,7 @@ import hashlib
 import json
 import subprocess
 import sys
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -47,14 +47,20 @@ CHUNK = 1 << 20
 
 #: Paths under data/ that a release publishes (design §3 C7). Everything else stays local.
 INCLUDE = (
+    "catalog",
     "raw/afnd_populations.tsv",
     "registry",
     "sources",
     "store/INVENTORY.json",
     "store/artifacts",
     "store/catalog-metadata.json",
+    "tables",
     "validation",
 )
+#: Include roots a tree may lack until a release publishes under them (Atlas data platform design
+#: 2026-10-18 §2.3): the v1 tables and their catalog arrive with release 1. Once published, each is
+#: required.
+OPTIONAL_ROOTS: tuple[str, ...] = ("catalog", "tables")
 
 #: The 994 MAP HbS surveys the 2026-09-16 golden-test-1 run fit, as that run serialized them (#45).
 PARITY_INPUT = "hbs-piel-parity-2026-09-16"
@@ -330,7 +336,9 @@ def _refuse_pickled_npy(path: Path, relative: str) -> None:
         raise dr.DataReleaseError(f"{relative}: object-dtype .npy holds a pickle and is never published")
 
 
-def included_files(data_root: Path) -> list[str]:
+def included_files(data_root: Path, *, published: Collection[str] = ()) -> list[str]:
+    """Every file under the include roots. An absent optional root is skipped only while no path in
+    ``published`` (what earlier releases hold) lies under it; any other absent root is an error."""
     found: list[str] = []
     for root in INCLUDE:
         base = data_root / root
@@ -338,14 +346,18 @@ def included_files(data_root: Path) -> list[str]:
             found.append(root)
         elif base.is_dir():
             found.extend(path.relative_to(data_root).as_posix() for path in base.rglob("*") if path.is_file())
+        elif root in OPTIONAL_ROOTS and not any(
+            path == root or path.startswith(f"{root}/") for path in published
+        ):
+            continue
         else:
             raise dr.DataReleaseError(f"include root data/{root} is missing; fetch it first")
     return sorted(found)
 
 
-def collect(data_root: Path, tracked: set[str]) -> list[dr.FileRecord]:
+def collect(data_root: Path, tracked: set[str], *, published: Collection[str] = ()) -> list[dr.FileRecord]:
     records: list[dr.FileRecord] = []
-    for relative in included_files(data_root):
+    for relative in included_files(data_root, published=published):
         dr.media_type_for(relative)  # refuses pickles before anything is hashed
         path = data_root / relative
         if relative.endswith(".npy"):
@@ -410,7 +422,8 @@ def build(
     released_without_input: Mapping[str, str],
     previous: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
-    records = collect(data_root, tracked)
+    published = {item.path for manifest in previous for item in dr.validate_manifest(manifest)}
+    records = collect(data_root, tracked, published=published)
     check_inputs(data_root, records, previous, released_without_input)
     used = {name for record in records for name in record.sources}
     available = {**REVIEWED_SOURCES, **_record_sources(data_root)}

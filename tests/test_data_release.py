@@ -75,6 +75,33 @@ def test_unsafe_paths_are_refused(path: str) -> None:
         dr.assert_data_path(path)
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "tables/v1/measured/allele_observations_binned/source=gnomad_hgdp_1kg/ingest_version=gnomad-4.1/"
+        "chrom=chr11/bin=5/part-0.parquet",
+        "tables/v1/inferred/cells_by_cell/epoch=2026-10-18/res=4/h3_r0=8001fffffffffff/part-0.parquet",
+        "tables/v1/reference/populations/2026-10-18-0a1b2c3d/populations.parquet",
+    ],
+)
+def test_hive_partition_folders_are_data_paths(path: str) -> None:
+    """The v1 layout names partitions `key=value` (Atlas data platform design 2026-10-18 §2.3; call 5)."""
+    assert dr.assert_data_path(path) == path
+
+
+@pytest.mark.parametrize(
+    "segment", ["=chr11", "%3A", "a+b", "a:b"], ids=["leading-equals", "percent", "plus", "colon"]
+)
+def test_a_segment_may_not_start_with_equals_or_carry_percent_plus_or_colon(segment: str) -> None:
+    with pytest.raises(dr.DataReleaseError, match="path"):
+        dr.assert_data_path(f"tables/v1/{segment}/part-0.parquet")
+
+
+def test_catalog_files_have_deliberate_media_types() -> None:
+    assert dr.media_type_for("catalog/catalog.sql") == "application/sql"
+    assert dr.media_type_for("catalog/atlas.duckdb") == "application/octet-stream"
+
+
 @pytest.mark.parametrize("path", ["store/fits/x.fit.pkl", "a.pickle", "model.joblib"])
 def test_pickles_are_never_published(path: str) -> None:
     record = dr.FileRecord(path, 1, SHA_A, False, ("map",))

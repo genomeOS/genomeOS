@@ -47,11 +47,13 @@ DATA_STORE_BASE_URL = "https://storage.googleapis.com/genomeos-atlas-data/"
 #: Closed: an extension missing here is refused rather than served under a guessed type.
 MEDIA_TYPES: Mapping[str, str] = {
     ".csv": "text/csv",
+    ".duckdb": "application/octet-stream",
     ".json": "application/json",
     ".log": "text/plain",
     ".md": "text/markdown",
     ".npy": "application/octet-stream",
     ".parquet": "application/vnd.apache.parquet",
+    ".sql": "application/sql",
     ".tsv": "text/tab-separated-values",
     ".txt": "text/plain",
 }
@@ -67,7 +69,10 @@ _SOURCE_REQUIRED = frozenset({"name", "terms", "non_commercial"})
 _TERMS_FIELDS = frozenset({"status", "checked_at", "terms_url", "licence", "recorded_in", "note"})
 _TOTALS_FIELDS = ("objects", "bytes", "in_git_objects", "in_git_bytes")
 _RELEASE = re.compile(r"(\d{4}-\d{2}-\d{2})(?:\.([1-9]\d*))?")
-_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+#: A path segment. ``=`` names a hive partition folder (``chrom=chr11``) but never leads one; ``%``,
+#: ``+`` and ``:`` stay refused (Atlas data platform design 2026-10-18 §13 call 5): ``%`` and ``+``
+#: change meaning when a URL is decoded, and ``:`` is not a portable file-name character.
+_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._=-]*")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _SOURCE_ID = re.compile(r"[a-z][a-z0-9_-]*")
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -121,7 +126,7 @@ def assert_data_path(value: object) -> str:
     if not all(_SEGMENT.fullmatch(part) for part in parts):
         raise DataReleaseError(
             f"invalid data path {value!r}: expected '/'-separated segments matching "
-            "^[A-Za-z0-9][A-Za-z0-9._-]*$ (relative, no '..', no hidden files)"
+            "^[A-Za-z0-9][A-Za-z0-9._=-]*$ (relative, no '..', no hidden files)"
         )
     return value
 
