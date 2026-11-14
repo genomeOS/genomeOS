@@ -131,3 +131,51 @@ def test_a_real_path_is_still_reported_when_a_url_appears_on_the_same_line():
     text = "see https://www.ncbi.nlm.nih.gov/home/about/ then run /Users/andrea/code/build.sh"
     findings = personal_paths(text)
     assert [match for _, match in findings] == ["/Users/andrea"]
+
+
+# An agent's session folder is named after the home directory it was started from, with `/` written
+# as `-`. The literals are concatenated so that no tracked file holds a whole session path.
+SESSION_ROOT = "/private/tmp/" + "claude-501"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            f"x {SESSION_ROOT}/-Users-someperson-Desktop-proj/0a1b/scratchpad/x.py",
+            f"{SESSION_ROOT}/-Users-someperson-Desktop-proj",
+        ),
+        (
+            "x /tmp/" + "claude-1000/-home-someperson-src-proj/out.txt",
+            "/tmp/" + "claude-1000/-home-someperson-src-proj",
+        ),
+        (
+            "x ~/.claude/projects/" + "-Users-someperson-Desktop-proj/memory",
+            ".claude/projects/" + "-Users-someperson-Desktop-proj",
+        ),
+    ],
+)
+def test_an_agent_session_path_is_reported(text, expected):
+    """An agent's scratchpad or memory path spells out a home directory with dashes for slashes.
+
+    The home-directory patterns never see it, because `-Users-someperson-...` has no `/Users/`, yet
+    it commits the same username and machine layout to a public repo.
+    """
+    assert [match for _, match in personal_paths(text)] == [expected]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "MPLCONFIGDIR=/private/tmp/genomeos-cache-20260911/mpl",
+        "/tmp/claude-<uid>/<project>/scratchpad",
+        "OUT=$TMPDIR/claude-501/out",
+        "under .claude/worktrees/data-platform-design",
+    ],
+)
+def test_ordinary_temp_dirs_and_placeholders_are_not_session_paths(text):
+    """A temp directory of our own, a documented placeholder, `$TMPDIR` and a worktree name are fine.
+
+    None of them names a person's machine, and a gate that fires on them gets disabled.
+    """
+    assert personal_paths(text) == []

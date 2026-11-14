@@ -37,9 +37,16 @@ SECRET_PATTERNS = {
 # preceded by a path segment. `../components/home/Hero.astro` names a project folder that happens
 # to be called `home`, and reading it as a user called "Hero.astro" would block ordinary source
 # code (the site's Home-page components live in `src/components/home/`, #454).
+#
+# An agent's session folder hides a home directory from the two patterns above: its name is the
+# home path it was started from with `/` written as `-` (`/Users/x/proj` -> `-Users-x-proj`), under
+# a per-uid temp root (`/tmp/claude-<uid>/`, `/private/tmp/` on macOS) or `.claude/projects/`. So
+# the session folder itself is reported, and `$TMPDIR` or a `<uid>` placeholder is not.
 PERSONAL_PATH_PATTERNS = (
     re.compile(r"""[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s"'`)\]]+"""),
     re.compile(r"""(?<![\w.\-])/(?:Users|home)/+[^/\s"'`)\]]+"""),
+    re.compile(r"""(?<![\w.\-])/(?:private/)?tmp/claude-\d+/[^\\/\s"'`)\]]+"""),
+    re.compile(r"""\.claude/projects/-(?:Users|home)-[^\\/\s"'`)\]]+"""),
 )
 
 # Names that identify a role, a placeholder, or a CI runner rather than a person. `runner` is
