@@ -57,6 +57,7 @@ function context(
       draped: false,
       drawn: () => true,
       hidden,
+      observations: null,
       surface,
     }),
   };
@@ -500,6 +501,7 @@ describe('surface-chunk cell resolution', () => {
         draped: false,
         drawn: () => true,
         hidden: [],
+        observations: null,
         surface: disk,
       }),
     });
@@ -567,6 +569,7 @@ describe('extruded picks along the camera ray', () => {
         draped: false,
         drawn: () => true,
         hidden: [],
+        observations: null,
         surface: disk,
       }),
     });
@@ -667,6 +670,7 @@ describe('surface picks in the map frame (Columbus view and 2D)', () => {
         draped: false,
         drawn: () => true,
         hidden: [],
+        observations: null,
         surface: disk,
       }),
     });

@@ -707,6 +707,36 @@ describe('atomic replacement', () => {
     });
   });
 
+  it('gives the hover the displayed observations only, never an incoming group at alpha 0 (#483)', async () => {
+    const h = harness();
+    const first = h.layers.setArtifact(h.load('hbs-rs334'));
+    for (let index = 0; index < 12 && !h.layers.pickTarget(); index += 1) {
+      await flushTasks();
+      h.frame();
+    }
+    // A cold reveal: its own observations, shown first.
+    const displayed = built.observations.at(-1)!;
+    expect(h.layers.pickTarget()!.observations).toBe(displayed);
+    await h.pump();
+    await first;
+    expect(h.layers.pickTarget()!.observations).toBe(displayed);
+
+    const pending = deferred<SurfaceArtifact>();
+    const second = h.layers.setArtifact(
+      h.load('g6pd-deficiency', pending.promise),
+    );
+    await h.pump(3);
+    const incoming = built.observations.at(-1)!;
+    expect(incoming).not.toBe(displayed);
+    expect(incoming.collection.show).toBe(true);
+    expect(h.layers.pickTarget()!.observations).toBe(displayed);
+
+    pending.resolve(surfaceFor('g6pd-deficiency'));
+    await h.pump();
+    await second;
+    expect(h.layers.pickTarget()!.observations).toBe(incoming);
+  });
+
   it('rebuilds a pending replacement, not the displayed artifact, on a style change', async () => {
     const h = harness();
     await h.show('hbs-rs334');

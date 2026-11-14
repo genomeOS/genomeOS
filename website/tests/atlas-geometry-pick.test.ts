@@ -10,6 +10,9 @@ import {
 } from 'h3-js';
 import { describe, expect, it, vi } from 'vitest';
 
+import type { DrawnMesh } from '../src/atlas/geometry/drawn-mesh';
+import { firstLiftedRow } from '../src/atlas/geometry/lifted-pick';
+import { firstDrawnRowAlong } from '../src/atlas/geometry/map-frame-pick';
 import {
   resolveSurfaceRow,
   type PickRay,
@@ -25,7 +28,7 @@ import {
 import { geodeticToEcef, magnitude } from '../src/atlas/geometry/wgs84';
 import { renderAt, type SurfaceArtifact } from '../src/atlas/surface-columns';
 import type { SurfaceGeometry } from '../src/atlas/url-state';
-import { heightFor } from '../src/atlas/visual-encoding';
+import { heightFor, MAX_HEIGHT_METRES } from '../src/atlas/visual-encoding';
 import {
   meshInputFor,
   sortedU64,
@@ -869,100 +872,119 @@ function firstMeshHit(
   return edge < 1e-4 ? null : { owner, t };
 }
 
-describe('surface picks in the map frame (Columbus view and 2D, fast-load §B.6.6)', () => {
-  const MAP_GEOMETRIES = ['triangles', 'hexagons', 'extruded'] as const;
-  /** Where the shader's ECEF normal shears the surface in the map frame:
-   * mostly up and north at 45°N 10°E; sideways (and slightly down) at 30°N
-   * 95°E; down at 30°S 150°E; mostly north at 75°N. */
-  const PLACES = {
-    'mostly sideways (30°N 95°E)': latLngToCell(30, 95, RESOLUTION),
-    'downwards (30°S 150°E)': latLngToCell(-30, 150, RESOLUTION),
-    'mid-latitude (45°N 10°E)': MID_LATITUDE,
-    'polar (75°N 20°E)': latLngToCell(75, 20, RESOLUTION),
-  };
+const MAP_GEOMETRIES = ['triangles', 'hexagons', 'extruded'] as const;
+/** Where the shader's ECEF normal shears the surface in the map frame:
+ * mostly up and north at 45°N 10°E; sideways (and slightly down) at 30°N
+ * 95°E; down at 30°S 150°E; mostly north at 75°N. */
+const PLACES = {
+  'mostly sideways (30°N 95°E)': latLngToCell(30, 95, RESOLUTION),
+  'downwards (30°S 150°E)': latLngToCell(-30, 150, RESOLUTION),
+  'mid-latitude (45°N 10°E)': MID_LATITUDE,
+  'polar (75°N 20°E)': latLngToCell(75, 20, RESOLUTION),
+};
 
-  /** The disk around `centre` as Columbus view draws it, with each triangle's
-   * row: rising heights so most rays meet a wall or an overlap, and one masked
-   * ring cell whose flat support plate is drawn unlifted. */
-  function drawnDisk(
-    geometry: (typeof MAP_GEOMETRIES)[number],
-    centre: string,
-    factor: number,
-    radius = 1,
-  ) {
-    const ring = sortedU64(gridDisk(centre, radius)).filter(
-      (cell) => cell !== centre,
-    );
-    const masked = ring[2];
-    const { buffers, disk, heights, input, surface } = setup(
-      geometry,
-      centre,
-      (h3) => ({
-        support: h3 === masked ? 'unknown' : 'interpolated',
-        // Rising round the first ring; further rings repeat the pattern.
-        value: h3 === centre ? 0.95 : 0.1 + 0.12 * (ring.indexOf(h3) % 6),
-      }),
-      radius,
-    );
-    const meshed = (row: number) => isSupportedCode(input.support[row]);
-    const triangles: Cartesian[][] = [];
-    const owners: number[] = [];
-    let triangle = 0;
-    disk.forEach((_, row) => {
-      if (!meshed(row)) return;
-      const corners =
-        input.topology.cornerOffsets[row + 1] -
-        input.topology.cornerOffsets[row];
-      const count = geometry === 'extruded' ? corners * 3 : corners;
-      for (let index = 0; index < count; index += 1, triangle += 1) {
-        triangles.push(
-          [0, 1, 2].map((offset) => {
-            const vertex = buffers.indices[triangle * 3 + offset];
-            return mapFrameVertex(
-              buffers.positions,
-              vertex,
-              buffers.elevationNormals,
-              buffers.heights[vertex] * factor,
-            );
-          }),
-        );
-        owners.push(row);
-      }
-    });
-    expect(triangle, 'every surface triangle has a row').toBe(
-      buffers.indices.length / 3,
-    );
-    const plate = buildSupportChunk(input, wholeGridChunk(input)).unknown!;
-    for (let index = 0; index < plate.indices.length; index += 3) {
+/** The disk around `centre` as Columbus view draws it (`map`), or the globe in
+ * ECEF (`globe`), with each triangle's row: rising heights so most rays meet a
+ * wall or an overlap, and one masked ring cell whose flat support plate is
+ * drawn unlifted. `mesh` is how a pick reads that drawing. */
+function drawnDisk(
+  geometry: (typeof MAP_GEOMETRIES)[number],
+  centre: string,
+  factor: number,
+  radius = 1,
+  frame: 'globe' | 'map' = 'map',
+) {
+  const ring = sortedU64(gridDisk(centre, radius)).filter(
+    (cell) => cell !== centre,
+  );
+  const masked = ring[2];
+  const { buffers, disk, heights, input, surface } = setup(
+    geometry,
+    centre,
+    (h3) => ({
+      support: h3 === masked ? 'unknown' : 'interpolated',
+      // Rising round the first ring; further rings repeat the pattern.
+      value: h3 === centre ? 0.95 : 0.1 + 0.12 * (ring.indexOf(h3) % 6),
+    }),
+    radius,
+  );
+  const meshed = (row: number) => isSupportedCode(input.support[row]);
+  const triangles: Cartesian[][] = [];
+  const owners: number[] = [];
+  let triangle = 0;
+  disk.forEach((_, row) => {
+    if (!meshed(row)) return;
+    const corners =
+      input.topology.cornerOffsets[row + 1] - input.topology.cornerOffsets[row];
+    const count = geometry === 'extruded' ? corners * 3 : corners;
+    for (let index = 0; index < count; index += 1, triangle += 1) {
       triangles.push(
-        [0, 1, 2].map((offset) =>
-          mapFrameVertex(
-            plate.positions,
-            plate.indices[index + offset],
-            null,
-            0,
-          ),
-        ),
+        [0, 1, 2].map((offset) => {
+          const vertex = buffers.indices[triangle * 3 + offset];
+          return frame === 'map'
+            ? mapFrameVertex(
+                buffers.positions,
+                vertex,
+                buffers.elevationNormals,
+                buffers.heights[vertex] * factor,
+              )
+            : (displaced(buffers, vertex, factor) as Cartesian);
+        }),
       );
-      owners.push(disk.indexOf(masked));
+      owners.push(row);
     }
-    const resolve = (point: Cartesian, ray: PickRay | null) =>
-      resolveSurfaceRow(
-        {
-          cartesian: null,
-          clearance: SURFACE_CLEARANCE_METRES,
-          ellipsoidHit: null,
-          factor,
-          geometry,
-          mapFrame: { point, ray },
-        },
-        surface,
-        heights,
-        meshed,
-      );
-    return { owners, resolve, surface, triangles };
+  });
+  expect(triangle, 'every surface triangle has a row').toBe(
+    buffers.indices.length / 3,
+  );
+  const plate = buildSupportChunk(input, wholeGridChunk(input)).unknown!;
+  for (let index = 0; index < plate.indices.length; index += 3) {
+    triangles.push(
+      [0, 1, 2].map((offset) => {
+        const vertex = plate.indices[index + offset];
+        return frame === 'map'
+          ? mapFrameVertex(plate.positions, vertex, null, 0)
+          : ([0, 1, 2].map(
+              (axis) => plate.positions[vertex * 3 + axis],
+            ) as Cartesian);
+      }),
+    );
+    owners.push(disk.indexOf(masked));
   }
+  const resolve = (point: Cartesian, ray: PickRay | null) =>
+    resolveSurfaceRow(
+      {
+        cartesian: null,
+        clearance: SURFACE_CLEARANCE_METRES,
+        ellipsoidHit: null,
+        factor,
+        geometry,
+        mapFrame: { point, ray },
+      },
+      surface,
+      heights,
+      meshed,
+    );
+  // As `resolveSurfaceRow` reads the scene's heights callback.
+  const mesh: DrawnMesh = {
+    clearance: SURFACE_CLEARANCE_METRES,
+    geometry,
+    maxLift: MAX_HEIGHT_METRES * factor,
+    meshed,
+    surface,
+    top: (row) => Math.max(0, heights(row)) * factor,
+  };
+  return {
+    masked: disk.indexOf(masked),
+    mesh,
+    owners,
+    resolve,
+    surface,
+    triangles,
+  };
+}
 
+describe('surface picks in the map frame (Columbus view and 2D, fast-load §B.6.6)', () => {
   /** A point inside each drawn triangle, so rays find the disk however far
    * the shear spread its cells. */
   function targetsOn(triangles: readonly Cartesian[][]): Cartesian[] {
@@ -1043,6 +1065,27 @@ describe('surface picks in the map frame (Columbus view and 2D, fast-load §B.6.
         },
       );
     });
+
+  // A hover has no depth hit (#483): the ray alone, over every height a lifted cell can reach.
+  for (const [place, centre] of Object.entries(PLACES))
+    it.each(
+      MAP_GEOMETRIES.flatMap((geometry) =>
+        [1, 5].map((factor) => [geometry, factor] as const),
+      ),
+    )(
+      `finds the first drawn %s cell from the ray alone at ${place}, at exaggeration %d (#483)`,
+      (geometry, factor) => {
+        const { mesh, owners, triangles } = drawnDisk(geometry, centre, factor);
+        let checked = 0;
+        for (const ray of raysOver(triangles)) {
+          const hit = firstMeshHit(triangles, owners, ray);
+          if (hit === null) continue;
+          expect(firstDrawnRowAlong(ray, mesh)).toBe(hit.owner);
+          checked += 1;
+        }
+        expect(checked, 'rays that meet the drawn disk').toBeGreaterThan(40);
+      },
+    );
 
   it.each(MAP_GEOMETRIES)(
     'keeps its answer under depth noise up to the window on a resolution-7 grid (%s)',
@@ -1168,5 +1211,155 @@ describe('surface picks in the map frame (Columbus view and 2D, fast-load §B.6.
       checked += 1;
     }
     expect(checked).toBeGreaterThan(40);
+  });
+});
+
+describe('a hover’s lifted pick on the globe, from the pick ray alone (#483)', () => {
+  /** A point inside each drawn triangle. */
+  function targetsOn(triangles: readonly Cartesian[][]): Cartesian[] {
+    return triangles.map(
+      ([a, b, c]) =>
+        [0, 1, 2].map(
+          (axis) => a[axis] * 0.25 + b[axis] * 0.35 + c[axis] * 0.4,
+        ) as Cartesian,
+    );
+  }
+
+  /** Rays in ECEF from three cameras 1,500 km up, one nearly overhead and two
+   * oblique, at a point inside each triangle. */
+  function raysOver(triangles: readonly Cartesian[][]): PickRay[] {
+    const targets = targetsOn(triangles);
+    const centre = [0, 1, 2].map(
+      (axis) =>
+        targets.reduce((total, target) => total + target[axis], 0) /
+        targets.length,
+    );
+    const up = centre.map((axis) => axis / Math.hypot(...centre));
+    const eastward = [-up[1], up[0], 0];
+    const east = eastward.map((axis) => axis / Math.hypot(...eastward));
+    const north = [
+      up[1] * east[2] - up[2] * east[1],
+      up[2] * east[0] - up[0] * east[2],
+      up[0] * east[1] - up[1] * east[0],
+    ];
+    const rays: PickRay[] = [];
+    for (const [across, along] of [
+      [30_000, 20_000],
+      [900_000, -400_000],
+      [-500_000, 800_000],
+    ]) {
+      const origin = [0, 1, 2].map(
+        (axis) =>
+          centre[axis] +
+          up[axis] * 1_500_000 +
+          east[axis] * across +
+          north[axis] * along,
+      ) as Cartesian;
+      for (const target of targets) {
+        const length = Math.hypot(
+          ...[0, 1, 2].map((axis) => target[axis] - origin[axis]),
+        );
+        rays.push({
+          direction: [0, 1, 2].map(
+            (axis) => (target[axis] - origin[axis]) / length,
+          ) as Cartesian,
+          origin,
+        });
+      }
+    }
+    return rays;
+  }
+
+  for (const [place, centre] of Object.entries(PLACES))
+    it.each(
+      MAP_GEOMETRIES.flatMap((geometry) =>
+        [1, 5].map((factor) => [geometry, factor] as const),
+      ),
+    )(
+      `meets the drawn %s cell the ray meets first at ${place}, at exaggeration %d`,
+      (geometry, factor) => {
+        const { mesh, owners, triangles } = drawnDisk(
+          geometry,
+          centre,
+          factor,
+          1,
+          'globe',
+        );
+        let checked = 0;
+        for (const ray of raysOver(triangles)) {
+          const hit = firstMeshHit(triangles, owners, ray);
+          if (hit === null) continue;
+          expect(firstLiftedRow(ray, mesh)).toBe(hit.owner);
+          checked += 1;
+        }
+        expect(checked, 'rays that meet the drawn disk').toBeGreaterThan(40);
+      },
+    );
+
+  it.each(MAP_GEOMETRIES)(
+    'passes through the cells a layer does not draw (%s)',
+    (geometry) => {
+      const { mesh, owners, triangles } = drawnDisk(
+        geometry,
+        MID_LATITUDE,
+        5,
+        1,
+        'globe',
+      );
+      for (const drawn of [
+        // The surface layer off: only the masked cell's support plate is drawn.
+        (row: number) => !mesh.meshed(row),
+        // The support layer off.
+        (row: number) => mesh.meshed(row),
+      ]) {
+        const kept = triangles.filter((_, index) => drawn(owners[index]));
+        const keptOwners = owners.filter((owner) => drawn(owner));
+        let checked = 0;
+        for (const ray of raysOver(triangles)) {
+          const row = firstLiftedRow(ray, { ...mesh, drawn });
+          if (row !== null) expect(drawn(row), 'a drawn cell').toBe(true);
+          const hit = firstMeshHit(kept, keptOwners, ray);
+          if (hit === null) continue;
+          expect(row).toBe(hit.owner);
+          checked += 1;
+        }
+        expect(checked).toBeGreaterThan(5);
+      }
+    },
+  );
+
+  it('meets nothing where the ray misses the disk, or stays above it', () => {
+    const { mesh, triangles } = drawnDisk(
+      'triangles',
+      MID_LATITUDE,
+      5,
+      1,
+      'globe',
+    );
+    const [ray] = raysOver(triangles);
+    // Turned away from the Earth.
+    expect(
+      firstLiftedRow(
+        {
+          direction: ray.direction.map((axis) => -axis) as Cartesian,
+          origin: ray.origin,
+        },
+        mesh,
+      ),
+    ).toBeNull();
+    // Down onto the ground 2,000 km away.
+    const far = [0, 0, 0];
+    geodeticToEcef(10 + 25, 45, 0, far);
+    const towards = far.map((axis, index) => axis - ray.origin[index]);
+    const length = Math.hypot(...towards);
+    expect(
+      firstLiftedRow(
+        {
+          direction: towards.map((axis) => axis / length) as Cartesian,
+          origin: ray.origin,
+        },
+        mesh,
+      ),
+    ).toBeNull();
   });
 });

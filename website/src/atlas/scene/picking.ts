@@ -1,4 +1,12 @@
-/** Deterministic Cesium pick arbitration for Atlas design §11. */
+/** Deterministic Cesium pick arbitration for Atlas design §11.
+ *
+ * A click drill picks and arbitrates what the pick found (`PickResolver`). A hover makes no GPU
+ * pick (owner decision 2026-11-14 on #483): it resolves on the CPU (`HoverResolver`,
+ * `hover-pick.ts`), once per animation frame at the pointer's latest position. A GPU pick reads
+ * its framebuffer back, which waits for the GPU, and the page's first one links the pick
+ * variants of the programs it draws: on a cold shader cache that first hover held a frame for
+ * about 650 ms.
+ */
 
 import {
   Cartesian2,
@@ -7,6 +15,7 @@ import {
   type Scene,
 } from 'cesium';
 
+import { pickLogTestHook } from '../e2e-hooks';
 import type { AtlasHover, AtlasPick, AtlasPickId } from './types';
 
 export interface FrameThrottle<T> {
@@ -125,10 +134,19 @@ export function createFrameThrottle<T>(
   };
 }
 
+/** A click: what the drill pick found under the pointer, arbitrated. */
 export type PickResolver = (
   picks: readonly unknown[],
   position: Cartesian2,
 ) => AtlasPick | null;
+
+/** A hover: what lies under the pointer, resolved on the CPU. */
+export type HoverResolver = (position: Cartesian2) => AtlasPick | null;
+
+export interface AtlasPickResolvers {
+  click: PickResolver;
+  hover: HoverResolver;
+}
 
 function pickIdOf(picked: unknown): AtlasPickId | null {
   const value =
@@ -183,24 +201,30 @@ export function preferredAtlasPick(
 }
 
 export function bindAtlasPicking(
-  scene: Scene,
+  scene: Pick<Scene, 'canvas' | 'drillPick'>,
   onSelect: (pick: AtlasPick | null) => void,
   onHover: (hover: AtlasHover | null) => void,
-  resolve: PickResolver,
+  resolve: AtlasPickResolvers,
 ): () => void {
   const handler = new ScreenSpaceEventHandler(scene.canvas);
-  handler.setInputAction(
-    (event: ScreenSpaceEventHandler.PositionedEvent) =>
-      onSelect(resolve(scene.drillPick(event.position, 12), event.position)),
-    ScreenSpaceEventType.LEFT_CLICK,
-  );
+  // The e2e build logs each resolution, so a browser test can hold a hover to a click.
+  const log = pickLogTestHook();
+  handler.setInputAction((event: ScreenSpaceEventHandler.PositionedEvent) => {
+    const pick = resolve.click(
+      scene.drillPick(event.position, 12),
+      event.position,
+    );
+    log?.('click', pick);
+    onSelect(pick);
+  }, ScreenSpaceEventType.LEFT_CLICK);
   const stableHover = createStableHover(onHover, sameAtlasHover);
   const drag = createDragTracker(() => {
     hoverFrame.clear();
     stableHover.update(null);
   });
   const hoverFrame = createFrameThrottle((position: Cartesian2) => {
-    const pick = resolve(scene.drillPick(position, 12), position);
+    const pick = resolve.hover(position);
+    log?.('hover', pick);
     stableHover.update(
       pick ? { pick, screenPosition: { x: position.x, y: position.y } } : null,
     );

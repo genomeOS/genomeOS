@@ -24,34 +24,36 @@
  * less the sideways shear. The walk keeps that ray point within a noise window
  * around the depth hit, so depth-buffer noise inside the window changes
  * nothing, and it still works where the shear is mostly sideways and the
- * hit's height says little about the lift. Cesium-free.
+ * hit's height says little about the lift. The drawn cells are rebuilt by `drawn-mesh.ts`, which
+ * the globe's hover shares (`lifted-pick.ts`). A hover has no depth hit (owner decision
+ * 2026-11-14 on #483): `firstDrawnRowAlong` walks the whole stretch of the ray where a lifted cell
+ * can be drawn instead of a noise window, passing the rows the layers do not draw. Cesium-free.
  */
 
 import {
   cellToLatLng,
-  cellToVertexes,
   getHexagonEdgeLengthAvg,
   gridDisk,
   latLngToCell,
   UNITS,
-  vertexToLatLng,
 } from 'h3-js';
 
-import { rowForH3, type SurfaceArtifact } from '../surface-columns';
-import type { SurfaceGeometry } from '../url-state';
-import type { PickRay } from './pick-resolver';
 import {
-  CPU_EXTRUSION_EPSILON_METRES,
-  isSmoothGeometry,
-} from './surface-buffers';
+  CellCache,
+  cellTriangles,
+  firstRowAmong,
+  type DrawnMesh,
+  type LatLng,
+  type Triangle,
+} from './drawn-mesh';
+import type { PickRay } from './pick-resolver';
+import { CPU_EXTRUSION_EPSILON_METRES } from './surface-buffers';
 import { geodeticToEcef, magnitude, type Vec3 } from './wgs84';
 
 /** GeographicProjection's semimajor axis: the WGS84 maximum radius. */
 const MAP_RADIUS = 6378137;
 const MAP_WIDTH = 2 * Math.PI * MAP_RADIUS;
 const DEGREES_PER_METRE = 180 / (Math.PI * MAP_RADIUS);
-/** Barycentric slack, so a ray along an edge two cells share meets one of them. */
-const EDGE_SLACK = 1e-9;
 /** Upper bound on the walk (a resolution-4 grid at exaggeration 5 takes a few hundred steps). */
 const MAX_WALK_STEPS = 4096;
 /** The noise window around the depth hit along the ray: 2% of the hit's
@@ -66,19 +68,7 @@ export interface MapFrameHit {
   ray: PickRay | null;
 }
 
-export interface MapFrameMesh {
-  clearance: number;
-  geometry: SurfaceGeometry;
-  /** The tallest lift any row can have at this exaggeration, in metres. */
-  maxLift: number;
-  surface: SurfaceArtifact;
-  /** A row's lift at this exaggeration (0 for masked rows). */
-  top(row: number): number;
-  /** True for rows the surface mesh draws; the others are flat support plates. */
-  meshed(row: number): boolean;
-}
-
-type LatLng = [number, number];
+export type MapFrameMesh = DrawnMesh;
 
 const toDegrees = (metres: number): number => metres * DEGREES_PER_METRE;
 const toMetres = (degrees: number): number => degrees / DEGREES_PER_METRE;
@@ -194,12 +184,11 @@ function anchorAt(point: Vec3, window: RayWindow | null, height: number): Vec3 {
  */
 function walkCandidates(
   point: Vec3,
-  ray: PickRay | null,
+  window: RayWindow | null,
   mesh: MapFrameMesh,
 ): { reached: Map<string, number>; slack: number } {
   const resolution = mesh.surface.grid.resolution;
   const spacing = getHexagonEdgeLengthAvg(resolution, UNITS.m) / 3;
-  const window = rayWindow(point, ray);
   const sideways = window
     ? Math.hypot(window.ray.direction[0], window.ray.direction[1]) /
       Math.abs(window.ray.direction[2])
@@ -243,116 +232,9 @@ function walkCandidates(
   return { reached, slack };
 }
 
-/** Distance along `ray` to the triangle (Möller–Trumbore), or `null` if it misses. */
-function rayTriangle(
-  ray: PickRay,
-  [a, b, c]: readonly [Vec3, Vec3, Vec3],
-): number | null {
-  const first = minus(b, a);
-  const second = minus(c, a);
-  const p = cross(ray.direction, second);
-  const det = dot(first, p);
-  if (det === 0) return null;
-  const s = minus(ray.origin, a);
-  const u = dot(s, p) / det;
-  if (u < -EDGE_SLACK || u > 1 + EDGE_SLACK) return null;
-  const q = cross(s, first);
-  const v = dot(ray.direction, q) / det;
-  if (v < -EDGE_SLACK || u + v > 1 + EDGE_SLACK) return null;
-  const t = dot(second, q) / det;
-  return t >= 0 ? t : null;
-}
-
-/** h3-js lookups shared by every candidate of one pick. */
-class CellCache {
-  readonly #corners = new Map<string, string[]>();
-  readonly #points = new Map<string, LatLng>();
-  readonly #rows = new Map<string, number | null>();
-
-  constructor(readonly surface: SurfaceArtifact) {}
-
-  row(cell: string): number | null {
-    let row = this.#rows.get(cell);
-    if (row === undefined) {
-      row = rowForH3(this.surface, cell);
-      this.#rows.set(cell, row);
-    }
-    return row;
-  }
-
-  corners(cell: string): string[] {
-    let corners = this.#corners.get(cell);
-    if (!corners) {
-      corners = cellToVertexes(cell);
-      this.#corners.set(cell, corners);
-    }
-    return corners;
-  }
-
-  vertex(vertex: string): LatLng {
-    let point = this.#points.get(vertex);
-    if (!point) {
-      point = vertexToLatLng(vertex);
-      this.#points.set(vertex, point);
-    }
-    return point;
-  }
-}
-
 /**
- * The lift of each corner of a meshed smooth cell: the mean over the grid's
- * meshed cells sharing that corner, as `vertexMeans` computes it (those cells
- * are all in `gridDisk(cell, 1)`).
- */
-function cornerLifts(
-  cell: string,
-  mesh: MapFrameMesh,
-  cache: CellCache,
-): number[] {
-  const corners = cache.corners(cell);
-  const sums = corners.map(() => 0);
-  const counts = corners.map(() => 0);
-  for (const near of gridDisk(cell, 1)) {
-    const row = cache.row(near);
-    if (row === null || !mesh.meshed(row)) continue;
-    const shared = cache.corners(near);
-    corners.forEach((corner, index) => {
-      if (!shared.includes(corner)) return;
-      sums[index] += mesh.top(row);
-      counts[index] += 1;
-    });
-  }
-  return sums.map((sum, index) => sum / counts[index]);
-}
-
-/** The highest lift any of the cell's drawn vertices reaches. */
-function reachOf(cell: string, mesh: MapFrameMesh, cache: CellCache): number {
-  const row = cache.row(cell);
-  if (row === null || !mesh.meshed(row)) return 0;
-  if (!isSmoothGeometry(mesh.geometry)) return mesh.top(row);
-  let reach = 0;
-  for (const near of gridDisk(cell, 1)) {
-    const other = cache.row(near);
-    if (other !== null && mesh.meshed(other))
-      reach = Math.max(reach, mesh.top(other));
-  }
-  return reach;
-}
-
-type Triangle = [Vec3, Vec3, Vec3];
-
-function fan(centre: Vec3, ring: readonly Vec3[]): Triangle[] {
-  return ring.map((corner, index) => [
-    centre,
-    corner,
-    ring[(index + 1) % ring.length],
-  ]);
-}
-
-/**
- * The cell's triangles as drawn, its longitudes unwrapped around its centre.
- * Cesium splits a cell that crosses ±180° at the seam; such a cell is tested
- * whole on both sides of the map.
+ * The cell's triangles as drawn in the map frame. Cesium splits a cell that crosses ±180° at the
+ * seam; such a cell is tested whole on both sides of the map.
  */
 function drawnTriangles(
   cell: string,
@@ -360,44 +242,19 @@ function drawnTriangles(
   mesh: MapFrameMesh,
   cache: CellCache,
 ): Triangle[] {
-  const { clearance } = mesh;
-  const centre = cellToLatLng(cell);
-  const ring = cache.corners(cell).map((vertex): LatLng => {
-    const [lat, lon] = cache.vertex(vertex);
-    return [lat, lon + 360 * Math.round((centre[1] - lon) / 360)];
+  const triangles = cellTriangles(
+    cell,
+    row,
+    mesh,
+    cache,
+    (latLng, height, lift) => drawnAt(latLng, height, lift, mesh.clearance),
+  );
+  // The corners' longitudes as `cellTriangles` unwrapped them, around the centre's.
+  const [, centreLon] = cellToLatLng(cell);
+  const lons = cache.corners(cell).map((vertex) => {
+    const [, lon] = cache.vertex(vertex);
+    return lon + 360 * Math.round((centreLon - lon) / 360);
   });
-  const flat = (height: number, lift: number): Triangle[] =>
-    fan(
-      drawnAt(centre, height, lift, clearance),
-      ring.map((corner) => drawnAt(corner, height, lift, clearance)),
-    );
-  let triangles: Triangle[];
-  if (!mesh.meshed(row)) triangles = flat(clearance, 0);
-  else if (isSmoothGeometry(mesh.geometry)) {
-    const lifts = cornerLifts(cell, mesh, cache);
-    triangles = fan(
-      drawnAt(centre, clearance, mesh.top(row), clearance),
-      ring.map((corner, index) =>
-        drawnAt(corner, clearance, lifts[index], clearance),
-      ),
-    );
-  } else if (mesh.geometry !== 'extruded')
-    triangles = flat(clearance, mesh.top(row));
-  else {
-    const raised = clearance + CPU_EXTRUSION_EPSILON_METRES;
-    const top = mesh.top(row);
-    triangles = flat(raised, top);
-    const feet = ring.map((corner) => drawnAt(corner, clearance, 0, clearance));
-    const tops = ring.map((corner) => drawnAt(corner, raised, top, clearance));
-    feet.forEach((foot, index) => {
-      const next = (index + 1) % feet.length;
-      triangles.push(
-        [foot, feet[next], tops[next]],
-        [foot, tops[next], tops[index]],
-      );
-    });
-  }
-  const lons = ring.map(([, lon]) => lon);
   const shifts = [0];
   if (Math.max(...lons) > 180) shifts.push(-MAP_WIDTH);
   if (Math.min(...lons) < -180) shifts.push(MAP_WIDTH);
@@ -420,28 +277,48 @@ export function firstDrawnRow(
   point: Vec3,
   mesh: MapFrameMesh,
 ): number | null {
+  return firstRowIn(ray, point, rayWindow(point, ray), mesh);
+}
+
+/**
+ * A hover's pick (#483), which has no depth hit: the row of the first drawn cell `ray` meets
+ * anywhere a lifted cell can be drawn. A drawn point lies at height clearance + n_x·s with
+ * |n_x| ≤ 1 and s ≤ `maxLift`, so the walk's window is the stretch of the ray between those
+ * heights. A level ray has no such stretch, and meets nothing.
+ */
+export function firstDrawnRowAlong(
+  ray: PickRay,
+  mesh: MapFrameMesh,
+): number | null {
+  const fall = ray.direction[2];
+  if (fall === 0) return null;
+  const reach = mesh.maxLift + CPU_EXTRUSION_EPSILON_METRES;
+  const [first, second] = [mesh.clearance + reach, mesh.clearance - reach].map(
+    (height) => (height - ray.origin[2]) / fall,
+  );
+  const far = Math.max(first, second);
+  if (far < 0) return null;
+  const near = Math.max(0, Math.min(first, second));
+  const middle = (near + far) / 2;
+  const point: Vec3 = [
+    ray.origin[0] + ray.direction[0] * middle,
+    ray.origin[1] + ray.direction[1] * middle,
+    ray.origin[2] + ray.direction[2] * middle,
+  ];
+  return firstRowIn(ray, point, { far, near, ray }, mesh);
+}
+
+function firstRowIn(
+  ray: PickRay,
+  point: Vec3,
+  window: RayWindow | null,
+  mesh: MapFrameMesh,
+): number | null {
   const cache = new CellCache(mesh.surface);
-  const { reached, slack } = walkCandidates(point, ray, mesh);
-  let best: number | null = null;
-  let bestEntry = Number.POSITIVE_INFINITY;
-  for (const [cell, lift] of reached) {
-    const row = cache.row(cell);
-    if (row === null) continue;
-    // A cell first reached above its own reach (plus one step) holds nothing on the ray.
-    if (lift > reachOf(cell, mesh, cache) + slack) continue;
-    for (const triangle of drawnTriangles(cell, row, mesh, cache)) {
-      const entry = rayTriangle(ray, triangle);
-      if (
-        entry !== null &&
-        (entry < bestEntry ||
-          (entry === bestEntry && best !== null && row < best))
-      ) {
-        best = row;
-        bestEntry = entry;
-      }
-    }
-  }
-  return best;
+  const { reached, slack } = walkCandidates(point, window, mesh);
+  return firstRowAmong(ray, reached, slack, mesh, cache, (cell, row) =>
+    drawnTriangles(cell, row, mesh, cache),
+  );
 }
 
 /**

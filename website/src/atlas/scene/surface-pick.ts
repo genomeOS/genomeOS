@@ -1,5 +1,9 @@
 /** Cell resolution for chunk-level surface picks (Atlas design §11; spec 2026-10-07 §B.6.6).
  *
+ * This is a click's resolution, over what its drill pick found. A hover makes no GPU pick and
+ * resolves on the CPU (`hover-pick.ts`; owner decision 2026-11-14 on #483), testing the pick
+ * target's observations (`PickTarget.observations`) and the same drawn and reveal checks.
+ *
  * Surface and support primitives pick as a whole chunk. The cell under the
  * pointer comes from the ellipsoid at elevation 0 (no extra render pass) or
  * from a translucent depth pick otherwise; on the globe, `extruded` also
@@ -54,10 +58,18 @@ import {
 } from '../surface-columns';
 import type { SurfaceGeometry } from '../url-state';
 import { heightFor, type Metric } from '../visual-encoding';
+import type { HitView } from './observation-hits';
+import type { ObservationPick } from './observation-layer';
 import { preferredAtlasPick, type PickResolver } from './picking';
 import type { Vec3 } from './reveal-wave';
 import { SURFACE_CLEARANCE_METRES } from './surface-appearance';
 import type { SurfacePick } from './types';
+
+/** An artifact's observation markers, which a hover tests on the CPU (`observation-hits.ts`). */
+export interface ObservationHitTarget {
+  readonly artifactKey: string;
+  observationAt(view: HitView, position: Cartesian2): ObservationPick | null;
+}
 
 export interface PickTarget {
   artifactKey: string;
@@ -67,6 +79,8 @@ export interface PickTarget {
   drawn(row: number): boolean;
   /** The displayed group is draped imagery; a group of surface chunks is never draped. */
   draped: boolean;
+  /** The same artifact's observations, which a hover tests; null where it has none. */
+  observations: ObservationHitTarget | null;
 }
 
 export interface SurfacePickContext {
