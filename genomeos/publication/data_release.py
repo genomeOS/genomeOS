@@ -8,11 +8,14 @@ and ``scripts/provision_data_store_bucket.py`` (only the bucket). No I/O and no 
 A release lists every published file under ``data/`` with its bytes and sha256, plus the source and
 terms references the repository already records. Terms are carried, never adjudicated: ``status`` is
 copied from the record named in ``recorded_in``, and a source the repository holds no check for is
-``not_checked`` (AGENTS "Publication-evidence safeguards"). Keys are immutable and release-versioned,
-``releases/<release>/<path>``; a later release reuses an earlier key for byte-identical content, and a
-published artifact whose bytes changed is refused (AGENTS "Artifacts are immutable"; design §5). So is a
-file added to an artifact directory an earlier release published: a cited artifact is a closed set of
-files.
+``not_checked`` (AGENTS "Publication-evidence safeguards"). The status is one of the five
+``COMMERCIAL_USE_FINDINGS`` and nothing else; a new manifest writes the legacy ``restriction_found`` of
+earlier records and releases as ``restricted`` (Atlas data platform design 2026-10-18 §9, step 1.3).
+
+Keys are immutable and release-versioned, ``releases/<release>/<path>``; a later release reuses an
+earlier key for byte-identical content, and a published artifact whose bytes changed is refused (AGENTS
+"Artifacts are immutable"; design §5). So is a file added to an artifact directory an earlier release
+published: a cited artifact is a closed set of files.
 Pickles are never published: loading one from the internet executes code (data store design §8).
 Every violation is a hard error (design §12).
 
@@ -30,6 +33,8 @@ from dataclasses import dataclass
 from itertools import pairwise
 from typing import Any
 from urllib.parse import urlsplit
+
+from genomeos.publication.commercial_use import COMMERCIAL_USE_FINDINGS
 
 SCHEMA = "genomeos-data-release"
 SCHEMA_VERSION = 1
@@ -67,6 +72,10 @@ MEDIA_TYPES: Mapping[str, str] = {
 }
 #: Never published, whatever the caller asks: unpickling a downloaded file runs its code.
 PICKLE_SUFFIXES = (".pkl", ".pickle", ".joblib")
+#: Statuses written before the vocabulary was closed, and the finding each reads as. The released
+#: manifests and the curated SOURCE.json keep ``restriction_found``; a new manifest writes ``restricted``
+#: (Atlas data platform design 2026-10-18 §9). Never add an entry to make a new spelling pass.
+LEGACY_TERMS_STATUSES: Mapping[str, str] = {"restriction_found": "restricted"}
 
 _MANIFEST_FIELDS = frozenset(
     {"schema", "schema_version", "release", "local_root", "objects", "sources", "totals"}
@@ -259,6 +268,23 @@ def assert_bucket_name(name: object) -> str:
     return name
 
 
+def terms_status(value: object, *, where: str) -> str:
+    """``value`` as one of the five findings: a finding reads as itself, a legacy status as its finding.
+
+    Anything else, a near miss in case or spacing included, is a hard error (Atlas data platform design
+    2026-10-18 §9).
+    """
+    if isinstance(value, str):
+        if value in COMMERCIAL_USE_FINDINGS:
+            return value
+        if value in LEGACY_TERMS_STATUSES:
+            return LEGACY_TERMS_STATUSES[value]
+    raise DataReleaseError(
+        f"{where}: terms status {value!r} is not one of {list(COMMERCIAL_USE_FINDINGS)} "
+        f"(docs/non-commercial-data.md) or a legacy {sorted(LEGACY_TERMS_STATUSES)}"
+    )
+
+
 def canonical_bytes(manifest: Mapping[str, Any]) -> bytes:
     """The committed and uploaded form: sorted keys, two-space indent, trailing newline."""
     return (json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
@@ -309,7 +335,7 @@ def build_manifest(
         "release": release,
         "local_root": LOCAL_ROOT,
         "objects": ordered,
-        "sources": {name: dict(sources[name]) for name in sorted(sources)},
+        "sources": {name: _written_source(name, sources[name]) for name in sorted(sources)},
         "totals": _totals(ordered),
     }
     validate_manifest(manifest)
@@ -467,6 +493,18 @@ def _is_release_key(key: object) -> bool:
         return False
 
 
+def _written_source(name: str, source: Mapping[str, Any]) -> dict[str, Any]:
+    """A copy of ``source`` whose terms carry the finding its status reads as.
+
+    Atlas data platform design 2026-10-18 §9: a new manifest writes the normalised status.
+    """
+    written = dict(source)
+    terms = written.get("terms")
+    if isinstance(terms, Mapping) and "status" in terms:
+        written["terms"] = {**terms, "status": terms_status(terms["status"], where=f"source {name}")}
+    return written
+
+
 def _validate_source(name: object, source: object) -> None:
     if not isinstance(name, str) or not _SOURCE_ID.fullmatch(name):
         raise DataReleaseError(f"invalid source id {name!r}")
@@ -483,9 +521,7 @@ def _validate_source(name: object, source: object) -> None:
     if not isinstance(terms, Mapping):
         raise DataReleaseError(f"source {name}: terms must be an object")
     _closed(terms, _TERMS_FIELDS, f"source {name} terms", required=frozenset({"status"}))
-    status = terms["status"]
-    if not isinstance(status, str) or not status:
-        raise DataReleaseError(f"source {name}: terms status must be a non-empty string")
+    status = terms_status(terms["status"], where=f"source {name}")
     if status != NOT_CHECKED and not terms.get("recorded_in"):
         raise DataReleaseError(
             f"source {name}: status {status!r} must name the record it was copied from (recorded_in)"

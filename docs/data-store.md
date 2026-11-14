@@ -17,6 +17,8 @@ Git keeps one manifest per release, `data/releases/<release>.json`, listing ever
 bytes, sha256 and source terms. Clone with `git clone --filter=blob:none` to skip the data blobs
 that older commits still carry (history was not rewritten).
 
+A source's `terms.status` is one of the five findings in `docs/non-commercial-data.md`; manifests written before step 1.3 may carry `restriction_found`, which reads as `restricted`.
+
 ## Layout
 
 ```

@@ -135,7 +135,7 @@ def test_terms_are_copied_from_the_committed_records(tree: Path) -> None:
         "recorded_in": "data/sources/cpic/v1.60.0/SOURCE.json",
     }
     curated = json.loads((tree / "sources/curated/SOURCE.json").read_text())["sources"]
-    assert sources["genereviews"]["terms"]["status"] == curated["GeneReviews"]["reuse_status"]
+    assert sources["genereviews"]["terms"]["status"] == "restricted"  # the record's restriction_found
     assert sources["genereviews"]["non_commercial"] is True
     assert sources["clinvar"]["terms"]["status"] == curated["ClinVar"]["reuse_status"]
     assert sources["clinvar"]["non_commercial"] is False
@@ -145,6 +145,17 @@ def test_terms_are_copied_from_the_committed_records(tree: Path) -> None:
     assert sources["map"]["terms"]["terms_url"] == "https://malariaatlas.org/open-access-policy/"
     assert (ROOT / sources["map"]["terms"]["recorded_in"]).is_file()
     assert sources["worldpop"]["terms"]["status"] == dr.NOT_CHECKED
+
+
+def test_a_new_manifest_writes_restricted_and_keeps_non_commercial(tree: Path) -> None:
+    """The record keeps its legacy spelling; a new manifest writes the closed one.
+
+    Atlas data platform design 2026-10-18 §9, step 1.3.
+    """
+    curated = json.loads((tree / "sources/curated/SOURCE.json").read_text())["sources"]
+    assert curated["GeneReviews"]["reuse_status"] == "restriction_found"
+    genereviews = _build(tree)["sources"]["genereviews"]
+    assert (genereviews["terms"]["status"], genereviews["non_commercial"]) == ("restricted", True)
 
 
 def test_output_is_deterministic(tree: Path) -> None:

@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from genomeos.publication import data_release as dr
+from genomeos.publication.commercial_use import COMMERCIAL_USE_FINDINGS
 
 ROOT = Path(__file__).resolve().parents[1]
 RELEASE = "2026-10-17"
@@ -397,3 +398,37 @@ def test_the_committed_withdrawn_list_is_empty_and_canonical() -> None:
     committed = ROOT / "data" / "releases" / "WITHDRAWN.json"
     assert committed.read_bytes() == dr.canonical_bytes(EMPTY)
     assert dr.validate_withdrawn(json.loads(committed.read_bytes())) == ()
+
+
+# --- the closed terms vocabulary (Atlas data platform design 2026-10-18 §9, step 1.3) ---
+
+
+def test_every_finding_is_accepted_and_the_legacy_one_reads_as_restricted() -> None:
+    assert len(COMMERCIAL_USE_FINDINGS) == 5
+    for finding in COMMERCIAL_USE_FINDINGS:
+        assert dr.terms_status(finding, where="source map") == finding
+    assert dr.terms_status("restriction_found", where="source map") == "restricted"
+
+
+@pytest.mark.parametrize("value", ["open", "Restricted", "restricted ", "cc-by-4.0", "unknown", 3, None])
+def test_an_unknown_terms_status_is_a_hard_error(value: object) -> None:
+    manifest = _manifest()
+    terms = {"status": value, "recorded_in": "docs/non-commercial-data.md"}
+    manifest["sources"]["map"] = {"name": "MAP", "terms": terms, "non_commercial": False}
+    with pytest.raises(dr.DataReleaseError, match="status"):
+        dr.validate_manifest(manifest)
+    with pytest.raises(dr.DataReleaseError, match="status"):
+        dr.terms_status(value, where="source map")
+
+
+def test_the_released_manifests_keep_their_legacy_status_and_validate() -> None:
+    """A released manifest is immutable: its `restriction_found` still validates, unrewritten.
+
+    Atlas data platform design 2026-10-18 §9.
+    """
+    for release in ("2026-10-17", "2026-10-18"):
+        path = ROOT / "data" / "releases" / f"{release}.json"
+        manifest = json.loads(path.read_bytes())
+        assert path.read_bytes() == dr.canonical_bytes(manifest)
+        assert manifest["sources"]["genereviews"]["terms"]["status"] == "restriction_found"
+        dr.validate_manifest(manifest)
