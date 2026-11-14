@@ -26,6 +26,7 @@ import {
   type WorkerStep,
 } from './support/cold-load-analysis';
 import {
+  COLD_LOAD_PLAN,
   COLD_LOAD_PROFILES,
   COLD_LOAD_RUNS,
   FAST_4G,
@@ -127,6 +128,19 @@ describe('cold-load profiles', () => {
         },
       ],
     ]);
+  });
+
+  it('opens each launched browser with one discarded warm-up load, then the measured runs', () => {
+    // §B.1, amended 2026-11-14: Chrome's first-use GPU pipeline compiles land in the warm-up.
+    expect(COLD_LOAD_PLAN).toEqual([
+      { role: 'warm-up', index: 0 },
+      { role: 'measured', index: 0 },
+      { role: 'measured', index: 1 },
+      { role: 'measured', index: 2 },
+    ]);
+    expect(
+      COLD_LOAD_PLAN.filter((load) => load.role === 'measured'),
+    ).toHaveLength(COLD_LOAD_RUNS);
   });
 });
 

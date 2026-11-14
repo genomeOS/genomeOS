@@ -25,6 +25,7 @@ import {
   type ChunkFrame,
   type LedgerRow,
   type LoafRecord,
+  type LongFrameReport,
   type LongFrameSummary,
   type MilestoneTimes,
   type NetworkRecord,
@@ -32,7 +33,11 @@ import {
   type TimingEntry,
   type WorkerStep,
 } from './cold-load-analysis';
-import { QUIET_PERIOD_MS, type ColdLoadProfile } from './cold-load-profiles';
+import {
+  QUIET_PERIOD_MS,
+  type ColdLoadProfile,
+  type PlannedLoad,
+} from './cold-load-profiles';
 
 /** `baseline` measures a pre-change build to `data-atlas-ready` and asserts nothing. */
 export type ColdLoadMode = 'baseline' | 'current';
@@ -68,6 +73,18 @@ export const REQUIRED_MARKS = [
   'context-ready',
 ] as const;
 
+/**
+ * One `getContext` call for a WebGL context, timed in the page. Creating a context is a
+ * synchronous round trip to the GPU process, so its time shows how long the page waited on it.
+ */
+export interface WebglContextTiming {
+  /** `webgl2`, `webgl` or `experimental-webgl`. */
+  contextType: string;
+  startTime: number;
+  durationMs: number;
+  created: boolean;
+}
+
 /** What the spec reads from the page once the run has settled. */
 export interface PageMeasurements {
   marks: TimingEntry[];
@@ -75,6 +92,8 @@ export interface PageMeasurements {
   resources: { name: string; responseEnd: number }[];
   navigationResponseEnd: number;
   loaf: LoafRecord[];
+  /** The page's own WebGL context requests; the spec's renderer probe is not among them. */
+  webglContexts: WebglContextTiming[];
   attributes: Record<string, number>;
   probeErrors: string[];
   renderer: string;
@@ -122,6 +141,8 @@ export interface ColdLoadRun {
   /** The cold reveal's wave (#453), when the build has one; reported, not budgeted. */
   wave: { startMs: number; endMs: number; durationMs: number } | null;
   longFrames: LongFrameSummary;
+  /** Reported, not budgeted. */
+  webglContexts: WebglContextTiming[];
   transport: {
     tier: string;
     url: string | null;
@@ -596,6 +617,7 @@ export function analyseRun(args: {
     reveal: revealStats(frames),
     wave: revealWaveFrom(m.measures),
     longFrames,
+    webglContexts: m.webglContexts,
     transport: tierUrls.map((entry) => ({
       ...entry,
       contentEncoding: entry.url
@@ -675,4 +697,74 @@ export function medianRun(
       : run.raw.ready) ?? Number.POSITIVE_INFINITY;
   const sorted = [...runs].sort((left, right) => time(left) - time(right) || 0);
   return sorted[Math.floor(sorted.length / 2)];
+}
+
+/** A load of a launched browser and its analysed run. */
+export interface LoadResult {
+  load: PlannedLoad;
+  run: ColdLoadRun;
+}
+
+/**
+ * The discarded warm-up load (§B.1, amended 2026-11-14): what the browser's first load cost,
+ * kept in the report and never asserted.
+ */
+export interface GpuWarmup {
+  outcome: Outcome;
+  maxAtlasFrameMs: number;
+  longestAtlasFrame: LongFrameReport | null;
+  webglContexts: WebglContextTiming[];
+  errors: string[];
+}
+
+/**
+ * Splits a launched browser's loads into the warm-up and the measured runs, which every budget,
+ * transport check and the per-load long-frame cap judge. Refuses loads that are not one warm-up
+ * followed by measured runs, so a reordered plan cannot slip a warm-up into the verdict.
+ */
+export function splitWarmup(loads: readonly LoadResult[]): {
+  gpuWarmup: GpuWarmup;
+  runs: ColdLoadRun[];
+} {
+  const [first, ...rest] = loads;
+  if (
+    first?.load.role !== 'warm-up' ||
+    rest.some(({ load }) => load.role !== 'measured')
+  )
+    throw new Error(
+      "a launched browser's loads must be one warm-up load, then the measured runs; got " +
+        (loads.map(({ load }) => load.role).join(', ') || 'no loads'),
+    );
+  const warmup = first.run;
+  return {
+    gpuWarmup: {
+      outcome: warmup.outcome,
+      maxAtlasFrameMs: warmup.longFrames.maxAtlasFrameMs,
+      longestAtlasFrame: warmup.longFrames.frames[0] ?? null,
+      webglContexts: warmup.webglContexts,
+      errors: warmup.errors,
+    },
+    runs: rest.map(({ run }) => run),
+  };
+}
+
+/**
+ * §B.1 "Additionally": no Atlas main-thread long animation frame above the cap, per measured
+ * load, so one bad run fails even when the other two are fast. The warm-up gets no check.
+ */
+export function longFrameCapChecks(
+  loads: readonly LoadResult[],
+  capMs: number,
+): { label: string; frameMs: number; capMs: number }[] {
+  return loads.flatMap(({ load, run }) =>
+    load.role === 'measured'
+      ? [
+          {
+            label: `run ${run.index}: longest Atlas animation frame`,
+            frameMs: run.longFrames.maxAtlasFrameMs,
+            capMs,
+          },
+        ]
+      : [],
+  );
 }

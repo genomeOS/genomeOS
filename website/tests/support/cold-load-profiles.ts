@@ -48,6 +48,26 @@ export const SLOW_4G: NetworkConditions = {
 export const COLD_LOAD_RUNS = 3;
 export const QUIET_PERIOD_MS = 1_000;
 
+/** One load in a launched browser: the discarded warm-up, or measured run `index`. */
+export interface PlannedLoad {
+  role: 'warm-up' | 'measured';
+  index: number;
+}
+
+/**
+ * The loads of each launched browser, in order (§B.1, amended 2026-11-14): one warm-up load,
+ * then the measured runs, each in a fresh browser context with a cold HTTP cache. The first load
+ * of a new Chrome also pays the browser's own first-use GPU pipeline compiles; the warm-up takes
+ * that cost, which the report keeps as `gpuWarmup` and nothing asserts.
+ */
+export const COLD_LOAD_PLAN: readonly PlannedLoad[] = [
+  { role: 'warm-up', index: 0 },
+  ...Array.from({ length: COLD_LOAD_RUNS }, (_, index): PlannedLoad => ({
+    role: 'measured',
+    index,
+  })),
+];
+
 const MOBILE: Pick<
   ColdLoadProfile,
   | 'viewport'

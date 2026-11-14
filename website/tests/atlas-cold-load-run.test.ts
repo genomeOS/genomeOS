@@ -3,14 +3,21 @@ import { describe, expect, it } from 'vitest';
 
 import type { FixtureCatalog } from './atlas-browser-fixture';
 import { CdpConnection, type CdpSocket } from './support/cdp-connection';
-import type { NetworkRecord, TimingEntry } from './support/cold-load-analysis';
+import type {
+  LoafRecord,
+  NetworkRecord,
+  TimingEntry,
+} from './support/cold-load-analysis';
 import {
+  COLD_LOAD_PLAN,
   COLD_LOAD_PROFILES,
   type ColdLoadProfileName,
 } from './support/cold-load-profiles';
 import {
   analyseRun,
+  longFrameCapChecks,
   medianRun,
+  splitWarmup,
   summarise,
   throttleWorkers,
   trackNetwork,
@@ -163,6 +170,7 @@ function measurements(
     })),
     navigationResponseEnd: 50,
     loaf: [],
+    webglContexts: [],
     attributes: { 'data-atlas-ready': 905 },
     probeErrors: [],
     renderer:
@@ -473,6 +481,117 @@ describe('medianRun', () => {
     expect(medianRun(runs, 'current').index).toBe(2);
     const failed = { ...withSurfaceVisible(base, null, null), index: 3 };
     expect(medianRun([failed, runs[1], runs[0]], 'current').index).toBe(1);
+  });
+});
+
+describe('warm-up load (§B.1, amended 2026-11-14)', () => {
+  /** One Atlas long frame: the React scheduler tick that ran the scene effect. */
+  const frame = (duration: number): LoafRecord => ({
+    startTime: 1_000,
+    duration,
+    renderStart: 1_000 + duration - 10,
+    blockingDuration: duration - 50,
+    scripts: [
+      {
+        sourceURL: `${ORIGIN}/_astro/client.BwA2HVuQ.js`,
+        sourceFunctionName: 'ae',
+        sourceCharPosition: 1_358,
+        invoker: 'MessagePort.onmessage',
+        invokerType: 'event-listener',
+        startTime: 1_001,
+        duration: duration - 5,
+      },
+    ],
+  });
+  // Headless on an M3 Pro with a colour profile its Metal cache had never seen: the warm-up took
+  // the cold GPU process's cost, and the measured loads did not.
+  const frames = [808, 71.7, 71.3, 74.2];
+  const contextMs = [571, 2.4, 2.1, 2.7];
+  const loads = COLD_LOAD_PLAN.map((load, position) => ({
+    load,
+    run: run({
+      name: 'desktop',
+      index: load.index,
+      measured: {
+        loaf: [frame(frames[position])],
+        webglContexts: [
+          {
+            contextType: 'webgl2',
+            startTime: 400,
+            durationMs: contextMs[position],
+            created: true,
+          },
+        ],
+      },
+    }),
+  }));
+
+  it('keeps the warm-up out of the measured runs and reports it as gpuWarmup', () => {
+    const { gpuWarmup, runs } = splitWarmup(loads);
+    expect(
+      runs.map((measured) => [
+        measured.index,
+        measured.longFrames.maxAtlasFrameMs,
+        measured.webglContexts.map((context) => context.durationMs),
+      ]),
+    ).toEqual([
+      [0, 71.7, [2.4]],
+      [1, 71.3, [2.1]],
+      [2, 74.2, [2.7]],
+    ]);
+    expect(gpuWarmup).toEqual({
+      outcome: 'settled',
+      maxAtlasFrameMs: 808,
+      longestAtlasFrame: loads[0].run.longFrames.frames[0],
+      webglContexts: [
+        {
+          contextType: 'webgl2',
+          startTime: 400,
+          durationMs: 571,
+          created: true,
+        },
+      ],
+      errors: [],
+    });
+    expect(gpuWarmup.longestAtlasFrame?.scripts[0]).toMatchObject({
+      sourceFunctionName: 'ae',
+      sourceCharPosition: 1_358,
+    });
+  });
+
+  it('applies the per-load long-frame cap to every measured load and never to the warm-up', () => {
+    expect(longFrameCapChecks(loads, 200)).toEqual([
+      {
+        label: 'run 0: longest Atlas animation frame',
+        frameMs: 71.7,
+        capMs: 200,
+      },
+      {
+        label: 'run 1: longest Atlas animation frame',
+        frameMs: 71.3,
+        capMs: 200,
+      },
+      {
+        label: 'run 2: longest Atlas animation frame',
+        frameMs: 74.2,
+        capMs: 200,
+      },
+    ]);
+  });
+
+  it('refuses loads that do not open with exactly one warm-up', () => {
+    const refusal =
+      "a launched browser's loads must be one warm-up load, then the measured runs; got ";
+    expect(() => splitWarmup(loads.slice(1))).toThrow(
+      `${refusal}measured, measured, measured`,
+    );
+    expect(() => splitWarmup([loads[0], ...loads])).toThrow(
+      `${refusal}warm-up, warm-up, measured, measured, measured`,
+    );
+    expect(() => splitWarmup([loads[1], loads[0], loads[2]])).toThrow(
+      `${refusal}measured, warm-up, measured`,
+    );
+    expect(() => splitWarmup([])).toThrow(`${refusal}no loads`);
   });
 });
 
