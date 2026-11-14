@@ -16,6 +16,7 @@ import pytest
 
 from genomeos.publication import data_release as dr
 from scripts import fetch_data as fd
+from tests.test_data_release import EMPTY
 
 RELEASE = "2026-10-17"
 FILES = {
@@ -206,3 +207,16 @@ def test_cli_fetch_list_and_verify(
 
 def test_released_artifact_dirs_name_their_first_release(store: dict) -> None:
     assert fd.released_artifact_dirs(store["releases"]) == {"x__v3__map-2026-08": RELEASE}
+
+
+def test_the_withdrawn_list_beside_the_manifests_is_not_a_release(store: dict) -> None:
+    """WITHDRAWN.json sits in releases/ but is never read as a manifest (platform design §2.9)."""
+    releases = store["releases"]
+    (releases / dr.WITHDRAWN_FILE).write_bytes(dr.canonical_bytes(EMPTY))
+    assert fd.newest_release(releases) == RELEASE
+    assert fd.released_artifact_dirs(releases) == {"x__v3__map-2026-08": RELEASE}
+    (releases / f"{RELEASE}.json").unlink()
+    assert fd.newest_release(releases) is None
+    (releases / "latest.json").write_bytes(b"{}")
+    with pytest.raises(dr.DataReleaseError, match="neither"):
+        fd.newest_release(releases)

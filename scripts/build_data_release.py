@@ -439,7 +439,8 @@ def git_tracked(data_root: Path) -> set[str]:
 
 
 def earlier_releases(directory: Path, release: str) -> list[dict[str, Any]]:
-    manifests = [json.loads(path.read_text(encoding="utf-8")) for path in sorted(directory.glob("*.json"))]
+    names = dr.release_ids(path.name for path in directory.glob("*.json"))
+    manifests = [json.loads((directory / f"{name}.json").read_text(encoding="utf-8")) for name in names]
     return [m for m in manifests if dr.release_sort_key(m["release"]) < dr.release_sort_key(release)]
 
 

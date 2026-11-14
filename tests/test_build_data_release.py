@@ -22,6 +22,7 @@ from genomeos.surfaces.fit_input import (
 )
 from scripts import build_data_release as build
 from tests.observation_fixtures import kir_fit_rows, observation_rows
+from tests.test_data_release import EMPTY
 
 ROOT = Path(__file__).resolve().parents[1]
 RELEASE = "2026-10-17"
@@ -217,13 +218,32 @@ def test_cli_reuses_keys_from_earlier_committed_releases(
     assert keys["store/INVENTORY.json"] == f"releases/{RELEASE}/store/INVENTORY.json"
 
 
+def _committed_manifests() -> list[Path]:
+    releases = ROOT / "data" / "releases"
+    return [releases / f"{name}.json" for name in dr.release_ids(p.name for p in releases.glob("*.json"))]
+
+
 def test_committed_releases_validate() -> None:
-    committed = sorted((ROOT / "data" / "releases").glob("*.json"))
-    for path in committed:
+    for path in _committed_manifests():
         manifest = json.loads(path.read_text(encoding="utf-8"))
         assert path.name == f"{manifest['release']}.json"
         assert path.read_bytes() == dr.canonical_bytes(manifest)
         dr.validate_manifest(manifest)
+
+
+def test_earlier_releases_skip_the_withdrawn_list(tmp_path: Path) -> None:
+    """WITHDRAWN.json sits beside the manifests and is never read as one (platform design §2.9)."""
+    releases = tmp_path / "releases"
+    releases.mkdir()
+    record = dr.FileRecord("store/INVENTORY.json", 2, "a" * 64, False, ("genomeos",))
+    for release in ("2026-10-01", RELEASE):
+        manifest = dr.build_manifest([record], {"genomeos": build.REVIEWED_SOURCES["genomeos"]}, release)
+        (releases / f"{release}.json").write_bytes(dr.canonical_bytes(manifest))
+    (releases / dr.WITHDRAWN_FILE).write_bytes(dr.canonical_bytes(EMPTY))
+    assert [manifest["release"] for manifest in build.earlier_releases(releases, RELEASE)] == ["2026-10-01"]
+    (releases / "latest.json").write_bytes(b"{}")
+    with pytest.raises(dr.DataReleaseError, match="neither"):
+        build.earlier_releases(releases, RELEASE)
 
 
 def test_include_roots_cover_the_committed_inputs() -> None:
@@ -377,7 +397,7 @@ def test_only_an_artifact_an_earlier_release_holds_may_be_listed(tree: Path) -> 
 def test_the_list_is_exactly_the_committed_artifacts_released_without_their_input() -> None:
     """Every released artifact either carries its input or is listed; every entry was released bare."""
     held: dict[str, set[str]] = {}
-    for path in sorted((ROOT / "data" / "releases").glob("*.json")):
+    for path in _committed_manifests():
         for item in json.loads(path.read_text(encoding="utf-8"))["objects"]:
             if item["path"].startswith(dr.ARTIFACT_PREFIX):
                 directory, name = item["path"][len(dr.ARTIFACT_PREFIX) :].split("/", 1)

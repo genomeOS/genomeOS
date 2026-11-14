@@ -16,6 +16,7 @@ import pytest
 from genomeos.publication import data_release as dr
 from scripts import publish_data_store as publish
 from tests.atlas_web_fixtures import install_fake_gcloud
+from tests.test_data_release import EMPTY
 
 BUCKET = dr.DATA_STORE_BUCKET  # the committed bucket; the fake gcloud never reaches GCP
 RELEASE = "2026-10-17"
@@ -214,3 +215,15 @@ def test_any_bucket_but_the_committed_one_is_refused(
     assert publish.main(arguments) == 1
     assert "committed" in capsys.readouterr().err
     assert fake.calls() == []
+
+
+def test_the_newest_manifest_is_never_the_withdrawn_list(release: Release) -> None:
+    releases = release["manifest"].parent
+    (releases / dr.WITHDRAWN_FILE).write_bytes(dr.canonical_bytes(EMPTY))
+    assert publish._newest_manifest(releases) == release["manifest"]
+    release["manifest"].unlink()
+    with pytest.raises(publish.PublishError, match="no committed release manifest"):
+        publish._newest_manifest(releases)
+    (releases / "latest.json").write_bytes(b"{}")
+    with pytest.raises(dr.DataReleaseError, match="neither"):
+        publish._newest_manifest(releases)

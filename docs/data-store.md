@@ -22,6 +22,7 @@ that older commits still carry (history was not rewritten).
 ```
 data/
   releases/<release>.json               committed: the data-store manifest for each release
+  releases/WITHDRAWN.json               committed: keys withdrawn from serving, for the owner to delete (starts empty)
   raw/                                  fetched sources — gitignored, re-fetchable by script
     map_hbs_surveys.csv                 scripts/fetch_map_hbs.py --layer hbs
     map_g6pd_surveys.csv                scripts/fetch_map_hbs.py --layer g6pd

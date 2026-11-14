@@ -55,8 +55,8 @@ class FetchError(RuntimeError):
 
 
 def newest_release(releases: Path = RELEASES) -> str | None:
-    names = [path.stem for path in releases.glob("*.json")]
-    return max(names, key=dr.release_sort_key) if names else None
+    names = dr.release_ids(path.name for path in releases.glob("*.json"))
+    return names[-1] if names else None
 
 
 def load_release(
@@ -211,8 +211,7 @@ def released_artifact_dirs(releases: Path = RELEASES) -> dict[str, str]:
     cited, and it stays immutable even if a later release stops listing it (design §5).
     """
     found: dict[str, str] = {}
-    names = sorted((path.stem for path in releases.glob("*.json")), key=dr.release_sort_key)
-    for name in names:
+    for name in dr.release_ids(path.name for path in releases.glob("*.json")):
         for item in load_release(name, releases)[1]:
             if item.path.startswith(dr.ARTIFACT_PREFIX):
                 found.setdefault(item.path.split("/")[2], name)

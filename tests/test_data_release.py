@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import copy
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from genomeos.publication import data_release as dr
 
+ROOT = Path(__file__).resolve().parents[1]
 RELEASE = "2026-10-17"
 SHA_A = "a" * 64
 SHA_B = "b" * 64
+EMPTY: dict[str, Any] = {"schema": "genomeos-withdrawn", "schema_version": 1, "withdrawn": []}
 
 SOURCES: dict[str, Any] = {
     "afnd": {
@@ -327,3 +330,70 @@ def test_only_the_committed_bucket_is_accepted() -> None:
     assert dr.resolve_bucket(dr.DATA_STORE_BUCKET) == dr.DATA_STORE_BUCKET
     with pytest.raises(dr.DataReleaseError, match="committed"):
         dr.resolve_bucket("example-other-bucket")
+
+
+# --- the withdrawn list beside the manifests (Atlas data platform design 2026-10-18 §2.9, step 1.2) ---
+
+WITHDRAWAL: dict[str, str] = {
+    "key": f"releases/{RELEASE}/store/artifacts/x__v3__map-2026-08/cells.parquet",
+    "sha256": SHA_A,
+    "reason": "the source withdrew the survey rows this surface was fit on",
+    "issue": "https://github.com/genomeOS/genomeOS/issues/1",
+    "date": "2026-11-14",
+    "decided_by": "owner",
+}
+
+
+def _withdrawn(*entries: dict[str, str]) -> dict[str, Any]:
+    return {**EMPTY, "withdrawn": list(entries)}
+
+
+def test_withdrawals_validate() -> None:
+    assert dr.validate_withdrawn(EMPTY) == ()
+    assert dr.validate_withdrawn(_withdrawn(WITHDRAWAL)) == (dr.Withdrawal(**WITHDRAWAL),)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("key", "manifests/2026-10-17.json"),
+        ("sha256", "A" * 64),
+        ("reason", "   "),
+        ("issue", "http://github.com/genomeOS/genomeOS/issues/1"),
+        ("date", "14 Nov 2026"),
+        ("decided_by", ""),
+    ],
+)
+def test_a_malformed_withdrawal_is_a_hard_error(field: str, value: str) -> None:
+    with pytest.raises(dr.DataReleaseError, match=field):
+        dr.validate_withdrawn(_withdrawn({**WITHDRAWAL, field: value}))
+
+
+def test_withdrawal_fields_and_header_are_closed_sorted_and_unique() -> None:
+    with pytest.raises(dr.DataReleaseError, match="field"):
+        dr.validate_withdrawn(_withdrawn({**WITHDRAWAL, "note": "an unlisted field"}))
+    with pytest.raises(dr.DataReleaseError, match="field"):
+        dr.validate_withdrawn({**EMPTY, "release": RELEASE})
+    for version in (2, True):  # JSON true == 1 in Python, but it is not a version
+        with pytest.raises(dr.DataReleaseError, match="genomeos-withdrawn"):
+            dr.validate_withdrawn({**EMPTY, "schema_version": version})
+    with pytest.raises(dr.DataReleaseError, match="twice"):
+        dr.validate_withdrawn(_withdrawn(WITHDRAWAL, WITHDRAWAL))
+    later = {**WITHDRAWAL, "key": WITHDRAWAL["key"].replace("cells.parquet", "manifest.json")}
+    assert len(dr.validate_withdrawn(_withdrawn(WITHDRAWAL, later))) == 2
+    with pytest.raises(dr.DataReleaseError, match="sorted"):
+        dr.validate_withdrawn(_withdrawn(later, WITHDRAWAL))
+
+
+def test_release_ids_skip_the_withdrawn_list_and_refuse_strays() -> None:
+    names = ["2026-10-18.json", "WITHDRAWN.json", "2026-10-17.1.json", "2026-10-17.json"]
+    assert dr.release_ids(names) == ["2026-10-17", "2026-10-17.1", "2026-10-18"]
+    for stray in ("latest.json", "withdrawn.json", "2026-10-18 .json"):
+        with pytest.raises(dr.DataReleaseError, match="neither"):
+            dr.release_ids([*names, stray])
+
+
+def test_the_committed_withdrawn_list_is_empty_and_canonical() -> None:
+    committed = ROOT / "data" / "releases" / "WITHDRAWN.json"
+    assert committed.read_bytes() == dr.canonical_bytes(EMPTY)
+    assert dr.validate_withdrawn(json.loads(committed.read_bytes())) == ()

@@ -15,6 +15,10 @@ file added to an artifact directory an earlier release published: a cited artifa
 files.
 Pickles are never published: loading one from the internet executes code (data store design §8).
 Every violation is a hard error (design §12).
+
+``WITHDRAWN.json`` sits beside the manifests in ``data/releases/``: the keys withdrawn from serving,
+for the owner to delete (Atlas data platform design 2026-10-18 §2.9). It is not a release, so every
+reader lists that directory through ``release_ids``, which skips it and refuses any other stray name.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -43,6 +48,9 @@ BUCKET_VARIABLE = "GENOMEOS_DATA_BUCKET"
 #: These committed values are the truth: a variable or flag that names anything else is refused.
 DATA_STORE_BUCKET = "genomeos-atlas-data"
 DATA_STORE_BASE_URL = "https://storage.googleapis.com/genomeos-atlas-data/"
+WITHDRAWN_FILE = "WITHDRAWN.json"
+WITHDRAWN_SCHEMA = "genomeos-withdrawn"
+WITHDRAWN_SCHEMA_VERSION = 1
 
 #: Closed: an extension missing here is refused rather than served under a guessed type.
 MEDIA_TYPES: Mapping[str, str] = {
@@ -68,6 +76,8 @@ _SOURCE_FIELDS = frozenset({"name", "citation", "url", "terms", "non_commercial"
 _SOURCE_REQUIRED = frozenset({"name", "terms", "non_commercial"})
 _TERMS_FIELDS = frozenset({"status", "checked_at", "terms_url", "licence", "recorded_in", "note"})
 _TOTALS_FIELDS = ("objects", "bytes", "in_git_objects", "in_git_bytes")
+_WITHDRAWN_FIELDS = frozenset({"schema", "schema_version", "withdrawn"})
+_WITHDRAWAL_FIELDS = frozenset({"key", "sha256", "reason", "issue", "date", "decided_by"})
 _RELEASE = re.compile(r"(\d{4}-\d{2}-\d{2})(?:\.([1-9]\d*))?")
 #: A path segment. ``=`` names a hive partition folder (``chrom=chr11``) but never leads one; ``%``,
 #: ``+`` and ``:`` stay refused (Atlas data platform design 2026-10-18 §13 call 5): ``%`` and ``+``
@@ -107,6 +117,18 @@ class ReleaseObject:
     sources: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class Withdrawal:
+    """One published key withdrawn from serving, with who decided it, when and why (platform §2.9)."""
+
+    key: str
+    sha256: str
+    reason: str
+    issue: str
+    date: str
+    decided_by: str
+
+
 def assert_release_id(value: object) -> str:
     """``YYYY-MM-DD`` with an optional ``.N`` (N ≥ 1) for a second release on one day."""
     if not isinstance(value, str) or not _RELEASE.fullmatch(value):
@@ -118,6 +140,25 @@ def release_sort_key(release: str) -> tuple[str, int]:
     match = _RELEASE.fullmatch(assert_release_id(release))
     assert match is not None
     return match.group(1), int(match.group(2) or 0)
+
+
+def release_ids(file_names: Iterable[str]) -> list[str]:
+    """The releases among the file names of ``data/releases/``, oldest first.
+
+    ``WITHDRAWN.json`` is skipped; any other name that is not ``<release>.json`` is refused.
+    """
+    found: list[str] = []
+    for name in file_names:
+        if name == WITHDRAWN_FILE:
+            continue
+        stem = name.removesuffix(".json")
+        if stem == name or not _RELEASE.fullmatch(stem):
+            raise DataReleaseError(
+                f"{name!r} in releases/ is neither a release manifest (YYYY-MM-DD[.N].json) "
+                f"nor {WITHDRAWN_FILE}"
+            )
+        found.append(stem)
+    return sorted(found, key=release_sort_key)
 
 
 def assert_data_path(value: object) -> str:
@@ -317,6 +358,29 @@ def select(objects: Sequence[ReleaseObject], prefixes: Sequence[str]) -> tuple[R
     return tuple(item for item in objects if any(item.path.startswith(prefix) for prefix in prefixes))
 
 
+def validate_withdrawn(document: object) -> tuple[Withdrawal, ...]:
+    """Every rule of ``WITHDRAWN.json``, or a ``DataReleaseError`` naming the first violation."""
+    if not isinstance(document, Mapping):
+        raise DataReleaseError(f"{WITHDRAWN_FILE}: not a JSON object")
+    _closed(document, _WITHDRAWN_FIELDS, WITHDRAWN_FILE, required=_WITHDRAWN_FIELDS)
+    version = document["schema_version"]
+    if (
+        document["schema"] != WITHDRAWN_SCHEMA
+        or type(version) is not int  # JSON true is not version 1
+        or version != WITHDRAWN_SCHEMA_VERSION
+    ):
+        raise DataReleaseError(f"{WITHDRAWN_FILE}: not a {WITHDRAWN_SCHEMA} v{WITHDRAWN_SCHEMA_VERSION} list")
+    if not isinstance(document["withdrawn"], list):
+        raise DataReleaseError(f"{WITHDRAWN_FILE}: withdrawn must be a list")
+    entries = tuple(_validate_withdrawal(item) for item in document["withdrawn"])
+    for earlier, later in pairwise(entry.key for entry in entries):
+        if earlier == later:
+            raise DataReleaseError(f"{WITHDRAWN_FILE}: {later} is listed twice")
+        if earlier > later:
+            raise DataReleaseError(f"{WITHDRAWN_FILE}: entries must be sorted by key; {later} is misplaced")
+    return entries
+
+
 def _published(previous: Sequence[Mapping[str, Any]], release: str) -> dict[str, ReleaseObject]:
     """Path → newest earlier object (whose key already points at the original upload)."""
     found: dict[str, ReleaseObject] = {}
@@ -370,6 +434,37 @@ def _earlier_key(key: object, release: str, path: str) -> bool:
     if not _RELEASE.fullmatch(candidate):
         return False
     return release_sort_key(candidate) < release_sort_key(release)
+
+
+def _validate_withdrawal(item: object) -> Withdrawal:
+    if not isinstance(item, Mapping):
+        raise DataReleaseError(f"{WITHDRAWN_FILE}: entry {item!r} is not a JSON object")
+    where = f"{WITHDRAWN_FILE} entry {item.get('key')!r}"
+    _closed(item, _WITHDRAWAL_FIELDS, where, required=_WITHDRAWAL_FIELDS)
+    if not _is_release_key(item["key"]):
+        raise DataReleaseError(f"{where}: key must be {RELEASE_PREFIX}<release>/<path>")
+    if not isinstance(item["sha256"], str) or not _SHA256.fullmatch(item["sha256"]):
+        raise DataReleaseError(f"{where}: sha256 {item['sha256']!r} is not 64 lowercase hex characters")
+    for field in ("reason", "decided_by"):
+        if not isinstance(item[field], str) or not item[field].strip():
+            raise DataReleaseError(f"{where}: {field} must be a non-blank string")
+    _https(item["issue"], f"{where}: issue")
+    if not isinstance(item["date"], str) or not _DATE.fullmatch(item["date"]):
+        raise DataReleaseError(f"{where}: date {item['date']!r} is not YYYY-MM-DD")
+    return Withdrawal(
+        item["key"], item["sha256"], item["reason"], item["issue"], item["date"], item["decided_by"]
+    )
+
+
+def _is_release_key(key: object) -> bool:
+    """``releases/<release>/<path>``, exactly as ``release_key`` writes it."""
+    if not isinstance(key, str) or not key.startswith(RELEASE_PREFIX):
+        return False
+    release, _, path = key[len(RELEASE_PREFIX) :].partition("/")
+    try:
+        return release_key(release, path) == key
+    except DataReleaseError:
+        return False
 
 
 def _validate_source(name: object, source: object) -> None:
