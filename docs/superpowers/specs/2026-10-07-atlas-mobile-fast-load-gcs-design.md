@@ -309,6 +309,20 @@ committed as `docs/figures/atlas-mobile-{before,after}.png`.
   `WEBGL_debug_renderer_info` renderer and the machine in its JSON attachment and skips budget
   assertions on SwiftShader/software renderers. Each run is a fresh browser context with a cold HTTP
   cache; the spec reports the median of 3 runs and asserts budgets on the median.
+- **Warm-up load** (amended 2026-11-14, owner decision). Each freshly launched browser first runs
+  one cold load in its own throwaway context and discards it, then the 3 measured runs. Why: the
+  first page of a new Chrome also measures Chrome's own GPU warm-up. Chrome's GPU process builds
+  its first-use rendering pipelines on its main thread (Skia Graphite and Dawn, each a Metal
+  compile when the shader cache misses). The page's first WebGL context creation is a synchronous
+  call to that thread, so it waits behind them. The page cannot remove that wait: without the
+  explorer's WebGL probe it moves into Cesium's own context creation. Measured headless on an
+  Apple M3 Pro, with a colour profile its Metal cache had never seen: without the warm-up, load 0
+  failed the 200 ms desktop cap at 267–269 ms, on main and on #503; with it, the measured runs'
+  longest Atlas frames were 71.7, 71.3 and 74.2 ms. Unchanged: 3 measured runs per profile, each
+  a fresh browser context with a cold HTTP cache; budgets asserted on their median; the per-load
+  long-frame cap on every measured run; headed Chrome on a hardware GPU; baseline mode. The
+  warm-up's cost stays in the JSON report as `gpuWarmup` (its outcome, longest Atlas frame and
+  WebGL context-creation times) and is not asserted.
 - **Profiles.** Desktop: 1440×900, no throttling. Mobile: 390×844 at DPR 3, `isMobile`, `hasTouch`,
   CDP `Emulation.setCPUThrottlingRate {rate: 4}` on the page **and on every dedicated-worker target**
   (`Target.setAutoAttach {autoAttach: true, flatten: true, waitForDebuggerOnStart: true}`, throttle
@@ -1347,3 +1361,4 @@ whole, and the catalog is one canonical line, so the two changes conflict on tha
 | Part C operations run on the stacked branch before the owner merges A and B | Merges are the owner's call; content-addressed keys make early publishing safe | Re-run encode/publish if review changes Part B's bytes |
 | Stacked PRs A → B → C, one spec, one plan | AGENTS "one PR per coherent unit"; B and C share the format | Merge order is fixed |
 | Format version in the committed catalog, not in object headers (amended 2026-10-17, #467) | The catalog deploys with the site and names every object by digest; header bytes are hashed into immutable keys | A per-object change still needs a MAJOR bump and new keys |
+| One discarded warm-up load per launched browser before the 3 measured cold-load runs (amended 2026-11-14, owner decision) | Load 0 of a new Chrome measured Chrome's first-use GPU pipeline compiles, not Atlas work: 267–269 ms cold, against 71–74 ms after a warm-up | A cost that appears only in a new browser's first load is reported in `gpuWarmup`, not failed |
