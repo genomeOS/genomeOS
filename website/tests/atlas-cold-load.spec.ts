@@ -87,6 +87,8 @@ function installColdLoadProbes(): void {
           blockingDuration: frame.blockingDuration,
           scripts: frame.scripts.map((script) => ({
             sourceURL: script.sourceURL,
+            sourceFunctionName: script.sourceFunctionName,
+            sourceCharPosition: script.sourceCharPosition,
             invoker: script.invoker,
             invokerType: script.invokerType,
             startTime: script.startTime,

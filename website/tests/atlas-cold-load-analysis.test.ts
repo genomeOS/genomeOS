@@ -264,7 +264,15 @@ describe('long-animation-frame attribution', () => {
       sourceURL: string,
       invoker: string,
       invokerType: string,
-    ) => ({ sourceURL, invoker, invokerType, startTime: 0, duration: 10 });
+    ) => ({
+      sourceURL,
+      sourceFunctionName: '',
+      sourceCharPosition: -1,
+      invoker,
+      invokerType,
+      startTime: 0,
+      duration: 10,
+    });
     expect(
       attributeScript(
         script(CESIUM, 'module', 'module-script'),
@@ -326,6 +334,8 @@ describe('long-animation-frame attribution', () => {
         scripts: [
           {
             sourceURL: CESIUM,
+            sourceFunctionName: '',
+            sourceCharPosition: -1,
             invoker: 'module',
             invokerType: 'module-script',
             startTime: 1_000,
@@ -333,6 +343,8 @@ describe('long-animation-frame attribution', () => {
           },
           {
             sourceURL: ISLAND,
+            sourceFunctionName: '',
+            sourceCharPosition: -1,
             invoker: 'Worker.onmessage',
             invokerType: 'event-listener',
             startTime: 1_255,
@@ -348,6 +360,8 @@ describe('long-animation-frame attribution', () => {
         scripts: [
           {
             sourceURL: CESIUM,
+            sourceFunctionName: '',
+            sourceCharPosition: -1,
             invoker: 'FrameRequestCallback',
             invokerType: 'user-callback',
             startTime: 2_010,
@@ -363,6 +377,8 @@ describe('long-animation-frame attribution', () => {
         scripts: [
           {
             sourceURL: CESIUM,
+            sourceFunctionName: '',
+            sourceCharPosition: -1,
             invoker: 'FrameRequestCallback',
             invokerType: 'user-callback',
             startTime: 3_000,
@@ -378,6 +394,8 @@ describe('long-animation-frame attribution', () => {
         scripts: [
           {
             sourceURL: ISLAND,
+            sourceFunctionName: '',
+            sourceCharPosition: -1,
             invoker: 'TimerHandler:setTimeout',
             invokerType: 'user-callback',
             startTime: 9_000,
@@ -413,6 +431,8 @@ describe('long-animation-frame attribution', () => {
     const SCENE = `${ORIGIN}/_astro/atlas-scene.CVF3dbcv.js`;
     const evaluation = {
       sourceURL: SCENE,
+      sourceFunctionName: '',
+      sourceCharPosition: -1,
       invoker: SCENE,
       invokerType: 'module-script',
       startTime: 1_500,
@@ -448,6 +468,8 @@ describe('long-animation-frame attribution', () => {
             evaluation,
             {
               sourceURL: ISLAND,
+              sourceFunctionName: '',
+              sourceCharPosition: -1,
               invoker: 'Worker.onmessage',
               invokerType: 'event-listener',
               startTime: 1_825,
@@ -487,6 +509,8 @@ describe('long-animation-frame attribution', () => {
         attributeScript(
           {
             sourceURL: url,
+            sourceFunctionName: '',
+            sourceCharPosition: -1,
             invoker: url,
             invokerType: 'module-script',
             startTime: 0,
@@ -500,6 +524,65 @@ describe('long-animation-frame attribution', () => {
     }
   });
 
+  it('names the function and position of every script in a long frame', () => {
+    // Without them a report names only the entry point: a headed load-0 frame read as
+    // "MessagePort.onmessage in client.<hash>.js" until a source map was run against a rebuild.
+    const CLIENT = `${ORIGIN}/_astro/client.BwA2HVuQ.js`;
+    const SCENE = `${ORIGIN}/_astro/atlas-scene.8_4BkOsq.js`;
+    const summary = atlasLongFrames(
+      [
+        {
+          startTime: 1_000,
+          duration: 296,
+          renderStart: 1_290,
+          blockingDuration: 246,
+          scripts: [
+            {
+              sourceURL: CLIENT,
+              sourceFunctionName: 'ae',
+              sourceCharPosition: 1_358,
+              invoker: 'MessagePort.onmessage',
+              invokerType: 'event-listener',
+              startTime: 1_001,
+              duration: 292.6,
+            },
+          ],
+        },
+        {
+          startTime: 3_784,
+          duration: 696,
+          renderStart: 4_475,
+          blockingDuration: 641,
+          scripts: [
+            {
+              sourceURL: SCENE,
+              sourceFunctionName: '',
+              sourceCharPosition: 70_571,
+              invoker: 'FrameRequestCallback',
+              invokerType: 'user-callback',
+              startTime: 3_785,
+              duration: 690.4,
+            },
+          ],
+        },
+      ],
+      [],
+      { ...CONTEXT, windowEndMs: 5_000 },
+    );
+    expect(
+      summary.frames.map((frame) =>
+        frame.scripts.map((script) => [
+          script.invoker,
+          script.sourceFunctionName,
+          script.sourceCharPosition,
+        ]),
+      ),
+    ).toEqual([
+      [['FrameRequestCallback', '', 70_571]],
+      [['MessagePort.onmessage', 'ae', 1_358]],
+    ]);
+  });
+
   it('charges an Atlas frame only with time no Cesium or other script claims', () => {
     const summary = atlasLongFrames(
       [
@@ -511,6 +594,8 @@ describe('long-animation-frame attribution', () => {
           scripts: [
             {
               sourceURL: CESIUM,
+              sourceFunctionName: '',
+              sourceCharPosition: -1,
               invoker: 'FrameRequestCallback',
               invokerType: 'user-callback',
               startTime: 4_000,
@@ -518,6 +603,8 @@ describe('long-animation-frame attribution', () => {
             },
             {
               sourceURL: ISLAND,
+              sourceFunctionName: '',
+              sourceCharPosition: -1,
               invoker: 'Worker.onmessage',
               invokerType: 'event-listener',
               startTime: 4_300,
@@ -525,6 +612,8 @@ describe('long-animation-frame attribution', () => {
             },
             {
               sourceURL: 'https://tile.openstreetmap.org/a.js',
+              sourceFunctionName: '',
+              sourceCharPosition: -1,
               invoker: 'x',
               invokerType: 'classic-script',
               startTime: 4_340,
