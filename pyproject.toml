@@ -81,6 +81,8 @@ pythonpath = ["."]
 [tool.ruff]
 line-length = 110
 target-version = "py311"
+# Probe scripts copied verbatim as evidence for the data-platform design; records, not package code.
+extend-exclude = ["docs/research/2026-10-18-atlas-data-platform"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
