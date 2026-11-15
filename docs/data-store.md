@@ -353,8 +353,23 @@ and the builder refuses a released artifact whose bytes changed.
   substitute for them.
 - The bucket's URL and name are committed in `genomeos/publication/data_release.py`, and any other
   value is refused. The project id is never committed (`docs/repo-gcloud-auth.md`).
+- CORS (`deploy/data-store-cors.json`) lets any origin `GET` and `HEAD` and lets a page read
+  `Content-Range` and `Accept-Ranges`, so DuckDB-WASM can range-read a release's Parquet files and
+  `catalog/atlas.duckdb` in a browser (Atlas data platform design 2026-10-18, step 1.13). GCS also takes
+  the request headers a preflight may ask for from `responseHeader`, so it lists `Range` too. Once
+  provisioning has applied it, `python scripts/check_data_store_cors.py` probes the newest release
+  anonymously from `https://genome-os.org`: a preflight, a ranged GET that must return 206 with the
+  manifest's byte count in `Content-Range`, and a HEAD that must return `Accept-Ranges: bytes`. Each
+  request carries its own `?probe=<random hex>` query, so the probe sees the bucket's live CORS at once.
+  Browsers send no such query. Google's edge cache keeps an object for its `max-age=3600` with the CORS headers it
+  was stored under, ignores a request's `Cache-Control: no-cache`, and cannot be invalidated. For up to
+  an hour after a CORS change, a page (DuckDB-WASM, or the live browser check) can still get the old
+  headers for any object fetched in full in the hour before the change, for example by
+  `fetch_data.py --verify-remote`. Wait an hour after the CORS change, which is also an hour after any
+  such download, before running a live browser check.
 
-**Reading** needs no credentials: run `scripts/fetch_data.py`. Downloads stream into
+**Reading** needs no credentials. [`data-access.md`](data-access.md) is the reader's guide: lookups
+first, then downloads, offline mode and citing. Run `scripts/fetch_data.py`. Downloads stream into
 `data/.fetch-partial/`, are checked against the manifest's byte count and sha256, and only then are
 renamed into place; a local file that differs is a hard error and is never overwritten. Without the
 repository, `manifests/<release>.json` in the bucket is the same manifest.

@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Stateful stand-in for the gcloud CLI in the Atlas web bucket tests (design 2026-10-07 §C.3).
 
-It implements exactly the commands scripts/provision_atlas_web_bucket.py,
-scripts/publish_atlas_web.py, scripts/provision_data_store_bucket.py and scripts/publish_data_store.py
-issue; the IAM, Pub/Sub, Cloud Functions and billing commands of the budget kill switch and the
-data-store publisher are in tests/fake_gcloud_platform.py, which shares this state file. It exits 2 on
-anything else, so a script that drifts to an
-untested command fails its tests instead of passing them. Error text mirrors gcloud 498's formats
-("gs://… not found: 404.", "HTTPError 412: …"). State is the JSON file named by FAKE_GCLOUD_STATE;
-every invocation is appended to the JSON-lines file named by FAKE_GCLOUD_LOG with the CLOUDSDK_CONFIG
-it saw, which proves the call went through scripts/gcloud_repo.py, and the service account it was told
-to impersonate (CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT), if any.
+It implements exactly the commands scripts/provision_atlas_web_bucket.py, scripts/publish_atlas_web.py,
+scripts/provision_data_store_bucket.py and scripts/publish_data_store.py issue, and
+scripts/cost_report.py's ``auth print-access-token`` (which prints ``ACCESS_TOKEN``); the IAM, Pub/Sub,
+Cloud Functions and billing commands of the budget kill switch and the data-store publisher are in
+tests/fake_gcloud_platform.py, which shares this state file. It exits 2 on anything else, so a script
+that drifts to an untested command fails its tests instead of passing them. Error text mirrors gcloud
+498's formats ("gs://… not found: 404.", "HTTPError 412: …"). State is the JSON file named by
+FAKE_GCLOUD_STATE; every invocation is appended to the JSON-lines file named by FAKE_GCLOUD_LOG with
+the CLOUDSDK_CONFIG it saw, which proves the call went through scripts/gcloud_repo.py, and the service
+account it was told to impersonate (CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT), if any.
 
 State keys: buckets{name: resource + "bindings"}, objects{"bucket/name": resource + "data_b64"},
 org_policies{constraint: policy}, org_policy_errors[constraint], race{"bucket/name": resource},
@@ -35,6 +35,7 @@ import fake_gcloud_platform  # tests/, beside this file: the script's own direct
 UNSUPPORTED = 2
 DESCRIBE_FLAGS = {"raw": "", "format": "json"}
 DEFAULT_PROJECT_NUMBER = "123456789012"
+ACCESS_TOKEN = "ya29.fake-cost-report-token"
 # scripts/publish_atlas_web.py's upload_args (Task 90 (C5)); --content-disposition is per object.
 COPY_FLAGS = {
     "if-generation-match",
@@ -338,8 +339,17 @@ def _compute_create(state: dict[str, Any], collection: str, name: str, flags: di
     return 0
 
 
+def _access_token(flags: dict[str, str]) -> int:
+    if flags:
+        return _unsupported(["auth", "print-access-token"], flags)
+    print(ACCESS_TOKEN)
+    return 0
+
+
 def _dispatch(state: dict[str, Any], positional: list[str], flags: dict[str, str]) -> int:
     match positional:
+        case ["auth", "print-access-token"]:
+            return _access_token(flags)
         case ["storage", "objects", "describe", url]:
             return _object_describe(state, url, flags)
         case ["storage", "cp", source, url]:

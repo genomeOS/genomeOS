@@ -72,6 +72,7 @@ import type { SceneFailure } from './useAtlasSceneLifecycle';
 interface AtlasExplorerProps {
   artifactDataBase: string;
   cesiumToken?: string;
+  dataStoreCatalog: Parameters<typeof ExplorerControls>[0]['dataStoreCatalog'];
   siteDataBase: string;
 }
 
@@ -90,6 +91,7 @@ function restyleColdLoad(restyle: Promise<void> | undefined): void {
 export default function AtlasExplorer({
   artifactDataBase,
   cesiumToken = '',
+  dataStoreCatalog,
   siteDataBase,
 }: AtlasExplorerProps) {
   const provider = useAtlasDataProvider(artifactDataBase, siteDataBase);
@@ -567,20 +569,18 @@ export default function AtlasExplorer({
 
   const update = (change: Partial<ExplorerState>) =>
     setState((current) => (current ? { ...current, ...change } : current));
-
   const chooseEntity = (id: string) => {
     const ref = catalog?.artifacts.find((candidate) => candidate.id === id);
     if (!ref) return;
     update({ artifactVersion: artifactVersion(ref), entityId: id });
   };
 
-  const chooseLayer = (layer: LayerId, visible: boolean) => {
+  const chooseLayer = (layer: LayerId, visible: boolean) =>
     setState((current) =>
       current
         ? { ...current, layers: { ...current.layers, [layer]: visible } }
         : current,
     );
-  };
 
   const chooseElevation = (enabled: boolean) => {
     setViewNotice(null);
@@ -621,6 +621,7 @@ export default function AtlasExplorer({
               capabilities={capabilities}
               catalog={catalog}
               artifactDataBase={artifactDataBase}
+              dataStoreCatalog={dataStoreCatalog}
               state={state}
               disabled={false}
               explorer={explorerNode}

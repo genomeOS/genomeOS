@@ -13,6 +13,10 @@ import {
   assertDataBase,
   dataOrigin,
 } from '../lib/data-url';
+import {
+  dataStoreBaseFrom,
+  latestDataStoreCatalog,
+} from '../lib/data-store-release';
 import { sitePath } from '../lib/paths';
 
 // fast-load design §B.4: site data always same-origin; the artifact base is
@@ -38,6 +42,17 @@ assertE2eHooks(
   import.meta.env.PUBLIC_ATLAS_E2E_HOOKS,
 );
 const preconnect = dataOrigin(artifactDataBase);
+// Atlas data platform step 1.13: "Query in your browser" attaches the newest committed release's
+// catalog. A malformed or stray file in the releases directory fails the build; no catalog yet
+// renders no panel. The e2e build reads the fixture release (DATA_STORE_RELEASES_DIR) from the
+// loopback store (PUBLIC_DATA_STORE_BASE_URL); every other build, the committed data store.
+const dataStoreCatalog = latestDataStoreCatalog(
+  process.env.DATA_STORE_RELEASES_DIR || '../data/releases',
+  dataStoreBaseFrom(
+    import.meta.env.PUBLIC_DATA_STORE_BASE_URL,
+    process.env.ATLAS_CATALOG_PATH,
+  ),
+);
 ---
 
 <SiteLayout
@@ -71,6 +86,7 @@ const preconnect = dataOrigin(artifactDataBase);
     client:load
     artifactDataBase={artifactDataBase}
     cesiumToken={import.meta.env.CESIUM_TOKEN ?? ''}
+    dataStoreCatalog={dataStoreCatalog}
     siteDataBase={siteDataBase}
   />
 </SiteLayout>

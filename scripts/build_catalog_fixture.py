@@ -80,12 +80,12 @@ def check_fixture(out: Path) -> list[str]:
     with tempfile.TemporaryDirectory() as scratch:
         built = Path(scratch) / "catalog"
         build_fixture(built)
-        found, wanted = _files(out), _files(built)
+        found, wanted = fixture_files(out), fixture_files(built)
         problems = [f"{path}: missing" for path in sorted(wanted - found)]
         problems += [f"{path}: not part of the fixture" for path in sorted(found - wanted)]
         for path in sorted(found & wanted):
             if path == DATABASE:
-                same = _views(out / path) == _views(built / path)
+                same = database_views(out / path) == database_views(built / path)
             else:
                 same = (out / path).read_bytes() == (built / path).read_bytes()
             if not same:
@@ -101,7 +101,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if not args.check:
             build_fixture(FIXTURE)
-            print(f"wrote {where}: {len(_files(FIXTURE))} files")
+            print(f"wrote {where}: {len(fixture_files(FIXTURE))} files")
             return 0
         problems = check_fixture(FIXTURE)
     except (TableError, dr.DataReleaseError, OSError) as error:
@@ -115,11 +115,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-def _files(root: Path) -> set[str]:
+def fixture_files(root: Path) -> set[str]:
+    """Every file under ``root``, as a path relative to it with ``/`` separators."""
     return {path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file()}
 
 
-def _views(database: Path) -> list[tuple[str, str, str]]:
+def database_views(database: Path) -> list[tuple[str, str, str]]:
     """Each view of ``database``: its schema, name and SQL."""
     con = writer.connect()
     try:

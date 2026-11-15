@@ -65,12 +65,25 @@ NEW_BUCKET: dict[str, Any] = {
 
 
 def cors_policy() -> list[dict[str, Any]]:
-    """Open read CORS: the data is public, and browser tools (DuckDB-WASM, notebooks) need it."""
+    """Open read CORS: the data is public, and browser tools (DuckDB-WASM, notebooks) need it.
+
+    Browser SQL range-reads Parquet and ``catalog/atlas.duckdb`` (Atlas data platform design 2026-10-18
+    §11 step 1.13), so a page must be able to read ``Content-Range`` and ``Accept-Ranges``. GCS uses
+    ``responseHeader`` both for the headers a page may read and for the request headers a preflight
+    allows, so ``Range`` is listed too. ``scripts/check_data_store_cors.py`` probes the result.
+    """
     return [
         {
             "origin": ["*"],
             "method": ["GET", "HEAD"],
-            "responseHeader": ["Content-Length", "Content-Type", "ETag"],
+            "responseHeader": [
+                "Content-Length",
+                "Content-Type",
+                "ETag",
+                "Content-Range",
+                "Accept-Ranges",
+                "Range",
+            ],
             "maxAgeSeconds": 3600,
         }
     ]
