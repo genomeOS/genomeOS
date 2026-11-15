@@ -1087,6 +1087,67 @@ describe('surface picks in the map frame (Columbus view and 2D, fast-load §B.6.
       },
     );
 
+  /** The ray of a camera `metres` over (`lat`, `lon`) in the map frame, `heading` degrees east of
+   * north and `pitch` degrees below the horizon. */
+  function mapRay(
+    lat: number,
+    lon: number,
+    metres: number,
+    heading: number,
+    pitch: number,
+  ): PickRay {
+    const [h, p] = [heading, pitch].map((degrees) => (degrees * Math.PI) / 180);
+    return {
+      direction: [
+        Math.sin(h) * Math.cos(p),
+        Math.cos(h) * Math.cos(p),
+        -Math.sin(p),
+      ],
+      origin: [
+        ((lon * Math.PI) / 180) * MAP_RADIUS,
+        ((lat * Math.PI) / 180) * MAP_RADIUS,
+        metres,
+      ],
+    };
+  }
+
+  // A shallow ray runs thousands of kilometres through the heights a lifted cell reaches, and
+  // reaches the clearance past the pole or past 90°E, where the shear leans lifts down; near the
+  // camera it can graze a sheared sheet of tops. The first cell it meets is still found (#483
+  // review: a walk over the lift from the clearance-height ray point missed most of these).
+  it.each(['extruded', 'triangles'] as const)(
+    'finds the first drawn %s cell along shallow rays, looking north and east (#483)',
+    (geometry) => {
+      const { mesh, owners, triangles } = drawnDisk(
+        geometry,
+        latLngToCell(20, 10, RESOLUTION),
+        5,
+        40,
+      );
+      let checked = 0;
+      for (const metres of [400_000, 600_000, 800_000])
+        for (const pitch of [2, 3, 4, 5, 6])
+          for (const [lat, lon, heading] of [
+            [-15, 10, 0],
+            [0, 10, 0],
+            [10, 10, 0],
+            [20, -15, 90],
+            [20, 0, 90],
+          ]) {
+            const ray = mapRay(lat, lon, metres, heading, pitch);
+            const hit = firstMeshHit(triangles, owners, ray);
+            if (hit === null) continue;
+            expect(
+              firstDrawnRowAlong(ray, mesh),
+              `${metres / 1_000} km over ${lat}°, ${lon}°, ${pitch}° down, ${heading}° from north`,
+            ).toBe(hit.owner);
+            checked += 1;
+          }
+      expect(checked, 'rays that meet the drawn disk').toBeGreaterThan(50);
+    },
+    60_000,
+  );
+
   it.each(MAP_GEOMETRIES)(
     'keeps its answer under depth noise up to the window on a resolution-7 grid (%s)',
     (geometry) => {
