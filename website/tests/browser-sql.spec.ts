@@ -36,14 +36,6 @@ const PROBE_BYTES = statSync(
   path.join(import.meta.dirname, 'fixtures', 'data-store', PROBE),
 ).size;
 const CATALOG = `${STORE}${RELEASE}/catalog/atlas.duckdb`;
-/**
- * DuckDB-WASM 1.32.0 reads an HTTP file in 16 KiB-aligned blocks and then reads 64 KiB ahead
- * (measured 2026-11-15): a lookup costs the footer's block, the block its row group starts in and
- * the read-ahead, about 96 KiB whatever the object's size. That is 60% of this 163 KB probe (6.7%
- * of a 1.79 MB copy), so the quarter-of-the-object bound allows it on top here; the live spec
- * holds a released cells.parquet to the plain quarter.
- */
-const READ_AHEAD_BYTES = 16_384 + 16_384 + 65_536;
 /** Row 0xe000 of the probe; one row group of twelve holds it. */
 const probeQuery = (url: string) =>
   `SELECT count(*)::VARCHAR, max(post_mean)::VARCHAR FROM read_parquet('${url}') WHERE h3_index = '80000000000e000'`;
@@ -106,7 +98,9 @@ test.describe('browser SQL', { tag: '@desktop-chromium' }, () => {
           JSON.stringify(entry),
         ).toBe(true);
       }
-      expect(sent).toBeLessThan(PROBE_BYTES / 4 + READ_AHEAD_BYTES);
+      // DuckDB-WASM's lookup costs a fixed ~96 KiB of blocks and read-ahead; the probe's unread
+      // padding column makes the file at least eight times that (tests/test_browser_sql_fixture.py).
+      expect(sent).toBeLessThan(PROBE_BYTES / 4);
     } else {
       const whole = log.filter((entry) => entry.status === 200 && entry.bytes);
       expect(whole).toHaveLength(1);

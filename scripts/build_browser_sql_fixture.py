@@ -7,8 +7,10 @@ serve at ``FIXTURE_BASE_URL``, where the browser tests read it with the pinned D
 
 - ``releases/<R>/range_probe.parquet``: ``PROBE_ROWS`` rows, ``h3_index`` = ``'8'`` and the row number in
   14 hex digits (a sort key, not an H3 cell) and ``post_mean`` = row / ``PROBE_ROWS``, sorted, in zstd row
-  groups of 8,192, so a lookup of ``PROBE_KEY`` needs one row group: the range-read measurement. The
-  manifest lists it, and no view reads it.
+  groups of 8,192, so a lookup of ``PROBE_KEY`` needs one row group: the range-read measurement. A
+  ``padding`` column no query reads (the row's md5, ``PROBE_PADDING_CHARS`` hex digits) makes the file
+  ``PROBE_MIN_BYTES`` or more, so DuckDB-WASM's fixed lookup cost is under a quarter of it, as it is of a
+  released ``cells.parquet``. The manifest lists it, and no view reads it.
 - ``releases/<R>/catalog/{catalog.sql,atlas.duckdb}``, rendered by ``render_catalog_sql`` over
   ``base_url`` and built by ``build_catalog_db``. Its two data views are ``inferred.artifacts`` (one row,
   the catalog tree's HbS v3, as the release builder writes it) and ``evidence.parity_observations``
@@ -59,6 +61,15 @@ FIXTURE_BASE_URL = "http://127.0.0.1:4324/"
 PROBE_KEY = "80000000000e000"
 PROBE_FILE = "range_probe.parquet"
 PROBE_ROWS = 98_304
+#: DuckDB-WASM 1.32.0's fixed cost of one lookup over HTTP, whatever the object's size: the 16 KiB block
+#: holding the footer, the 16 KiB block the row group starts in and a 64 KiB read-ahead (measured
+#: 2026-11-15; ``website/src/atlas/browser-sql/route.ts``).
+WASM_LOOKUP_BYTES = 16_384 + 16_384 + 65_536
+#: The probe is at least this large, so that fixed cost is at most half the browser test's bound, under a
+#: quarter of the file, and the bound measures the range read rather than the read-ahead.
+PROBE_MIN_BYTES = 8 * WASM_LOOKUP_BYTES
+#: Hex digits of ``md5(row)`` in the probe's unread ``padding`` column: 12 make it about 0.96 MB.
+PROBE_PADDING_CHARS = 12
 FIXTURE = ROOT / "website" / "tests" / "fixtures" / "data-store"
 #: The parity rows at Lagos's longitude, ``(lat, lon, radius_km, an, ac)``. The Lagos disc (500 km plus
 #: each row's radius around 6.5244, 3.3792) holds the first three, 0, 445 and 512 km away: 3 rows, ``an``
@@ -156,7 +167,8 @@ def _write_probe(out: Path) -> None:
     con = writer.connect()
     try:
         con.execute(
-            f"COPY (SELECT '8' || format('{{:014x}}', i) AS h3_index, i / {PROBE_ROWS}.0 AS post_mean "
+            f"COPY (SELECT '8' || format('{{:014x}}', i) AS h3_index, i / {PROBE_ROWS}.0 AS post_mean, "
+            f"substr(md5(i::VARCHAR), 1, {PROBE_PADDING_CHARS}) AS padding "
             f"FROM range({PROBE_ROWS}) AS probe(i) ORDER BY i) TO '{out}' "
             f"(FORMAT parquet, COMPRESSION zstd, ROW_GROUP_SIZE {writer.ROW_GROUP_ROWS})"
         )

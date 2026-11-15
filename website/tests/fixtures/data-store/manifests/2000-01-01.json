@@ -24,12 +24,12 @@
       ]
     },
     {
-      "bytes": 163507,
+      "bytes": 963225,
       "in_git": false,
       "key": "releases/2000-01-01/range_probe.parquet",
       "media_type": "application/vnd.apache.parquet",
       "path": "range_probe.parquet",
-      "sha256": "cd0c4fc2883de34a786831115626efae4bf460c7e5f761cdd793ed9ca63131f6",
+      "sha256": "19fc7528093be6bf9af9302acc1a77357d0ba73e2b93b941b542db65130cb2f0",
       "sources": [
         "genomeos"
       ]
@@ -87,7 +87,7 @@
     }
   },
   "totals": {
-    "bytes": 452840,
+    "bytes": 1252558,
     "in_git_bytes": 0,
     "in_git_objects": 0,
     "objects": 6

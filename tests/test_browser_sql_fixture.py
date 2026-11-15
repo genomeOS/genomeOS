@@ -55,16 +55,25 @@ def test_the_range_probe_is_98304_rows_in_12_zstd_row_groups() -> None:
     assert {group.num_rows for group in groups} == {writer.ROW_GROUP_ROWS}
     codecs = {group.column(column).compression for group in groups for column in range(group.num_columns)}
     assert codecs == {"ZSTD"}
-    assert probe.schema_arrow.names == ["h3_index", "post_mean"]
+    assert probe.schema_arrow.names == ["h3_index", "post_mean", "padding"]
     row = (
         writer.connect()
         .execute(
-            "SELECT count(*), max(post_mean) FROM read_parquet(?) WHERE h3_index = ?",
+            "SELECT count(*), max(post_mean), max(padding) FROM read_parquet(?) WHERE h3_index = ?",
             [str(RELEASE_DIR / fixture.PROBE_FILE), fixture.PROBE_KEY],
         )
         .fetchone()
     )
-    assert row == (1, 0xE000 / 98_304)
+    assert row == (1, 0xE000 / 98_304, hashlib.md5(b"57344").hexdigest()[: fixture.PROBE_PADDING_CHARS])
+
+
+def test_the_probe_is_large_enough_for_the_quarter_bound() -> None:
+    """DuckDB-WASM's lookup costs a fixed ~96 KiB of blocks and read-ahead whatever the object's size, so
+    the browser test's 'under a quarter of the file' tests the range read only on a probe of at least eight
+    times that: the padding no query reads makes it so."""
+    assert fixture.WASM_LOOKUP_BYTES == 16_384 + 16_384 + 65_536
+    assert fixture.PROBE_MIN_BYTES == 8 * fixture.WASM_LOOKUP_BYTES
+    assert (RELEASE_DIR / fixture.PROBE_FILE).stat().st_size >= fixture.PROBE_MIN_BYTES
 
 
 def test_every_parquet_file_of_the_fixture_is_zstd() -> None:

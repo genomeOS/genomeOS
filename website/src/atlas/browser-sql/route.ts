@@ -8,10 +8,12 @@
  * - It range-reads only when opened with `forceFullHTTPReads: false`. Left unset, it reads every
  *   HTTP file whole: one 200 GET of the object, or, with full reads disallowed, a failed open. That
  *   default is the whole-file fetching [wasm-1367] reports from v1.30.0.
- * - With it, one row of the 163,507-byte probe (12 row groups) took 5 requests: a HEAD (200), the
+ * - With it, one row of the 963,225-byte probe (12 row groups) took 5 requests: a HEAD (200), the
  *   HEAD with `Range: bytes=0-` that opens the file (206, as the data store answers it, observed
- *   anonymously the same day) and three ranged GETs (206), 97,638 bytes in all (59.7%). That is a
- *   fixed ~96 KiB of 16 KiB blocks and a 64 KiB read-ahead: 120,048 bytes (6.7%) of a 1.79 MB copy.
+ *   anonymously the same day) and three ranged GETs (206), 94,873 bytes in all (9.8%, under the
+ *   quarter the test holds it to). A lookup costs a fixed ~96 KiB of 16 KiB blocks and a 64 KiB
+ *   read-ahead, whatever the object's size: 97,638 bytes (59.7%) of the probe before its unread
+ *   padding column (163,507 bytes) and 120,048 bytes (6.7%) of a 1.79 MB copy.
  * - A store that ignores Range fails the open loudly; nothing is read whole.
  *
  * So the route is 'range'. `BROWSER_SQL_LIVE=1` (tests/browser-sql-live.spec.ts) measures the
