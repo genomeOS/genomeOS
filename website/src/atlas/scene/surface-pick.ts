@@ -75,7 +75,10 @@ export interface PickTarget {
   artifactKey: string;
   surface: SurfaceArtifact;
   hidden: readonly { show: boolean }[];
-  /** Supported rows need layers.surface, masked rows layers.support, and the group must be shown (α > 0). */
+  /**
+   * Supported rows need layers.surface, masked rows layers.support, and the group must be shown
+   * (α > 0); a chunk group must have added the chunk carrying the row (#483).
+   */
   drawn(row: number): boolean;
   /** The displayed group is draped imagery; a group of surface chunks is never draped. */
   draped: boolean;

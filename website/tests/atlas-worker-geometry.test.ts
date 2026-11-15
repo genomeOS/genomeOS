@@ -165,6 +165,42 @@ describe('geometry worker handlers (fast-load §B.6.3, §B.6.5)', () => {
     });
   });
 
+  it('names the grid rows each chunk carries, every row once, as copies it transfers (#483)', async () => {
+    const { fixture, posted, worker } = harness();
+    const { plan } = worker.prepared(fixture.grid.gridSha256)!;
+    const { gridSha256 } = fixture.grid;
+    const builds = [
+      () => worker.handlers['build-chunks'](request(gridSha256)),
+      () =>
+        worker.handlers.recolour({
+          artifactKey: ARTIFACT_KEY,
+          geometry: 'triangles',
+          gridSha256,
+          id: 9,
+          metric: 'post_mean',
+          palette: 'viridis',
+          type: 'recolour',
+        }),
+    ];
+    for (const build of builds) {
+      posted.length = 0;
+      await build();
+      const chunks = ofType(posted, 'chunk');
+      for (const { message, transfer } of chunks) {
+        const planned = plan.chunks[message.chunk].rows;
+        expect(message.rows).toBeInstanceOf(Uint32Array);
+        expect(Array.from(message.rows)).toEqual(Array.from(planned));
+        // A copy: transferring it leaves the cached plan whole for the next build.
+        expect(message.rows.buffer).not.toBe(planned.buffer);
+        expect(transfer).toContain(message.rows.buffer);
+      }
+      const rows = chunks.flatMap(({ message }) => Array.from(message.rows));
+      expect(rows.sort((a, b) => a - b)).toEqual(
+        Array.from({ length: fixture.grid.n }, (_, row) => row),
+      );
+    }
+  });
+
   it('transfers the cell centres of flat surface chunks (#453)', async () => {
     const { fixture, posted, worker } = harness();
     await worker.handlers['build-chunks']({

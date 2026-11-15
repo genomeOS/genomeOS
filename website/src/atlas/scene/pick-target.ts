@@ -1,10 +1,12 @@
 /**
  * What a pick may resolve against (Atlas design §11; spec 2026-10-07 §B.6.6; #453; terrain
  * draping design, "Picking", #483): the displayed artifact, or before any is displayed the cold
- * reveal's, with the rows its layers draw and its observations. A hover tests those observations
- * on the CPU (owner decision 2026-11-14 on #483), so an incoming group, built shown at alpha 0
- * during a swap, never answers for the displayed one. The incoming groups of an unfinished swap
- * are listed for the translucent depth pick to hide, since depth is written whatever the alpha.
+ * reveal's, with the rows its layers draw and its observations. A hover resolves on the CPU (owner
+ * decision 2026-11-14 on #483; §B.6.6 as amended that day), so a row counts as drawn only once
+ * its chunk is added, as a click needs a surface chunk under the pointer, and the hover tests
+ * those observations, so an incoming group, built shown at alpha 0 during a swap, never answers
+ * for the displayed one. The incoming groups of an unfinished swap are listed for the translucent
+ * depth pick to hide, since depth is written whatever the alpha.
  */
 
 import type { PrimitiveCollection } from 'cesium';
@@ -37,8 +39,9 @@ export interface PickTargetSources {
 }
 
 /**
- * Whether the layers draw `row` at call time: its cell layer is on and the group shown, and a
- * draped group's fade has drawn a frame.
+ * Whether the layers draw `row` at call time: its cell layer is on and the group shown, a chunk
+ * group has added the chunk carrying it (a cold reveal's group is shown at opacity 1 before any
+ * chunk arrives), and a draped group's fade has drawn a frame.
  */
 function drawnRows(
   sources: PickTargetSources,
@@ -48,7 +51,8 @@ function drawnRows(
   return (row: number): boolean => {
     const live = group();
     if (!live || !sources.shown(live)) return false;
-    if (isDrapedGroup(live) && sources.waveProgress() <= 0) return false;
+    if (isDrapedGroup(live) ? sources.waveProgress() <= 0 : !live.carries(row))
+      return false;
     const layers = sources.layers();
     return isSupportedCode(surface.support[row])
       ? layers.surface

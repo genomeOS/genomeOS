@@ -7,7 +7,8 @@
  * What lies under the pointer, as the click resolves it:
  * 1. Nothing without a pick target: the displayed artifact, or the cold reveal's.
  * 2. An observation of that artifact wins (`observation-hits.ts`).
- * 3. Otherwise its cell, kept where a layer draws it and the reveal wave has reached it:
+ * 3. Otherwise its cell, kept where a layer draws it (for chunks, once the chunk carrying it is
+ *    added: a click needs a surface chunk under the pointer) and the reveal wave has reached it:
  *    - draped, under World Terrain, on the rendered ground (`resolveDrapedPick`: the camera's
  *      pick ray, then `globe.pick`);
  *    - at elevation 0 on the smooth globe, on the ellipsoid (`pickEllipsoid`), in every mode;
