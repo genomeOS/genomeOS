@@ -21,7 +21,7 @@ from genomeos.surfaces.fit_input import (
     contract_sha256,
     serialize_observations,
 )
-from genomeos.tables import catalog, writer
+from genomeos.tables import catalog, measured, writer
 from genomeos.tables.contracts import TableError
 from scripts import build_data_release as build
 from scripts import build_tables
@@ -517,22 +517,73 @@ def test_reference_folders_carry_their_sources(tree: Path, tmp_path: Path) -> No
     fixtures = ROOT / "tests" / "fixtures"
     # The AFND fixture without the two rows the adapter refuses, each of which stops the build (v1 §12).
     _write(tree, build_tables.AFND_POPULATIONS, (fixtures / "afnd_registry_populations.tsv").read_bytes())
+    # The synthetic HGDP + 1KG input, at the committed file's path (step 1.7).
+    _write(tree, build_tables.HGDP_1KG_REGISTRY, (fixtures / "hgdp_1kg_populations.tsv").read_bytes())
     names = [path.rsplit("/", 1)[1] for path in build_tables.MAP_SURVEYS]
     harvest = _harvest(tree, "map", "2026-08", {name: (fixtures / name).read_bytes() for name in names})
     fixture = FixtureTree(tmp_path, tree, tmp_path / "releases")
     built = build_tables.build_reference(fixture.context(release=EPOCH))
     manifest = _build(tree, EPOCH, raw_harvests=[harvest])
     objects = _paths(manifest)
+    hgdp = [path for path in built if path.startswith("tables/v1/reference/populations/1.0.0-")]
     assert {path: objects[path]["sources"] for path in built} == {
         "tables/v1/reference/populations/afnd-2026-08/population_aliases.parquet": ["afnd"],
         "tables/v1/reference/populations/afnd-2026-08/populations.parquet": ["afnd"],
         "tables/v1/reference/populations/map-survey-coordinates-v1/population_aliases.parquet": ["map"],
+        **{path: ["genomeos", "gnomad_hgdp_1kg"] for path in hgdp},
     }
-    # Rewritten under another git sha (as if never released), the folder's bytes change.
+    assert len(hgdp) == 2
+    assert objects[build_tables.HGDP_1KG_REGISTRY]["sources"] == ["genomeos", "gnomad_hgdp_1kg"]
+    # Rewritten under another git sha (as if never released), the folders' bytes change.
     build_tables.build_reference(fixture.context(release="2026-11-21", git_sha="1" * 40))
-    immutable = "reference/populations/afnd-2026-08/.*a released part is immutable"
+    immutable = "reference/populations/.*a released part is immutable"
     with pytest.raises(dr.DataReleaseError, match=immutable):
         _build(tree, "2026-11-21", raw_harvests=[harvest], previous=[manifest])
+
+
+def _measured(tree: Path, tmp_path: Path) -> tuple[FixtureTree, rh.RawHarvest]:
+    """The mixed AFND fixture as the AFND harvest, beside the released AFND population table, with the
+    measured stage built over them for release ``EPOCH`` (step 1.9)."""
+    fixture = ROOT / "tests" / "fixtures" / "afnd_frequencies_mixed.tsv"
+    harvest = _harvest(tree, "afnd", "2026-08", {"afnd_frequencies.tsv": fixture.read_bytes()})
+    _write(tree, measured.AFND_POPULATIONS, (ROOT / "data" / measured.AFND_POPULATIONS).read_bytes())
+    tables = FixtureTree(tmp_path, tree, tmp_path / "releases")
+    build_tables.build_measured(tables.context(release=EPOCH))
+    return tables, harvest
+
+
+def test_measured_objects_carry_afnd(tree: Path, tmp_path: Path) -> None:
+    _, harvest = _measured(tree, tmp_path)
+    objects = _paths(_build(tree, EPOCH, raw_harvests=[harvest]))
+    measured_paths = [path for path in objects if path.startswith("tables/v1/measured/")]
+    found = {path: objects[path]["sources"] for path in measured_paths}
+    parts = [
+        measured.part_path(table, source, "afnd-2026-08")
+        for table, source in (
+            (measured.ALLELE_TABLE, "afnd"),
+            (measured.ALLELE_TABLE, "afnd_frequencies"),
+            (measured.CARRIER_TABLE, "afnd"),
+        )
+    ]
+    assert found == {path: ["afnd"] for path in (*parts, measured.INGESTS_PATH)}
+
+
+def test_new_bytes_at_an_ingest_version_part_are_refused(tree: Path, tmp_path: Path) -> None:
+    tables, harvest = _measured(tree, tmp_path)
+    manifest = _build(tree, EPOCH, raw_harvests=[harvest])
+    # Rewritten under another git sha (as if never released), the parts' bytes change.
+    build_tables.build_measured(tables.context(release="2026-11-21", git_sha="1" * 40))
+    immutable = "ingest_version=afnd-2026-08/part-0.parquet.*is immutable"
+    with pytest.raises(dr.DataReleaseError, match=immutable):
+        _build(tree, "2026-11-21", raw_harvests=[harvest], previous=[manifest])
+
+
+def test_an_ingest_input_absent_from_every_manifest_is_refused(tree: Path, tmp_path: Path) -> None:
+    """Check 9: the stage keyed its inputs under ``EPOCH``; a release built under another id, with no
+    earlier release, publishes them under its own keys."""
+    _, harvest = _measured(tree, tmp_path)
+    with pytest.raises(TableError, match=r"releases/2026-11-20/raw/afnd/2026-08/\S+ is not a manifest key"):
+        _build(tree, "2026-11-21", raw_harvests=[harvest])
 
 
 def test_an_unstamped_tables_file_is_refused(tree: Path) -> None:

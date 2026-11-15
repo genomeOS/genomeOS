@@ -1,0 +1,8 @@
+group	gene	allele	population	indivs_over_n	alleles_over_2n	n	retrieved_at
+hla	DQB1	DQB1*03:01	Peru Lamas City Lama		0.1250	100	2026-08-26
+hla	DQB1	DQB1*03:01	Papua New Guinea Wonie		0.0500	50	2026-08-26
+cyt	IL-6-	IL-6/ - 174 CC	Peru Lamas City Lama	10.0		100	2026-08-26
+cyt	IL-6-	IL-6/ - 174 CG	Peru Lamas City Lama	40.0		100	2026-08-26
+cyt	IL-6-	IL-6/ - 174 GG	Peru Lamas City Lama	50.0		100	2026-08-26
+kir	2DL1	2DL1	Peru Lamas City Lama	95.0		100	2026-08-26
+kir	3DL1	3DL1*007	Peru Lamas City Lama		0.0200	100	2026-08-26

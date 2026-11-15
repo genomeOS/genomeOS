@@ -23,6 +23,19 @@ The two allele tables never share a prefix, a file or a contract (§2.4, call 37
 
 Both store counts, never frequencies (v1 §7.1b): ``ac`` and ``an``, and no ``af`` column.
 
+``measured.carrier_observations`` holds carrier counts over individuals (KIR gene presence), under the
+carrier fit-input contract: ``carriers`` and ``n_individuals`` in place of ``ac`` and ``an``. It is never
+unioned with allele counts (§2.2 rule 3, §2.4). ``measured.ingests`` (§2.4 as amended; step 1.9) is an Arrow
+contract: one row per curated ingest, keyed by ``(table, source, ingest_version)`` because two AFND adapters
+share ``afnd``/``afnd-2026-08``, with each ingest's inputs and its refusals as lists of structs. A refusal is
+``{reason, population_id, count}``: a population is its own field, never folded into the reason.
+
+``measured.fit_inputs`` (§2.4, §2.8; call 8) is the only table that links measured to inferred: keys only,
+one row per artifact and measured record, with the artifact's identity and ``measurement``, the record's
+``source``, ``ingest_version`` and ``source_record_id``, and its ``evidence`` (``fit-record`` or
+``web-json-match``). Its ``epoch``, the release that first wrote the artifact's rows, is stored, so check 2
+compares each folder with its rows.
+
 The four ``meta.*`` tables (§2.4, §2.9; calls 4, 7) are Arrow contracts: each field's name, type and
 nullability, in order. ``meta.release_objects`` keeps a list of sources per object, which pandera
 does not describe.
@@ -58,7 +71,12 @@ import pandera.pandas as pa
 import pyarrow
 from pandera import extensions
 
-from genomeos.observations.schema import OBSERVATIONS_SCHEMA
+from genomeos.observations.schema import (
+    CARRIER_OBSERVATIONS_SCHEMA,
+    OBSERVATIONS_SCHEMA,
+    VARIANT_ID_PATTERN,
+)
+from genomeos.publication import artifact_inputs as ai
 from genomeos.publication import data_release as dr
 from genomeos.registry.schema import ALIASES_SCHEMA, POPULATIONS_SCHEMA
 from genomeos.schema_checks import REVIEWABLE_TEXT
@@ -168,6 +186,53 @@ ALLELE_OBSERVATIONS_BINNED = TableContract(
     schema=BINNED_OBSERVATIONS_SCHEMA,
 )
 
+#: Carrier counts over individuals (§2.4): exactly the carrier fit-input contract, never unioned with
+#: allele counts.
+CARRIER_OBSERVATIONS = TableContract(
+    "measured.carrier_observations",
+    major=1,
+    minor=0,
+    key=("ingest_version", "source_record_id"),
+    partitions=("source", "ingest_version"),
+    schema=CARRIER_OBSERVATIONS_SCHEMA,
+)
+
+
+#: The evidence a ``measured.fit_inputs`` row may carry (§2.4): ``inferred.FIT_RECORD`` and
+#: ``inferred.WEB_JSON_MATCH``. ``none`` is no row, only a reason in ``inferred.artifacts``.
+FIT_INPUT_EVIDENCE = ("fit-record", "web-json-match")
+#: A release id, ``YYYY-MM-DD`` with an optional ``.N`` (``data_release.assert_release_id``).
+RELEASE_ID_PATTERN = r"^\d{4}-\d{2}-\d{2}(?:\.[1-9]\d*)?$"
+
+#: Which measured record each artifact was fit to, as keys only (§2.4, §2.8; call 8).
+FIT_INPUTS_SCHEMA = pa.DataFrameSchema(
+    {
+        "epoch": pa.Column(str, pa.Check.str_matches(RELEASE_ID_PATTERN), nullable=False),
+        "artifact": pa.Column(str, REVIEWABLE_TEXT, nullable=False),
+        "variant_id": pa.Column(str, pa.Check.str_matches(VARIANT_ID_PATTERN), nullable=False),
+        "model_version": pa.Column(str, REVIEWABLE_TEXT, nullable=False),
+        "data_version": pa.Column(str, REVIEWABLE_TEXT, nullable=False),
+        "measurement": pa.Column(str, pa.Check.isin(list(ai.INPUT_CONTRACTS)), nullable=False),
+        "source": pa.Column(str, REVIEWABLE_TEXT, nullable=False),
+        "ingest_version": pa.Column(str, REVIEWABLE_TEXT, nullable=False),
+        "source_record_id": pa.Column(str, REVIEWABLE_TEXT, nullable=False),
+        "evidence": pa.Column(str, pa.Check.isin(list(FIT_INPUT_EVIDENCE)), nullable=False),
+    },
+    unique=["artifact", "ingest_version", "source_record_id"],
+    strict=True,
+    coerce=True,
+    name="fit_inputs",
+)
+
+FIT_INPUTS = TableContract(
+    "measured.fit_inputs",
+    major=1,
+    minor=0,
+    key=("artifact", "ingest_version", "source_record_id"),
+    partitions=("epoch",),
+    schema=FIT_INPUTS_SCHEMA,
+)
+
 
 def _arrow(*fields: tuple[str, pyarrow.DataType, bool]) -> pyarrow.Schema:
     """An ordered Arrow schema from ``(name, type, nullable)``."""
@@ -175,6 +240,47 @@ def _arrow(*fields: tuple[str, pyarrow.DataType, bool]) -> pyarrow.Schema:
 
 
 _TEXT = pyarrow.string()
+
+# DuckDB writes every field of a struct inside a list as nullable, so the contract says so too; which
+# fields may be null is ``genomeos.tables.measured``'s check (``IngestInput``, ``Refusal``).
+#: One input of an ingest: a released key with its sha256, or a cited upstream URL with md5 and
+#: generation (D17), and its byte count.
+_INGEST_INPUT = pyarrow.struct(
+    [
+        ("bytes", pyarrow.int64()),
+        ("key", _TEXT),
+        ("sha256", _TEXT),
+        ("url", _TEXT),
+        ("md5", _TEXT),
+        ("generation", pyarrow.int64()),
+    ]
+)
+#: Rows an adapter refused for one reason, in one population when it names one.
+_REFUSAL = pyarrow.struct([("reason", _TEXT), ("population_id", _TEXT), ("count", pyarrow.int64())])
+
+#: One row per curated ingest (§2.4 as amended; step 1.9): the table and part it wrote, the registry its
+#: populations resolve in, the adapter (a repository file) and the commit it ran at, its inputs, the rows it
+#: kept and refused, and the ``source_record_id`` template a lookup set derives its ids from (none for a
+#: curated part, which stores them).
+INGESTS = TableContract(
+    "measured.ingests",
+    major=1,
+    minor=0,
+    key=("table", "source", "ingest_version"),
+    partitions=(),
+    arrow_schema=_arrow(
+        ("table", _TEXT, False),
+        ("source", _TEXT, False),
+        ("ingest_version", _TEXT, False),
+        ("registry_version", _TEXT, False),
+        ("adapter", _TEXT, False),
+        ("adapter_git_sha", _TEXT, False),
+        ("inputs", pyarrow.list_(_INGEST_INPUT), False),
+        ("n_rows", pyarrow.int64(), False),
+        ("refusals", pyarrow.list_(_REFUSAL), False),
+        ("source_record_id_template", _TEXT, True),
+    ),
+)
 
 #: Every object of each earlier release, as its committed manifest lists it (§2.4; call 4).
 RELEASE_OBJECTS = TableContract(
@@ -375,6 +481,9 @@ TABLE_CONTRACTS: Mapping[str, TableContract] = MappingProxyType(
         for contract in (
             ALLELE_OBSERVATIONS,
             ALLELE_OBSERVATIONS_BINNED,
+            CARRIER_OBSERVATIONS,
+            INGESTS,
+            FIT_INPUTS,
             RELEASE_OBJECTS,
             SOURCES,
             SERVED,

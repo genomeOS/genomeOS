@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Build a release's derived ``tables/`` files into the local ``data/`` tree.
 
-Atlas data platform design 2026-10-18 §2.3-§2.5, §2.7 checks 5 and 9, and §2.9; builder's calls 4-7, 15, 16
-and 18.
+Atlas data platform design 2026-10-18 §2.3-§2.5, §2.7 checks 2-5 and 9, and §2.9; builder's calls 4-7, 15,
+16 and 18.
 
     python scripts/build_tables.py --release 2026-11-20
 
@@ -23,13 +23,33 @@ the committed manifests, the web ``catalog.json`` and ``data/releases/WITHDRAWN.
 
 The ``reference`` stage (§2.3, §2.4; calls 5, 6 and 18) writes the population registry's folders under
 ``tables/v1/reference/populations/``: ``afnd-2026-08`` rebuilt from the released raw file
-``raw/afnd_populations.tsv``, and ``map-survey-coordinates-v1``, alias rows only, from the MAP harvest
-(``raw/map/2026-08/``). A row the AFND adapter refuses stops the stage before anything is written (v1
-§12). An input an earlier release published is read from a local copy with its published sha256; any
-other is keyed under this release. A folder an earlier release published is never
-written again: its rows are re-derived and verified against the released files, so a rerun under another
-git sha keeps the first writer's bytes. Any other local file under that root is refused before a folder is
-written. It prints ``<table> <folder>: <n> rows, written`` (or ``verified``) for each file.
+``raw/afnd_populations.tsv``; ``map-survey-coordinates-v1``, alias rows only, from the MAP harvest
+(``raw/map/2026-08/``); and ``1.0.0-<sha8>``, the 80 HGDP + 1KG identities of D18, from the committed
+registry input ``registry/hgdp_1kg/1.0.0/populations.tsv`` (step 1.7), without which the stage stops. A
+row the AFND adapter refuses stops the stage before anything is written (v1 §12). An input an earlier
+release published is read from a local copy with its published sha256; any other is keyed under this
+release. A folder an earlier release published is never written again: its rows are re-derived and
+verified against the released files, so a rerun under another git sha keeps the first writer's bytes.
+Any other local file under that root is refused before a folder is written. It prints
+``<table> <folder>: <n> rows, written`` (or ``verified``) for each file.
+
+The ``measured`` stage (§2.4, §2.7 checks 2-5; call 6; step 1.9) writes each curated ingest
+(``measured.CURATED_INGESTS``: the three AFND adapters over the AFND harvest ``raw/afnd/2026-08/`` and
+``raw/afnd_populations.tsv``) as ``tables/v1/measured/<table>/source=<s>/ingest_version=<iv>/part-0.parquet``,
+and ``tables/v1/measured/ingests.parquet``, one row per ingest. Its inputs resolve through
+``fetch_data.require_local``, then as the reference stage reads them. Every part passes checks 2, 3 and 5
+before anything is written, and a stray local part stops the stage. A part an earlier release published is
+re-ingested and verified, never written again. It prints ``<table> source=<s> ingest_version=<iv>: <n>
+rows, written`` (or ``verified``), each refusal as ``  refused <count> <reason>``, and ``measured.ingests:
+<n> rows``.
+
+The ``fit_inputs`` stage (§2.4, §2.7 check 3, §2.8; calls 6, 8) reads the served observations JSON from
+``--web-observations <dir>`` at their web ``catalog.json`` urls and sha256s (``docs/data-store.md``). Each
+whose data has a published ingest (``INGEST_FOR_DATA_VERSION``) must equal its part record for record, or
+the build stops unless ``WEB_JSON_REFUSED`` lists it. It writes ``measured.fit_inputs`` under
+``epoch=<release>`` for matched artifacts no earlier epoch holds, prints ``web-json-match: <k> artifacts
+(<n> <measurement>, …)`` and ``none: <n> artifacts, each with a reason``, and hands its evidence to the
+inferred stage; once a ``fit_inputs`` part exists, the inferred stage is refused without it.
 
 The ``inferred`` stage (§2.4, §2.8; calls 6, 8, 22) reads every released artifact under
 ``store/artifacts/`` plus any this release adds, keyed from the committed manifests or else under this
@@ -49,11 +69,12 @@ import json
 import subprocess
 import sys
 from collections import Counter
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import duckdb
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,22 +84,41 @@ if str(ROOT) not in sys.path:
 from genomeos.publication import artifact_inputs as ai  # noqa: E402
 from genomeos.publication import data_release as dr  # noqa: E402
 from genomeos.publication import raw_harvests as rh  # noqa: E402
-from genomeos.tables import contracts, inferred, meta, provenance, reference, write_once, writer  # noqa: E402
+from genomeos.tables import (  # noqa: E402
+    contracts,
+    fit_inputs,
+    inferred,
+    measured,
+    meta,
+    provenance,
+    reference,
+    write_once,
+    writer,
+)
 from genomeos.tables.contracts import TableError  # noqa: E402
 from genomeos.tables.provenance import InputRef  # noqa: E402
-from scripts import build_data_release  # noqa: E402
+from scripts import build_data_release, fetch_data  # noqa: E402
 
 DATA = ROOT / "data"
 RELEASES = DATA / "releases"
 #: Every stage, in the order a build runs them.
 STAGES = ("meta", "reference", "measured", "fit_inputs", "inferred")
 #: The released raw file the ``afnd-2026-08`` registry is rebuilt from (call 18).
-AFND_POPULATIONS = "raw/afnd_populations.tsv"
+AFND_POPULATIONS = measured.AFND_POPULATIONS
 _MAP_HARVEST = next(harvest for harvest in rh.RAW_HARVESTS if harvest.source == "map")
 #: The MAP harvest's HbS and G6PD survey layers, the ``map-survey-coordinates-v1`` aliases' inputs.
 MAP_SURVEYS = tuple(
     rh.harvest_path(_MAP_HARVEST, name) for name in ("map_hbs_surveys.csv", "map_g6pd_surveys.csv")
 )
+#: The curated input of the 80 HGDP + 1KG identities (step 1.7, D18): committed, and published under
+#: ``registry/``. ``scripts/curate_hgdp_1kg_registry.py --check`` holds it to gnomAD's metadata.
+HGDP_1KG_REGISTRY = f"registry/hgdp_1kg/{reference.HGDP_1KG_RELEASE}/populations.tsv"
+#: Reviewed: each served artifact whose observations JSON is refused as a fit-input record, with the reason
+#: its ``fit_input_evidence`` is ``none`` (§2.8). A mismatch is never loosened: list the artifact here, in a
+#: reviewed commit of its own.
+WEB_JSON_REFUSED: dict[str, str] = {}
+#: Reviewed: the ingest whose parts hold each served data_version's records (``fit_inputs`` routes by it).
+INGEST_FOR_DATA_VERSION = fit_inputs.INGEST_FOR_DATA_VERSION
 
 
 @dataclass(frozen=True)
@@ -145,12 +185,15 @@ def build_meta(
 
 
 def build_reference(ctx: BuildContext) -> list[str]:
-    """The registry folders ``afnd-2026-08`` and ``map-survey-coordinates-v1``; their files' release paths.
+    """The registry folders ``afnd-2026-08``, ``map-survey-coordinates-v1`` and HGDP + 1KG's
+    ``1.0.0-<sha8>``; their files' release paths.
 
     A file an earlier release published is verified against its re-derived rows, never written (call 6).
     """
     afnd_input, afnd_copy = _stage_input(ctx, AFND_POPULATIONS)
     map_inputs = [_stage_input(ctx, path) for path in MAP_SURVEYS]
+    hgdp_input, hgdp_copy = _stage_input(ctx, HGDP_1KG_REGISTRY)
+    hgdp_release = reference.hgdp_1kg_registry(hgdp_copy)
     registries = (
         (reference.AFND_LEGACY, *reference.afnd_legacy(afnd_copy), (afnd_input,)),
         (
@@ -159,6 +202,7 @@ def build_reference(ctx: BuildContext) -> list[str]:
             reference.map_legacy_aliases(*(copy for _, copy in map_inputs)),
             tuple(ref for ref, _ in map_inputs),
         ),
+        (hgdp_release.registry_version, hgdp_release.populations, hgdp_release.aliases, (hgdp_input,)),
     )
     built: dict[str, tuple[str, pd.DataFrame, tuple[InputRef, ...]]] = {}
     for version, populations, aliases, inputs in registries:
@@ -167,11 +211,11 @@ def build_reference(ctx: BuildContext) -> list[str]:
         for path, table, frame in zip(reference.reference_paths(version), tables, frames, strict=True):
             if frame is not None:
                 built[path] = (table, frame, inputs)
-    _refuse_registry_strays(ctx, built)
+    _refuse_strays(ctx, (contracts.REGISTRY_ROOT,), built)
     con = writer.connect()
     new_sources = {
         path: build_data_release.sources_for(ctx.data_root, path)
-        for path in (AFND_POPULATIONS, *MAP_SURVEYS)
+        for path in (AFND_POPULATIONS, *MAP_SURVEYS, HGDP_1KG_REGISTRY)
         if path not in ctx.published
     }
     for path, (table, frame, inputs) in sorted(built.items()):
@@ -197,6 +241,269 @@ def build_reference(ctx: BuildContext) -> list[str]:
     return sorted(built)
 
 
+def build_measured(
+    ctx: BuildContext, ingests: Sequence[measured.CuratedIngest] = measured.CURATED_INGESTS
+) -> tuple[measured.Ingest, ...]:
+    """Each curated ingest's part under ``tables/v1/measured/``, and ``measured.ingests``.
+
+    Every part passes checks 2, 3 and 5 before anything is written. A part an earlier release published is
+    re-ingested and verified (check 4, then its rows, call 6), never written again.
+    """
+    measured.check_curated_ingests(ingests)
+    paths = sorted({path for ingest in ingests for path in ingest.inputs})
+    staged = {path: _measured_input(ctx, path) for path in paths}
+    registries: dict[str, tuple[pd.DataFrame | None, pd.DataFrame]] = {}
+    parts = []
+    for curated in ingests:
+        rows, report = curated.load(*(staged[path][1] for path in curated.inputs), curated.ingest_version)
+        part = measured.ingest_part(rows, table=curated.table)
+        path = measured.part_path(curated.table, curated.source, curated.ingest_version)
+        measured.check_partition_values(path, part)
+        version = curated.registry_version
+        if version not in registries:
+            registries[version] = _registry(ctx, version, staged)
+        populations, aliases = registries[version]
+        reference.require_resolved(part["population_id"], populations, aliases, registry_version=version)
+        if populations is not None:
+            reference.require_registry_coordinates(part, populations, registry_version=version)
+        parts.append((curated, path, part, measured.refusals_of(report)))
+    roots = [contracts.table_path(table) for table in measured.PART_TABLES]
+    _refuse_strays(ctx, roots, [path for _, path, _, _ in parts])
+    con = writer.connect()
+    unreleased = [path for path in paths if path not in ctx.published]
+    new_sources = {path: build_data_release.sources_for(ctx.data_root, path) for path in unreleased}
+    records = []
+    for curated, path, part, refusals in parts:
+        refs = tuple(staged[name][0] for name in curated.inputs)
+        status = _write_part(ctx, con, curated.table, path, part, refs, new_sources)
+        records.append(
+            measured.Ingest(
+                table=curated.table,
+                source=curated.source,
+                ingest_version=curated.ingest_version,
+                registry_version=curated.registry_version,
+                adapter=curated.adapter,
+                adapter_git_sha=ctx.git_sha,
+                inputs=tuple(_ingest_input(*staged[name]) for name in curated.inputs),
+                n_rows=len(part),
+                refusals=refusals,
+                source_record_id_template=None,
+            )
+        )
+        print(
+            f"{curated.table} source={curated.source} ingest_version={curated.ingest_version}: "
+            f"{len(part)} rows, {status}"
+        )
+        for refusal in refusals:
+            where = f" in {refusal.population_id}" if refusal.population_id else ""
+            print(f"  refused {refusal.count} {refusal.reason}{where}")
+    inputs = tuple(sorted({ref for ref, _ in staged.values()}))
+    writer.write_frame(
+        con,
+        measured.ingests_table(records).to_pandas(),
+        ctx.out_root / measured.INGESTS_PATH,
+        table=measured.INGESTS_TABLE,
+        git_sha=ctx.git_sha,
+        inputs=inputs,
+        sources=provenance.union_sources(inputs, manifests=_by_release(ctx), new_sources=new_sources),
+        order_by=contracts.INGESTS.key,
+    )
+    print(f"{measured.INGESTS_TABLE}: {len(records)} rows")
+    return tuple(sorted(records, key=lambda ingest: ingest.key))
+
+
+def _write_part(
+    ctx: BuildContext,
+    con: duckdb.DuckDBPyConnection,
+    table: str,
+    path: str,
+    part: pd.DataFrame,
+    refs: Sequence[InputRef],
+    new_sources: Mapping[str, tuple[str, ...]],
+) -> str:
+    """Write a new part, or verify a released one against its re-ingest (check 4, call 6); the status."""
+    item = ctx.published.get(path)
+    if item is None:
+        writer.write_frame(
+            con,
+            part,
+            ctx.out_root / path,
+            table=table,
+            git_sha=ctx.git_sha,
+            inputs=refs,
+            sources=provenance.union_sources(refs, manifests=_by_release(ctx), new_sources=new_sources),
+            order_by=measured.SORT_KEY,
+        )
+        return "written"
+    copy = write_once.require_published_local(ctx.data_root, path, item.sha256)
+    try:
+        measured.reingest_matches(pd.read_parquet(copy), part)
+    except TableError as error:
+        raise TableError(f"{path}: {error}") from error
+    write_once.require_same_rows(copy, part, key=contracts.TABLE_CONTRACTS[table].key)
+    return "verified"
+
+
+def _ingest_input(ref: InputRef, copy: Path) -> measured.IngestInput:
+    return measured.IngestInput(bytes=copy.stat().st_size, key=ref.key, sha256=ref.sha256)
+
+
+def _measured_input(ctx: BuildContext, path: str) -> tuple[InputRef, Path]:
+    """An ingest's input as ``_stage_input`` reads it, once ``fetch_data.require_local`` has fetched it into
+    the checkout's ``data/`` if a committed release publishes it there (any other tree is the caller's)."""
+    try:
+        fetch_data.require_local(ctx.data_root / path)
+    except fetch_data.FetchError as error:
+        raise TableError(f"{path}: {error}") from error
+    return _stage_input(ctx, path)
+
+
+def _registry(
+    ctx: BuildContext, version: str, staged: Mapping[str, tuple[InputRef, Path]]
+) -> tuple[pd.DataFrame | None, pd.DataFrame]:
+    """Registry ``version``'s populations and aliases, for check 5: ``afnd-2026-08``, rebuilt from the
+    released AFND population table exactly as the reference stage builds it (call 18). ``staged`` holds the
+    inputs the stage has already read."""
+    if version != reference.AFND_LEGACY:
+        raise TableError(
+            f"registry {version}: the measured stage resolves populations only in {reference.AFND_LEGACY} "
+            "(check 5); add a reader for it"
+        )
+    found = staged.get(AFND_POPULATIONS)
+    _, copy = found if found is not None else _measured_input(ctx, AFND_POPULATIONS)
+    return reference.afnd_legacy(copy)
+
+
+def load_served_web_observations(
+    catalog: Mapping[str, Any], root: Path
+) -> tuple[fit_inputs.WebObservations, ...]:
+    """Each served artifact's observations JSON, read from ``root`` at its catalog ``observations_url``,
+    refused unless its sha256 is the catalog's ``observations_sha256`` and its artifact the entry's. A
+    missing file is an error; an artifact served without observations has none."""
+    found = []
+    for url, sha256, entry in fit_inputs.served_files(catalog):
+        path = root / url
+        if not path.is_file():
+            raise TableError(
+                f"{path}: the served observations JSON of {entry.get('variant_id')} is missing; download "
+                'it first (docs/data-store.md, "Public data store")'
+            )
+        web = fit_inputs.parse_web_observations(path.read_bytes(), expected_sha256=sha256)
+        found.append(fit_inputs.served_as(web, entry, where=path))
+    return tuple(sorted(found, key=lambda web: web.artifact))
+
+
+def build_fit_inputs(
+    ctx: BuildContext,
+    *,
+    web: Sequence[fit_inputs.WebObservations],
+    web_json_refused: Mapping[str, str] = WEB_JSON_REFUSED,
+) -> pd.DataFrame:
+    """``measured.fit_inputs``, every epoch's rows, once this release's part holds the matched artifacts no
+    earlier epoch holds (call 6).
+
+    Each served JSON whose data has a published ingest must equal that ingest's part record for record
+    (check 3); a mismatch stops the build unless ``web_json_refused`` lists the artifact. Every artifact's
+    ``fit_input_evidence`` is computed as the inferred stage will (check 10), before anything is written.
+    """
+    con = writer.connect()
+    root = contracts.table_path(fit_inputs.FIT_INPUTS_TABLE)
+    published = sorted((path, item) for path, item in ctx.published.items() if path.startswith(root))
+    earlier = [_earlier_part(ctx, con, path, item) for path, item in published]
+    parts: dict[str, tuple[InputRef, pd.DataFrame]] = {}
+    staged: dict[str, tuple[InputRef, Path]] = {}
+    aliases: dict[str, pd.DataFrame] = {}
+    matched: list[tuple[str, pd.DataFrame]] = []
+    for item in web:
+        ingest = fit_inputs.route(item, refused=web_json_refused)
+        if ingest is None:
+            continue
+        if f"{dr.ARTIFACT_PREFIX}{item.artifact}/{meta.MANIFEST_FILE}" not in ctx.published:
+            raise TableError(f"{item.artifact}: the website serves it, and no committed release holds it")
+        part = measured.part_path(ingest.table, ingest.source, ingest.ingest_version)
+        if part not in parts:
+            ref, copy = _stage_input(ctx, part)
+            writer.check_table_file(copy, ingest.table)
+            parts[part] = (ref, pd.read_parquet(copy))
+        version = ingest.registry_version
+        if version not in aliases:
+            staged[AFND_POPULATIONS] = staged.get(AFND_POPULATIONS) or _measured_input(ctx, AFND_POPULATIONS)
+            aliases[version] = _registry(ctx, version, staged)[1]
+        matched.append((part, fit_inputs.match_web_json(item, parts[part][1], aliases=aliases[version])))
+    held = frozenset(name for frame in earlier for name in frame["artifact"])
+    found = [frame.assign(epoch=ctx.release)[list(fit_inputs.COLUMNS)] for _, frame in matched]
+    new = fit_inputs.new_rows(_concat(found), already=held)
+    rows = _concat([*earlier, new]).sort_values(list(fit_inputs.SORT_KEY), ignore_index=True)
+    evidence = _evidence(ctx, fit_inputs.evidence_kwargs(web, rows, refused=web_json_refused))
+    path = fit_inputs.fit_inputs_path(ctx.release)
+    _refuse_strays(ctx, (root,), [path] if len(new) else [])
+    status = "no new artifacts"
+    if len(new):
+        written = set(new["artifact"])
+        refs = {parts[part][0] for part, frame in matched if written & set(frame["artifact"])}
+        refs = tuple(sorted(refs | {ref for ref, _ in staged.values()}))
+        names = (ref.key.split("/", 2)[2] for ref in refs)  # releases/<R>/<path>
+        new_sources = {
+            name: build_data_release.sources_for(ctx.data_root, name)
+            for name in names
+            if name not in ctx.published
+        }
+        writer.write_frame(
+            con,
+            new,
+            ctx.out_root / path,
+            table=fit_inputs.FIT_INPUTS_TABLE,
+            git_sha=ctx.git_sha,
+            inputs=refs,
+            sources=provenance.union_sources(refs, manifests=_by_release(ctx), new_sources=new_sources),
+            order_by=fit_inputs.SORT_KEY,
+        )
+        writer.check_partitions(con, ctx.out_root / path, path)
+        status = f"{len(new)} rows, {len(written)} artifacts, written"
+    print(f"{fit_inputs.FIT_INPUTS_TABLE} epoch={ctx.release}: {status}")
+    print("\n".join(fit_inputs.evidence_lines(rows, evidence)))
+    return rows
+
+
+def _earlier_part(
+    ctx: BuildContext, con: duckdb.DuckDBPyConnection, path: str, item: dr.ReleaseObject
+) -> pd.DataFrame:
+    """An earlier epoch's ``measured.fit_inputs`` part, read from its local copy (checks 1 and 2)."""
+    copy = write_once.require_published_local(ctx.data_root, path, item.sha256)
+    writer.check_table_file(copy, fit_inputs.FIT_INPUTS_TABLE)
+    writer.check_partitions(con, copy, path)
+    return pd.read_parquet(copy)
+
+
+def _concat(frames: Sequence[pd.DataFrame]) -> pd.DataFrame:
+    """The non-empty ``frames`` as one ``measured.fit_inputs`` frame (with no rows when all are empty)."""
+    kept = [frame for frame in frames if len(frame)]
+    return pd.concat(kept, ignore_index=True) if kept else pd.DataFrame(columns=list(fit_inputs.COLUMNS))
+
+
+def _evidence(ctx: BuildContext, decided: Mapping[str, Any]) -> dict[str, tuple[str, str | None]]:
+    """Every released or added artifact's ``fit_input_evidence``, as ``build_inferred`` gives it (check 10);
+    ``decided`` is what the fit_inputs stage decided (``fit_inputs.evidence_kwargs``)."""
+    released = meta.released_artifacts(ctx.published)
+    evidence = {}
+    for artifact in sorted({*released, *_local_artifacts(ctx)}):
+        path = f"{dr.ARTIFACT_PREFIX}{artifact}/{ai.INPUT_FILE}"
+        has_input = path in ctx.published or (artifact not in released and (ctx.data_root / path).is_file())
+        evidence[artifact] = inferred.fit_input_evidence(
+            artifact,
+            has_input=has_input,
+            released_without_input=build_data_release.RELEASED_WITHOUT_INPUT,
+            **decided,
+        )
+    return evidence
+
+
+def _local_artifacts(ctx: BuildContext) -> list[str]:
+    """The artifact directories the local tree holds, released or added."""
+    local = ctx.data_root / dr.ARTIFACT_PREFIX
+    return sorted(path.name for path in local.iterdir() if path.is_dir()) if local.is_dir() else []
+
+
 def artifact_records(ctx: BuildContext) -> tuple[inferred.ArtifactRecord, ...]:
     """Every released artifact, and every artifact directory this release adds, as the build reads it.
 
@@ -205,10 +512,8 @@ def artifact_records(ctx: BuildContext) -> tuple[inferred.ArtifactRecord, ...]:
     ``ctx.release``, hashed here, and take their sources from the release builder's reviewed rules.
     """
     released = meta.released_artifacts(ctx.published)
-    local = ctx.data_root / dr.ARTIFACT_PREFIX
-    added = sorted(path.name for path in local.iterdir() if path.is_dir()) if local.is_dir() else []
     records = []
-    for artifact in sorted(set(released) | set(added)):
+    for artifact in sorted({*released, *_local_artifacts(ctx)}):
         files: dict[str, tuple[str, str, Path, tuple[str, ...]]] = {}
         for name in (inferred.CELLS_FILE, meta.MANIFEST_FILE, ai.INPUT_FILE):
             path = f"{dr.ARTIFACT_PREFIX}{artifact}/{name}"
@@ -254,11 +559,13 @@ def build_inferred(
     *,
     web_json_matches: frozenset[str] = frozenset(),
     web_json_refused: Mapping[str, str] | None = None,
+    no_published_ingest: Mapping[str, str] | None = None,
 ) -> dict[str, int]:
     """``inferred.cells_by_cell`` parts for the artifacts no earlier epoch holds, and ``inferred.artifacts``.
 
     Earlier epochs' parts are read, never rebuilt (call 6). Checks 1 and 2 run on every part, check 6 on
-    every artifact against its ``cells.parquet``, and check 10 on every artifact's evidence.
+    every artifact against its ``cells.parquet``, and check 10 on every artifact's evidence, given its
+    ``web_json_*`` and ``no_published_ingest`` by the fit_inputs stage (``fit_inputs.evidence_kwargs``).
     """
     records = artifact_records(ctx)
     con = writer.connect()
@@ -291,6 +598,7 @@ def build_inferred(
             released_without_input=build_data_release.RELEASED_WITHOUT_INPUT,
             web_json_matches=web_json_matches,
             web_json_refused=web_json_refused,
+            no_published_ingest=no_published_ingest,
         )
         for record in records
     }
@@ -405,6 +713,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--git-sha", default="HEAD", help="the commit files record and read git: inputs at (default: HEAD)"
     )
     parser.add_argument("--stage", action="append", choices=tuple(_RUNNERS), help="repeatable; default: all")
+    parser.add_argument(
+        "--web-observations",
+        type=Path,
+        help="the folder holding the served observations JSON at their catalog observations_url (fit_inputs)",
+    )
     # Hidden, for tests: a releases/ folder of copies, and a web catalog and withdrawn list read as
     # they stand instead of at --git-sha.
     parser.add_argument("--releases", type=Path, default=RELEASES, help=argparse.SUPPRESS)
@@ -418,31 +731,59 @@ def main(argv: Sequence[str] | None = None) -> int:
     selected = set(args.stage or _RUNNERS)
     try:
         ctx = context(args)
+        handed: dict[str, Any] = {}  # what a stage hands a later stage of this run
         for stage in STAGES:
             if stage in selected:
-                _RUNNERS[stage](ctx, args)
+                _RUNNERS[stage](ctx, args, handed)
     except (TableError, dr.DataReleaseError, OSError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     return 0
 
 
-def _run_meta(ctx: BuildContext, args: argparse.Namespace) -> None:
+def _run_meta(ctx: BuildContext, args: argparse.Namespace, handed: dict[str, Any]) -> None:
     build_meta(ctx, web_catalog=args.web_catalog, withdrawn=args.withdrawn)
 
 
-def _run_reference(ctx: BuildContext, args: argparse.Namespace) -> None:
+def _run_reference(ctx: BuildContext, args: argparse.Namespace, handed: dict[str, Any]) -> None:
     build_reference(ctx)
 
 
-def _run_inferred(ctx: BuildContext, args: argparse.Namespace) -> None:
-    build_inferred(ctx)
+def _run_measured(ctx: BuildContext, args: argparse.Namespace, handed: dict[str, Any]) -> None:
+    build_measured(ctx)
 
 
-#: The stages this checkout builds, each run from the parsed arguments; ``--stage`` takes only these.
-_RUNNERS: dict[str, Callable[[BuildContext, argparse.Namespace], object]] = {
+def _run_fit_inputs(ctx: BuildContext, args: argparse.Namespace, handed: dict[str, Any]) -> None:
+    if args.web_observations is None:
+        raise TableError(
+            "the fit_inputs stage matches the observations JSON the website serves: pass --web-observations "
+            '<dir>, downloaded as docs/data-store.md says ("Public data store")'
+        )
+    _, catalog = _git_json(ctx, meta.WEB_CATALOG, args.web_catalog)
+    web = load_served_web_observations(catalog, args.web_observations)
+    rows = build_fit_inputs(ctx, web=web)
+    handed["evidence"] = fit_inputs.evidence_kwargs(web, rows, refused=WEB_JSON_REFUSED)
+
+
+def _run_inferred(ctx: BuildContext, args: argparse.Namespace, handed: dict[str, Any]) -> None:
+    root = contracts.table_path(fit_inputs.FIT_INPUTS_TABLE)
+    if "evidence" not in handed and (
+        any(path.startswith(root) for path in ctx.published) or (ctx.out_root / root).is_dir()
+    ):
+        raise TableError(
+            f"{root} exists, and without the fit_inputs stage in this run every matched artifact would be "
+            "none: run --stage fit_inputs --stage inferred"
+        )
+    build_inferred(ctx, **handed.get("evidence", {}))
+
+
+#: The stages this checkout builds, each run from the parsed arguments and what an earlier stage of the
+#: same run handed on; ``--stage`` takes only these.
+_RUNNERS: dict[str, Callable[[BuildContext, argparse.Namespace, dict[str, Any]], object]] = {
     "meta": _run_meta,
     "reference": _run_reference,
+    "measured": _run_measured,
+    "fit_inputs": _run_fit_inputs,
     "inferred": _run_inferred,
 }
 
@@ -462,23 +803,28 @@ def _stage_input(ctx: BuildContext, path: str) -> tuple[InputRef, Path]:
             hint = f"; copy it from {harvest.copied_from}/{path.rsplit('/', 1)[1]}"
         elif harvest is not None:
             hint = f"; fetch it: {harvest.fetch_command}"
+        elif path == HGDP_1KG_REGISTRY:
+            hint = "; write it as docs/hgdp-registry-input.md says (its radius rule is the owner's, #508)"
+        elif path.startswith(tuple(contracts.table_path(table) for table in measured.PART_TABLES)):
+            hint = "; build it first: --stage measured"
         raise TableError(
             f"{path}: the build reads it, no release published it, and {ctx.data_root} lacks it" + hint
         )
     return InputRef(dr.release_key(ctx.release, path), build_data_release.sha256_of(local)), local
 
 
-def _refuse_registry_strays(ctx: BuildContext, built: Mapping[str, object]) -> None:
-    """Refuse any local file under the registry root that no release published and this build does not
-    write: the release builder would publish it as a registry release."""
-    root = ctx.out_root / contracts.REGISTRY_ROOT
-    found = sorted(path.relative_to(ctx.out_root).as_posix() for path in root.rglob("*") if path.is_file())
-    strays = [path for path in found if path not in built and path not in ctx.published]
-    if strays:
-        raise TableError(
-            f"{strays[0]}: no release published it and this build does not write it ({len(strays)} such "
-            f"file(s) under {contracts.REGISTRY_ROOT}); remove them and build again"
-        )
+def _refuse_strays(ctx: BuildContext, roots: Sequence[str], built: Collection[str]) -> None:
+    """Refuse any local file under ``roots`` that no release published and this build does not write: the
+    release builder would publish it, as a registry release or a measured part."""
+    for root in roots:
+        files = (ctx.out_root / root).rglob("*")
+        found = sorted(path.relative_to(ctx.out_root).as_posix() for path in files if path.is_file())
+        strays = [path for path in found if path not in built and path not in ctx.published]
+        if strays:
+            raise TableError(
+                f"{strays[0]}: no release published it and this build does not write it ({len(strays)} such "
+                f"file(s) under {root}); remove them and build again"
+            )
 
 
 def _inferred_inputs(

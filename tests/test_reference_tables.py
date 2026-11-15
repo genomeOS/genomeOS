@@ -7,6 +7,11 @@ Atlas data platform design 2026-10-18 §2.3, §2.4, §2.7 check 5; builder's cal
 ``AFND_REGISTRY_FIXTURE`` is the AFND population fixture without the two rows the AFND adapter refuses
 (a blank latitude and a blank accession). A refused row stops the registry build (v1 §12), so only
 ``test_a_row_afnd_refuses_stops_the_registry_build_before_writing`` reads the full fixture.
+
+A ``reference_tree`` also holds ``HGDP_FIXTURE``, the synthetic seven-row HGDP + 1KG input, at
+``build_tables.HGDP_1KG_REGISTRY`` (step 1.7): the stage stops without that file. Its folder,
+``HGDP_FOLDER``, is ``1.0.0-<sha8>`` of its ``registry_version``, which covers the registry code's bytes,
+so it is computed, never written out.
 """
 
 from __future__ import annotations
@@ -34,22 +39,34 @@ AFND_FIXTURE = FIXTURES / "afnd_populations.tsv"
 #: ``AFND_FIXTURE``'s seven rows the adapter keeps.
 AFND_REGISTRY_FIXTURE = FIXTURES / "afnd_registry_populations.tsv"
 MAP_FIXTURES = (FIXTURES / "map_hbs_surveys.csv", FIXTURES / "map_g6pd_surveys.csv")
+#: Seven synthetic HGDP + 1KG rows (Task 17's fixture); every coordinate and radius in it is synthetic.
+HGDP_FIXTURE = FIXTURES / "hgdp_1kg_populations.tsv"
 LATER = "2026-11-21"
 REGISTRY = "tables/v1/reference/populations"
-BUILT = [
-    f"{REGISTRY}/afnd-2026-08/population_aliases.parquet",
+HGDP_FOLDER = reference.registry_folder(reference.hgdp_1kg_registry(HGDP_FIXTURE).registry_version)
+AFND_BUILT = (
     f"{REGISTRY}/afnd-2026-08/populations.parquet",
-    f"{REGISTRY}/map-survey-coordinates-v1/population_aliases.parquet",
-]
+    f"{REGISTRY}/afnd-2026-08/population_aliases.parquet",
+)
+BUILT = sorted(
+    [
+        *AFND_BUILT,
+        f"{REGISTRY}/map-survey-coordinates-v1/population_aliases.parquet",
+        f"{REGISTRY}/{HGDP_FOLDER}/populations.parquet",
+        f"{REGISTRY}/{HGDP_FOLDER}/population_aliases.parquet",
+    ]
+)
 POPULATIONS_KEY = contracts.TABLE_CONTRACTS["reference.populations"].key
 
 
-def _tree(root: Path, *, afnd: Path = AFND_REGISTRY_FIXTURE) -> FixtureTree:
-    """A ``reference_tree`` under ``root``, holding ``afnd`` as the AFND population file."""
+def _tree(root: Path, *, afnd: Path = AFND_REGISTRY_FIXTURE, hgdp: Path = HGDP_FIXTURE) -> FixtureTree:
+    """A ``reference_tree`` under ``root``, holding ``afnd`` as the AFND population file and ``hgdp`` as
+    the HGDP + 1KG registry input."""
     tree = FixtureTree(root, root / "data", root / "releases")
     inputs = {
         build_tables.AFND_POPULATIONS: afnd,
         **dict(zip(build_tables.MAP_SURVEYS, MAP_FIXTURES, strict=True)),
+        build_tables.HGDP_1KG_REGISTRY: hgdp,
     }
     for path, fixture in inputs.items():
         (tree.data / path).parent.mkdir(parents=True, exist_ok=True)
@@ -77,7 +94,7 @@ def test_registry_folder_names():
     for version in ("afnd-2026-09", "1.0.0", "1.0.0+sha256.0123abcd", "01.0.0+sha256." + "0" * 64):
         with pytest.raises(TableError, match="registry_version"):
             reference.registry_folder(version)
-    assert reference.reference_paths(AFND_LEGACY) == (BUILT[1], BUILT[0])
+    assert reference.reference_paths(AFND_LEGACY) == AFND_BUILT
 
 
 def test_afnd_legacy_equals_the_released_registry():
@@ -170,6 +187,7 @@ def test_build_reference_is_deterministic(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "reference.populations afnd-2026-08: 7 rows, written" in out
     assert "reference.population_aliases map-survey-coordinates-v1: 18 rows, written" in out
+    assert f"reference.populations {HGDP_FOLDER}: 7 rows, written" in out
 
 
 def test_read_reference_reads_back_a_built_folder(reference_tree):
@@ -199,7 +217,9 @@ def test_a_published_folder_is_verified_not_rewritten(reference_tree, monkeypatc
     later = reference_tree.context(release=LATER, git_sha="1" * 40)
     capsys.readouterr()
     assert build_tables.build_reference(later) == built
-    assert "reference.populations afnd-2026-08: 7 rows, verified" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "reference.populations afnd-2026-08: 7 rows, verified" in out
+    assert f"reference.populations {HGDP_FOLDER}: 7 rows, verified" in out
     assert _digests(reference_tree.data) == digests
     for path in built:
         assert provenance.read_kv(reference_tree.data / path)["genomeos.git_sha"] == GIT_SHA
@@ -217,7 +237,7 @@ def test_a_published_folder_is_verified_not_rewritten(reference_tree, monkeypatc
 
 def test_require_same_rows_refuses_a_published_folder_with_other_rows(reference_tree):
     build_tables.build_reference(reference_tree.ctx)
-    path = reference_tree.data / BUILT[1]
+    path = reference_tree.data / AFND_BUILT[0]
     frame = pq.read_table(path).to_pandas()
     write_once.require_same_rows(path, frame.iloc[::-1], key=POPULATIONS_KEY)
     changed = frame.copy()
