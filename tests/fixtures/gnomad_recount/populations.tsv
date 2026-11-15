@@ -1,0 +1,5 @@
+population	latitude	longitude	uncertainty_radius_km	provenance
+Han	32.27	114.02	25	synthetic:gnomad-recount-fixture-v1#row-1
+NorthernHan	39.90	116.40	50	synthetic:gnomad-recount-fixture-v1#row-2
+PapuanHighlands	-6.08	145.39	100	synthetic:gnomad-recount-fixture-v1#row-3
+PapuanSepik	-4.20	143.50	100	synthetic:gnomad-recount-fixture-v1#row-4
