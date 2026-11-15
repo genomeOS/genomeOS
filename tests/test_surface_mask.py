@@ -4,7 +4,6 @@ import h3
 import numpy as np
 import pandas as pd
 import pytest
-from test_surface_fit import _observations
 
 from genomeos.surfaces.fit import FitConfig, fit_surface
 from genomeos.surfaces.mask import (
@@ -15,6 +14,7 @@ from genomeos.surfaces.mask import (
     classify_support,
     evaluate_cells,
 )
+from tests.surface_fixtures import synthetic_observations as _observations
 
 # Enough draws to converge: fit_surface refuses an unmixed fit (§12).
 FAST_CONFIG = FitConfig(draws=800, tune=1000, chains=4)

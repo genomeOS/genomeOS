@@ -9,12 +9,16 @@ release lists, plus ``meta.release``, over the exact keys of the release manifes
 another view, because a view or macro naming a view fails once the catalog is attached under an alias
 (§2.6). Its file list is a ``CASE``: while the variable ``genomeos_local`` is unset it is the files'
 public URLs; once a reader runs ``SET VARIABLE genomeos_local = 'data/'`` (with or without the slash) it
-is that folder's sha256-checked copies, at their release paths. Remote reads are not hash-checked.
+is that folder's sha256-checked copies, at their release paths. Remote reads are not hash-checked. After
+the views come the release's macros, if any: ``render_catalog_sql(..., macros=...)`` appends the lookup
+macros ``genomeos.tables.lookup_macros`` renders (§2.6, §3.1).
 
 Withdrawals (§2.9): every view over files drops the files ``meta.withdrawn`` lists, by URL or by local
 path, and the ``inferred`` views also drop every row of an artifact whose ``cells.parquet`` is withdrawn.
-Only ``meta.withdrawn`` itself and ``meta.release``, which reads no file, do not. Check 7 refuses a
-catalog that lists a withdrawn key, so the anti-join guards older catalogs and a regressed check.
+Only ``meta.withdrawn`` itself and ``meta.release``, which reads no file, do not. The macros name only
+live files: withdrawn ones are left out when they are rendered, since an attached macro cannot read a
+view. Check 7 refuses a catalog that lists a withdrawn key, in a view or a macro, so the anti-join guards
+older catalogs and a regressed check.
 
 ``meta.release`` names the release, its manifest key and how to cite it, and the mirror (none until step
 3.8). It never holds the manifest's sha256: the manifest lists the catalog, so the release builder writes
@@ -49,6 +53,9 @@ WITHDRAWN_TABLE = "meta.withdrawn"
 #: ``epoch=2026-11-20`` folder reads as a DATE and overrides the file's VARCHAR column (probed on 1.5.5).
 HIVE_TYPES: dict[str, dict[str, str]] = {
     "inferred.cells_by_cell": {"epoch": "VARCHAR", "res": "INTEGER", "h3_r0": "VARCHAR"},
+    "measured.allele_observations": {"source": "VARCHAR", "ingest_version": "VARCHAR"},
+    "measured.carrier_observations": {"source": "VARCHAR", "ingest_version": "VARCHAR"},
+    "measured.fit_inputs": {"epoch": "VARCHAR"},
 }
 TABLES_SCHEMA = "genomeos-tables"
 TABLES_SCHEMA_VERSION = "1.0"
@@ -66,6 +73,7 @@ _ROW_DIRECTORY = "replace(variant_id, ':', '__') || '__' || model_version || '__
 _ENTRY_FIELDS = frozenset({"access", "bytes", "key", "rows", "sha256", "url"})
 _LITERAL = re.compile(r"'((?:[^']|'')*)'")
 _VIEW = re.compile(r"^CREATE VIEW (\S+) AS\b", re.MULTILINE)
+_MACRO = re.compile(r"CREATE MACRO ([a-z][a-z0-9_]*)\.[a-z][a-z0-9_]*\(")
 _HEADER = "-- The genomeOS Atlas catalog of release {release}, written by scripts/build_data_release.py.\n"
 
 
@@ -125,10 +133,26 @@ def catalog_files(objects: Sequence[dr.ReleaseObject], rows: Mapping[str, int]) 
 
 
 def render_catalog_sql(
-    release: str, files: Sequence[CatalogFile], *, base_url: str = dr.DATA_STORE_BASE_URL
+    release: str,
+    files: Sequence[CatalogFile],
+    *,
+    base_url: str = dr.DATA_STORE_BASE_URL,
+    macros: Sequence[str] = (),
 ) -> str:
-    """``catalog.sql`` for ``files``: its schemas, ``meta.release`` and one view per table."""
+    """``catalog.sql`` for ``files``: its schemas, ``meta.release``, one view per table, then ``macros``.
+
+    ``macros`` are ``CREATE MACRO <schema>.<name>`` statements (``lookup_macros.lookup_statements``),
+    appended after the views in the order given; their schemas are created with the views'.
+    """
     dr.assert_release_id(release)
+    macro_schemas = set()
+    for statement in macros:
+        match = _MACRO.match(statement)
+        if match is None:
+            raise TableError(
+                f"a catalog macro is one CREATE MACRO <schema>.<name>(...) statement, not {statement[:60]!r}"
+            )
+        macro_schemas.add(match.group(1))
     base = dr.assert_base_url(base_url)
     by_table: dict[str, list[CatalogFile]] = {}
     for file in sorted(files, key=lambda file: (file.table, file.path)):
@@ -139,11 +163,14 @@ def render_catalog_sql(
     withdrawn = by_table.get(WITHDRAWN_TABLE)
     if not withdrawn:
         raise TableError(f"the catalog lists no {WITHDRAWN_TABLE} file, which every view anti-joins (§2.9)")
-    schemas = sorted({table.split(".", 1)[0] for table in by_table} | {RELEASE_VIEW.split(".", 1)[0]})
+    schemas = sorted(
+        {table.split(".", 1)[0] for table in by_table} | {RELEASE_VIEW.split(".", 1)[0]} | macro_schemas
+    )
     statements = [
         "\n".join(f"CREATE SCHEMA {schema};" for schema in schemas),
         _release_view(release),
         *(_view(table, by_table[table], withdrawn, base) for table in sorted(by_table)),
+        *macros,
     ]
     return _HEADER.format(release=release) + "\n" + "\n\n".join(statements) + "\n"
 

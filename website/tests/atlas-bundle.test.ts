@@ -181,6 +181,88 @@ describe('Atlas client bundle', () => {
   });
 });
 
+describe('DuckDB-WASM in the /app/ bundle (Atlas data platform step 1.13)', () => {
+  // Vite names the self-hosted bundles after their package files; the engine names them all.
+  const BUNDLE_FILES = [
+    'duckdb-eh.wasm',
+    'duckdb-mvp.wasm',
+    'duckdb-browser-eh.worker.js',
+    'duckdb-browser-mvp.worker.js',
+  ];
+  const DUCKDB_NAMES = /duckdb-(?:eh|mvp|browser)\b/;
+  const packageDist = path.resolve(
+    import.meta.dirname,
+    '../node_modules/@duckdb/duckdb-wasm/dist',
+  );
+
+  /** The browser SQL engine: the one chunk that opens DuckDB-WASM's bundles. */
+  function engineChunk(): string {
+    const engines = readdirSync(assets).filter(
+      (name) =>
+        name.endsWith('.js') &&
+        code(name).includes('The DuckDB-WASM bundle has no worker script.'),
+    );
+    expect(engines).toHaveLength(1);
+    return engines[0]!;
+  }
+
+  /** The chunks `files` import dynamically. */
+  function dynamicTargets(files: string[]): string[] {
+    return files.flatMap((file) =>
+      [...code(file).matchAll(DYNAMIC_IMPORT)].map((match) =>
+        path.posix.join(path.posix.dirname(file), match[1]),
+      ),
+    );
+  }
+
+  it('loads DuckDB-WASM only by dynamic import from the explorer island', () => {
+    const island = staticGraph(islandChunk());
+    const engine = engineChunk();
+    expect(island).not.toContain(engine);
+    for (const file of island)
+      expect(DUCKDB_NAMES.test(code(file)), file).toBe(false);
+    expect(dynamicTargets(island)).toContain(engine);
+    // The engine itself imports the DuckDB-WASM library only when a query opens it.
+    const library = dynamicTargets([engine]).find((file) =>
+      path.posix.basename(file).startsWith('duckdb-browser.'),
+    );
+    expect(library).toBeDefined();
+    expect(staticGraph(engine)).not.toContain(library);
+  });
+
+  it('self-hosts the pinned bundles, byte for byte, and names no other host', () => {
+    const engine = code(engineChunk());
+    for (const file of BUNDLE_FILES) {
+      const [stem, extension] = [
+        file.slice(0, file.lastIndexOf('.')),
+        file.slice(file.lastIndexOf('.')),
+      ];
+      const href = new RegExp(
+        `/_astro/(${stem.replaceAll('.', '\\.')}\\.[\\w-]+\\${extension})["'\`]`,
+      ).exec(engine)?.[1];
+      expect(href, file).toBeDefined();
+      expect(
+        readFileSync(path.join(assets, href!)).equals(
+          readFileSync(path.join(packageDist, file)),
+        ),
+        file,
+      ).toBe(true);
+    }
+    expect(engine).not.toMatch(/https?:\/\//);
+  });
+
+  it('preloads no part of DuckDB-WASM from the /app/ page', () => {
+    const links = [...appHtml().matchAll(/<link\b[^>]*>/g)].map(
+      (match) => match[0],
+    );
+    const engine = engineChunk();
+    expect(
+      links.filter((link) => DUCKDB_NAMES.test(link) || link.includes(engine)),
+    ).toEqual([]);
+    expect(appHtml()).not.toMatch(DUCKDB_NAMES);
+  });
+});
+
 describe('Cesium chunk on the /app/ critical path (issue #446)', () => {
   function cesiumChunk(): string {
     const cesium = staticGraph(sceneChunk()).find((file) =>

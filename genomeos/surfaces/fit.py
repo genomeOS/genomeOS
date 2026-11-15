@@ -508,19 +508,52 @@ def _check_convergence(idata, config: FitConfig) -> SamplerDiagnostics:
     return diagnostics
 
 
-def fit_surface(
+@dataclass(frozen=True)
+class SurfaceModel:
+    """One variant's PyMC graph, built and not yet sampled, with what it was built from.
+
+    `fit_surface` samples exactly this graph, and a model export rebuilds it from code and the
+    posterior draws rather than unpickling it (Atlas data platform design 2026-10-18 §2.1, step
+    1.12; #471), so the two can never come from different code.
+    """
+
+    model: pm.Model = field(repr=False)
+    #: The schema-validated rows, in the row order the graph was built over.
+    observations: pd.DataFrame = field(repr=False, compare=False)
+    #: Every sampling design present, the reference first when present: β_design contrasts the rest
+    #: against the first.
+    design_levels: tuple[str, ...]
+    beta_design_applied: bool
+    beta_cohort_applied: bool
+    cohorts: tuple[str, ...]
+    #: The lengthscale prior's 95% anchors in km, or NaN when the prior was fixed.
+    lengthscale_prior_km: tuple[float, float]
+    #: Inducing points on the unit sphere, shape `(M, 3)`; `(0, 3)` under hsgp.
+    inducing: np.ndarray = field(repr=False)
+    footprint_metadata: ObservationSupportMetadata | None
+
+
+def free_variable_shapes(model: pm.Model) -> dict[str, tuple[int, ...]]:
+    """The shape of each free random variable, by its untransformed name, in the model's order.
+
+    These are what the sampler draws and the posterior holds; a deterministic such as `f`, `p` or
+    `freq_pred` is recomputed from them and is never one of them (#471).
+    """
+    shapes = model.eval_rv_shapes()
+    return {rv.name: tuple(int(size) for size in shapes[rv.name]) for rv in model.free_RVs}
+
+
+def build_surface_model(
     observations: pd.DataFrame,
-    config: FitConfig | None = None,
+    config: FitConfig,
     *,
     observation_support: ObservationSupport | None = None,
-) -> SurfaceFit:
-    """Fit one variant's frequency surface. Deterministic given `(observations, config)`.
+) -> SurfaceModel:
+    """Validate one variant's rows and build the graph `fit_surface` samples, without sampling it.
 
-    The fit keeps the validated rows it consumed (`SurfaceFit.observations`), so what it was fitted
-    to travels with it to the artifact rather than being reloaded later from a source that may have
-    changed (#45).
+    Deterministic given `(observations, config)`: k-means inducing placement, the one stochastic
+    step, takes `config.seed` (Atlas data platform design 2026-10-18 §2.1, step 1.12; #471).
     """
-    config = config or FitConfig()
     obs = OBSERVATIONS_SCHEMA.validate(observations).reset_index(drop=True)
 
     variants = obs["variant_id"].unique()
@@ -568,8 +601,6 @@ def fit_surface(
         observation_support,
     )
     support_points = None if support_weights is None else support_weights.shape[1]
-    centre = np.zeros(3)
-    scale = np.ones(3)
 
     ac = obs["ac"].to_numpy(dtype=int)
     an = obs["an"].to_numpy(dtype=int)
@@ -715,35 +746,65 @@ def fit_surface(
         pm.Deterministic("latent_logit_pred", f_pred_expr)
         pm.Deterministic("freq_pred", pm.math.invlogit(f_pred_expr))
 
-        sample_kwargs: dict[str, Any] = {
-            "draws": config.draws,
-            "tune": config.tune,
-            "chains": config.chains,
-            "random_seed": config.seed,
-            "progressbar": False,
-            # Top level, which reaches numpyro and PyMC's own NUTS alike, and is accepted
-            # alongside the `nuts` dict below on both 5.x and 6.x. Measured, not inferred:
-            # `scripts/env_report.py` reports what actually arrives at the sampler.
-            "target_accept": config.target_accept,
-        }
-        if config.nuts_sampler == "pymc":
-            # Deterministic given the seed only when chains are drawn sequentially.
-            sample_kwargs["cores"] = 1
-        else:
-            sample_kwargs["nuts_sampler"] = config.nuts_sampler
-            # chain_method="vectorized" batches every chain into one device. The default,
-            # "parallel", wants one device per chain and silently falls back to drawing them
-            # *sequentially* when there is only one — which is what a single GPU looks like, so
-            # three quarters of the available speedup was being left on the table with a warning
-            # that reads like a note about CPUs.
-            #
-            # `nuts` is the channel to pass it in, and which channel works is version-dependent
-            # rather than settled: PyMC changed how NUTS options are routed between 5.x and 6.x,
-            # and `nuts_sampler_kwargs` — which is the one that works on 5.x — is deprecated on
-            # the pinned 6.3.1 in favour of this one. Do not re-litigate that from the PyMC
-            # source, which is what produced a wrong answer in #120; run `scripts/env_report.py`,
-            # which measures where each channel actually lands in the environment you have.
-            sample_kwargs["nuts"] = {"chain_method": "vectorized"}
+    return SurfaceModel(
+        model=model,
+        observations=obs,
+        design_levels=design_levels,
+        beta_design_applied=beta_design_applied,
+        beta_cohort_applied=beta_cohort_applied,
+        cohorts=tuple(cohorts),
+        lengthscale_prior_km=(anchor_low, anchor_high),
+        inducing=inducing,
+        footprint_metadata=footprint_metadata,
+    )
+
+
+def fit_surface(
+    observations: pd.DataFrame,
+    config: FitConfig | None = None,
+    *,
+    observation_support: ObservationSupport | None = None,
+) -> SurfaceFit:
+    """Fit one variant's frequency surface. Deterministic given `(observations, config)`.
+
+    The fit keeps the validated rows it consumed (`SurfaceFit.observations`), so what it was fitted
+    to travels with it to the artifact rather than being reloaded later from a source that may have
+    changed (#45). The graph it samples is `build_surface_model`'s.
+    """
+    config = config or FitConfig()
+    built = build_surface_model(observations, config, observation_support=observation_support)
+
+    sample_kwargs: dict[str, Any] = {
+        "draws": config.draws,
+        "tune": config.tune,
+        "chains": config.chains,
+        "random_seed": config.seed,
+        "progressbar": False,
+        # Top level, which reaches numpyro and PyMC's own NUTS alike, and is accepted
+        # alongside the `nuts` dict below on both 5.x and 6.x. Measured, not inferred:
+        # `scripts/env_report.py` reports what actually arrives at the sampler.
+        "target_accept": config.target_accept,
+    }
+    if config.nuts_sampler == "pymc":
+        # Deterministic given the seed only when chains are drawn sequentially.
+        sample_kwargs["cores"] = 1
+    else:
+        sample_kwargs["nuts_sampler"] = config.nuts_sampler
+        # chain_method="vectorized" batches every chain into one device. The default,
+        # "parallel", wants one device per chain and silently falls back to drawing them
+        # *sequentially* when there is only one — which is what a single GPU looks like, so
+        # three quarters of the available speedup was being left on the table with a warning
+        # that reads like a note about CPUs.
+        #
+        # `nuts` is the channel to pass it in, and which channel works is version-dependent
+        # rather than settled: PyMC changed how NUTS options are routed between 5.x and 6.x,
+        # and `nuts_sampler_kwargs` — which is the one that works on 5.x — is deprecated on
+        # the pinned 6.3.1 in favour of this one. Do not re-litigate that from the PyMC
+        # source, which is what produced a wrong answer in #120; run `scripts/env_report.py`,
+        # which measures where each channel actually lands in the environment you have.
+        sample_kwargs["nuts"] = {"chain_method": "vectorized"}
+
+    with built.model:
         idata = pm.sample(**sample_kwargs)
 
     _check_convergence(idata, config)
@@ -753,6 +814,7 @@ def fit_surface(
     lengthscale_mean = float(idata.posterior["lengthscale"].mean())
     correlation_range_km = lengthscale_mean * EARTH_RADIUS_KM
 
+    inducing = built.inducing
     spacing_ratio = None
     if len(inducing) > 1:
         gaps = np.linalg.norm(inducing[:, None, :] - inducing[None, :, :], axis=-1)
@@ -769,29 +831,53 @@ def fit_surface(
                 stacklevel=2,
             )
 
-    return SurfaceFit(
-        variant_id=str(variants[0]),
-        config=config,
-        beta_design_applied=beta_design_applied,
-        beta_cohort_applied=beta_cohort_applied,
-        lengthscale_prior_km=(anchor_low, anchor_high),
-        design_levels=non_reference,
+    return surface_fit_from(
+        built,
+        config,
+        idata,
+        correlation_range_km=correlation_range_km,
         inducing_spacing_ratio=spacing_ratio,
+    )
+
+
+def surface_fit_from(
+    built: SurfaceModel,
+    config: FitConfig,
+    idata: Any,
+    *,
+    correlation_range_km: float,
+    inducing_spacing_ratio: float | None,
+) -> SurfaceFit:
+    """The fit of `built`'s graph under `config` (the config it was built with), given its draws.
+
+    `fit_surface` returns this after sampling, and a model export's loader after rebuilding the graph
+    from code (Atlas data platform design 2026-10-18 §2.1, step 1.12; #471). One constructor, so the
+    two can never record a fit differently.
+    """
+    return SurfaceFit(
+        variant_id=str(built.observations["variant_id"].iloc[0]),
+        config=config,
+        beta_design_applied=built.beta_design_applied,
+        beta_cohort_applied=built.beta_cohort_applied,
+        lengthscale_prior_km=built.lengthscale_prior_km,
+        design_levels=built.design_levels[1:],
+        inducing_spacing_ratio=inducing_spacing_ratio,
         correlation_range_km=correlation_range_km,
         idata=idata,
-        _model=model,
-        _centre=centre,
-        _scale=scale,
+        _model=built.model,
+        # The unit sphere needs no per-axis standardisation (see `build_surface_model`).
+        _centre=np.zeros(3),
+        _scale=np.ones(3),
         prediction_metadata=ObservationModelMetadata(
             convention="new_cohort_count_v1",
-            fitted_designs=design_levels,
-            training_cohort_ids=tuple(cohorts),
-            cohort_effect_applied=beta_cohort_applied,
+            fitted_designs=built.design_levels,
+            training_cohort_ids=built.cohorts,
+            cohort_effect_applied=built.beta_cohort_applied,
             nugget_applied=config.nugget,
             likelihood=config.likelihood,
         ),
-        footprint_metadata=footprint_metadata,
-        observations=obs,
+        footprint_metadata=built.footprint_metadata,
+        observations=built.observations,
     )
 
 

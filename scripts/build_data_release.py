@@ -7,17 +7,29 @@ Hashes every file under the include roots, maps each path to its sources with th
 below, copies the terms each source's record already holds, and writes
 ``data/releases/<release>.json`` (sorted, no clock: the same tree gives the same bytes). Earlier
 committed releases are read so a byte-identical file reuses its earlier key and a published artifact
-whose bytes changed is refused. A release file that already exists is never replaced: an identical
-rebuild reports "unchanged", a different one is a hard error.
+whose bytes changed is refused; a byte-identical file whose earlier key ``WITHDRAWN.json`` lists is
+refused too (Atlas data platform design 2026-10-18 §2.9). A release file that already exists is never
+replaced: an identical rebuild reports "unchanged", a different one is a hard error.
 
-Nothing outside ``INCLUDE`` is published: fits (pickles, design §8) and the raw third-party harvests
-(phase 2) stay local. A pickle or an object-dtype ``.npy`` inside an include root is refused, and so
-is a path no rule claims; nothing is ever given a source by default.
+Nothing outside ``INCLUDE`` and the reviewed raw harvests is published: fits (pickles, design §8) and
+any raw file no harvest lists stay local. A raw harvest (Atlas data platform design 2026-10-18 §2.1,
+step 1.8) is published under ``raw/<source>/<harvest_version>/`` only as a ``RAW_HARVESTS`` entry, every
+file pinned by sha256. ``store/external/<source>/`` holds exactly the caches the Atlas serves
+(``EXTERNAL_CACHES``), each with the served content and without a known non-commercial field (R5, §4.3);
+a missing one fails the build. A pickle or an object-dtype ``.npy`` inside an include root is refused,
+and so is a path no rule claims; nothing is ever given a source by default.
 
 Inputs travel with outputs (#45): every artifact carries ``observations.parquet``, the table its fit
 consumed, recorded in its ``manifest.json``. An artifact without it, or whose record does not match the
 file, is refused. The artifacts released before that rule are named in ``RELEASED_WITHOUT_INPUT``, each
-with a reason; they are immutable, so none of them may gain the file.
+with a reason; they are immutable, so none of them may gain the file. Every input ``measured.ingests``
+records is a key of this release or a committed one, with its sha256, or a cited URL with md5 and
+generation (Atlas data platform design 2026-10-18 §2.7 check 9, step 1.9).
+
+A trained model is published beside its artifact as ``store/models/<artifact-id>/`` (Atlas data platform
+design 2026-10-18 §2.1, step 1.12; #471): a safe export, never a pickle, bound to its artifact's fit input
+by sha256 and listing exactly its files (``check_models``); a released model directory is closed, like an
+artifact. Every manifest built is then held to the release guard (§4.2, ``check_release_guard``).
 
 The catalog (Atlas data platform design 2026-10-18 §2.6, §2.7 check 7; calls 4 and 17) is built in two
 passes, after ``build_tables.py`` has written the release's ``tables/``:
@@ -42,7 +54,7 @@ import json
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -53,10 +65,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from genomeos.publication import access_policy as ap  # noqa: E402
 from genomeos.publication import artifact_inputs as ai  # noqa: E402
 from genomeos.publication import data_release as dr  # noqa: E402
+from genomeos.publication import model_exports as me  # noqa: E402
+from genomeos.publication import raw_harvests as rh  # noqa: E402
+from genomeos.publication.source_terms import REVIEWED_SOURCES  # noqa: E402
 from genomeos.tables import catalog as tables_catalog  # noqa: E402  (build's flag is ``catalog``)
-from genomeos.tables import checks, contracts, provenance, writer  # noqa: E402
+from genomeos.tables import checks, contracts, measured, provenance, writer  # noqa: E402
 from genomeos.tables.contracts import TableError  # noqa: E402
 
 DATA = ROOT / "data"
@@ -74,13 +90,22 @@ INCLUDE = (
     "store/INVENTORY.json",
     "store/artifacts",
     "store/catalog-metadata.json",
+    "store/external",
+    "store/models",
     "tables",
     "validation",
 )
 #: Include roots a tree may lack until a release publishes under them (Atlas data platform design
-#: 2026-10-18 §2.3): the v1 tables and their catalog arrive with release 1. Once published, each is
-#: required.
-OPTIONAL_ROOTS: tuple[str, ...] = ("catalog", "tables")
+#: 2026-10-18 §2.3): the v1 tables and their catalog arrive with release 1, the external caches with
+#: step 1.8, the trained models with step 1.12. Once published, each is required. ``main`` requires every
+#: cache in ``EXTERNAL_CACHES``.
+OPTIONAL_ROOTS: tuple[str, ...] = ("catalog", "store/external", "store/models", "tables")
+#: The reviewed raw harvests ``main`` publishes, each root required (step 1.8). A test of ``main`` on a
+#: tree that holds none sets this to ``()``.
+RAW_HARVESTS: tuple[rh.RawHarvest, ...] = rh.RAW_HARVESTS
+#: The caches the Atlas serves, which ``main`` publishes with their served content (step 1.8). A test of
+#: ``main`` on a tree that holds none sets this to ``()``.
+EXTERNAL_CACHES: tuple[tuple[str, str], ...] = rh.EXTERNAL_CACHES
 
 #: The 994 MAP HbS surveys the 2026-09-16 golden-test-1 run fit, as that run serialized them (#45).
 PARITY_INPUT = "hbs-piel-parity-2026-09-16"
@@ -175,89 +200,8 @@ RELEASED_WITHOUT_INPUT: dict[str, str] = {
 CPIC_RECORD = "sources/cpic/v1.60.0/SOURCE.json"
 CURATED_RECORD = "sources/curated/SOURCE.json"
 ARTIFACT_DATA_SOURCES = {"map-": "map", "afnd-": "afnd"}
-
-#: Reviewed terms for sources with no machine-readable record under data/. Each value is copied from
-#: the place named in ``recorded_in``; where the repository records no check, the status is
-#: ``not_checked`` and the gap is stated rather than filled (AGENTS publication-evidence safeguards).
-REVIEWED_SOURCES: dict[str, dict[str, Any]] = {
-    "afnd": {
-        "name": "Allele Frequency Net Database (AFND)",
-        "citation": (
-            "Gonzalez-Galarza et al., Allele frequency net database (AFND) 2020 update, Nucleic Acids "
-            "Research 48:D783, doi:10.1093/nar/gkz1029"
-        ),
-        "url": "https://www.allelefrequencies.net/",
-        "terms": {
-            "status": "no_restriction_found",
-            "checked_at": "2026-08-25",
-            "terms_url": "https://www.allelefrequencies.net/contact.asp",
-            "recorded_in": "https://github.com/genomeOS/genomeOS/issues/117",
-            "note": (
-                "AFND publishes no standalone licence; under the owner-approved policy (#149) a "
-                "completed check that finds no explicit restriction is no_restriction_found."
-            ),
-        },
-        "non_commercial": False,
-    },
-    "map": {
-        "name": "Malaria Atlas Project (MAP) HbS and G6PD survey databases",
-        "citation": (
-            "Piel et al., Global epidemiology of sickle haemoglobin in neonates, The Lancet 381:142 "
-            "(2013); Howes et al., G6PD deficiency prevalence and estimates of affected populations in "
-            "malaria endemic countries, PLoS Medicine 9:e1001339 (2012)"
-        ),
-        "url": "https://data.malariaatlas.org/",
-        "terms": {
-            "status": "no_restriction_found",
-            "checked_at": "2026-10-18",
-            "terms_url": "https://malariaatlas.org/open-access-policy/",
-            "recorded_in": "docs/research/hbs-piel-parity-2026-09-16.md",
-            "note": (
-                "MAP's open-access policy covers all its survey data, HbS and G6PD layers alike: the "
-                "data are not owned by MAP, public survey data have no restrictions to access or use, "
-                "and users are asked to cite the original sources. The owner approved open "
-                "redistribution of the HbS survey rows on 2026-10-18 (the 2026-09-16 parity input)."
-            ),
-        },
-        "non_commercial": False,
-    },
-    "worldpop": {
-        "name": "WorldPop gridded population (the surface target grid)",
-        "citation": "WorldPop, University of Southampton. doi:10.5258/SOTON/WP00647",
-        "url": "https://hub.worldpop.org/",
-        "terms": {
-            "status": "explicitly_open",
-            "checked_at": "2026-11-14",
-            "terms_url": "https://hub.worldpop.org/",
-            "licence": "CC-BY-4.0",
-            "recorded_in": "docs/audits/worldpop-commercial-use.md",
-            "note": (
-                "WorldPop's hub states that WorldPop datasets are licensed under CC BY 4.0, recorded "
-                "as explicitly_open by the owner's decision D5b (2026-10-19; "
-                "docs/superpowers/specs/2026-10-18-atlas-data-platform-design.md §1.1). WorldPop "
-                "selects the population-positive H3 cells a format-2 surface is predicted on."
-            ),
-        },
-        "non_commercial": False,
-    },
-    "genomeos": {
-        "name": "genomeOS project-authored data and outputs",
-        "url": "https://github.com/genomeOS/genomeOS",
-        "terms": {
-            "status": "explicitly_open",
-            "checked_at": "2026-10-19",
-            "terms_url": "https://creativecommons.org/licenses/by/4.0/",
-            "licence": "CC-BY-4.0",
-            "recorded_in": "README.md",
-            "note": (
-                "Project-authored data and outputs are CC BY 4.0 by the owner's decision D5a "
-                "(2026-10-19; docs/superpowers/specs/2026-10-18-atlas-data-platform-design.md §1.1). "
-                "Apache-2.0 covers source code and documentation."
-            ),
-        },
-        "non_commercial": False,
-    },
-}
+# Every other source's terms are REVIEWED_SOURCES (genomeos/publication/source_terms.py), which
+# raw_harvests also reads, so they sit beside it rather than in this script.
 
 
 def _record_sources(data_root: Path) -> dict[str, dict[str, Any]]:
@@ -297,9 +241,7 @@ def _record_sources(data_root: Path) -> dict[str, dict[str, Any]]:
     return found
 
 
-def _artifact_sources(data_root: Path, path: str) -> tuple[str, ...]:
-    directory = path.split("/")[2]
-    data_version = directory.rsplit("__", 1)[-1]
+def _data_source(path: str, data_version: str) -> str:
     source = next(
         (name for prefix, name in ARTIFACT_DATA_SOURCES.items() if data_version.startswith(prefix)), None
     )
@@ -307,6 +249,13 @@ def _artifact_sources(data_root: Path, path: str) -> tuple[str, ...]:
         raise dr.DataReleaseError(
             f"{path}: data_version {data_version!r} has no reviewed source; add it to ARTIFACT_DATA_SOURCES"
         )
+    return source
+
+
+def _artifact_sources(data_root: Path, path: str) -> tuple[str, ...]:
+    directory = path.split("/")[2]
+    data_version = directory.rsplit("__", 1)[-1]
+    source = _data_source(path, data_version)
     manifest_path = data_root / dr.ARTIFACT_PREFIX / directory / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("data_version") != data_version:
@@ -321,21 +270,43 @@ def _artifact_sources(data_root: Path, path: str) -> tuple[str, ...]:
     return (source, "worldpop") if grid.startswith("worldpop") else (source,)
 
 
+def _model_sources(data_root: Path, path: str) -> tuple[str, ...]:
+    """A model was fit on its artifact's input alone, so it carries the artifact's data source. It is read
+    from the directory name, not the artifact's manifest, so a model with no artifact reaches
+    ``check_models``."""
+    closed = dr.closed_directory(path)
+    assert closed is not None  # the rule matched MODEL_PREFIX
+    return (_data_source(path, closed[1].rsplit("__", 1)[-1]),)
+
+
+_CACHE_PREFIXES = tuple(f"{rh.EXTERNAL_PREFIX}{name}/" for name in rh.EXTERNAL_CACHE_SOURCES)
+
 _RULES: tuple[tuple[Callable[[str], bool], Callable[[Path, str], tuple[str, ...]]], ...] = (
     (lambda path: path.startswith(dr.ARTIFACT_PREFIX), _artifact_sources),
+    (lambda path: path.startswith(dr.MODEL_PREFIX), _model_sources),
     # A derived table records the union of its inputs' sources (Atlas data platform design 2026-10-18
     # §9, call 16); a file that records none is refused.
     (lambda path: path.startswith("tables/"), provenance.recorded_sources),
     (lambda path: path.startswith("validation/crossval_"), lambda root, path: ("map",)),
     (lambda path: path.startswith(f"validation/{PARITY_INPUT}/"), lambda root, path: ("map",)),
     (lambda path: path.startswith("validation/b0h-timing-"), lambda root, path: ("genomeos",)),
+    # raw/<source>/<harvest_version>/<file> (§2.3, step 1.8); collect refuses a file no harvest lists.
+    (
+        lambda path: path.startswith(rh.RAW_PREFIX) and path.count("/") >= 3,
+        lambda root, path: (path.split("/")[1],),
+    ),
     (lambda path: path == "raw/afnd_populations.tsv", lambda root, path: ("afnd",)),
+    # store/external/<source>/…: the API each cache snapshots (§4.3, step 1.8).
+    (lambda path: path.startswith(_CACHE_PREFIXES), lambda root, path: (path.split("/")[2],)),
     (lambda path: path.startswith("sources/cpic/"), lambda root, path: ("cpic",)),
     (lambda path: path.startswith("sources/curated/"), lambda root, path: ("clinvar", "genereviews")),
     (
         lambda path: path.startswith("registry/curated-v1-candidate.1/"),
         lambda root, path: ("clinvar", "cpic", "genereviews"),
     ),
+    # The HGDP + 1KG registry input (step 1.7, D18): gnomAD's identities and coordinates, with our
+    # radius, location_type and notice.
+    (lambda path: path.startswith("registry/hgdp_1kg/"), lambda root, path: ("genomeos", "gnomad_hgdp_1kg")),
     (
         lambda path: path
         in {"registry/variant_normalization.tsv", "store/INVENTORY.json", "store/catalog-metadata.json"},
@@ -371,12 +342,17 @@ def _refuse_pickled_npy(path: Path, relative: str) -> None:
 
 
 def included_files(
-    data_root: Path, *, published: Collection[str] = (), roots: Sequence[str] = INCLUDE
+    data_root: Path,
+    *,
+    published: Collection[str] = (),
+    roots: Sequence[str] = INCLUDE,
+    raw_harvests: Sequence[rh.RawHarvest] = (),
 ) -> list[str]:
-    """Every file under ``roots`` (the include roots). An absent optional root is skipped only while no
-    path in ``published`` (what earlier releases hold) lies under it; any other absent root is an error."""
+    """Every file under ``roots`` (the include roots) and each of ``raw_harvests``' roots. An absent
+    optional root is skipped only while no path in ``published`` (what earlier releases hold) lies under
+    it; any other absent root, a harvest's included, is an error."""
     found: list[str] = []
-    for root in roots:
+    for root in (*roots, *(harvest.root for harvest in raw_harvests)):
         base = data_root / root
         if base.is_file():
             found.append(root)
@@ -392,10 +368,18 @@ def included_files(
 
 
 def collect(
-    data_root: Path, tracked: set[str], *, published: Collection[str] = (), roots: Sequence[str] = INCLUDE
+    data_root: Path,
+    tracked: set[str],
+    *,
+    published: Collection[str] = (),
+    roots: Sequence[str] = INCLUDE,
+    raw_harvests: Sequence[rh.RawHarvest] = (),
+    external_caches: Sequence[tuple[str, str]] = (),
 ) -> list[dr.FileRecord]:
+    """Every included file, hashed and given its sources; a raw file must be a pinned harvest file, and
+    the external caches must be exactly ``external_caches`` with their served content (step 1.8)."""
     records: list[dr.FileRecord] = []
-    for relative in included_files(data_root, published=published, roots=roots):
+    for relative in included_files(data_root, published=published, roots=roots, raw_harvests=raw_harvests):
         dr.media_type_for(relative)  # refuses pickles before anything is hashed
         path = data_root / relative
         if relative.endswith(".npy"):
@@ -404,6 +388,13 @@ def collect(
         records.append(
             dr.FileRecord(relative, path.stat().st_size, sha256_of(path), relative in tracked, sources)
         )
+    rh.check_raw_harvests(records, raw_harvests)
+    caches = {
+        record.path: json.loads((data_root / record.path).read_text(encoding="utf-8"))
+        for record in records
+        if record.path.startswith(rh.EXTERNAL_PREFIX)
+    }
+    rh.check_external_caches(caches, external_caches)
     return records
 
 
@@ -452,6 +443,60 @@ def check_inputs(
     )
 
 
+def _fit_input_of(path: str) -> str | None:
+    """The artifact whose fit input ``path`` is, or None."""
+    closed = dr.closed_directory(path)
+    if closed is not None and path == f"{dr.ARTIFACT_PREFIX}{closed[1]}/{ai.INPUT_FILE}":
+        return closed[1]
+    return None
+
+
+def check_models(
+    data_root: Path, records: Sequence[dr.FileRecord], previous: Sequence[Mapping[str, Any]]
+) -> None:
+    """Refuse a ``store/models/`` directory that is not a complete safe export bound to its artifact's fit
+    input: ``model_exports.check_model_exports`` over this release's model files, with the fit inputs this
+    release and the earlier ones publish (§2.1, step 1.12; #471)."""
+    files: dict[str, me.ModelFile] = {}
+    manifests: dict[str, Any] = {}
+    for record in records:
+        closed = dr.closed_directory(record.path)
+        if closed is None or closed[0] != dr.MODEL_PREFIX:
+            continue
+        files[record.path] = me.ModelFile(record.sha256, record.bytes)
+        if record.path == f"{dr.MODEL_PREFIX}{closed[1]}/{me.MODEL_MANIFEST}":
+            try:
+                manifests[closed[1]] = json.loads((data_root / record.path).read_text(encoding="utf-8"))
+            except ValueError as error:
+                raise dr.DataReleaseError(f"{record.path}: not a JSON manifest ({error})") from error
+    earlier = [(item.path, item.sha256) for manifest in previous for item in dr.validate_manifest(manifest)]
+    current = [(record.path, record.sha256) for record in records]
+    inputs = {
+        artifact: sha256
+        for path, sha256 in (*earlier, *current)
+        if (artifact := _fit_input_of(path)) is not None
+    }
+    me.check_model_exports(manifests, files, artifact_inputs=inputs)
+
+
+def models_summary(objects: Iterable[Mapping[str, Any]]) -> str:
+    """``main``'s line about ``store/models/``: how many models the release holds, or why it holds none."""
+    paths = [item["path"] for item in objects]
+    models = {
+        closed[1]
+        for path in paths
+        if (closed := dr.closed_directory(path)) is not None and closed[0] == dr.MODEL_PREFIX
+    }
+    if models:
+        plural = "" if len(models) == 1 else "s"
+        return f"store/models: {len(models)} model{plural}, each bound to its artifact's fit input"
+    bound = {artifact for path in paths if (artifact := _fit_input_of(path)) is not None}
+    if not bound:
+        return "store/models: absent (no released artifact has a fit input)"
+    counted = "1 released artifact has" if len(bound) == 1 else f"{len(bound)} released artifacts have"
+    return f"store/models: absent ({counted} a fit input; none has an exported model)"
+
+
 def build(
     data_root: Path,
     release: str,
@@ -460,17 +505,35 @@ def build(
     released_without_input: Mapping[str, str],
     previous: Sequence[Mapping[str, Any]] = (),
     withdrawn: Sequence[dr.Withdrawal] = (),
+    raw_harvests: Sequence[rh.RawHarvest] = (),
+    external_caches: Sequence[tuple[str, str]] = (),
     catalog: bool = False,
 ) -> dict[str, Any]:
     """The release manifest of ``data_root``; with ``catalog``, the two passes of the module docstring.
 
-    ``withdrawn`` is ``WITHDRAWN.json``'s list, which the release's ``meta.withdrawn`` must restate.
+    ``withdrawn`` is ``WITHDRAWN.json``'s list, which the release's ``meta.withdrawn`` must restate and
+    whose keys neither pass may reuse (§2.9).
+    ``raw_harvests`` are published beside the include roots, each root required, and ``store/external/``
+    holds exactly ``external_caches`` (step 1.8).
     """
     published = {item.path for manifest in previous for item in dr.validate_manifest(manifest)}
     roots = tuple(root for root in INCLUDE if root != CATALOG_ROOT) if catalog else INCLUDE
-    records = collect(data_root, tracked, published=published, roots=roots)
+    records = collect(
+        data_root,
+        tracked,
+        published=published,
+        roots=roots,
+        raw_harvests=raw_harvests,
+        external_caches=external_caches,
+    )
     check_inputs(data_root, records, previous, released_without_input)
-    manifest = _manifest(data_root, records, release, previous)
+    manifest = _manifest(data_root, records, release, previous, withdrawn)
+    # After the manifest, so a released model directory that changed is refused as closed (cannot gain,
+    # immutable) before its listing is compared.
+    check_models(data_root, records, previous)
+    if any(record.path == measured.INGESTS_PATH for record in records):
+        released = {item.key: item for found in (*previous, manifest) for item in dr.validate_manifest(found)}
+        measured.check_ingest_inputs(measured.read_ingests(data_root / measured.INGESTS_PATH), released)
     if not catalog:
         return manifest
     objects = dr.validate_manifest(manifest)
@@ -482,15 +545,23 @@ def build(
         new_sources={record.path: record.sources for record in records},
     )
     listed = write_catalog(data_root, release, objects, tracked=tracked, withdrawn=withdrawn)
-    return _manifest(data_root, [*records, *listed], release, previous)
+    return _manifest(data_root, [*records, *listed], release, previous, withdrawn)
 
 
 def _manifest(
-    data_root: Path, records: Sequence[dr.FileRecord], release: str, previous: Sequence[Mapping[str, Any]]
+    data_root: Path,
+    records: Sequence[dr.FileRecord],
+    release: str,
+    previous: Sequence[Mapping[str, Any]],
+    withdrawn: Sequence[dr.Withdrawal],
 ) -> dict[str, Any]:
     used = {name for record in records for name in record.sources}
     available = {**REVIEWED_SOURCES, **_record_sources(data_root)}
-    return dr.build_manifest(records, {name: available[name] for name in used}, release, previous)
+    manifest = dr.build_manifest(
+        records, {name: available[name] for name in used}, release, previous, withdrawn=withdrawn
+    )
+    ap.check_release_guard(manifest["objects"])
+    return manifest
 
 
 def listed_files(
@@ -616,6 +687,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             released_without_input=RELEASED_WITHOUT_INPUT,
             previous=previous,
             withdrawn=withdrawn_entries(out.parent),
+            raw_harvests=RAW_HARVESTS,
+            external_caches=EXTERNAL_CACHES,
             catalog=True,
         )
     except (dr.DataReleaseError, OSError, KeyError, ValueError, subprocess.CalledProcessError) as error:
@@ -647,6 +720,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"release {args.release}: {totals['objects']} objects, {totals['bytes']:,} bytes "
         f"({totals['in_git_objects']} objects, {totals['in_git_bytes']:,} bytes also tracked in git)"
     )
+    guarded, cap = ap.check_release_guard(manifest["objects"]), ap.OPEN_RELEASE_GCS_MAX_BYTES / (1 << 30)
+    print(f"release guard: {guarded:,} bytes are within the {cap:g} GiB cap")
+    print(models_summary(manifest["objects"]))
     return 0
 
 

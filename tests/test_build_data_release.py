@@ -5,13 +5,18 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import shutil
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from genomeos.publication import access_policy as ap
 from genomeos.publication import artifact_inputs as ai
 from genomeos.publication import data_release as dr
+from genomeos.publication import model_exports as me
+from genomeos.publication import raw_harvests as rh
 from genomeos.publication.commercial_use import COMMERCIAL_USE_FINDINGS
 from genomeos.surfaces.fit_input import (
     FIT_COUNTS,
@@ -20,7 +25,7 @@ from genomeos.surfaces.fit_input import (
     contract_sha256,
     serialize_observations,
 )
-from genomeos.tables import catalog, writer
+from genomeos.tables import catalog, measured, writer
 from genomeos.tables.contracts import TableError
 from scripts import build_data_release as build
 from scripts import build_tables
@@ -32,6 +37,7 @@ from tests.tables_fixtures import (
     FIXTURE_WITHOUT_INPUT,
     GIT_INPUT_FLAGS,
     HBS_V3,
+    FixtureTree,
     build_catalog_tables,
     copy_committed_releases,
     release_catalog_tree,
@@ -254,9 +260,13 @@ def test_an_unknown_data_version_prefix_is_refused(tree: Path) -> None:
 def _cli(root: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """``main``'s arguments for release ``EPOCH`` of ``catalog_tree``, whose tables are built here.
 
-    ``main`` always builds the catalog (both passes), so the tree needs its tables and a parity file.
+    ``main`` always builds the catalog (both passes), so the tree needs its tables and a parity file. It
+    also publishes ``RAW_HARVESTS`` and ``EXTERNAL_CACHES``, which this tree does not hold: the harvests
+    and the caches have tests of their own.
     """
     monkeypatch.setattr(build, "RELEASED_WITHOUT_INPUT", FIXTURE_WITHOUT_INPUT)
+    monkeypatch.setattr(build, "RAW_HARVESTS", ())
+    monkeypatch.setattr(build, "EXTERNAL_CACHES", ())
     build_catalog_tables(root)
     out = root / "releases" / f"{EPOCH}.json"
     return ["--data", str(root / "data"), "--release", EPOCH, "--out", str(out), "--no-git"]
@@ -271,12 +281,27 @@ def test_cli_writes_once_and_refuses_to_replace_a_different_release(
     printed = capsys.readouterr().out
     assert "catalog: 8 views over 10 files; atlas.duckdb " in printed
     assert " bytes, identical over two builds" in printed
+    assert "release guard: " in printed and " bytes are within the 2 GiB cap" in printed
+    # What release 2 prints: its 61 artifacts all predate inputs (#45), as this tree's do (step 1.12).
+    assert "store/models: absent (no released artifact has a fit input)\n" in printed
     written = out.read_bytes()
     assert build.main(arguments) == 0  # identical: unchanged, not rewritten
     assert out.read_bytes() == written
     _write(catalog_tree / "data", "store/INVENTORY.json", b'{"changed": true}')
     assert build.main(arguments) == 1
     assert out.read_bytes() == written
+
+
+def test_cli_refuses_a_tree_without_the_served_caches_before_writing(
+    catalog_tree: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``main`` publishes the caches the Atlas serves (step 1.8): a tree without them writes no release."""
+    assert build.EXTERNAL_CACHES is rh.EXTERNAL_CACHES
+    arguments = _cli(catalog_tree, monkeypatch)
+    monkeypatch.setattr(build, "EXTERNAL_CACHES", rh.EXTERNAL_CACHES)
+    assert build.main(arguments) == 1
+    assert "the Atlas serves this cache, but the release lacks it" in capsys.readouterr().err
+    assert not (catalog_tree / "releases" / f"{EPOCH}.json").exists()
 
 
 def test_cli_reuses_keys_from_earlier_committed_releases(
@@ -322,6 +347,25 @@ def test_earlier_releases_skip_the_withdrawn_list(tmp_path: Path) -> None:
         build.earlier_releases(releases, RELEASE)
 
 
+def test_a_byte_identical_file_whose_earlier_key_is_withdrawn_is_refused(tree: Path) -> None:
+    """§2.9: the build is told WITHDRAWN.json and never reuses a withdrawn key, outside tables/ too."""
+    first = _build(tree)
+    summary = _paths(first)["validation/crossval_summary.json"]
+    entry = dr.Withdrawal(
+        summary["key"],
+        summary["sha256"],
+        "a fixture takedown",
+        "https://github.com/genomeOS/genomeOS/issues/1",
+        "2026-11-14",
+        "owner",
+    )
+    with pytest.raises(dr.DataReleaseError, match=r"validation/crossval_summary\.json: .*WITHDRAWN\.json"):
+        _build(tree, "2026-11-20", previous=[first], withdrawn=[entry])
+    (tree / "validation/crossval_summary.json").unlink()
+    later = _build(tree, "2026-11-20", previous=[first], withdrawn=[entry])
+    assert "validation/crossval_summary.json" not in _paths(later)
+
+
 def test_include_roots_cover_the_committed_inputs() -> None:
     for path in ("raw/afnd_populations.tsv", "registry", "sources", "store/INVENTORY.json"):
         assert any(path == root or path.startswith(f"{root}/") for root in build.INCLUDE), path
@@ -352,6 +396,132 @@ def test_an_optional_root_file_needs_a_reviewed_source_rule(tree: Path) -> None:
         _build(tree)
 
 
+# --- raw harvests and external caches (Atlas data platform design 2026-10-18 §2.1, §4.3; step 1.8) ---
+
+CACHES = {
+    "store/external/gnomad/chr11-5227002-t-a.json": "gnomad",
+    "store/external/dbsnp/rs334.json": "dbsnp",
+    "store/external/alphagenome/chr11-5227002-t-a.json": "alphagenome",
+}
+
+
+def _harvest(root: Path, source: str, version: str, files: dict[str, bytes]) -> rh.RawHarvest:
+    """A harvest of ``files``, written under ``raw/<source>/<version>/`` and pinned to their bytes."""
+    for name, data in files.items():
+        _write(root, f"raw/{source}/{version}/{name}", data)
+    return rh.RawHarvest(
+        source=source,
+        harvest_version=version,
+        files=tuple((name, hashlib.sha256(data).hexdigest()) for name, data in sorted(files.items())),
+        upstream_url="https://example.org/",
+        copied_from=None,
+        retrieved_at=rh.NOT_RECORDED,
+        fetch_command=f"python scripts/fetch_{source}.py",
+    )
+
+
+def test_harvests_and_caches_carry_their_sources(tree: Path) -> None:
+    harvests = [
+        _harvest(tree, "afnd", "2026-08", {"afnd_frequencies.tsv": b"population\tallele\n"}),
+        _harvest(tree, "worldpop", "2020", {"ppp_2020_1km_Aggregated.tif": b"II*\x00 stand-in"}),
+    ]
+    documents = {path: {"source": source, "record": {}} for path, source in CACHES.items()}
+    for path, document in documents.items():
+        _write(tree, path, json.dumps(document).encode())
+    caches = tuple(sorted((path, rh.cache_sha256(document)) for path, document in documents.items()))
+    objects = _paths(_build(tree, raw_harvests=harvests, external_caches=caches))
+    assert objects["raw/afnd/2026-08/afnd_frequencies.tsv"]["sources"] == ["afnd"]
+    raster = objects["raw/worldpop/2020/ppp_2020_1km_Aggregated.tif"]
+    assert (raster["media_type"], raster["sources"]) == ("image/tiff", ["worldpop"])
+    assert objects["raw/afnd_populations.tsv"]["sources"] == ["afnd"]  # the legacy table, unchanged
+    assert {path: objects[path]["sources"] for path in CACHES} == {
+        path: [source] for path, source in CACHES.items()
+    }
+    _write(tree, "store/external/other/x.json", b"{}")
+    with pytest.raises(dr.DataReleaseError, match="store/external/other/x.json: no reviewed source rule"):
+        _build(tree, raw_harvests=harvests, external_caches=caches)
+
+
+def test_a_raw_file_no_harvest_lists_stays_local_or_is_refused(tree: Path) -> None:
+    """Outside every harvest root a raw file is never read; inside one, it must be listed (§2.1)."""
+    harvest = _harvest(tree, "afnd", "2026-08", {"afnd_frequencies.tsv": b"population\tallele\n"})
+    _write(tree, "raw/afnd_cache/page.html", b"<html/>")
+    assert "raw/afnd_cache/page.html" not in _paths(_build(tree, raw_harvests=[harvest]))
+    _write(tree, "raw/afnd/2026-08/notes.txt", b"x\n")
+    with pytest.raises(dr.DataReleaseError, match="raw/afnd/2026-08/notes.txt: no reviewed raw harvest"):
+        _build(tree, raw_harvests=[harvest])
+
+
+def test_a_harvest_root_that_is_absent_locally_is_a_hard_error(tree: Path) -> None:
+    harvest = _harvest(tree, "map", "2026-08", {"map_hbs_surveys.csv": b"id\n"})
+    (tree / "raw/map/2026-08/map_hbs_surveys.csv").unlink()
+    (tree / "raw/map/2026-08").rmdir()
+    with pytest.raises(dr.DataReleaseError, match="data/raw/map/2026-08 is missing; fetch it first"):
+        _build(tree, raw_harvests=[harvest])
+
+
+def test_a_cache_with_a_non_commercial_field_is_refused_by_the_build(tree: Path) -> None:
+    _write(tree, "store/external/gnomad/x.json", json.dumps({"record": {"spliceai": 0.1}}).encode())
+    with pytest.raises(dr.DataReleaseError, match="split out spliceai before publishing"):
+        _build(tree)
+
+
+def test_a_release_carries_the_caches_the_atlas_serves_with_their_served_content(tree: Path) -> None:
+    """The caches are the source caches the Atlas web export read (step 1.8), as the fetcher writes them.
+    A missing one, or another fetch of one, fails the build before any release file is written."""
+    served = ROOT / "website/public/data/atlas"
+    with pytest.raises(dr.DataReleaseError, match="the Atlas serves this cache, but the release lacks it"):
+        _build(tree, external_caches=rh.EXTERNAL_CACHES)
+    documents = {
+        path: json.loads((served / path.removeprefix("store/")).read_text(encoding="utf-8"))
+        for path, _ in rh.EXTERNAL_CACHES
+    }
+    for path, document in documents.items():  # as scripts/fetch_external_variant_info.py writes a cache
+        _write(tree, path, (json.dumps(document, indent=2, sort_keys=True) + "\n").encode())
+    objects = _paths(_build(tree, external_caches=rh.EXTERNAL_CACHES))
+    assert {path: objects[path]["sources"] for path in documents} == {
+        path: [path.split("/")[2]] for path in documents
+    }
+    gnomad = "store/external/gnomad/chr11-5227002-t-a.json"
+    _write(tree, gnomad, json.dumps({**documents[gnomad], "schema_version": 1}).encode())
+    with pytest.raises(dr.DataReleaseError, match=f"{gnomad}: its content's sha256 .* the Atlas serves"):
+        _build(tree, external_caches=rh.EXTERNAL_CACHES)
+
+
+def test_the_gnomad_hgdp_1kg_terms_are_recorded() -> None:
+    source = build.REVIEWED_SOURCES["gnomad_hgdp_1kg"]
+    terms = source["terms"]
+    assert terms["status"] == "explicitly_open"
+    assert terms["licence"] == "CC0-1.0"
+    for phrase in ("reidentify", "SpliceAI", "tool's name"):
+        assert phrase in terms["note"], phrase
+    assert source["non_commercial"] is False
+    assert (ROOT / terms["recorded_in"]).is_file()
+    record = dr.FileRecord("raw/gnomad_hgdp_1kg/x/y.tsv", 1, "a" * 64, False, ("gnomad_hgdp_1kg",))
+    dr.validate_manifest(dr.build_manifest([record], {"gnomad_hgdp_1kg": source}, RELEASE))
+
+
+def test_the_external_cache_terms_copy_the_web_catalogs_commercial_use() -> None:
+    catalog = json.loads((ROOT / "website/src/atlas/public-artifacts.json").read_text(encoding="utf-8"))
+    blocks = [
+        (resource["source"], resource["commercial_use"])
+        for artifact in catalog["artifacts"]
+        for resource in artifact.get("external_resources", [])
+    ]
+    assert {source for source, _ in blocks} == set(rh.EXTERNAL_CACHE_SOURCES)
+    for source, block in blocks:
+        reviewed = build.REVIEWED_SOURCES[source]
+        terms = reviewed["terms"]
+        assert {key: terms[key] for key in ("status", "checked_at", "terms_url", "recorded_in")} == {
+            "status": block["finding"],
+            "checked_at": block["checked_at"],
+            "terms_url": block["terms_url"],
+            "recorded_in": block["recorded_in"],
+        }, source
+        # Nothing restricted is published: check_external_cache refuses a known non-commercial field.
+        assert block["restricted_fields"] == [] and reviewed["non_commercial"] is False, source
+
+
 # --- a tables/ file carries its inputs' sources (Atlas data platform design 2026-10-18 §9; call 16) ---
 
 
@@ -366,6 +536,80 @@ def test_meta_files_carry_their_inputs_sources(tree: Path, tmp_path: Path) -> No
     for name in ("release_objects", "sources"):
         assert "genereviews" in objects[f"{meta}/{name}.parquet"]["sources"]  # call 16: it survives the union
     assert objects[f"{meta}/withdrawn.parquet"]["sources"] == ["genomeos"]
+
+
+def test_reference_folders_carry_their_sources(tree: Path, tmp_path: Path) -> None:
+    """Step 1.7: each registry folder carries its inputs' sources (call 16), and is written once (call 6)."""
+    fixtures = ROOT / "tests" / "fixtures"
+    # The AFND fixture without the two rows the adapter refuses, each of which stops the build (v1 §12).
+    _write(tree, build_tables.AFND_POPULATIONS, (fixtures / "afnd_registry_populations.tsv").read_bytes())
+    # The synthetic HGDP + 1KG input, at the committed file's path (step 1.7).
+    _write(tree, build_tables.HGDP_1KG_REGISTRY, (fixtures / "hgdp_1kg_populations.tsv").read_bytes())
+    names = [path.rsplit("/", 1)[1] for path in build_tables.MAP_SURVEYS]
+    harvest = _harvest(tree, "map", "2026-08", {name: (fixtures / name).read_bytes() for name in names})
+    fixture = FixtureTree(tmp_path, tree, tmp_path / "releases")
+    built = build_tables.build_reference(fixture.context(release=EPOCH))
+    manifest = _build(tree, EPOCH, raw_harvests=[harvest])
+    objects = _paths(manifest)
+    hgdp = [path for path in built if path.startswith("tables/v1/reference/populations/1.0.0-")]
+    assert {path: objects[path]["sources"] for path in built} == {
+        "tables/v1/reference/populations/afnd-2026-08/population_aliases.parquet": ["afnd"],
+        "tables/v1/reference/populations/afnd-2026-08/populations.parquet": ["afnd"],
+        "tables/v1/reference/populations/map-survey-coordinates-v1/population_aliases.parquet": ["map"],
+        **{path: ["genomeos", "gnomad_hgdp_1kg"] for path in hgdp},
+    }
+    assert len(hgdp) == 2
+    assert objects[build_tables.HGDP_1KG_REGISTRY]["sources"] == ["genomeos", "gnomad_hgdp_1kg"]
+    # Rewritten under another git sha (as if never released), the folders' bytes change.
+    build_tables.build_reference(fixture.context(release="2026-11-21", git_sha="1" * 40))
+    immutable = "reference/populations/.*a released part is immutable"
+    with pytest.raises(dr.DataReleaseError, match=immutable):
+        _build(tree, "2026-11-21", raw_harvests=[harvest], previous=[manifest])
+
+
+def _measured(tree: Path, tmp_path: Path) -> tuple[FixtureTree, rh.RawHarvest]:
+    """The mixed AFND fixture as the AFND harvest, beside the released AFND population table, with the
+    measured stage built over them for release ``EPOCH`` (step 1.9)."""
+    fixture = ROOT / "tests" / "fixtures" / "afnd_frequencies_mixed.tsv"
+    harvest = _harvest(tree, "afnd", "2026-08", {"afnd_frequencies.tsv": fixture.read_bytes()})
+    _write(tree, measured.AFND_POPULATIONS, (ROOT / "data" / measured.AFND_POPULATIONS).read_bytes())
+    tables = FixtureTree(tmp_path, tree, tmp_path / "releases")
+    build_tables.build_measured(tables.context(release=EPOCH))
+    return tables, harvest
+
+
+def test_measured_objects_carry_afnd(tree: Path, tmp_path: Path) -> None:
+    _, harvest = _measured(tree, tmp_path)
+    objects = _paths(_build(tree, EPOCH, raw_harvests=[harvest]))
+    measured_paths = [path for path in objects if path.startswith("tables/v1/measured/")]
+    found = {path: objects[path]["sources"] for path in measured_paths}
+    parts = [
+        measured.part_path(table, source, "afnd-2026-08")
+        for table, source in (
+            (measured.ALLELE_TABLE, "afnd"),
+            (measured.ALLELE_TABLE, "afnd_frequencies"),
+            (measured.CARRIER_TABLE, "afnd"),
+        )
+    ]
+    assert found == {path: ["afnd"] for path in (*parts, measured.INGESTS_PATH)}
+
+
+def test_new_bytes_at_an_ingest_version_part_are_refused(tree: Path, tmp_path: Path) -> None:
+    tables, harvest = _measured(tree, tmp_path)
+    manifest = _build(tree, EPOCH, raw_harvests=[harvest])
+    # Rewritten under another git sha (as if never released), the parts' bytes change.
+    build_tables.build_measured(tables.context(release="2026-11-21", git_sha="1" * 40))
+    immutable = "ingest_version=afnd-2026-08/part-0.parquet.*is immutable"
+    with pytest.raises(dr.DataReleaseError, match=immutable):
+        _build(tree, "2026-11-21", raw_harvests=[harvest], previous=[manifest])
+
+
+def test_an_ingest_input_absent_from_every_manifest_is_refused(tree: Path, tmp_path: Path) -> None:
+    """Check 9: the stage keyed its inputs under ``EPOCH``; a release built under another id, with no
+    earlier release, publishes them under its own keys."""
+    _, harvest = _measured(tree, tmp_path)
+    with pytest.raises(TableError, match=r"releases/2026-11-20/raw/afnd/2026-08/\S+ is not a manifest key"):
+        _build(tree, "2026-11-21", raw_harvests=[harvest])
 
 
 def test_an_unstamped_tables_file_is_refused(tree: Path) -> None:
@@ -759,3 +1003,150 @@ def test_a_later_release_cannot_drop_an_artifacts_input(tree: Path) -> None:
     _without_input(tree, ARTIFACT)
     with pytest.raises(dr.DataReleaseError, match=f"no {OBSERVATIONS_FILE}"):
         _build(tree, previous=previous)
+
+
+# --- trained models beside their artifacts (Atlas data platform design 2026-10-18 §2.1, §4.2; 1.12, #471) ---
+
+
+def _npy(values: np.ndarray) -> bytes:
+    buffer = io.BytesIO()
+    np.save(buffer, values, allow_pickle=False)
+    return buffer.getvalue()
+
+
+def _model(root: Path, artifact: str, *, fit_input_sha256: str | None = None) -> str:
+    """A model of ``artifact`` laid out as ``export_model`` writes one, with numpy only: JSON and float64
+    ``.npy``, then the manifest naming the artifact and, unless given, its recorded fit input's sha256.
+    Returns the model directory's data path."""
+    name = artifact.rsplit("/", 1)[-1]
+    directory = f"{dr.MODEL_PREFIX}{name}"
+    if fit_input_sha256 is None:
+        recorded = json.loads((root / artifact / "manifest.json").read_text(encoding="utf-8"))
+        fit_input_sha256 = recorded["observations"]["sha256"]
+    payloads = {
+        me.MODEL_FILE: b'{"variant_id": "chr11-5227002-T-A"}\n',
+        me.INDUCING_FILE: _npy(np.zeros((0, 3))),
+        f"{me.POSTERIOR_DIR}/lengthscale.npy": _npy(np.linspace(1.0, 2.0, 8).reshape(1, 8)),
+    }
+    for path, data in payloads.items():
+        _write(root, f"{directory}/{path}", data)
+    manifest = {
+        "schema": me.EXPORT_SCHEMA,
+        "export_format": 1,
+        "artifact": name,
+        "fit_input_sha256": fit_input_sha256,
+        "files": {
+            path: {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+            for path, data in payloads.items()
+        },
+        "software": {"numpy": np.__version__},
+    }
+    _write(root, f"{directory}/{me.MODEL_MANIFEST}", json.dumps(manifest, sort_keys=True).encode())
+    return directory
+
+
+def test_a_model_ships_beside_its_artifact(tree: Path) -> None:
+    """A model was fit on its artifact's input alone; WorldPop only chose the artifact's cells."""
+    directory = _model(tree, ARTIFACT)
+    objects = _paths(_build(tree))
+    models = {path: item for path, item in objects.items() if path.startswith(dr.MODEL_PREFIX)}
+    names = (me.MODEL_MANIFEST, me.MODEL_FILE, me.INDUCING_FILE, f"{me.POSTERIOR_DIR}/lengthscale.npy")
+    assert set(models) == {f"{directory}/{name}" for name in names}
+    assert {tuple(item["sources"]) for item in models.values()} == {("map",)}
+    assert objects[f"{ARTIFACT}/cells.parquet"]["sources"] == ["map", "worldpop"]
+    summary = "store/models: 1 model, each bound to its artifact's fit input"
+    assert build.models_summary(objects.values()) == summary
+
+
+def _gain_a_file(tree: Path, directory: str) -> None:
+    _write(tree, f"{directory}/{me.POSTERIOR_DIR}/sigma.npy", _npy(np.ones((1, 8))))
+
+
+def _without_its_artifact(tree: Path) -> dict:
+    _model(tree, "store/artifacts/chr11-5227002-T-A__v9__map-2026-08", fit_input_sha256="a" * 64)
+    return {}
+
+
+def _another_input(tree: Path) -> dict:
+    _model(tree, ARTIFACT, fit_input_sha256="0" * 64)
+    return {}
+
+
+def _an_artifact_released_without_one(tree: Path) -> dict:
+    previous, exempt = _history(tree)
+    _model(tree, ARTIFACT, fit_input_sha256="a" * 64)
+    return {"previous": previous, "released_without_input": exempt}
+
+
+def _an_unlisted_file(tree: Path) -> dict:
+    _gain_a_file(tree, _model(tree, ARTIFACT))
+    return {}
+
+
+def _wrong_bytes(tree: Path) -> dict:
+    directory = _model(tree, ARTIFACT)
+    _write(tree, f"{directory}/{me.POSTERIOR_DIR}/lengthscale.npy", _npy(np.ones((1, 8))))
+    return {}
+
+
+def _a_pickle(tree: Path) -> dict:
+    _write(tree, f"{_model(tree, ARTIFACT)}/fit.pkl", b"\x80\x04")
+    return {}
+
+
+def _an_object_dtype_npy(tree: Path) -> dict:
+    directory = _model(tree, ARTIFACT)
+    target = tree / directory / me.POSTERIOR_DIR / "lengthscale.npy"
+    np.save(target, np.array([{"a": 1}], dtype=object), allow_pickle=True)
+    return {}
+
+
+def _a_missing_root_after_one_was_published(tree: Path) -> dict:
+    _model(tree, ARTIFACT)
+    previous = _released_with_input(tree)
+    shutil.rmtree(tree / dr.MODEL_PREFIX)
+    return {"previous": previous}
+
+
+def _a_released_directory_that_gains_a_file(tree: Path) -> dict:
+    directory = _model(tree, ARTIFACT)
+    previous = _released_with_input(tree)
+    _gain_a_file(tree, directory)
+    return {"previous": previous}
+
+
+@pytest.mark.parametrize(
+    ("change", "match"),
+    [
+        (_without_its_artifact, "no artifact"),
+        (_another_input, "fit input"),
+        (_an_artifact_released_without_one, "fit input"),
+        (_an_unlisted_file, "not listed"),
+        (_wrong_bytes, "sha256"),
+        (_a_pickle, "pickle"),
+        (_an_object_dtype_npy, "pickle"),
+        (_a_missing_root_after_one_was_published, "store/models is missing"),
+        (_a_released_directory_that_gains_a_file, "cannot gain"),
+    ],
+    ids=lambda value: value.__name__.strip("_") if callable(value) else None,
+)
+def test_a_model_is_refused(tree: Path, change: Callable[[Path], dict], match: str) -> None:
+    options = change(tree)
+    with pytest.raises(dr.DataReleaseError, match=match):
+        _build(tree, **options)
+
+
+def test_the_models_line_says_why_a_release_holds_none(tree: Path) -> None:
+    objects = _paths(_build(tree)).values()
+    assert build.models_summary(objects) == (
+        "store/models: absent (2 released artifacts have a fit input; none has an exported model)"
+    )
+    bare = [item for item in objects if not item["path"].endswith(f"/{OBSERVATIONS_FILE}")]
+    assert build.models_summary(bare) == "store/models: absent (no released artifact has a fit input)"
+
+
+def test_a_release_over_the_guard_is_refused(tree: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    total = _build(tree)["totals"]["bytes"]
+    monkeypatch.setattr(ap, "OPEN_RELEASE_GCS_MAX_BYTES", 100)
+    with pytest.raises(dr.DataReleaseError, match=f"release guard: {total:,} bytes"):
+        _build(tree)

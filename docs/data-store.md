@@ -30,6 +30,7 @@ data/
     map_g6pd_surveys.csv                scripts/fetch_map_hbs.py --layer g6pd
     afnd_populations.tsv                scripts/fetch_afnd.py
     afnd_cache/                         one HTML page per AFND population, so a re-run is free
+    <source>/<harvest_version>/         reviewed raw harvests, each file pinned by sha256 (raw_harvests.RAW_HARVESTS); in the data store
   curated/                              immutable, versioned operator-reviewed inputs
     map_hbs_surveys.csv                 HbS rows plus explicit bounding-disc support evidence
   store/
@@ -38,6 +39,9 @@ data/
                   cells.parquet         the citable per-cell surface (§5, §6)
                   observations.parquet  the exact observation table its fit consumed (#45)
                   manifest.json         what was published, and under what assumptions; written last
+    models/<artifact-id>/               the artifact's trained model, a safe export (scripts/export_models.py): JSON and
+                                        float64 .npy, bound to the artifact's fit input by sha256, never a pickle; in the data store
+    external/<source>/                  the gnomAD, dbSNP and AlphaGenome caches the Atlas serves, pinned to their served content (raw_harvests.EXTERNAL_CACHES), no non-commercial field; in the data store
     INVENTORY.json                      checksums of what was on the publishing machine
   tables/v1/                            derived query tables (scripts/build_tables.py); in the data store
   catalog/catalog.sql                   committed: each release's catalog views (see "Query a release")
@@ -61,7 +65,10 @@ docs/figures/                           committed: review figures
 | `data/validation/` | no (since 2026-10-17) | **yes** | held-out validation evidence |
 | `data/tables/v1/` | no | **yes** | derived from released bytes, never cited; each file records its inputs and sources |
 | `data/catalog/catalog.sql` | **yes** | **yes** | the release's views; `atlas.duckdb` and `tables.json` beside it are in the data store only |
-| `data/raw/` (other files) | no | not yet (phase 2) | sources are versioned upstream; re-fetchable by script |
+| `data/raw/<source>/<harvest_version>/` | no | **yes**, from the first release after 2026-11-15 | the reviewed raw harvests (`raw_harvests.RAW_HARVESTS`: AFND frequencies, MAP's HbS and G6PD surveys, the WorldPop 2020 rasters), each file pinned by sha256; immutable once released |
+| `data/store/external/` | no | **yes**, from the first release after 2026-11-15 | the gnomAD, dbSNP and AlphaGenome caches the Atlas serves (`raw_harvests.EXTERNAL_CACHES`), pinned to their served content |
+| `data/raw/` (other files) | no | no | stays local: the AFND page caches, `gnomad_hgdp_1kg_freqs.tsv` and any fetch output no harvest lists; re-fetchable by script |
+| `data/store/models/` | no | **yes** | safe exports of fits (#471): each names its artifact, is bound to that artifact's `observations.parquet` by sha256 and lists its files; immutable once released |
 | `data/store/fits/*.pkl` | no | **never** | pickles: environment-coupled, and loading one executes code. Format 3 also holds the fit's input, which is how it reaches the artifact |
 
 ## A fit is not an artifact
@@ -71,8 +78,8 @@ repeat. That is a **cache**: pickle is coupled to the installed PyMC and pytenso
 arbitrary code on load, so it can be neither archival nor shared. It is also large — the HbS fit is
 **121 MB** against a **1.1 MB** artifact, a 110x difference, because the posterior carries a draw
 of `f`, `p` and `freq_pred` for every observation. The fits stay local and are **never** published to
-the data store (`build_data_release.py` refuses a pickle); the artifacts are. Publishing trained
-models needs a safe export format first (data store design §8).
+the data store (`build_data_release.py` refuses a pickle); the artifacts are, and so is each trained
+model as a safe export under `store/models/` (#471), which loads without unpickling.
 
 The artifact is `store/artifacts/.../cells.parquet` — per-cell posterior summaries in plain
 columns, readable by anything that reads parquet, and what §5 means when it says the read API
@@ -82,6 +89,16 @@ Every row carries its `support` state, `posterior_contraction` and `dist_nearest
 not padding: §4's defence against a persuasive-but-unfounded cline is that a consumer can tell
 measured from inferred without going back to the model, and the distance is carried so a stricter
 threshold can be applied without refitting.
+
+`publish()` writes **artifact format 4** (Atlas data platform design 2026-10-18 §2.5, step 1.11).
+Each row also carries `h3_r0`, its cell's resolution-0 ancestor, and `h3_parent_r3`, its
+resolution-3 parent (a resolution-3 cell is its own), the columns `inferred.cells_by_cell` carries
+(§2.4). The file is zstd, in row groups of 8,192 rows that a range read can skip. `publish()`
+recomputes both parents from `h3_index` and, before it creates the directory, refuses parents that
+differ, a cell off the manifest's resolution, and a resolution coarser than 3. `read()` refuses a
+format-4 `cells.parquet` whose parents, compression or row groups are not these. Formats 1 to 3 stay
+readable as they were written, and nothing is rewritten. `inferred.cells_by_cell` v1 holds formats 1
+and 2 only: formats 3 and 4 store `prior_frequency_sd` per cell and wait for its contract 1.1.
 
 ## Inputs travel with outputs
 
@@ -173,8 +190,28 @@ canonical, citable JSON (surface, observations and manifest per artifact, plus `
 an export directory. When an artifact carries `observations.parquet` (#45), the exporter reads it
 back and refuses rows reloaded from the source export that differ from it on any column the
 observations JSON uses, and the manifest it serves drops `observations.path`, which names a
-data-store file the bucket does not hold. `export_atlas_web.py` output is an intermediate; the
-site build fails until `encode_atlas_web.py` has run on it and the result is published:
+data-store file the bucket does not hold.
+
+Such an artifact serves its observations JSON as a projection of that input (web format 1.1,
+Atlas data platform design 2026-10-18 §2.8, step 1.10): the rows are the input itself, in the fit's
+order, each adding `measurement`, `population_id`, `rsid` and `source`. Pass the registry folder it
+was fitted under, `--registry data/tables/v1/reference/populations/<folder>`. The export stops before
+writing the artifact when there is no registry, when its `registry_version` is not the artifact's,
+when no committed release holds the input under the sha256 its manifest records, when the input
+counts carriers and the web artifact does not (or the reverse), or when a row's `population_id` is
+not in the registry. It prints `projected observations: <n>`. Pass
+`--published-catalog website/public/data/atlas/catalog.json` to every re-export: a surface or
+observations JSON the deployed catalog serves is never regenerated with other bytes, and the export
+stops before writing one.
+
+The web reads artifact formats 1 to 3 (`WEB_ARTIFACT_FORMATS` in
+`genomeos/publication/web_format.py`, the `artifact_format` literals of
+`website/src/atlas/contracts.ts`). A new value of that closed set is a web format MAJOR
+([`web-data-format.md`](web-data-format.md)), so the exporter refuses a format-4 artifact before it
+writes anything.
+
+`export_atlas_web.py` output is an intermediate; the site build fails until `encode_atlas_web.py`
+has run on it and the result is published:
 
 ```bash
 python scripts/encode_atlas_web.py --in <export-dir> --out data/atlas-web --with-downloads
@@ -318,8 +355,23 @@ and the builder refuses a released artifact whose bytes changed.
   substitute for them.
 - The bucket's URL and name are committed in `genomeos/publication/data_release.py`, and any other
   value is refused. The project id is never committed (`docs/repo-gcloud-auth.md`).
+- CORS (`deploy/data-store-cors.json`) lets any origin `GET` and `HEAD` and lets a page read
+  `Content-Range` and `Accept-Ranges`, so DuckDB-WASM can range-read a release's Parquet files and
+  `catalog/atlas.duckdb` in a browser (Atlas data platform design 2026-10-18, step 1.13). GCS also takes
+  the request headers a preflight may ask for from `responseHeader`, so it lists `Range` too. Once
+  provisioning has applied it, `python scripts/check_data_store_cors.py` probes the newest release
+  anonymously from `https://genome-os.org`: a preflight, a ranged GET that must return 206 with the
+  manifest's byte count in `Content-Range`, and a HEAD that must return `Accept-Ranges: bytes`. Each
+  request carries its own `?probe=<random hex>` query, so the probe sees the bucket's live CORS at once.
+  Browsers send no such query. Google's edge cache keeps an object for its `max-age=3600` with the CORS headers it
+  was stored under, ignores a request's `Cache-Control: no-cache`, and cannot be invalidated. For up to
+  an hour after a CORS change, a page (DuckDB-WASM, or the live browser check) can still get the old
+  headers for any object fetched in full in the hour before the change, for example by
+  `fetch_data.py --verify-remote`. Wait an hour after the CORS change, which is also an hour after any
+  such download, before running a live browser check.
 
-**Reading** needs no credentials: run `scripts/fetch_data.py`. Downloads stream into
+**Reading** needs no credentials. [`data-access.md`](data-access.md) is the reader's guide: lookups
+first, then downloads, offline mode and citing. Run `scripts/fetch_data.py`. Downloads stream into
 `data/.fetch-partial/`, are checked against the manifest's byte count and sha256, and only then are
 renamed into place; a local file that differs is a hard error and is never overwritten. Without the
 repository, `manifests/<release>.json` in the bucket is the same manifest.
@@ -361,7 +413,15 @@ python scripts/gcloud_repo.py auth login
 python scripts/gcloud_repo.py init --account <maintainer> --project <project>
 export GENOMEOS_GCP_PROJECT=<project>
 python scripts/fetch_data.py                                       # the previous release, locally
-python scripts/build_tables.py --release <YYYY-MM-DD>              # the derived tables/ files
+export ATLAS_DATA_BASE_URL="$(gh variable get ATLAS_DATA_BASE_URL)" WEB_OBSERVATIONS="$(mktemp -d)"
+jq -r '.artifacts[].observations_url // empty' website/public/data/atlas/catalog.json |
+    while read -r url; do                                          # the served observations JSON, anonymously
+        curl -fsS --compressed --create-dirs -o "$WEB_OBSERVATIONS/$url" "$ATLAS_DATA_BASE_URL$url"
+    done
+python scripts/build_tables.py --release <YYYY-MM-DD> \
+    --web-observations "$WEB_OBSERVATIONS"                         # the derived tables/ files
+python scripts/export_models.py --fits data/store/fits --artifacts data/store/artifacts --artifact <id>
+                                                                   # each new artifact with a fit input; repeat --artifact
 python scripts/build_data_release.py --release <YYYY-MM-DD>        # commit data/releases/<release>.json
                                                                    #   and data/catalog/catalog.sql
 python scripts/smoke_catalog.py --catalog data/catalog/atlas.duckdb --local data/   # parity smoke: golden
@@ -380,7 +440,14 @@ python scripts/smoke_catalog.py --release <YYYY-MM-DD>             # anonymous: 
 ```
 
 `build_tables.py` writes the release's `tables/v1/` files from the released bytes (Atlas data platform
-design 2026-10-18 §2.4). `build_data_release.py` then builds the catalog in two passes: it keys every
+design 2026-10-18 §2.4). Its `fit_inputs` stage (§2.8, step 1.9) also reads the observations JSON the
+website serves, one per served artifact, which the loop above downloads with no credentials from the web
+bucket's base (the repository variable `ATLAS_DATA_BASE_URL`; `--compressed` because the objects are stored
+gzip-encoded). Each file must have the `observations_sha256` that `catalog.json` records, so a stale or
+partial download stops the build. A served JSON that differs from the published AFND ingest in any
+record or field also stops it. Never loosen the comparison: list the artifact in `WEB_JSON_REFUSED`
+(`scripts/build_tables.py`) with its reason, in a reviewed commit of its own, and its `fit_input_evidence`
+becomes `none` with that reason. `build_data_release.py` then builds the catalog in two passes: it keys every
 file outside `catalog/` and checks every `tables/` file again (§2.7 checks 1, 2, 6, 9 and 10), writes
 `catalog/catalog.sql` over those keys, builds `catalog/atlas.duckdb` from it twice over the local copies
 and requires identical bytes, writes `catalog/tables.json`, checks both against the keys and
@@ -389,6 +456,22 @@ and requires identical bytes, writes `catalog/tables.json`, checks both against 
 catalog lists but the tree lacks stops the build with the `fetch_data.py --prefix` that fetches it, and
 nothing else may sit under `data/catalog/`. The smoke counts `evidence.parity_observations` and the
 sampling discs within 500 km of Lagos against the golden counts (check 8).
+
+`export_models.py` writes each artifact's model to `data/store/models/<artifact-id>/` from its saved
+fit, and refuses an artifact that does not publish its fit input or whose model a release already
+holds. The release refuses a pickle or an object-dtype `.npy` anywhere (R0), a model whose artifact
+publishes no fit input in this release or an earlier one, a model exported from another input, and a
+model directory whose files are not exactly the ones its `manifest.json` lists with their sha256s. A
+released model directory is closed like an artifact: it cannot gain a file. The build prints
+`store/models: <n> model(s), each bound to its artifact's fit input`, or `store/models: absent (…)`
+with the reason, such as `no released artifact has a fit input`.
+
+**The release guard** (Atlas data platform design 2026-10-18 §4.2). A release's free whole-file
+bytes that no zero-egress host holds total at most 2 GiB (`access_policy.OPEN_RELEASE_GCS_MAX_BYTES`),
+so serving it once costs us at most $0.24. Phase 1 has no mirror and no lookup set, so that is every
+byte the release lists: the build prints `release guard: <bytes> bytes are within the 2 GiB cap`, and
+over the cap it fails before the manifest is written. The fixes are a zero-egress mirror, declaring a
+lookup set, an override, or an owner PR that raises the cap with the new worst case.
 
 Upload only after the release PR is open as a draft, CI passes on it, and the owner has confirmed
 every item its body asks about, such as the release's `cite_as` or a measurement the release takes
@@ -427,10 +510,16 @@ If the budget kill switch has made the bucket private ([`cost-controls.md`](cost
 publishing still works, because the publisher reads through its own role. The anonymous
 `fetch_data.py --verify-remote` check fails until the owner re-enables public access.
 
-**What is not published yet.** Fits are pickles and are never published until a safe export format
-exists. The raw third-party harvests (MAP WFS exports, AFND frequencies and page caches, gnomAD, the
-WorldPop grid, the external caches) are phase 2. Until then they live locally and in the interim
-Hugging Face mirror (`scripts/sync_store.py`).
+**What is not published.** Fits are pickles and are never published; their safe exports are
+(`store/models/`). From the first release after 2026-11-15 (step 1.8), every release publishes the
+reviewed raw harvests under `raw/<source>/<harvest_version>/` (`raw_harvests.RAW_HARVESTS`: the AFND
+frequency harvest, MAP's HbS and G6PD survey exports and the WorldPop 2020 rasters, every file pinned
+by sha256) and the gnomAD, dbSNP and AlphaGenome caches the Atlas serves under `store/external/`
+(`raw_harvests.EXTERNAL_CACHES`); the build fails if any of them is missing locally. Every other file
+under `data/raw/` stays local and in the interim Hugging Face mirror (`scripts/sync_store.py`): the
+AFND page caches and `gnomad_hgdp_1kg_freqs.tsv` wait on the owner's step 1.8 scope decision, and a file
+in a harvest's folder that the harvest does not list fails the build. The whole-genome recount cites
+gnomAD's VCFs instead of re-hosting them (D17), and per-sample gnomAD metadata is never hosted.
 
 ## Query a release
 

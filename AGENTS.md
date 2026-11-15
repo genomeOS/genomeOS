@@ -164,6 +164,7 @@ genomeos/
   api.py cli.py db.py ingest.py models.py schemas.py tabix.py   # Pan-UKB evidence API
   registry/      schema.py build.py sources/                    # P0 — population registry
   observations/  schema.py ingest.py sources/                   # P1 — observations store
+  observations/sources/gnomad_recount/                          # D18 whole-genome recount (data platform §2.10)
   surfaces/      fit.py mask.py                                 # P2 — surface inference
   burden/        expressions.py propagate.py                    # P3 — burden engine
   validation/    hbs_parity.py                                  # golden tests (§8)
@@ -193,6 +194,7 @@ Current, and what CI must keep passing:
 
 ```bash
 python -m pip install -e '.[dev,atlas,surfaces,geo,figures]'   # add [postgres] or [tabix] as needed
+# plus bcftools >= 1.21, bgzip and tabix on PATH for the D18 recount (CI installs bioconda's 1.23.1)
 ruff check .                              # lint; CI runs this
 python scripts/freeze_contract.py --check # contract drift; CI runs this
 python scripts/check_module_size.py        # agent-readable module budget; CI runs this
@@ -200,11 +202,18 @@ python scripts/check_private_files.py      # tracked-file privacy gate; CI runs 
 python scripts/check_commercial_use.py     # non-commercial data marking; CI runs this
 python scripts/smoke.py                    # mandatory fast verification; CI runs this
 pytest                                    # CI runs this
+pytest -m network                         # tests that stream public gnomAD bytes anonymously; deselected by default
 
 genomeos init-db                          # Pan-UKB API
 uvicorn genomeos.api:app --reload
 python scripts/http_smoke.py --base-url http://127.0.0.1:8000  # live API + preview proof
 ```
+
+The default `pytest` needs the network once per machine: `tests/test_lookup_gate.py`, the data
+platform's step 2.7 gate, runs `INSTALL httpfs`, which downloads DuckDB's httpfs extension from
+extensions.duckdb.org when `~/.duckdb/extensions/` lacks it. The gate is not marked `network`, so the
+default `-m 'not network'` still runs it, and CI runs it unskipped. Offline, without the extension, it
+fails with an HTTP or extension error; run it once online first.
 
 The fixture-backed diagnostic preview is at `/preview`. It proves the P4 read path only and is
 not the P5 product UI. Demo artifacts are synthetic, mounted read-only in containers, and must
@@ -222,6 +231,9 @@ python scripts/build_observations.py --registry data/registry-fixture-v1 \
   --literature-field-evidence tests/fixtures/literature/promotable/field_evidence.tsv \
   --out data/observations
 ```
+
+`--gnomad` is the optional curated route, a fixture-backed per-population TSV; whole-genome rows come
+only from `scripts/recount_gnomad_hgdp_1kg.py` (data platform §2.10, D18).
 
 **If you change a schema, run `python scripts/freeze_contract.py` and commit the `contract/`
 diff.** That diff is the review surface for schema change; CI fails if it is stale.

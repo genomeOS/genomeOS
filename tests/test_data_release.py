@@ -252,6 +252,9 @@ def test_is_write_once() -> None:
     assert not dr.is_write_once("tables/v1/measured/allele_observations/source=afnd/part-0.parquet")
     assert not dr.is_write_once("validation/epoch=2026-11-20/x.parquet")
     assert not dr.is_write_once("tables/v1/epoch=2026-11-20.parquet")
+    # A population registry's folder is one registry release (calls 5 and 6).
+    assert dr.is_write_once("tables/v1/reference/populations/afnd-2026-08/populations.parquet")
+    assert not dr.is_write_once("registry/variant_normalization.tsv")
 
 
 def test_a_released_artifact_directory_cannot_gain_a_file() -> None:
@@ -266,6 +269,39 @@ def test_a_released_artifact_directory_cannot_gain_a_file() -> None:
         dr.build_manifest([*_records(), added], SOURCES, RELEASE, previous=[previous])
     sibling = input_of("x__v4__map-2026-08")
     dr.build_manifest([*_records(), sibling], SOURCES, RELEASE, previous=[previous])
+
+
+def test_closed_directory() -> None:
+    """An artifact, and the model exported beside it, are each a closed set of files (Atlas data platform
+    design 2026-10-18 §2.2 rule 1, step 1.12)."""
+    assert dr.MODEL_PREFIX == "store/models/"
+    assert dr.closed_directory("store/models/a__v4__map-x/posterior/lengthscale.npy") == (
+        "store/models/",
+        "a__v4__map-x",
+    )
+    assert dr.closed_directory("store/artifacts/x__v3__map-2026-08/cells.parquet") == (
+        dr.ARTIFACT_PREFIX,
+        "x__v3__map-2026-08",
+    )
+    assert dr.closed_directory("validation/x.json") is None
+    with pytest.raises(dr.DataReleaseError, match="not a file inside a directory under store/models/"):
+        dr.closed_directory("store/models/loose.json")
+
+
+def test_a_released_model_directory_is_closed_like_an_artifact() -> None:
+    model = "store/models/x__v3__map-2026-08/posterior/lengthscale.npy"
+
+    def model_file(path: str, sha256: str = SHA_A) -> dr.FileRecord:
+        return dr.FileRecord(path, 8, sha256, False, ("map",))
+
+    previous = dr.build_manifest([*_records(), model_file(model)], SOURCES, "2026-10-01")
+    with pytest.raises(dr.DataReleaseError, match="immutable"):
+        dr.build_manifest([*_records(), model_file(model, SHA_B)], SOURCES, RELEASE, previous=[previous])
+    gained = model_file("store/models/x__v3__map-2026-08/posterior/sigma.npy")
+    with pytest.raises(dr.DataReleaseError, match="cannot gain"):
+        dr.build_manifest([*_records(), model_file(model), gained], SOURCES, RELEASE, previous=[previous])
+    sibling = model_file("store/models/x__v4__map-2026-08/posterior/sigma.npy")
+    dr.build_manifest([*_records(), model_file(model), sibling], SOURCES, RELEASE, previous=[previous])
 
 
 def test_artifact_directory_names_the_directory_under_the_artifact_prefix() -> None:
@@ -421,6 +457,24 @@ def test_withdrawal_fields_and_header_are_closed_sorted_and_unique() -> None:
     assert len(dr.validate_withdrawn(_withdrawn(WITHDRAWAL, later))) == 2
     with pytest.raises(dr.DataReleaseError, match="sorted"):
         dr.validate_withdrawn(_withdrawn(later, WITHDRAWAL))
+
+
+def test_a_withdrawn_key_is_never_reused_for_byte_identical_content() -> None:
+    """§2.9: the owner deletes a withdrawn key's bytes, so no later release may cite it."""
+    previous = dr.build_manifest(_records(), SOURCES, "2026-10-01")
+    raw = "raw/afnd_populations.tsv"
+    entry = dr.Withdrawal(**{**WITHDRAWAL, "key": f"releases/2026-10-01/{raw}", "sha256": SHA_B})
+    with pytest.raises(dr.DataReleaseError) as refused:
+        dr.build_manifest(_records(), SOURCES, RELEASE, previous=[previous], withdrawn=[entry])
+    message = str(refused.value)
+    for named in (raw, entry.key, "WITHDRAWN.json", entry.reason, entry.issue, "remove", "new epoch"):
+        assert named in message
+    # Changed bytes at the path get this release's key, which no one withdrew.
+    changed = [_records()[0], dr.FileRecord(raw, 5, SHA_A, True, ("afnd",))]
+    manifest = dr.build_manifest(changed, SOURCES, RELEASE, previous=[previous], withdrawn=[entry])
+    assert {item["path"]: item["key"] for item in manifest["objects"]}[raw] == f"releases/{RELEASE}/{raw}"
+    # Without the path, the release builds.
+    dr.build_manifest(_records()[:1], MAP_ONLY, RELEASE, previous=[previous], withdrawn=[entry])
 
 
 def test_release_ids_skip_the_withdrawn_list_and_refuse_strays() -> None:

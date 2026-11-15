@@ -239,18 +239,29 @@ def verify_remote(
     return problems
 
 
-def released_artifact_dirs(releases: Path = RELEASES) -> dict[str, str]:
-    """Artifact directory name → the first committed release that published it.
+def released_dirs(prefix: str, releases: Path = RELEASES) -> dict[str, str]:
+    """Each directory directly under ``prefix`` → the first committed release that published a file in it.
 
-    Every committed release counts, not only the newest: once an artifact is published its key is
-    cited, and it stays immutable even if a later release stops listing it (design §5).
+    Every committed release counts, not only the newest: once a directory is published its keys are
+    cited, and it stays immutable even if a later release stops listing it (design §5). A file directly
+    under ``prefix`` names no directory. The releases are listed through ``release_ids``, which skips
+    ``WITHDRAWN.json`` (Atlas data platform design 2026-10-18 §2.9).
     """
+    if not prefix.endswith("/"):
+        raise ValueError(f"prefix {prefix!r} must end with '/'")
     found: dict[str, str] = {}
     for name in dr.release_ids(path.name for path in releases.glob("*.json")):
         for item in load_release(name, releases)[1]:
-            if item.path.startswith(dr.ARTIFACT_PREFIX):
-                found.setdefault(item.path.split("/")[2], name)
+            if item.path.startswith(prefix):
+                directory, nested, _ = item.path[len(prefix) :].partition("/")
+                if nested:
+                    found.setdefault(directory, name)
     return found
+
+
+def released_artifact_dirs(releases: Path = RELEASES) -> dict[str, str]:
+    """Artifact directory name → the first committed release that published it."""
+    return released_dirs(dr.ARTIFACT_PREFIX, releases)
 
 
 def require_local(

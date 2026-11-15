@@ -1,0 +1,95 @@
+{
+  "local_root": "data",
+  "objects": [
+    {
+      "bytes": 274432,
+      "in_git": false,
+      "key": "releases/2000-01-01/catalog/atlas.duckdb",
+      "media_type": "application/octet-stream",
+      "path": "catalog/atlas.duckdb",
+      "sha256": "0ad1d68211a87f11b1fab8b351f73b63f2d9e057b0ad851ac9289db84323e2b0",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 2927,
+      "in_git": false,
+      "key": "releases/2000-01-01/catalog/catalog.sql",
+      "media_type": "application/sql",
+      "path": "catalog/catalog.sql",
+      "sha256": "5b0327e46296dd2aa2aab7153f3edec9c3ba8f09f93b0dc1917a9aff25525b25",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 963225,
+      "in_git": false,
+      "key": "releases/2000-01-01/range_probe.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "range_probe.parquet",
+      "sha256": "19fc7528093be6bf9af9302acc1a77357d0ba73e2b93b941b542db65130cb2f0",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 7770,
+      "in_git": false,
+      "key": "releases/2000-01-01/tables/v1/inferred/artifacts.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "tables/v1/inferred/artifacts.parquet",
+      "sha256": "fc3749c89c09a47b819a8e497202068c35063ad10402367ae3d00b5d234da776",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 631,
+      "in_git": false,
+      "key": "releases/2000-01-01/tables/v1/meta/withdrawn.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "tables/v1/meta/withdrawn.parquet",
+      "sha256": "bac309d60bd501b02429d00589cb3ea810425f5d88fa9351ddd90cd9724373de",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 3573,
+      "in_git": false,
+      "key": "releases/2000-01-01/validation/hbs-piel-parity-2026-09-16/piel-comparable-observations.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "validation/hbs-piel-parity-2026-09-16/piel-comparable-observations.parquet",
+      "sha256": "3d97e9d4934c8b99a7fd1a6f1db4110f2a3e16b60f1581979aa213a60318e8e0",
+      "sources": [
+        "genomeos"
+      ]
+    }
+  ],
+  "release": "2000-01-01",
+  "schema": "genomeos-data-release",
+  "schema_version": 1,
+  "sources": {
+    "genomeos": {
+      "name": "genomeOS project-authored data and outputs",
+      "non_commercial": false,
+      "terms": {
+        "checked_at": "2026-10-19",
+        "licence": "CC-BY-4.0",
+        "note": "Project-authored data and outputs are CC BY 4.0 by the owner's decision D5a (2026-10-19; docs/superpowers/specs/2026-10-18-atlas-data-platform-design.md §1.1). Apache-2.0 covers source code and documentation.",
+        "recorded_in": "README.md",
+        "status": "explicitly_open",
+        "terms_url": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "url": "https://github.com/genomeOS/genomeOS"
+    }
+  },
+  "totals": {
+    "bytes": 1252558,
+    "in_git_bytes": 0,
+    "in_git_objects": 0,
+    "objects": 6
+  }
+}

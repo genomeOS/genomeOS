@@ -141,8 +141,9 @@ describe('Atlas artifact data base wiring', () => {
   });
 
   it('builds the browser contracts against the cross-origin fixture data', () => {
+    // Data platform step 1.13: and the browser SQL panel against the local data store.
     expect(packageScripts['test:e2e']).toBe(
-      'PUBLIC_ATLAS_DATA_BASE_URL=http://127.0.0.1:4323/ PUBLIC_GA_MEASUREMENT_ID=G-TEST123 npm run build:e2e && playwright test',
+      'PUBLIC_ATLAS_DATA_BASE_URL=http://127.0.0.1:4323/ PUBLIC_DATA_STORE_BASE_URL=http://127.0.0.1:4324/ PUBLIC_GA_MEASUREMENT_ID=G-TEST123 npm run build:e2e && playwright test',
     );
     expect(packageScripts['serve:atlas-data']).toBe(
       'node scripts/serve-atlas-data.mjs --root tests/fixtures/atlas/e2e',

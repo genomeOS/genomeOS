@@ -3,7 +3,7 @@
 ## TL;DR
 
 The Python publication pipeline writes the data the website's Atlas reads. That shared data format
-has one version: `format_version` in `catalog.json`, written as `"MAJOR.MINOR"`. It is `1.0` today.
+has one version: `format_version` in `catalog.json`, written as `"MAJOR.MINOR"`. It is `1.1` today.
 
 - A **MINOR** change only adds things an older client can safely ignore.
 - A **MAJOR** change is anything else.
@@ -27,7 +27,7 @@ values.
 |---|---|---|---|---|
 | `catalog.json` | committed; inlined into `/app/` | `export_atlas_web.py`, then `encode_atlas_web.py` | `parseAtlasCatalog` (`website/src/atlas/contracts.ts`) | `format_version`, the format version |
 | GOSA grid, render and detail objects | bucket | `genomeos/publication/surface_codec.py` | `website/src/atlas/gosa/` | container u16 `format_version` = 1; header `schema_version` = 1 |
-| Surface and observations JSON | bucket (the site fetches the observations; the surface is a download) | `export_atlas_web.py` | `observationArtifactSchema` (`surfaceArtifactSchema` describes the download) | `schema_version` = 1 |
+| Surface and observations JSON | bucket (the site fetches the observations; the surface is a download) | `export_atlas_web.py` (observation rows: `genomeos/publication/web_observations.py`) | `observationArtifactSchema` (`surfaceArtifactSchema` describes the download) | `schema_version` = 1 |
 | Manifest JSON | bucket (download only) | copied from the P2 artifact by `export_atlas_web.py`, less `observations.path`, which names a data-store file (#45; `genomeos/publication/web_inputs.py`) | not parsed by the site | the P2 manifest contract |
 | External caches, `external/<source>/*.json` | committed | `fetch_external_variant_info.py`, copied by the exporter | `externalInfoSchema` | `schema_version`: gnomAD 2, dbSNP 1, AlphaGenome 1 |
 | Natural Earth borders, `ne-50m-admin-0.borders.bin` | committed | `scripts/encode_natural_earth_borders.py` | `website/src/atlas/geometry/natural-earth-codec.ts` | GOBD u16 `format_version` = 1 |
@@ -96,11 +96,35 @@ science. That allows two things:
   it. `support_counts` is checked so that a new state can't be ignored as an unknown key;
 - any change to a per-object format: GOSA container layout, header, columns, dtypes or encodings;
   surface or observations JSON; an external-cache schema; GOBD. Those decoders are exact by design
-  (§B.3 hard errors), so they have no MINOR;
+  (§B.3 hard errors), so they have no MINOR, with the one exception of format 1.1 (below);
 - a change to how existing values are read: decoded versus transport bytes, the data-key rule, how
   keys resolve against the two bases.
 
 If you're not sure, it's MAJOR.
+
+## Format 1.1: projected observation rows
+
+Format 1.1 lets an observations JSON row carry four more keys: `measurement`, `population_id`,
+`rsid` and `source` (Atlas data platform design 2026-10-18 §2.8 and §11 step 1.10, builder's call 9).
+The exporter writes them only for an artifact released with its fit input. That artifact's rows are
+then a projection of the exact frame its fit consumed, in the fit's order, with every
+`population_id` resolved in the registry it was fitted under
+([`genomeos/publication/web_observations.py`](../genomeos/publication/web_observations.py)). The
+artifacts served today were released without an input, so their objects keep their legacy rows and
+their bytes.
+
+- **All four keys or none.** An object carries the four keys on every row, or on none. In a
+  projected row `measurement` is required: `allele_frequency` or `carrier_frequency`, naming what
+  the row's `ac` and `an` count. It is `carrier_frequency` exactly when the artifact's
+  `measurement` is. `rsid` may be `null`.
+- **The client accepted the keys first.** `observationSchema` in `website/src/atlas/contracts.ts`
+  accepted the four optional keys, and refused an object that mixes projected and legacy rows,
+  before any producer wrote them. A client from before that change refuses a projected row, which
+  is why this MINOR waited for it. A page inlines its own catalog, so a cached older page never
+  fetches a projected object.
+- **This is the only per-object MINOR.** Every other change to a per-object format stays a MAJOR.
+- **`schema_version` stays 1.** A projected object is an observations JSON of format MAJOR 1, so
+  the MAJOR 1 row of `PINNED_OBJECT_VERSIONS` is unchanged.
 
 ## How to bump
 

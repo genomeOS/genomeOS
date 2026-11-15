@@ -19,6 +19,33 @@ PROJECT = "example-project"
 BUCKET = dr.DATA_STORE_BUCKET  # the committed bucket; the fake gcloud never reaches GCP
 READER = {"role": "roles/storage.legacyObjectReader", "members": ["allUsers"]}
 LISTER = {"role": "roles/storage.objectViewer", "members": ["allUsers"]}
+# Browser SQL range-reads (Atlas data platform design 2026-10-18 §11 step 1.13): Content-Range and
+# Accept-Ranges are exposed, and Range is listed because GCS answers a preflight's request headers from
+# the same responseHeader list.
+POLICY = [
+    {
+        "origin": ["*"],
+        "method": ["GET", "HEAD"],
+        "responseHeader": [
+            "Content-Length",
+            "Content-Type",
+            "ETag",
+            "Content-Range",
+            "Accept-Ranges",
+            "Range",
+        ],
+        "maxAgeSeconds": 3600,
+    }
+]
+#: What the bucket held before step 1.13.
+OLD_POLICY = [
+    {
+        "origin": ["*"],
+        "method": ["GET", "HEAD"],
+        "responseHeader": ["Content-Length", "Content-Type", "ETag"],
+        "maxAgeSeconds": 3600,
+    }
+]
 Capsys = pytest.CaptureFixture[str]
 
 
@@ -30,9 +57,38 @@ def _bucket(fake) -> dict[str, Any]:
     return fake.state()["buckets"][BUCKET]
 
 
-def test_committed_cors_file_is_the_policy() -> None:
+def test_the_policy_is_the_committed_file() -> None:
     committed = json.loads((provision.ROOT / provision.CORS_FILE).read_text(encoding="utf-8"))
-    assert committed == provision.cors_policy()
+    assert provision.cors_policy() == POLICY
+    assert committed == POLICY
+
+
+def test_a_bucket_with_the_old_cors_gets_one_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capsys
+) -> None:
+    """A bucket provisioned before step 1.13 differs only in CORS, so the owner's run changes only that."""
+    state = {
+        "buckets": {
+            BUCKET: {
+                "name": BUCKET,
+                "location": "US-EAST1",
+                "labels": {"genomeos-purpose": "data-store"},
+                "projectNumber": "123456789012",
+                "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": True}},
+                "versioning": {"enabled": True},
+                "softDeletePolicy": {"retentionDurationSeconds": str(30 * 86400)},
+                "cors": OLD_POLICY,
+                "bindings": [READER],
+            }
+        }
+    }
+    fake = install_fake_gcloud(tmp_path / "gcloud", monkeypatch, state)
+    assert _run() == 0
+    assert fake.mutating_calls() == [
+        ["storage", "buckets", "update", f"gs://{BUCKET}", "--cors-file=deploy/data-store-cors.json"]
+    ]
+    assert _bucket(fake)["cors"] == POLICY
+    assert "CORS: set from deploy/data-store-cors.json" in capsys.readouterr().out
 
 
 def test_dry_run_prints_the_whole_sequence_and_runs_nothing(

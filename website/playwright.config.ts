@@ -35,6 +35,8 @@ export default defineConfig({
     'redirect.spec.ts',
     // The slimmed brand SVGs against the owner's artwork (#454 ruling 12).
     'brand-pixels.spec.ts',
+    // The pinned DuckDB-WASM reading the data store by range (data platform step 1.13).
+    'browser-sql.spec.ts',
   ],
   fullyParallel: false,
   workers: playwrightWorkers(),
@@ -83,6 +85,15 @@ export default defineConfig({
           ? 'npm run serve:atlas-data'
           : `npm run serve:atlas-data -- ${dataServerArgs.join(' ')}`,
       url: 'http://127.0.0.1:4323/catalog.json',
+      reuseExistingServer: false,
+      timeout: 30_000,
+    },
+    {
+      // The data store browser SQL reads (Atlas data platform design 2026-10-18 §3.1, step
+      // 1.13): the committed fixture release, with GCS's range and CORS behaviour and a request
+      // log (scripts/serve-data-store.mjs).
+      command: 'npm run serve:data-store',
+      url: 'http://127.0.0.1:4324/manifests/2000-01-01.json',
       reuseExistingServer: false,
       timeout: 30_000,
     },

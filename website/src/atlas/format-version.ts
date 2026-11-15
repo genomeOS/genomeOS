@@ -12,7 +12,7 @@
  * `tests/atlas-format-version.test.ts` and `tests/test_web_format.py` hold the two equal.
  */
 
-export const ATLAS_WEB_FORMAT_VERSION = '1.0';
+export const ATLAS_WEB_FORMAT_VERSION = '1.1';
 
 export interface FormatVersion {
   major: number;

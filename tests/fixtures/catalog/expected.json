@@ -1,4 +1,22 @@
 {
+  "macros": {
+    "lookup_url_chrM": [],
+    "surfaces_rows": 0,
+    "variant": [
+      [
+        "gnomad-hgdp-1kg:curated-tsv",
+        2,
+        6,
+        300
+      ],
+      [
+        "gnomad-v3.1.2-hgdp-1kg:fixture-3:d18-v1",
+        3,
+        7,
+        296
+      ]
+    ]
+  },
   "release": "2026-11-20",
   "views": {
     "evidence.parity_observations": 3,

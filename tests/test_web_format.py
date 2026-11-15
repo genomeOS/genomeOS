@@ -11,17 +11,20 @@ import pytest
 from genomeos.publication import surface_codec, web_format
 from genomeos.publication.web_format import (
     CURRENT,
+    WEB_ARTIFACT_FORMATS,
     WEB_FORMAT_VERSION,
     WebFormatError,
     catalog_format_version,
     parse_format_version,
     require_current,
     require_known,
+    require_web_artifact_format,
 )
 from scripts import encode_natural_earth_borders, export_atlas_web
 
 ROOT = Path(__file__).resolve().parents[1]
 TS_CONSTANT = ROOT / "website" / "src" / "atlas" / "format-version.ts"
+TS_CONTRACTS = ROOT / "website" / "src" / "atlas" / "contracts.ts"
 DEPLOYED_CATALOG = ROOT / "website" / "public" / "data" / "atlas" / "catalog.json"
 #: Every committed fixture catalog. Readers must handle older MINORs, so these may lag the producer.
 FIXTURE_CATALOGS = (
@@ -124,3 +127,19 @@ def test_the_format_major_pins_every_per_object_version() -> None:
         "gobd container format_version": encode_natural_earth_borders.FORMAT_VERSION,
         "surface and observations json schema_version": export_atlas_web.SCHEMA_VERSION,
     } == PINNED_OBJECT_VERSIONS[major]
+
+
+def test_the_web_knows_formats_1_to_3() -> None:
+    """A new ``artifact_format`` value is a web format MAJOR (docs/web-data-format.md), so format 4
+    (Atlas data platform design 2026-10-18 §2.5) is refused until the client and this set admit it."""
+    for value in (1, 2, 3):
+        assert require_web_artifact_format(value) == value
+    for value in (4, True, 3.0, "3"):
+        with pytest.raises(WebFormatError, match="artifact_format"):
+            require_web_artifact_format(value)
+    (union,) = re.findall(
+        r"^  artifact_format: z\.union\(\[([^\]]*)\]\),$", TS_CONTRACTS.read_text(), re.MULTILINE
+    )
+    literals = re.findall(r"z\.literal\((\d+)\)", union)
+    assert ", ".join(f"z.literal({value})" for value in literals) == union
+    assert {int(value) for value in literals} == WEB_ARTIFACT_FORMATS
