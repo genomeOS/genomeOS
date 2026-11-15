@@ -1,0 +1,41 @@
+{
+  "arrow": [
+    {
+      "name": "artifact",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "variant_id",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "model_version",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "data_version",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "pinned_by",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "pinned_sha256",
+      "nullable": false,
+      "type": "string"
+    }
+  ],
+  "contract": "genomeos-table",
+  "key": [
+    "artifact"
+  ],
+  "partitions": [],
+  "schema_version": "1.0",
+  "table": "meta.served"
+}

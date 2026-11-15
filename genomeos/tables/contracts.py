@@ -1,4 +1,4 @@
-"""Every derived table's frozen contract (Atlas data platform design 2026-10-18 §2.4, §2.5; calls 30, 37).
+"""Every derived table's frozen contract (Atlas data platform design 2026-10-18 §2.4, §2.5; calls 4, 30, 37).
 
 Everything under ``tables/v1/`` is derived from released bytes, and a reader can trust a file only as
 far as it can name the contract the file obeys. This module is that name: one ``TableContract`` per
@@ -21,6 +21,10 @@ The two allele tables never share a prefix, a file or a contract (§2.4, call 37
   ``kir:`` or ``phenotype:`` id has no locus, so it lives only in a curated ingest (§2.6).
 
 Both store counts, never frequencies (v1 §7.1b): ``ac`` and ``an``, and no ``af`` column.
+
+The four ``meta.*`` tables (§2.4, §2.9; calls 4, 7) are Arrow contracts: each field's name, type and
+nullability, in order. ``meta.release_objects`` keeps a list of sources per object, which pandera
+does not describe.
 """
 
 from __future__ import annotations
@@ -145,9 +149,104 @@ ALLELE_OBSERVATIONS_BINNED = TableContract(
     schema=BINNED_OBSERVATIONS_SCHEMA,
 )
 
+
+def _arrow(*fields: tuple[str, pyarrow.DataType, bool]) -> pyarrow.Schema:
+    """An ordered Arrow schema from ``(name, type, nullable)``."""
+    return pyarrow.schema([pyarrow.field(name, kind, nullable=nullable) for name, kind, nullable in fields])
+
+
+_TEXT = pyarrow.string()
+
+#: Every object of each earlier release, as its committed manifest lists it (§2.4; call 4).
+RELEASE_OBJECTS = TableContract(
+    "meta.release_objects",
+    major=1,
+    minor=0,
+    key=("release", "path"),
+    partitions=(),
+    arrow_schema=_arrow(
+        ("release", _TEXT, False),
+        ("path", _TEXT, False),
+        ("key", _TEXT, False),
+        ("bytes", pyarrow.int64(), False),
+        ("sha256", _TEXT, False),
+        ("media_type", _TEXT, False),
+        ("in_git", pyarrow.bool_(), False),
+        ("sources", pyarrow.list_(_TEXT), False),
+    ),
+)
+
+#: Each earlier release's sources and the terms it recorded, in the closed vocabulary (§2.4, §9).
+SOURCES = TableContract(
+    "meta.sources",
+    major=1,
+    minor=0,
+    key=("release", "source"),
+    partitions=(),
+    arrow_schema=_arrow(
+        ("release", _TEXT, False),
+        ("source", _TEXT, False),
+        ("name", _TEXT, False),
+        ("citation", _TEXT, True),
+        ("url", _TEXT, True),
+        ("terms_status", _TEXT, False),
+        ("terms_checked_at", _TEXT, True),
+        ("terms_url", _TEXT, True),
+        ("licence", _TEXT, True),
+        ("recorded_in", _TEXT, True),
+        ("note", _TEXT, True),
+        ("non_commercial", pyarrow.bool_(), False),
+    ),
+)
+
+#: The artifacts the website serves and what pins each one (§2.4; call 7).
+SERVED = TableContract(
+    "meta.served",
+    major=1,
+    minor=0,
+    key=("artifact",),
+    partitions=(),
+    arrow_schema=_arrow(
+        ("artifact", _TEXT, False),
+        ("variant_id", _TEXT, False),
+        ("model_version", _TEXT, False),
+        ("data_version", _TEXT, False),
+        ("pinned_by", _TEXT, False),
+        ("pinned_sha256", _TEXT, False),
+    ),
+)
+
+#: The published keys withdrawn from serving, as ``data/releases/WITHDRAWN.json`` lists them (§2.9).
+WITHDRAWN = TableContract(
+    "meta.withdrawn",
+    major=1,
+    minor=0,
+    key=("key",),
+    partitions=(),
+    arrow_schema=_arrow(
+        ("key", _TEXT, False),
+        ("path", _TEXT, False),
+        ("sha256", _TEXT, False),
+        ("reason", _TEXT, False),
+        ("issue", _TEXT, False),
+        ("date", _TEXT, False),
+        ("decided_by", _TEXT, False),
+    ),
+)
+
 #: Every derived table, by name. A table is written, checked or catalogued only if it is here.
 TABLE_CONTRACTS: Mapping[str, TableContract] = MappingProxyType(
-    {contract.table: contract for contract in (ALLELE_OBSERVATIONS, ALLELE_OBSERVATIONS_BINNED)}
+    {
+        contract.table: contract
+        for contract in (
+            ALLELE_OBSERVATIONS,
+            ALLELE_OBSERVATIONS_BINNED,
+            RELEASE_OBJECTS,
+            SOURCES,
+            SERVED,
+            WITHDRAWN,
+        )
+    }
 )
 
 

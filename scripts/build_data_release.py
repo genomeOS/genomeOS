@@ -40,6 +40,7 @@ if str(ROOT) not in sys.path:
 
 from genomeos.publication import artifact_inputs as ai  # noqa: E402
 from genomeos.publication import data_release as dr  # noqa: E402
+from genomeos.tables import provenance  # noqa: E402
 
 DATA = ROOT / "data"
 RELEASES = DATA / "releases"
@@ -303,6 +304,9 @@ def _artifact_sources(data_root: Path, path: str) -> tuple[str, ...]:
 
 _RULES: tuple[tuple[Callable[[str], bool], Callable[[Path, str], tuple[str, ...]]], ...] = (
     (lambda path: path.startswith(dr.ARTIFACT_PREFIX), _artifact_sources),
+    # A derived table records the union of its inputs' sources (Atlas data platform design 2026-10-18
+    # §9, call 16); a file that records none is refused.
+    (lambda path: path.startswith("tables/"), provenance.recorded_sources),
     (lambda path: path.startswith("validation/crossval_"), lambda root, path: ("map",)),
     (lambda path: path.startswith(f"validation/{PARITY_INPUT}/"), lambda root, path: ("map",)),
     (lambda path: path.startswith("validation/b0h-timing-"), lambda root, path: ("genomeos",)),

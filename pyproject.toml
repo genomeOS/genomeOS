@@ -24,7 +24,8 @@ dependencies = [
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2,<4"]
 tabix = ["pysam>=0.23,<1"]
-read = ["duckdb>=1.1", "h3>=4.1,<5"]
+# A reader attaches the published catalog, which is tested from DuckDB 1.2 (data platform call 15).
+read = ["duckdb>=1.2", "h3>=4.1,<5"]
 # Atlas data foundation (P0/P1). Kept out of the default install so the Pan-UKB
 # API container does not carry pyarrow/duckdb, which it never uses.
 atlas = [
@@ -32,7 +33,9 @@ atlas = [
   "pandera[pandas]>=0.23,<0.33",
   "pandas>=2.2,<4",
   "pyarrow>=17",
-  "duckdb>=1.1",
+  # Exactly one DuckDB writes every tables/ file, so a rebuild gives the same bytes (data platform
+  # design 2026-10-18 §2.5, call 15); genomeos.tables.writer refuses any other version.
+  "duckdb==1.5.5",
   "h3>=4.1,<5",
 ]
 # Surface inference (P2). Separate from [atlas] because PyMC/PyTensor is a large

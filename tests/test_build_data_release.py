@@ -20,8 +20,12 @@ from genomeos.surfaces.fit_input import (
     contract_sha256,
     serialize_observations,
 )
+from genomeos.tables import writer
+from genomeos.tables.contracts import TableError
 from scripts import build_data_release as build
+from scripts import build_tables
 from tests.observation_fixtures import kir_fit_rows, observation_rows
+from tests.tables_fixtures import GIT_SHA, copy_committed_releases
 from tests.test_data_release import EMPTY
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -320,6 +324,31 @@ def test_an_optional_root_is_required_once_a_release_published_under_it(tree: Pa
 def test_an_optional_root_file_needs_a_reviewed_source_rule(tree: Path) -> None:
     _write(tree, "catalog/x.txt", b"x\n")
     with pytest.raises(dr.DataReleaseError, match="no reviewed source rule"):
+        _build(tree)
+
+
+# --- a tables/ file carries its inputs' sources (Atlas data platform design 2026-10-18 §9; call 16) ---
+
+
+def test_meta_files_carry_their_inputs_sources(tree: Path, tmp_path: Path) -> None:
+    releases = copy_committed_releases(tmp_path / "releases")
+    built = build_tables.main(
+        ["--release", "2026-11-20", "--data", str(tree), "--git-sha", GIT_SHA, "--releases", str(releases)]
+    )
+    assert built == 0
+    objects = _paths(_build(tree))
+    meta = "tables/v1/meta"
+    assert objects[f"{meta}/served.parquet"]["sources"] == ["afnd", "genomeos", "map", "worldpop"]
+    for name in ("release_objects", "sources"):
+        assert "genereviews" in objects[f"{meta}/{name}.parquet"]["sources"]  # call 16: it survives the union
+    assert objects[f"{meta}/withdrawn.parquet"]["sources"] == ["genomeos"]
+
+
+def test_an_unstamped_tables_file_is_refused(tree: Path) -> None:
+    out = tree / "tables/v1/meta/served.parquet"
+    out.parent.mkdir(parents=True)
+    writer.connect().execute(f"COPY (SELECT 'a' AS artifact) TO '{out}' (FORMAT parquet)")
+    with pytest.raises(TableError, match="genomeos.sources"):
         _build(tree)
 
 
