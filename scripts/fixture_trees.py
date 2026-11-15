@@ -130,12 +130,12 @@ def add_artifact(
     measurement: str | None,
 ) -> Path:
     """Write ``store/artifacts/<artifact>/{cells.parquet,manifest.json}`` under ``data``; the cells
-    through the pinned DuckDB."""
+    through the pinned DuckDB, zstd-compressed (its Snappy bytes differ between macOS and Linux)."""
     directory = data / dr.ARTIFACT_PREFIX / artifact
     directory.mkdir(parents=True, exist_ok=True)
     con = writer.connect()
     con.register("genomeos_cells", cells_frame(artifact, cells))
-    con.execute(f"COPY genomeos_cells TO '{directory / 'cells.parquet'}' (FORMAT parquet)")
+    con.execute(f"COPY genomeos_cells TO '{directory / 'cells.parquet'}' (FORMAT parquet, COMPRESSION zstd)")
     manifest = artifact_manifest(
         artifact, artifact_format=artifact_format, resolution=resolution, cells=cells, measurement=measurement
     )
@@ -245,7 +245,8 @@ _EMPTY_WITHDRAWN = {
 
 
 def write_parity_file(data: Path) -> Path:
-    """``PARITY_ROWS`` as the 17 observation columns of the released parity file, by the pinned DuckDB."""
+    """``PARITY_ROWS`` as the 17 observation columns of the released parity file, by the pinned DuckDB,
+    zstd-compressed so its bytes, and every sha256 that records them, match on every platform."""
     out = data / catalog.PARITY_FILE
     out.parent.mkdir(parents=True, exist_ok=True)
     rows = ", ".join(
@@ -260,7 +261,7 @@ def write_parity_file(data: Path) -> Path:
         "'population_random' AS sampling_design, false AS disease_ascertainment_excluded, "
         "'cohort-' || i AS cohort_id, 'map-2026-08' AS ingest_version "
         f"FROM (VALUES {rows}) AS parity(i, lat, lon, radius, an, ac) ORDER BY i) "
-        f"TO '{out}' (FORMAT parquet)"
+        f"TO '{out}' (FORMAT parquet, COMPRESSION zstd)"
     )
     return out
 

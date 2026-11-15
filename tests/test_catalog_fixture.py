@@ -17,11 +17,13 @@ import sys
 from pathlib import Path
 
 import duckdb
+import pyarrow.parquet as pq
 import pytest
 
 from genomeos.tables import catalog
 from scripts import build_catalog_fixture as fixture
 from scripts import check_catalog_attach as attach
+from scripts import fixture_trees
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "catalog"
@@ -43,6 +45,24 @@ print(sorted(name for name in sys.modules if name.partition(".")[0] == "tests"))
 
 def test_the_committed_catalog_fixture_is_current() -> None:
     assert fixture.main(["--check"]) == 0
+
+
+def test_every_parquet_file_of_the_tree_is_zstd(tmp_path: Path) -> None:
+    """``--check`` compares bytes on every platform CI runs, and DuckDB's default Snappy output differs
+    between macOS and Linux for the same rows; zstd at the writer's settings does not."""
+    root = fixture_trees.make_catalog_tree(tmp_path)
+    files = sorted(root.rglob("*.parquet"))
+    assert files
+    codecs = {
+        str(path.relative_to(root)): {
+            metadata.row_group(group).column(column).compression
+            for group in range(metadata.num_row_groups)
+            for column in range(metadata.num_columns)
+        }
+        for path in files
+        for metadata in [pq.ParquetFile(path).metadata]
+    }
+    assert {path: codec for path, codec in codecs.items() if codec - {"ZSTD"}} == {}
 
 
 def test_the_fixture_builder_needs_no_pytest_and_imports_nothing_from_tests() -> None:
