@@ -8,7 +8,8 @@ does not describe). ``scripts/freeze_contract.py`` writes each contract to
 ``contract/tables/<table>.v<MAJOR>.schema.json``, so that a change shows up as a diff, and each file
 a build writes records the ``contract_sha256`` it was checked against (§2.5). The frozen file wraps
 pandera's JSON with the table, version, key and partitions, because ``to_json`` carries none of
-them. A MINOR version is additive; a MAJOR one is a new ``tables/v2/`` (§2.5).
+them. A MINOR version is additive; a MAJOR one is a new ``tables/v2/`` (§2.5). ``TABLE_CONTRACT_REVISIONS``
+pins every reviewed revision's digest: a MINOR bump adds a digest and never removes one.
 
 The two allele tables never share a prefix, a file or a contract (§2.4, call 37):
 
@@ -498,6 +499,46 @@ TABLE_CONTRACTS: Mapping[str, TableContract] = MappingProxyType(
             REFERENCE_POPULATIONS,
             REFERENCE_ALIASES,
         )
+    }
+)
+
+
+#: Every reviewed revision of each table contract, as the sha256 of its frozen file (``contract_sha256``),
+#: the digest each published file records. A frozen file equals its render by construction, so this is
+#: what makes a contract change a reviewed event: a test fails until the new digest is appended here. A
+#: MINOR bump adds a digest and never removes one, because the files written under the earlier revision
+#: stay published (§2.5); a MAJOR bump is a new ``tables/v2/``.
+TABLE_CONTRACT_REVISIONS: Mapping[str, frozenset[str]] = MappingProxyType(
+    {
+        "measured.allele_observations": frozenset(
+            {"a403dbeb5c28d01815aea260ed22832d2b3152e79dd95c23b91505cab229fc68"}
+        ),
+        "measured.allele_observations_binned": frozenset(
+            {"6a6438fbe95df3d43a93c1752b66365956befab5233442feb49352b0f21032c2"}
+        ),
+        "measured.carrier_observations": frozenset(
+            {"ebdb0706df347a3995f17775634fd2ff2ddffab0fd7d64d65fea13d92676625b"}
+        ),
+        "measured.ingests": frozenset({"69ffa0a2eaa74eb881a3290920b8f9a6db6a3aced98c55d926e7e4c7899a9591"}),
+        "measured.fit_inputs": frozenset(
+            {"bbfa62bb67ea2fbbc57a72e7e400249ba993d0ebe2e7484c988611506dcfb56b"}
+        ),
+        "meta.release_objects": frozenset(
+            {"6beb1c9eef2fae9810722172d67b50f1c02fde7275a629ec4a125ebd7b90b666"}
+        ),
+        "meta.sources": frozenset({"f7b539fe53f37ab31c78eb96d73120481e4ef74eccbd9062621673e308f12d24"}),
+        "meta.served": frozenset({"4430430c846120c0bd0a78c6d83bfc5805c29317188e686bfe5c999776c6e7b8"}),
+        "meta.withdrawn": frozenset({"28e134d1eb504b0f05ff65942f7bc98e96c4f10b37156568551119ff678381f3"}),
+        "inferred.artifacts": frozenset({"99a440e5134c9629ef1f1a164f37cc1f5d40020dc8f374cfeed6fa7594b4871f"}),
+        "inferred.cells_by_cell": frozenset(
+            {"01753b7d64d6108dec44572bab362cf69941fc0e1560415de416cf533b10feed"}
+        ),
+        "reference.populations": frozenset(
+            {"9e022086fd1e270a0c17d5c9db77f8ca60b3045f8e016502afd4a12c56e043e2"}
+        ),
+        "reference.population_aliases": frozenset(
+            {"4162bfb70c7924246db10808569761752aeeca49195558875274f92fe6e2e9b5"}
+        ),
     }
 )
 

@@ -6,7 +6,12 @@ import sys
 from pathlib import Path
 
 from genomeos.publication.artifact_inputs import CONTRACT_REVISIONS
-from genomeos.tables.contracts import TABLE_CONTRACTS, render
+from genomeos.tables.contracts import (
+    TABLE_CONTRACT_REVISIONS,
+    TABLE_CONTRACTS,
+    contract_sha256,
+    render,
+)
 from scripts import freeze_contract
 
 REPO = Path(__file__).resolve().parents[1]
@@ -50,6 +55,14 @@ def test_each_frozen_file_is_its_rendered_contract():
 def test_the_fit_input_contracts_are_untouched():
     for path in ("contract/observations.schema.json", "contract/carrier_observations.schema.json"):
         assert hashlib.sha256((REPO / path).read_bytes()).hexdigest() in CONTRACT_REVISIONS[path]
+
+
+def test_each_table_contract_is_a_reviewed_revision():
+    """A frozen file equals its render by construction; its digest is pinned here, so changing a table
+    contract fails until the new digest is appended in a reviewed commit (§2.5)."""
+    assert set(TABLE_CONTRACT_REVISIONS) == set(TABLE_CONTRACTS)
+    for table in TABLE_CONTRACTS:
+        assert contract_sha256(table) in TABLE_CONTRACT_REVISIONS[table], table
 
 
 def test_the_table_contracts_are_exactly_the_registered_ones():
