@@ -36,9 +36,8 @@ from genomeos.tables.lookup_macros import (
 from genomeos.tables.lookup_sets import BIN_BP, BINNED_PREFIX, GRCH38_LENGTHS, variant_bin_path
 from tests.lookup_fixtures import RECOUNT, MacroRelease, attach_local, macro_release
 
-#: Format 3's 15 cell columns. Phase-1 Task 23 (step 1.11) names them FORMAT_THREE_COLUMNS; until it
-#: lands they are today's ARTIFACT_COLUMNS.
-FORMAT_THREE_COLUMNS: tuple[str, ...] = getattr(artifacts, "FORMAT_THREE_COLUMNS", artifacts.ARTIFACT_COLUMNS)
+#: Format 3's 15 cell columns (phase-1 Task 23, step 1.11); format 4 adds its two h3 parents after them.
+FORMAT_THREE_COLUMNS: tuple[str, ...] = artifacts.FORMAT_THREE_COLUMNS
 RS334 = "chr11-5227002-T-A"
 
 
