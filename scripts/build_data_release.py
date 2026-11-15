@@ -10,9 +10,12 @@ committed releases are read so a byte-identical file reuses its earlier key and 
 whose bytes changed is refused. A release file that already exists is never replaced: an identical
 rebuild reports "unchanged", a different one is a hard error.
 
-Nothing outside ``INCLUDE`` is published: fits (pickles, design §8) and the raw third-party harvests
-(phase 2) stay local. A pickle or an object-dtype ``.npy`` inside an include root is refused, and so
-is a path no rule claims; nothing is ever given a source by default.
+Nothing outside ``INCLUDE`` and the reviewed raw harvests is published: fits (pickles, design §8) and
+any raw file no harvest lists stay local. A raw harvest (Atlas data platform design 2026-10-18 §2.1,
+step 1.8) is published under ``raw/<source>/<harvest_version>/`` only as a ``RAW_HARVESTS`` entry, every
+file pinned by sha256; an external cache under ``store/external/<source>/`` only without a known
+non-commercial field (R5, §4.3). A pickle or an object-dtype ``.npy`` inside an include root is
+refused, and so is a path no rule claims; nothing is ever given a source by default.
 
 Inputs travel with outputs (#45): every artifact carries ``observations.parquet``, the table its fit
 consumed, recorded in its ``manifest.json``. An artifact without it, or whose record does not match the
@@ -55,6 +58,8 @@ if str(ROOT) not in sys.path:
 
 from genomeos.publication import artifact_inputs as ai  # noqa: E402
 from genomeos.publication import data_release as dr  # noqa: E402
+from genomeos.publication import raw_harvests as rh  # noqa: E402
+from genomeos.publication.source_terms import REVIEWED_SOURCES  # noqa: E402
 from genomeos.tables import catalog as tables_catalog  # noqa: E402  (build's flag is ``catalog``)
 from genomeos.tables import checks, contracts, provenance, writer  # noqa: E402
 from genomeos.tables.contracts import TableError  # noqa: E402
@@ -74,13 +79,17 @@ INCLUDE = (
     "store/INVENTORY.json",
     "store/artifacts",
     "store/catalog-metadata.json",
+    "store/external",
     "tables",
     "validation",
 )
 #: Include roots a tree may lack until a release publishes under them (Atlas data platform design
-#: 2026-10-18 §2.3): the v1 tables and their catalog arrive with release 1. Once published, each is
-#: required.
-OPTIONAL_ROOTS: tuple[str, ...] = ("catalog", "tables")
+#: 2026-10-18 §2.3): the v1 tables and their catalog arrive with release 1, the external caches with
+#: step 1.8. Once published, each is required.
+OPTIONAL_ROOTS: tuple[str, ...] = ("catalog", "store/external", "tables")
+#: The reviewed raw harvests ``main`` publishes, each root required (step 1.8). A test of ``main`` on a
+#: tree that holds none sets this to ``()``.
+RAW_HARVESTS: tuple[rh.RawHarvest, ...] = rh.RAW_HARVESTS
 
 #: The 994 MAP HbS surveys the 2026-09-16 golden-test-1 run fit, as that run serialized them (#45).
 PARITY_INPUT = "hbs-piel-parity-2026-09-16"
@@ -175,89 +184,8 @@ RELEASED_WITHOUT_INPUT: dict[str, str] = {
 CPIC_RECORD = "sources/cpic/v1.60.0/SOURCE.json"
 CURATED_RECORD = "sources/curated/SOURCE.json"
 ARTIFACT_DATA_SOURCES = {"map-": "map", "afnd-": "afnd"}
-
-#: Reviewed terms for sources with no machine-readable record under data/. Each value is copied from
-#: the place named in ``recorded_in``; where the repository records no check, the status is
-#: ``not_checked`` and the gap is stated rather than filled (AGENTS publication-evidence safeguards).
-REVIEWED_SOURCES: dict[str, dict[str, Any]] = {
-    "afnd": {
-        "name": "Allele Frequency Net Database (AFND)",
-        "citation": (
-            "Gonzalez-Galarza et al., Allele frequency net database (AFND) 2020 update, Nucleic Acids "
-            "Research 48:D783, doi:10.1093/nar/gkz1029"
-        ),
-        "url": "https://www.allelefrequencies.net/",
-        "terms": {
-            "status": "no_restriction_found",
-            "checked_at": "2026-08-25",
-            "terms_url": "https://www.allelefrequencies.net/contact.asp",
-            "recorded_in": "https://github.com/genomeOS/genomeOS/issues/117",
-            "note": (
-                "AFND publishes no standalone licence; under the owner-approved policy (#149) a "
-                "completed check that finds no explicit restriction is no_restriction_found."
-            ),
-        },
-        "non_commercial": False,
-    },
-    "map": {
-        "name": "Malaria Atlas Project (MAP) HbS and G6PD survey databases",
-        "citation": (
-            "Piel et al., Global epidemiology of sickle haemoglobin in neonates, The Lancet 381:142 "
-            "(2013); Howes et al., G6PD deficiency prevalence and estimates of affected populations in "
-            "malaria endemic countries, PLoS Medicine 9:e1001339 (2012)"
-        ),
-        "url": "https://data.malariaatlas.org/",
-        "terms": {
-            "status": "no_restriction_found",
-            "checked_at": "2026-10-18",
-            "terms_url": "https://malariaatlas.org/open-access-policy/",
-            "recorded_in": "docs/research/hbs-piel-parity-2026-09-16.md",
-            "note": (
-                "MAP's open-access policy covers all its survey data, HbS and G6PD layers alike: the "
-                "data are not owned by MAP, public survey data have no restrictions to access or use, "
-                "and users are asked to cite the original sources. The owner approved open "
-                "redistribution of the HbS survey rows on 2026-10-18 (the 2026-09-16 parity input)."
-            ),
-        },
-        "non_commercial": False,
-    },
-    "worldpop": {
-        "name": "WorldPop gridded population (the surface target grid)",
-        "citation": "WorldPop, University of Southampton. doi:10.5258/SOTON/WP00647",
-        "url": "https://hub.worldpop.org/",
-        "terms": {
-            "status": "explicitly_open",
-            "checked_at": "2026-11-14",
-            "terms_url": "https://hub.worldpop.org/",
-            "licence": "CC-BY-4.0",
-            "recorded_in": "docs/audits/worldpop-commercial-use.md",
-            "note": (
-                "WorldPop's hub states that WorldPop datasets are licensed under CC BY 4.0, recorded "
-                "as explicitly_open by the owner's decision D5b (2026-10-19; "
-                "docs/superpowers/specs/2026-10-18-atlas-data-platform-design.md §1.1). WorldPop "
-                "selects the population-positive H3 cells a format-2 surface is predicted on."
-            ),
-        },
-        "non_commercial": False,
-    },
-    "genomeos": {
-        "name": "genomeOS project-authored data and outputs",
-        "url": "https://github.com/genomeOS/genomeOS",
-        "terms": {
-            "status": "explicitly_open",
-            "checked_at": "2026-10-19",
-            "terms_url": "https://creativecommons.org/licenses/by/4.0/",
-            "licence": "CC-BY-4.0",
-            "recorded_in": "README.md",
-            "note": (
-                "Project-authored data and outputs are CC BY 4.0 by the owner's decision D5a "
-                "(2026-10-19; docs/superpowers/specs/2026-10-18-atlas-data-platform-design.md §1.1). "
-                "Apache-2.0 covers source code and documentation."
-            ),
-        },
-        "non_commercial": False,
-    },
-}
+# Every other source's terms are REVIEWED_SOURCES (genomeos/publication/source_terms.py), which
+# raw_harvests also reads, so they sit beside it rather than in this script.
 
 
 def _record_sources(data_root: Path) -> dict[str, dict[str, Any]]:
@@ -321,6 +249,8 @@ def _artifact_sources(data_root: Path, path: str) -> tuple[str, ...]:
     return (source, "worldpop") if grid.startswith("worldpop") else (source,)
 
 
+_CACHE_PREFIXES = tuple(f"{rh.EXTERNAL_PREFIX}{name}/" for name in rh.EXTERNAL_CACHE_SOURCES)
+
 _RULES: tuple[tuple[Callable[[str], bool], Callable[[Path, str], tuple[str, ...]]], ...] = (
     (lambda path: path.startswith(dr.ARTIFACT_PREFIX), _artifact_sources),
     # A derived table records the union of its inputs' sources (Atlas data platform design 2026-10-18
@@ -329,7 +259,14 @@ _RULES: tuple[tuple[Callable[[str], bool], Callable[[Path, str], tuple[str, ...]
     (lambda path: path.startswith("validation/crossval_"), lambda root, path: ("map",)),
     (lambda path: path.startswith(f"validation/{PARITY_INPUT}/"), lambda root, path: ("map",)),
     (lambda path: path.startswith("validation/b0h-timing-"), lambda root, path: ("genomeos",)),
+    # raw/<source>/<harvest_version>/<file> (§2.3, step 1.8); collect refuses a file no harvest lists.
+    (
+        lambda path: path.startswith(rh.RAW_PREFIX) and path.count("/") >= 3,
+        lambda root, path: (path.split("/")[1],),
+    ),
     (lambda path: path == "raw/afnd_populations.tsv", lambda root, path: ("afnd",)),
+    # store/external/<source>/…: the API each cache snapshots (§4.3, step 1.8).
+    (lambda path: path.startswith(_CACHE_PREFIXES), lambda root, path: (path.split("/")[2],)),
     (lambda path: path.startswith("sources/cpic/"), lambda root, path: ("cpic",)),
     (lambda path: path.startswith("sources/curated/"), lambda root, path: ("clinvar", "genereviews")),
     (
@@ -371,12 +308,17 @@ def _refuse_pickled_npy(path: Path, relative: str) -> None:
 
 
 def included_files(
-    data_root: Path, *, published: Collection[str] = (), roots: Sequence[str] = INCLUDE
+    data_root: Path,
+    *,
+    published: Collection[str] = (),
+    roots: Sequence[str] = INCLUDE,
+    raw_harvests: Sequence[rh.RawHarvest] = (),
 ) -> list[str]:
-    """Every file under ``roots`` (the include roots). An absent optional root is skipped only while no
-    path in ``published`` (what earlier releases hold) lies under it; any other absent root is an error."""
+    """Every file under ``roots`` (the include roots) and each of ``raw_harvests``' roots. An absent
+    optional root is skipped only while no path in ``published`` (what earlier releases hold) lies under
+    it; any other absent root, a harvest's included, is an error."""
     found: list[str] = []
-    for root in roots:
+    for root in (*roots, *(harvest.root for harvest in raw_harvests)):
         base = data_root / root
         if base.is_file():
             found.append(root)
@@ -392,10 +334,17 @@ def included_files(
 
 
 def collect(
-    data_root: Path, tracked: set[str], *, published: Collection[str] = (), roots: Sequence[str] = INCLUDE
+    data_root: Path,
+    tracked: set[str],
+    *,
+    published: Collection[str] = (),
+    roots: Sequence[str] = INCLUDE,
+    raw_harvests: Sequence[rh.RawHarvest] = (),
 ) -> list[dr.FileRecord]:
+    """Every included file, hashed and given its sources; a raw file must be a pinned harvest file and an
+    external cache must hold no known non-commercial field (step 1.8)."""
     records: list[dr.FileRecord] = []
-    for relative in included_files(data_root, published=published, roots=roots):
+    for relative in included_files(data_root, published=published, roots=roots, raw_harvests=raw_harvests):
         dr.media_type_for(relative)  # refuses pickles before anything is hashed
         path = data_root / relative
         if relative.endswith(".npy"):
@@ -404,6 +353,11 @@ def collect(
         records.append(
             dr.FileRecord(relative, path.stat().st_size, sha256_of(path), relative in tracked, sources)
         )
+    rh.check_raw_harvests(records, raw_harvests)
+    for record in records:
+        if record.path.startswith(rh.EXTERNAL_PREFIX):
+            document = json.loads((data_root / record.path).read_text(encoding="utf-8"))
+            rh.check_external_cache(record.path, document)
     return records
 
 
@@ -460,15 +414,17 @@ def build(
     released_without_input: Mapping[str, str],
     previous: Sequence[Mapping[str, Any]] = (),
     withdrawn: Sequence[dr.Withdrawal] = (),
+    raw_harvests: Sequence[rh.RawHarvest] = (),
     catalog: bool = False,
 ) -> dict[str, Any]:
     """The release manifest of ``data_root``; with ``catalog``, the two passes of the module docstring.
 
     ``withdrawn`` is ``WITHDRAWN.json``'s list, which the release's ``meta.withdrawn`` must restate.
+    ``raw_harvests`` are published beside the include roots, each root required (step 1.8).
     """
     published = {item.path for manifest in previous for item in dr.validate_manifest(manifest)}
     roots = tuple(root for root in INCLUDE if root != CATALOG_ROOT) if catalog else INCLUDE
-    records = collect(data_root, tracked, published=published, roots=roots)
+    records = collect(data_root, tracked, published=published, roots=roots, raw_harvests=raw_harvests)
     check_inputs(data_root, records, previous, released_without_input)
     manifest = _manifest(data_root, records, release, previous)
     if not catalog:
@@ -616,6 +572,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             released_without_input=RELEASED_WITHOUT_INPUT,
             previous=previous,
             withdrawn=withdrawn_entries(out.parent),
+            raw_harvests=RAW_HARVESTS,
             catalog=True,
         )
     except (dr.DataReleaseError, OSError, KeyError, ValueError, subprocess.CalledProcessError) as error:

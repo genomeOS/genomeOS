@@ -12,6 +12,7 @@ import pytest
 
 from genomeos.publication import artifact_inputs as ai
 from genomeos.publication import data_release as dr
+from genomeos.publication import raw_harvests as rh
 from genomeos.publication.commercial_use import COMMERCIAL_USE_FINDINGS
 from genomeos.surfaces.fit_input import (
     FIT_COUNTS,
@@ -254,9 +255,11 @@ def test_an_unknown_data_version_prefix_is_refused(tree: Path) -> None:
 def _cli(root: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """``main``'s arguments for release ``EPOCH`` of ``catalog_tree``, whose tables are built here.
 
-    ``main`` always builds the catalog (both passes), so the tree needs its tables and a parity file.
+    ``main`` always builds the catalog (both passes), so the tree needs its tables and a parity file. It
+    also publishes ``RAW_HARVESTS``, which this tree does not hold: the harvests have tests of their own.
     """
     monkeypatch.setattr(build, "RELEASED_WITHOUT_INPUT", FIXTURE_WITHOUT_INPUT)
+    monkeypatch.setattr(build, "RAW_HARVESTS", ())
     build_catalog_tables(root)
     out = root / "releases" / f"{EPOCH}.json"
     return ["--data", str(root / "data"), "--release", EPOCH, "--out", str(out), "--no-git"]
@@ -350,6 +353,108 @@ def test_an_optional_root_file_needs_a_reviewed_source_rule(tree: Path) -> None:
     _write(tree, "catalog/x.txt", b"x\n")
     with pytest.raises(dr.DataReleaseError, match="no reviewed source rule"):
         _build(tree)
+
+
+# --- raw harvests and external caches (Atlas data platform design 2026-10-18 §2.1, §4.3; step 1.8) ---
+
+CACHES = {
+    "store/external/gnomad/chr11-5227002-t-a.json": "gnomad",
+    "store/external/dbsnp/rs334.json": "dbsnp",
+    "store/external/alphagenome/chr11-5227002-t-a.json": "alphagenome",
+}
+
+
+def _harvest(root: Path, source: str, version: str, files: dict[str, bytes]) -> rh.RawHarvest:
+    """A harvest of ``files``, written under ``raw/<source>/<version>/`` and pinned to their bytes."""
+    for name, data in files.items():
+        _write(root, f"raw/{source}/{version}/{name}", data)
+    return rh.RawHarvest(
+        source=source,
+        harvest_version=version,
+        files=tuple((name, hashlib.sha256(data).hexdigest()) for name, data in sorted(files.items())),
+        upstream_url="https://example.org/",
+        copied_from=None,
+        retrieved_at=rh.NOT_RECORDED,
+        fetch_command=f"python scripts/fetch_{source}.py",
+    )
+
+
+def test_harvests_and_caches_carry_their_sources(tree: Path) -> None:
+    harvests = [
+        _harvest(tree, "afnd", "2026-08", {"afnd_frequencies.tsv": b"population\tallele\n"}),
+        _harvest(tree, "worldpop", "2020", {"ppp_2020_1km_Aggregated.tif": b"II*\x00 stand-in"}),
+    ]
+    for path, source in CACHES.items():
+        _write(tree, path, json.dumps({"source": source, "record": {}}).encode())
+    objects = _paths(_build(tree, raw_harvests=harvests))
+    assert objects["raw/afnd/2026-08/afnd_frequencies.tsv"]["sources"] == ["afnd"]
+    raster = objects["raw/worldpop/2020/ppp_2020_1km_Aggregated.tif"]
+    assert (raster["media_type"], raster["sources"]) == ("image/tiff", ["worldpop"])
+    assert objects["raw/afnd_populations.tsv"]["sources"] == ["afnd"]  # the legacy table, unchanged
+    assert {path: objects[path]["sources"] for path in CACHES} == {
+        path: [source] for path, source in CACHES.items()
+    }
+    _write(tree, "store/external/other/x.json", b"{}")
+    with pytest.raises(dr.DataReleaseError, match="store/external/other/x.json: no reviewed source rule"):
+        _build(tree, raw_harvests=harvests)
+
+
+def test_a_raw_file_no_harvest_lists_stays_local_or_is_refused(tree: Path) -> None:
+    """Outside every harvest root a raw file is never read; inside one, it must be listed (§2.1)."""
+    harvest = _harvest(tree, "afnd", "2026-08", {"afnd_frequencies.tsv": b"population\tallele\n"})
+    _write(tree, "raw/afnd_cache/page.html", b"<html/>")
+    assert "raw/afnd_cache/page.html" not in _paths(_build(tree, raw_harvests=[harvest]))
+    _write(tree, "raw/afnd/2026-08/notes.txt", b"x\n")
+    with pytest.raises(dr.DataReleaseError, match="raw/afnd/2026-08/notes.txt: no reviewed raw harvest"):
+        _build(tree, raw_harvests=[harvest])
+
+
+def test_a_harvest_root_that_is_absent_locally_is_a_hard_error(tree: Path) -> None:
+    harvest = _harvest(tree, "map", "2026-08", {"map_hbs_surveys.csv": b"id\n"})
+    (tree / "raw/map/2026-08/map_hbs_surveys.csv").unlink()
+    (tree / "raw/map/2026-08").rmdir()
+    with pytest.raises(dr.DataReleaseError, match="data/raw/map/2026-08 is missing; fetch it first"):
+        _build(tree, raw_harvests=[harvest])
+
+
+def test_a_cache_with_a_non_commercial_field_is_refused_by_the_build(tree: Path) -> None:
+    _write(tree, "store/external/gnomad/x.json", json.dumps({"record": {"spliceai": 0.1}}).encode())
+    with pytest.raises(dr.DataReleaseError, match="split out spliceai before publishing"):
+        _build(tree)
+
+
+def test_the_gnomad_hgdp_1kg_terms_are_recorded() -> None:
+    source = build.REVIEWED_SOURCES["gnomad_hgdp_1kg"]
+    terms = source["terms"]
+    assert terms["status"] == "explicitly_open"
+    assert terms["licence"] == "CC0-1.0"
+    for phrase in ("reidentify", "SpliceAI", "tool's name"):
+        assert phrase in terms["note"], phrase
+    assert source["non_commercial"] is False
+    assert (ROOT / terms["recorded_in"]).is_file()
+    record = dr.FileRecord("raw/gnomad_hgdp_1kg/x/y.tsv", 1, "a" * 64, False, ("gnomad_hgdp_1kg",))
+    dr.validate_manifest(dr.build_manifest([record], {"gnomad_hgdp_1kg": source}, RELEASE))
+
+
+def test_the_external_cache_terms_copy_the_web_catalogs_commercial_use() -> None:
+    catalog = json.loads((ROOT / "website/src/atlas/public-artifacts.json").read_text(encoding="utf-8"))
+    blocks = [
+        (resource["source"], resource["commercial_use"])
+        for artifact in catalog["artifacts"]
+        for resource in artifact.get("external_resources", [])
+    ]
+    assert {source for source, _ in blocks} == set(rh.EXTERNAL_CACHE_SOURCES)
+    for source, block in blocks:
+        reviewed = build.REVIEWED_SOURCES[source]
+        terms = reviewed["terms"]
+        assert {key: terms[key] for key in ("status", "checked_at", "terms_url", "recorded_in")} == {
+            "status": block["finding"],
+            "checked_at": block["checked_at"],
+            "terms_url": block["terms_url"],
+            "recorded_in": block["recorded_in"],
+        }, source
+        # Nothing restricted is published: check_external_cache refuses a known non-commercial field.
+        assert block["restricted_fields"] == [] and reviewed["non_commercial"] is False, source
 
 
 # --- a tables/ file carries its inputs' sources (Atlas data platform design 2026-10-18 §9; call 16) ---
