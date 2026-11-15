@@ -1,10 +1,11 @@
 """The committed catalog fixture, and its attach from a DuckDB other than the writer's.
 
-Atlas data platform design 2026-10-18 §2.6 and step 1.6; builder's call 15. ``tests/fixtures/catalog`` is
-release 2026-11-20 of ``catalog_tree``: its ``catalog.sql``, its views-only ``atlas.duckdb`` (storage
-v1.2.0), every file the catalog reads under ``data/``, and ``expected.json``, each view's row count. CI
-attaches it from DuckDB 1.2.2 through ``scripts/check_catalog_attach.py``, and
-``website/tests/atlas-catalog-attach.test.ts`` from the pinned DuckDB-WASM.
+Atlas data platform design 2026-10-18 §2.6, §3.1 and step 1.6; builder's call 15. ``tests/fixtures/catalog``
+is release 2026-11-20 of ``catalog_tree``: its ``catalog.sql`` with the four lookup macros after its views,
+its ``atlas.duckdb`` (storage v1.2.0), every file the views and macros read under ``data/``, and
+``expected.json``, each view's row count and what the macros return. CI attaches it and runs the macros
+from DuckDB 1.2.2 through ``scripts/check_catalog_attach.py``, and
+``website/tests/atlas-catalog-attach.test.ts`` attaches it from the pinned DuckDB-WASM.
 """
 
 from __future__ import annotations
@@ -72,6 +73,17 @@ def test_the_fixture_check_names_each_stale_file(tmp_path: Path) -> None:
     ]
 
 
+def test_the_fixture_check_compares_the_catalog_macros(tmp_path: Path) -> None:
+    """atlas.duckdb with the same views but one macro fewer is stale."""
+    stale = tmp_path / "catalog"
+    shutil.copytree(FIXTURE, stale)
+    con = duckdb.connect()
+    con.execute(f"ATTACH '{stale / 'atlas.duckdb'}' AS fixture")
+    con.execute("DROP MACRO TABLE fixture.measured.variant")
+    con.close()
+    assert fixture.check_fixture(stale) == ["atlas.duckdb: differs from a fresh build"]
+
+
 def test_the_attach_check_passes_on_the_fixture_under_the_pinned_duckdb() -> None:
     """The CI step's command, in isolated mode, under the writer's own DuckDB."""
     result = subprocess.run(
@@ -82,7 +94,30 @@ def test_the_attach_check_passes_on_the_fixture_under_the_pinned_duckdb() -> Non
     )
     assert result.returncode == 0, result.stderr
     assert "DuckDB 1.5.5:" in result.stdout
+    # The macros' files (one bin, one curated file) are outside the fixture release, so no view lists them.
     assert "8 views" in result.stdout
+    assert "macros: rs334 2 curated + 3 recount rows" in result.stdout
+
+
+def test_the_attach_check_runs_the_macros(capsys: pytest.CaptureFixture[str]) -> None:
+    """rs334 unions the curated file's 2 rows with the bin's 3; chrM computes no URL; no surface is listed."""
+    expected = json.loads((FIXTURE / "expected.json").read_text(encoding="utf-8"))
+    assert expected["macros"] == {
+        "variant": [
+            ["gnomad-hgdp-1kg:curated-tsv", 2, 6, 300],
+            ["gnomad-v3.1.2-hgdp-1kg:fixture-3:d18-v1", 3, 7, 296],
+        ],
+        "lookup_url_chrM": [],
+        "surfaces_rows": 0,
+    }
+    assert attach.check(FIXTURE / "atlas.duckdb", FIXTURE / "data", expected=expected) == []
+    assert (
+        "macros: rs334 2 curated + 3 recount rows; chrM-16519-T-C computes no URL" in capsys.readouterr().out
+    )
+    expected["macros"]["variant"][1][1] = 4
+    problems = attach.check(FIXTURE / "atlas.duckdb", FIXTURE / "data", expected=expected)
+    assert len(problems) == 1 and "measured.variant" in problems[0]
+    assert "macros:" not in capsys.readouterr().out
 
 
 def test_the_attach_check_fails_on_a_wrong_count(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
