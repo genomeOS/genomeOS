@@ -2,11 +2,12 @@
 """Build, or check, the committed catalog fixture ``tests/fixtures/catalog``.
 
 Atlas data platform design 2026-10-18 §2.6, step 1.6; builder's call 15. The fixture is release
-``FIXTURE_RELEASE`` of the tests' ``catalog_tree`` (``tests/tables_fixtures.py``), built by
-``build_data_release.build(..., catalog=True)``: its ``catalog.sql`` and views-only ``atlas.duckdb``, the
-files the catalog reads under ``data/`` at their release paths, and ``expected.json``, each view's row
-count as the pinned DuckDB reads it. The pinned DuckDB writes every Parquet file, so their bytes depend
-on no pandas or pyarrow version.
+``FIXTURE_RELEASE`` of the tests' ``catalog_tree``, built by ``build_data_release.build(..., catalog=True)``:
+its ``catalog.sql`` and views-only ``atlas.duckdb``, the files the catalog reads under ``data/`` at their
+release paths, and ``expected.json``, each view's row count as the pinned DuckDB reads it. The tree comes
+from ``scripts/fixture_trees.py``, which ``tests/tables_fixtures.py`` re-exports: a script never imports
+``tests/``, so this one runs without pytest. The pinned DuckDB writes every Parquet file, so their bytes
+depend on no pandas or pyarrow version.
 
     python scripts/build_catalog_fixture.py            # write
     python scripts/build_catalog_fixture.py --check    # fail if stale
@@ -36,8 +37,8 @@ if str(ROOT) not in sys.path:
 from genomeos.publication import data_release as dr  # noqa: E402
 from genomeos.tables import catalog, writer  # noqa: E402
 from genomeos.tables.contracts import TableError  # noqa: E402
+from scripts import fixture_trees  # noqa: E402
 from scripts.check_catalog_attach import view_counts  # noqa: E402
-from tests import tables_fixtures  # noqa: E402
 
 FIXTURE_RELEASE = "2026-11-20"
 FIXTURE = ROOT / "tests" / "fixtures" / "catalog"
@@ -54,10 +55,10 @@ def build_fixture(out: Path) -> None:
     ``out/data`` is replaced; other files in ``out`` are left for ``--check`` to name.
     """
     with tempfile.TemporaryDirectory() as scratch:
-        root = tables_fixtures.make_catalog_tree(Path(scratch))
+        root = fixture_trees.make_catalog_tree(Path(scratch))
         with contextlib.redirect_stdout(io.StringIO()):  # build_tables prints each table's row count
-            tables_fixtures.build_catalog_tables(root)
-        manifest = tables_fixtures.release_catalog_tree(root)
+            fixture_trees.build_catalog_tables(root)
+        manifest = fixture_trees.release_catalog_tree(root)
         if manifest["release"] != FIXTURE_RELEASE:
             raise TableError(f"catalog_tree released {manifest['release']}, not {FIXTURE_RELEASE}")
         data = root / "data"

@@ -27,10 +27,31 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "catalog"
 ATTACH_SCRIPT = ROOT / "scripts" / "check_catalog_attach.py"
 CATALOG = ["--catalog", str(FIXTURE / "atlas.duckdb"), "--local", str(FIXTURE / "data")]
+#: The builder's ``--check`` run as a script where pytest is not installed; it then prints its exit code
+#: and every module of the ``tests`` package that got imported.
+WITHOUT_PYTEST = """
+import runpy, sys
+sys.modules["pytest"] = None
+sys.argv = ["build_catalog_fixture.py", "--check"]
+try:
+    runpy.run_path("scripts/build_catalog_fixture.py", run_name="__main__")
+except SystemExit as stop:
+    print(stop.code)
+print(sorted(name for name in sys.modules if name.partition(".")[0] == "tests"))
+"""
 
 
 def test_the_committed_catalog_fixture_is_current() -> None:
     assert fixture.main(["--check"]) == 0
+
+
+def test_the_fixture_builder_needs_no_pytest_and_imports_nothing_from_tests() -> None:
+    """A script under scripts/ builds the trees from scripts/fixture_trees.py, never from tests/."""
+    result = subprocess.run(
+        [sys.executable, "-c", WITHOUT_PYTEST], cwd=ROOT, capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[-2:] == ["0", "[]"]
 
 
 def test_the_fixture_check_names_each_stale_file(tmp_path: Path) -> None:
