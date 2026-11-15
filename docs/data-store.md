@@ -65,7 +65,9 @@ docs/figures/                           committed: review figures
 | `data/validation/` | no (since 2026-10-17) | **yes** | held-out validation evidence |
 | `data/tables/v1/` | no | **yes** | derived from released bytes, never cited; each file records its inputs and sources |
 | `data/catalog/catalog.sql` | **yes** | **yes** | the release's views; `atlas.duckdb` and `tables.json` beside it are in the data store only |
-| `data/raw/` (other files) | no | not yet (phase 2) | sources are versioned upstream; re-fetchable by script |
+| `data/raw/<source>/<harvest_version>/` | no | **yes**, from the first release after 2026-11-15 | the reviewed raw harvests (`raw_harvests.RAW_HARVESTS`: AFND frequencies, MAP's HbS and G6PD surveys, the WorldPop 2020 rasters), each file pinned by sha256; immutable once released |
+| `data/store/external/` | no | **yes**, from the first release after 2026-11-15 | the gnomAD, dbSNP and AlphaGenome caches the Atlas serves (`raw_harvests.EXTERNAL_CACHES`), pinned to their served content |
+| `data/raw/` (other files) | no | no | stays local: the AFND page caches, `gnomad_hgdp_1kg_freqs.tsv` and any fetch output no harvest lists; re-fetchable by script |
 | `data/store/models/` | no | **yes** | safe exports of fits (#471): each names its artifact, is bound to that artifact's `observations.parquet` by sha256 and lists its files; immutable once released |
 | `data/store/fits/*.pkl` | no | **never** | pickles: environment-coupled, and loading one executes code. Format 3 also holds the fit's input, which is how it reaches the artifact |
 
@@ -508,10 +510,16 @@ If the budget kill switch has made the bucket private ([`cost-controls.md`](cost
 publishing still works, because the publisher reads through its own role. The anonymous
 `fetch_data.py --verify-remote` check fails until the owner re-enables public access.
 
-**What is not published yet.** Fits are pickles and are never published; their safe exports are
-(`store/models/`). The raw third-party harvests (MAP WFS exports, AFND frequencies and page caches,
-gnomAD, the WorldPop grid, the external caches) are phase 2. Until then they live locally and in the
-interim Hugging Face mirror (`scripts/sync_store.py`).
+**What is not published.** Fits are pickles and are never published; their safe exports are
+(`store/models/`). From the first release after 2026-11-15 (step 1.8), every release publishes the
+reviewed raw harvests under `raw/<source>/<harvest_version>/` (`raw_harvests.RAW_HARVESTS`: the AFND
+frequency harvest, MAP's HbS and G6PD survey exports and the WorldPop 2020 rasters, every file pinned
+by sha256) and the gnomAD, dbSNP and AlphaGenome caches the Atlas serves under `store/external/`
+(`raw_harvests.EXTERNAL_CACHES`); the build fails if any of them is missing locally. Every other file
+under `data/raw/` stays local and in the interim Hugging Face mirror (`scripts/sync_store.py`): the
+AFND page caches and `gnomad_hgdp_1kg_freqs.tsv` wait on the owner's step 1.8 scope decision, and a file
+in a harvest's folder that the harvest does not list fails the build. The whole-genome recount cites
+gnomAD's VCFs instead of re-hosting them (D17), and per-sample gnomAD metadata is never hosted.
 
 ## Query a release
 
