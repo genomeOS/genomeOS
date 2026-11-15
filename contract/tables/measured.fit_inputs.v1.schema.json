@@ -1,0 +1,109 @@
+{
+  "contract": "genomeos-table",
+  "key": [
+    "artifact",
+    "ingest_version",
+    "source_record_id"
+  ],
+  "pandera": {
+    "coerce": true,
+    "columns": {
+      "artifact": {
+        "dtype": "string[pyarrow]",
+        "meaningful_text": {
+          "error": "this value resembles a spelling of absence (-, n/a, na, none, not reported, null, tbd, unknown). It has been preserved for human review. Confirm whether the source intended a real literal value or missing metadata; missingness must use the field's explicit recorded state rather than looking like trusted metadata.",
+          "raise_warning": true
+        },
+        "non_blank_text": {
+          "error": "required text must contain at least one non-whitespace character"
+        }
+      },
+      "data_version": {
+        "dtype": "string[pyarrow]",
+        "meaningful_text": {
+          "error": "this value resembles a spelling of absence (-, n/a, na, none, not reported, null, tbd, unknown). It has been preserved for human review. Confirm whether the source intended a real literal value or missing metadata; missingness must use the field's explicit recorded state rather than looking like trusted metadata.",
+          "raise_warning": true
+        },
+        "non_blank_text": {
+          "error": "required text must contain at least one non-whitespace character"
+        }
+      },
+      "epoch": {
+        "dtype": "string[pyarrow]",
+        "str_matches": "^\\d{4}-\\d{2}-\\d{2}(?:\\.[1-9]\\d*)?$"
+      },
+      "evidence": {
+        "dtype": "string[pyarrow]",
+        "isin": [
+          "fit-record",
+          "web-json-match"
+        ]
+      },
+      "ingest_version": {
+        "dtype": "string[pyarrow]",
+        "meaningful_text": {
+          "error": "this value resembles a spelling of absence (-, n/a, na, none, not reported, null, tbd, unknown). It has been preserved for human review. Confirm whether the source intended a real literal value or missing metadata; missingness must use the field's explicit recorded state rather than looking like trusted metadata.",
+          "raise_warning": true
+        },
+        "non_blank_text": {
+          "error": "required text must contain at least one non-whitespace character"
+        }
+      },
+      "measurement": {
+        "dtype": "string[pyarrow]",
+        "isin": [
+          "allele_frequency",
+          "carrier_frequency"
+        ]
+      },
+      "model_version": {
+        "dtype": "string[pyarrow]",
+        "meaningful_text": {
+          "error": "this value resembles a spelling of absence (-, n/a, na, none, not reported, null, tbd, unknown). It has been preserved for human review. Confirm whether the source intended a real literal value or missing metadata; missingness must use the field's explicit recorded state rather than looking like trusted metadata.",
+          "raise_warning": true
+        },
+        "non_blank_text": {
+          "error": "required text must contain at least one non-whitespace character"
+        }
+      },
+      "source": {
+        "dtype": "string[pyarrow]",
+        "meaningful_text": {
+          "error": "this value resembles a spelling of absence (-, n/a, na, none, not reported, null, tbd, unknown). It has been preserved for human review. Confirm whether the source intended a real literal value or missing metadata; missingness must use the field's explicit recorded state rather than looking like trusted metadata.",
+          "raise_warning": true
+        },
+        "non_blank_text": {
+          "error": "required text must contain at least one non-whitespace character"
+        }
+      },
+      "source_record_id": {
+        "dtype": "string[pyarrow]",
+        "meaningful_text": {
+          "error": "this value resembles a spelling of absence (-, n/a, na, none, not reported, null, tbd, unknown). It has been preserved for human review. Confirm whether the source intended a real literal value or missing metadata; missingness must use the field's explicit recorded state rather than looking like trusted metadata.",
+          "raise_warning": true
+        },
+        "non_blank_text": {
+          "error": "required text must contain at least one non-whitespace character"
+        }
+      },
+      "variant_id": {
+        "dtype": "string[pyarrow]",
+        "str_matches": "^(?:chr(?:[1-9]|1[0-9]|2[0-2]|X|Y|M)-\\d+-[ACGT]+-[ACGT]+|phenotype:[a-z0-9][a-z0-9-]*|(?:hla|kir|mic|cyt):[a-z0-9][a-z0-9._-]*)$"
+      }
+    },
+    "drop_invalid_rows": false,
+    "name": "fit_inputs",
+    "schema_type": "dataframe",
+    "strict": true,
+    "unique": [
+      "artifact",
+      "ingest_version",
+      "source_record_id"
+    ]
+  },
+  "partitions": [
+    "epoch"
+  ],
+  "schema_version": "1.0",
+  "table": "measured.fit_inputs"
+}

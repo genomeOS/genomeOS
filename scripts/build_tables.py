@@ -43,6 +43,14 @@ re-ingested and verified, never written again. It prints ``<table> source=<s> in
 rows, written`` (or ``verified``), each refusal as ``  refused <count> <reason>``, and ``measured.ingests:
 <n> rows``.
 
+The ``fit_inputs`` stage (§2.4, §2.7 check 3, §2.8; calls 6, 8) reads the served observations JSON from
+``--web-observations <dir>`` at their web ``catalog.json`` urls and sha256s (``docs/data-store.md``). Each
+whose data has a published ingest (``INGEST_FOR_DATA_VERSION``) must equal its part record for record, or
+the build stops unless ``WEB_JSON_REFUSED`` lists it. It writes ``measured.fit_inputs`` under
+``epoch=<release>`` for matched artifacts no earlier epoch holds, prints ``web-json-match: <k> artifacts
+(<n> <measurement>, …)`` and ``none: <n> artifacts, each with a reason``, and hands its evidence to the
+inferred stage; once a ``fit_inputs`` part exists, the inferred stage is refused without it.
+
 The ``inferred`` stage (§2.4, §2.8; calls 6, 8, 22) reads every released artifact under
 ``store/artifacts/`` plus any this release adds, keyed from the committed manifests or else under this
 release. It writes ``cells_by_cell`` parts only for artifacts no earlier epoch holds, under
@@ -78,6 +86,7 @@ from genomeos.publication import data_release as dr  # noqa: E402
 from genomeos.publication import raw_harvests as rh  # noqa: E402
 from genomeos.tables import (  # noqa: E402
     contracts,
+    fit_inputs,
     inferred,
     measured,
     meta,
@@ -104,6 +113,12 @@ MAP_SURVEYS = tuple(
 #: The curated input of the 80 HGDP + 1KG identities (step 1.7, D18): committed, and published under
 #: ``registry/``. ``scripts/curate_hgdp_1kg_registry.py --check`` holds it to gnomAD's metadata.
 HGDP_1KG_REGISTRY = f"registry/hgdp_1kg/{reference.HGDP_1KG_RELEASE}/populations.tsv"
+#: Reviewed: each served artifact whose observations JSON is refused as a fit-input record, with the reason
+#: its ``fit_input_evidence`` is ``none`` (§2.8). A mismatch is never loosened: list the artifact here, in a
+#: reviewed commit of its own.
+WEB_JSON_REFUSED: dict[str, str] = {}
+#: Reviewed: the ingest whose parts hold each served data_version's records (``fit_inputs`` routes by it).
+INGEST_FOR_DATA_VERSION = fit_inputs.INGEST_FOR_DATA_VERSION
 
 
 @dataclass(frozen=True)
@@ -359,6 +374,136 @@ def _registry(
     return reference.afnd_legacy(copy)
 
 
+def load_served_web_observations(
+    catalog: Mapping[str, Any], root: Path
+) -> tuple[fit_inputs.WebObservations, ...]:
+    """Each served artifact's observations JSON, read from ``root`` at its catalog ``observations_url``,
+    refused unless its sha256 is the catalog's ``observations_sha256`` and its artifact the entry's. A
+    missing file is an error; an artifact served without observations has none."""
+    found = []
+    for url, sha256, entry in fit_inputs.served_files(catalog):
+        path = root / url
+        if not path.is_file():
+            raise TableError(
+                f"{path}: the served observations JSON of {entry.get('variant_id')} is missing; download "
+                'it first (docs/data-store.md, "Public data store")'
+            )
+        web = fit_inputs.parse_web_observations(path.read_bytes(), expected_sha256=sha256)
+        found.append(fit_inputs.served_as(web, entry, where=path))
+    return tuple(sorted(found, key=lambda web: web.artifact))
+
+
+def build_fit_inputs(
+    ctx: BuildContext,
+    *,
+    web: Sequence[fit_inputs.WebObservations],
+    web_json_refused: Mapping[str, str] = WEB_JSON_REFUSED,
+) -> pd.DataFrame:
+    """``measured.fit_inputs``, every epoch's rows, once this release's part holds the matched artifacts no
+    earlier epoch holds (call 6).
+
+    Each served JSON whose data has a published ingest must equal that ingest's part record for record
+    (check 3); a mismatch stops the build unless ``web_json_refused`` lists the artifact. Every artifact's
+    ``fit_input_evidence`` is computed as the inferred stage will (check 10), before anything is written.
+    """
+    con = writer.connect()
+    root = contracts.table_path(fit_inputs.FIT_INPUTS_TABLE)
+    published = sorted((path, item) for path, item in ctx.published.items() if path.startswith(root))
+    earlier = [_earlier_part(ctx, con, path, item) for path, item in published]
+    parts: dict[str, tuple[InputRef, pd.DataFrame]] = {}
+    staged: dict[str, tuple[InputRef, Path]] = {}
+    aliases: dict[str, pd.DataFrame] = {}
+    matched: list[tuple[str, pd.DataFrame]] = []
+    for item in web:
+        ingest = fit_inputs.route(item, refused=web_json_refused)
+        if ingest is None:
+            continue
+        if f"{dr.ARTIFACT_PREFIX}{item.artifact}/{meta.MANIFEST_FILE}" not in ctx.published:
+            raise TableError(f"{item.artifact}: the website serves it, and no committed release holds it")
+        part = measured.part_path(ingest.table, ingest.source, ingest.ingest_version)
+        if part not in parts:
+            ref, copy = _stage_input(ctx, part)
+            writer.check_table_file(copy, ingest.table)
+            parts[part] = (ref, pd.read_parquet(copy))
+        version = ingest.registry_version
+        if version not in aliases:
+            staged[AFND_POPULATIONS] = staged.get(AFND_POPULATIONS) or _measured_input(ctx, AFND_POPULATIONS)
+            aliases[version] = _registry(ctx, version, staged)[1]
+        matched.append((part, fit_inputs.match_web_json(item, parts[part][1], aliases=aliases[version])))
+    held = frozenset(name for frame in earlier for name in frame["artifact"])
+    found = [frame.assign(epoch=ctx.release)[list(fit_inputs.COLUMNS)] for _, frame in matched]
+    new = fit_inputs.new_rows(_concat(found), already=held)
+    rows = _concat([*earlier, new]).sort_values(list(fit_inputs.SORT_KEY), ignore_index=True)
+    evidence = _evidence(ctx, fit_inputs.evidence_kwargs(web, rows, refused=web_json_refused))
+    path = fit_inputs.fit_inputs_path(ctx.release)
+    _refuse_strays(ctx, (root,), [path] if len(new) else [])
+    status = "no new artifacts"
+    if len(new):
+        written = set(new["artifact"])
+        refs = {parts[part][0] for part, frame in matched if written & set(frame["artifact"])}
+        refs = tuple(sorted(refs | {ref for ref, _ in staged.values()}))
+        names = (ref.key.split("/", 2)[2] for ref in refs)  # releases/<R>/<path>
+        new_sources = {
+            name: build_data_release.sources_for(ctx.data_root, name)
+            for name in names
+            if name not in ctx.published
+        }
+        writer.write_frame(
+            con,
+            new,
+            ctx.out_root / path,
+            table=fit_inputs.FIT_INPUTS_TABLE,
+            git_sha=ctx.git_sha,
+            inputs=refs,
+            sources=provenance.union_sources(refs, manifests=_by_release(ctx), new_sources=new_sources),
+            order_by=fit_inputs.SORT_KEY,
+        )
+        writer.check_partitions(con, ctx.out_root / path, path)
+        status = f"{len(new)} rows, {len(written)} artifacts, written"
+    print(f"{fit_inputs.FIT_INPUTS_TABLE} epoch={ctx.release}: {status}")
+    print("\n".join(fit_inputs.evidence_lines(rows, evidence)))
+    return rows
+
+
+def _earlier_part(
+    ctx: BuildContext, con: duckdb.DuckDBPyConnection, path: str, item: dr.ReleaseObject
+) -> pd.DataFrame:
+    """An earlier epoch's ``measured.fit_inputs`` part, read from its local copy (checks 1 and 2)."""
+    copy = write_once.require_published_local(ctx.data_root, path, item.sha256)
+    writer.check_table_file(copy, fit_inputs.FIT_INPUTS_TABLE)
+    writer.check_partitions(con, copy, path)
+    return pd.read_parquet(copy)
+
+
+def _concat(frames: Sequence[pd.DataFrame]) -> pd.DataFrame:
+    """The non-empty ``frames`` as one ``measured.fit_inputs`` frame (with no rows when all are empty)."""
+    kept = [frame for frame in frames if len(frame)]
+    return pd.concat(kept, ignore_index=True) if kept else pd.DataFrame(columns=list(fit_inputs.COLUMNS))
+
+
+def _evidence(ctx: BuildContext, decided: Mapping[str, Any]) -> dict[str, tuple[str, str | None]]:
+    """Every released or added artifact's ``fit_input_evidence``, as ``build_inferred`` gives it (check 10);
+    ``decided`` is what the fit_inputs stage decided (``fit_inputs.evidence_kwargs``)."""
+    released = meta.released_artifacts(ctx.published)
+    evidence = {}
+    for artifact in sorted({*released, *_local_artifacts(ctx)}):
+        path = f"{dr.ARTIFACT_PREFIX}{artifact}/{ai.INPUT_FILE}"
+        has_input = path in ctx.published or (artifact not in released and (ctx.data_root / path).is_file())
+        evidence[artifact] = inferred.fit_input_evidence(
+            artifact,
+            has_input=has_input,
+            released_without_input=build_data_release.RELEASED_WITHOUT_INPUT,
+            **decided,
+        )
+    return evidence
+
+
+def _local_artifacts(ctx: BuildContext) -> list[str]:
+    """The artifact directories the local tree holds, released or added."""
+    local = ctx.data_root / dr.ARTIFACT_PREFIX
+    return sorted(path.name for path in local.iterdir() if path.is_dir()) if local.is_dir() else []
+
+
 def artifact_records(ctx: BuildContext) -> tuple[inferred.ArtifactRecord, ...]:
     """Every released artifact, and every artifact directory this release adds, as the build reads it.
 
@@ -367,10 +512,8 @@ def artifact_records(ctx: BuildContext) -> tuple[inferred.ArtifactRecord, ...]:
     ``ctx.release``, hashed here, and take their sources from the release builder's reviewed rules.
     """
     released = meta.released_artifacts(ctx.published)
-    local = ctx.data_root / dr.ARTIFACT_PREFIX
-    added = sorted(path.name for path in local.iterdir() if path.is_dir()) if local.is_dir() else []
     records = []
-    for artifact in sorted(set(released) | set(added)):
+    for artifact in sorted({*released, *_local_artifacts(ctx)}):
         files: dict[str, tuple[str, str, Path, tuple[str, ...]]] = {}
         for name in (inferred.CELLS_FILE, meta.MANIFEST_FILE, ai.INPUT_FILE):
             path = f"{dr.ARTIFACT_PREFIX}{artifact}/{name}"
@@ -416,11 +559,13 @@ def build_inferred(
     *,
     web_json_matches: frozenset[str] = frozenset(),
     web_json_refused: Mapping[str, str] | None = None,
+    no_published_ingest: Mapping[str, str] | None = None,
 ) -> dict[str, int]:
     """``inferred.cells_by_cell`` parts for the artifacts no earlier epoch holds, and ``inferred.artifacts``.
 
     Earlier epochs' parts are read, never rebuilt (call 6). Checks 1 and 2 run on every part, check 6 on
-    every artifact against its ``cells.parquet``, and check 10 on every artifact's evidence.
+    every artifact against its ``cells.parquet``, and check 10 on every artifact's evidence, given its
+    ``web_json_*`` and ``no_published_ingest`` by the fit_inputs stage (``fit_inputs.evidence_kwargs``).
     """
     records = artifact_records(ctx)
     con = writer.connect()
@@ -453,6 +598,7 @@ def build_inferred(
             released_without_input=build_data_release.RELEASED_WITHOUT_INPUT,
             web_json_matches=web_json_matches,
             web_json_refused=web_json_refused,
+            no_published_ingest=no_published_ingest,
         )
         for record in records
     }
@@ -567,6 +713,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--git-sha", default="HEAD", help="the commit files record and read git: inputs at (default: HEAD)"
     )
     parser.add_argument("--stage", action="append", choices=tuple(_RUNNERS), help="repeatable; default: all")
+    parser.add_argument(
+        "--web-observations",
+        type=Path,
+        help="the folder holding the served observations JSON at their catalog observations_url (fit_inputs)",
+    )
     # Hidden, for tests: a releases/ folder of copies, and a web catalog and withdrawn list read as
     # they stand instead of at --git-sha.
     parser.add_argument("--releases", type=Path, default=RELEASES, help=argparse.SUPPRESS)
@@ -580,36 +731,59 @@ def main(argv: Sequence[str] | None = None) -> int:
     selected = set(args.stage or _RUNNERS)
     try:
         ctx = context(args)
+        handed: dict[str, Any] = {}  # what a stage hands a later stage of this run
         for stage in STAGES:
             if stage in selected:
-                _RUNNERS[stage](ctx, args)
+                _RUNNERS[stage](ctx, args, handed)
     except (TableError, dr.DataReleaseError, OSError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
     return 0
 
 
-def _run_meta(ctx: BuildContext, args: argparse.Namespace) -> None:
+def _run_meta(ctx: BuildContext, args: argparse.Namespace, handed: dict[str, Any]) -> None:
     build_meta(ctx, web_catalog=args.web_catalog, withdrawn=args.withdrawn)
 
 
-def _run_reference(ctx: BuildContext, args: argparse.Namespace) -> None:
+def _run_reference(ctx: BuildContext, args: argparse.Namespace, handed: dict[str, Any]) -> None:
     build_reference(ctx)
 
 
-def _run_measured(ctx: BuildContext, args: argparse.Namespace) -> None:
+def _run_measured(ctx: BuildContext, args: argparse.Namespace, handed: dict[str, Any]) -> None:
     build_measured(ctx)
 
 
-def _run_inferred(ctx: BuildContext, args: argparse.Namespace) -> None:
-    build_inferred(ctx)
+def _run_fit_inputs(ctx: BuildContext, args: argparse.Namespace, handed: dict[str, Any]) -> None:
+    if args.web_observations is None:
+        raise TableError(
+            "the fit_inputs stage matches the observations JSON the website serves: pass --web-observations "
+            '<dir>, downloaded as docs/data-store.md says ("Public data store")'
+        )
+    _, catalog = _git_json(ctx, meta.WEB_CATALOG, args.web_catalog)
+    web = load_served_web_observations(catalog, args.web_observations)
+    rows = build_fit_inputs(ctx, web=web)
+    handed["evidence"] = fit_inputs.evidence_kwargs(web, rows, refused=WEB_JSON_REFUSED)
 
 
-#: The stages this checkout builds, each run from the parsed arguments; ``--stage`` takes only these.
-_RUNNERS: dict[str, Callable[[BuildContext, argparse.Namespace], object]] = {
+def _run_inferred(ctx: BuildContext, args: argparse.Namespace, handed: dict[str, Any]) -> None:
+    root = contracts.table_path(fit_inputs.FIT_INPUTS_TABLE)
+    if "evidence" not in handed and (
+        any(path.startswith(root) for path in ctx.published) or (ctx.out_root / root).is_dir()
+    ):
+        raise TableError(
+            f"{root} exists, and without the fit_inputs stage in this run every matched artifact would be "
+            "none: run --stage fit_inputs --stage inferred"
+        )
+    build_inferred(ctx, **handed.get("evidence", {}))
+
+
+#: The stages this checkout builds, each run from the parsed arguments and what an earlier stage of the
+#: same run handed on; ``--stage`` takes only these.
+_RUNNERS: dict[str, Callable[[BuildContext, argparse.Namespace, dict[str, Any]], object]] = {
     "meta": _run_meta,
     "reference": _run_reference,
     "measured": _run_measured,
+    "fit_inputs": _run_fit_inputs,
     "inferred": _run_inferred,
 }
 
@@ -631,6 +805,8 @@ def _stage_input(ctx: BuildContext, path: str) -> tuple[InputRef, Path]:
             hint = f"; fetch it: {harvest.fetch_command}"
         elif path == HGDP_1KG_REGISTRY:
             hint = "; write it as docs/hgdp-registry-input.md says (its radius rule is the owner's, #508)"
+        elif path.startswith(tuple(contracts.table_path(table) for table in measured.PART_TABLES)):
+            hint = "; build it first: --stage measured"
         raise TableError(
             f"{path}: the build reads it, no release published it, and {ctx.data_root} lacks it" + hint
         )

@@ -32,6 +32,12 @@ share ``afnd``/``afnd-2026-08``, with each ingest's inputs and its refusals as l
 1.1 (§2.10, D17) adds two nullable columns for the whole-genome recount's sample rule, ``sample_rule`` and
 ``sample_stage_sha256``, null for a curated ingest.
 
+``measured.fit_inputs`` (§2.4, §2.8; call 8) is the only table that links measured to inferred: keys only,
+one row per artifact and measured record, with the artifact's identity and ``measurement``, the record's
+``source``, ``ingest_version`` and ``source_record_id``, and its ``evidence`` (``fit-record`` or
+``web-json-match``). Its ``epoch``, the release that first wrote the artifact's rows, is stored, so check 2
+compares each folder with its rows.
+
 The four ``meta.*`` tables (§2.4, §2.9; calls 4, 7) are Arrow contracts: each field's name, type and
 nullability, in order. ``meta.release_objects`` keeps a list of sources per object, which pandera
 does not describe.
@@ -67,7 +73,12 @@ import pandera.pandas as pa
 import pyarrow
 from pandera import extensions
 
-from genomeos.observations.schema import CARRIER_OBSERVATIONS_SCHEMA, OBSERVATIONS_SCHEMA
+from genomeos.observations.schema import (
+    CARRIER_OBSERVATIONS_SCHEMA,
+    OBSERVATIONS_SCHEMA,
+    VARIANT_ID_PATTERN,
+)
+from genomeos.publication import artifact_inputs as ai
 from genomeos.publication import data_release as dr
 from genomeos.registry.schema import ALIASES_SCHEMA, POPULATIONS_SCHEMA
 from genomeos.schema_checks import REVIEWABLE_TEXT
@@ -186,6 +197,42 @@ CARRIER_OBSERVATIONS = TableContract(
     key=("ingest_version", "source_record_id"),
     partitions=("source", "ingest_version"),
     schema=CARRIER_OBSERVATIONS_SCHEMA,
+)
+
+
+#: The evidence a ``measured.fit_inputs`` row may carry (§2.4): ``inferred.FIT_RECORD`` and
+#: ``inferred.WEB_JSON_MATCH``. ``none`` is no row, only a reason in ``inferred.artifacts``.
+FIT_INPUT_EVIDENCE = ("fit-record", "web-json-match")
+#: A release id, ``YYYY-MM-DD`` with an optional ``.N`` (``data_release.assert_release_id``).
+RELEASE_ID_PATTERN = r"^\d{4}-\d{2}-\d{2}(?:\.[1-9]\d*)?$"
+
+#: Which measured record each artifact was fit to, as keys only (§2.4, §2.8; call 8).
+FIT_INPUTS_SCHEMA = pa.DataFrameSchema(
+    {
+        "epoch": pa.Column(str, pa.Check.str_matches(RELEASE_ID_PATTERN), nullable=False),
+        "artifact": pa.Column(str, REVIEWABLE_TEXT, nullable=False),
+        "variant_id": pa.Column(str, pa.Check.str_matches(VARIANT_ID_PATTERN), nullable=False),
+        "model_version": pa.Column(str, REVIEWABLE_TEXT, nullable=False),
+        "data_version": pa.Column(str, REVIEWABLE_TEXT, nullable=False),
+        "measurement": pa.Column(str, pa.Check.isin(list(ai.INPUT_CONTRACTS)), nullable=False),
+        "source": pa.Column(str, REVIEWABLE_TEXT, nullable=False),
+        "ingest_version": pa.Column(str, REVIEWABLE_TEXT, nullable=False),
+        "source_record_id": pa.Column(str, REVIEWABLE_TEXT, nullable=False),
+        "evidence": pa.Column(str, pa.Check.isin(list(FIT_INPUT_EVIDENCE)), nullable=False),
+    },
+    unique=["artifact", "ingest_version", "source_record_id"],
+    strict=True,
+    coerce=True,
+    name="fit_inputs",
+)
+
+FIT_INPUTS = TableContract(
+    "measured.fit_inputs",
+    major=1,
+    minor=0,
+    key=("artifact", "ingest_version", "source_record_id"),
+    partitions=("epoch",),
+    schema=FIT_INPUTS_SCHEMA,
 )
 
 
@@ -441,6 +488,7 @@ TABLE_CONTRACTS: Mapping[str, TableContract] = MappingProxyType(
             ALLELE_OBSERVATIONS_BINNED,
             CARRIER_OBSERVATIONS,
             INGESTS,
+            FIT_INPUTS,
             RELEASE_OBJECTS,
             SOURCES,
             SERVED,
