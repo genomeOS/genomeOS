@@ -19,6 +19,11 @@ Who checks what:
   MINOR, ignoring catalog keys it does not know.
 
 There is no default (design §12): a catalog without ``format_version`` is refused, never read as 1.0.
+
+``artifact_format`` is a closed set the web reads (``WEB_ARTIFACT_FORMATS``, the ``z.literal`` values
+of ``website/src/atlas/contracts.ts``). Admitting a new value, such as the data store's format 4 (Atlas
+data platform design 2026-10-18 §2.5), is a format MAJOR, so the exporter refuses it until then:
+``require_web_artifact_format``.
 Pure: standard library only, no I/O.
 """
 
@@ -32,13 +37,16 @@ from collections.abc import Mapping
 #: catalog to this value.
 WEB_FORMAT_VERSION = "1.1"
 FIELD = "format_version"
+#: The artifact formats the web serves; ``tests/test_web_format.py`` holds this to ``contracts.ts``.
+WEB_ARTIFACT_FORMATS = frozenset({1, 2, 3})
 
 # ASCII digits only and no leading zeros, so one version has exactly one spelling.
 _VERSION = re.compile(r"(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})")
 
 
 class WebFormatError(ValueError):
-    """A catalog whose format version is missing, malformed or not one this code handles. Fatal."""
+    """A catalog whose format version, or an artifact whose ``artifact_format``, is missing, malformed
+    or not one this code handles. Fatal."""
 
 
 def parse_format_version(value: object) -> tuple[int, int]:
@@ -92,3 +100,14 @@ def require_known(catalog: object) -> tuple[int, int]:
             "code cannot enumerate, so update genomeos before publishing or checking it"
         )
     return major, minor
+
+
+def require_web_artifact_format(value: object) -> int:
+    """``value`` as an integer the web reads; anything else (a bool, a float, a string, format 4) is
+    refused, not coerced."""
+    if isinstance(value, bool) or not isinstance(value, int) or value not in WEB_ARTIFACT_FORMATS:
+        raise WebFormatError(
+            f"artifact_format {value!r} is not one the web reads ({sorted(WEB_ARTIFACT_FORMATS)}); "
+            "serving a new artifact format is a format MAJOR (docs/web-data-format.md)"
+        )
+    return value

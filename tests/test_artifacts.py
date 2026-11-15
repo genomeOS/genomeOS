@@ -4,6 +4,9 @@ Three properties carry the design's weight and are tested directly: an artifact 
 silently overwritten**, the **support mask travels with the numbers**, and the **fit's input
 travels with its output** (#45). Everything else about the format is convenience; those three are
 what make a published surface citable, honest and checkable.
+
+New artifacts are format 4 (Atlas data platform design 2026-10-18 §2.5): zstd, 8,192-row groups and
+each cell's ``h3_r0`` and ``h3_parent_r3``. Formats 1 to 3 stay readable.
 """
 
 from __future__ import annotations
@@ -13,8 +16,10 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
+import h3
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 import pytest
 
 from genomeos.observations.schema import OBSERVATIONS_SCHEMA
@@ -22,6 +27,8 @@ from genomeos.observations.sources import afnd_carriers
 from genomeos.surfaces.artifacts import (
     ARTIFACT_COLUMNS,
     ARTIFACT_FORMAT,
+    FORMAT_THREE_COLUMNS,
+    H3_PARENT_COLUMNS,
     ArtifactManifest,
     cell_table,
     publish,
@@ -39,13 +46,18 @@ from tests.observation_fixtures import kir_fit_rows, observation_rows
 HBS = "chr11-5227002-T-A"
 
 
-def _frame(n: int = 5, variant_id: str = "chr11-5227002-T-A") -> pd.DataFrame:
+_SUPPORT = ("observed", "interpolated", "unknown", "prior_dominated", "observed")
+
+
+def _cells(cells: list[str], variant_id: str = HBS) -> pd.DataFrame:
+    """Format-4 cells over `cells`, each carrying its parents as `cell_table` writes them."""
+    n = len(cells)
     rng = np.random.default_rng(42)
     post_sd = rng.uniform(0.001, 0.05, n)
     prior_sd = rng.uniform(0.06, 0.2, n)
     return pd.DataFrame(
         {
-            "h3_index": [f"83{i:04x}fffffffff" for i in range(n)],
+            "h3_index": cells,
             "variant_id": variant_id,
             "post_median": rng.uniform(0, 0.2, n),
             "post_mean": rng.uniform(0, 0.2, n),
@@ -55,14 +67,26 @@ def _frame(n: int = 5, variant_id: str = "chr11-5227002-T-A") -> pd.DataFrame:
             "q975": 0.3,
             "q25": 0.01,
             "q75": 0.1,
-            "support": ["observed", "interpolated", "unknown", "prior_dominated", "observed"][:n],
+            "support": [_SUPPORT[i % len(_SUPPORT)] for i in range(n)],
             "posterior_contraction": post_sd / prior_sd,
             "dist_nearest_obs_km": rng.uniform(0, 3000, n),
             "model_version": "v1",
             "data_version": "map-2026-08",
+            "h3_r0": [h3.cell_to_parent(cell, 0) for cell in cells],
+            "h3_parent_r3": [h3.cell_to_parent(cell, 3) for cell in cells],
         },
         columns=list(ARTIFACT_COLUMNS),
     )
+
+
+def _frame(n: int = 5, variant_id: str = "chr11-5227002-T-A") -> pd.DataFrame:
+    """`n` resolution-3 cells (each its own `h3_parent_r3`), matching `_manifest()`."""
+    return _cells([f"83{i:04x}fffffffff" for i in range(n)], variant_id)
+
+
+def _valid_frame(res: int = 4, n: int | None = None) -> pd.DataFrame:
+    """The first `n` cells of a 60-ring disc in Ghana at `res` (10,420 cells at res 4)."""
+    return _cells(sorted(h3.grid_disk(h3.latlng_to_cell(9.0, -1.5, res), 60))[:n])
 
 
 def _measurement(variant_id: str) -> str:
@@ -164,7 +188,9 @@ def test_a_frozen_format_one_artifact_remains_readable_without_invented_grid_pro
     del payload["target_grid_version"]
     path.write_text(json.dumps(payload))
 
-    legacy_frame = pd.read_parquet(directory / "cells.parquet").drop(columns="prior_frequency_sd")
+    legacy_frame = pd.read_parquet(directory / "cells.parquet").drop(
+        columns=["prior_frequency_sd", *H3_PARENT_COLUMNS]
+    )
     legacy_frame.to_parquet(directory / "cells.parquet", index=False)
     before = {
         path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in directory.iterdir()
@@ -189,7 +215,9 @@ def test_a_frozen_format_two_artifact_remains_readable_without_invented_local_pr
     for field in ("prior_normalization", "prior_draws", "prior_seed"):
         del payload[field]
     manifest_path.write_text(json.dumps(payload))
-    legacy = pd.read_parquet(directory / "cells.parquet").drop(columns="prior_frequency_sd")
+    legacy = pd.read_parquet(directory / "cells.parquet").drop(
+        columns=["prior_frequency_sd", *H3_PARENT_COLUMNS]
+    )
     legacy.to_parquet(directory / "cells.parquet", index=False)
     before = hashlib.sha256((directory / "cells.parquet").read_bytes()).hexdigest()
     frame, loaded = read(directory)
@@ -230,7 +258,7 @@ def test_an_artifact_from_an_unknown_format_is_refused_not_misread(tmp_path):
         read(directory)
 
 
-@pytest.mark.parametrize("bad_format", [True, 2.0, 3.0, "3", 2.9])
+@pytest.mark.parametrize("bad_format", [True, 2.0, 3.0, 4.0, "3", 2.9])
 def test_artifact_read_refuses_noninteger_or_boolean_format(tmp_path, bad_format):
     directory = publish(_frame(), tmp_path, manifest=_manifest(), observations=_observations())
     path = directory / "manifest.json"
@@ -314,6 +342,7 @@ def test_a_new_manifest_refuses_blank_target_grid_provenance(field):
     "field,value,match",
     [
         ("artifact_format", 2, "artifact_format"),
+        ("artifact_format", 3, "artifact_format"),
         ("prior_normalization", "scalar", "prior_normalization"),
         ("prior_draws", 499, "prior_draws"),
         ("prior_draws", 500.0, "prior_draws"),
@@ -394,7 +423,7 @@ def test_format_three_read_refuses_nonnumeric_sd_columns(tmp_path, column, bad_k
         frame[column] = frame[column].map(str)
     else:
         frame[column] = True
-    frame.to_parquet(path, index=False)
+    frame.to_parquet(path, index=False, compression="zstd")  # still format 4's encoding
 
     with pytest.raises(ValueError, match="numeric.*Boolean"):
         read(directory)
@@ -637,3 +666,143 @@ def test_reading_an_input_refuses_a_record_of_another_measurement(tmp_path):
     path.write_text(json.dumps(payload))
     with pytest.raises(ValueError, match="measurement"):
         read_observations(directory)
+
+
+# --- format 4: zstd, 8,192-row groups, h3 parents (Atlas data platform design 2026-10-18 §2.5) ---
+
+
+def test_a_new_artifact_is_format_4_with_h3_parents(tmp_path):
+    frame = _valid_frame(3, 50)
+    manifest = replace(_manifest(), n_cells=50)
+    cells, on_disk = read(publish(frame, tmp_path, manifest=manifest, observations=_observations()))
+    assert on_disk["artifact_format"] == ARTIFACT_FORMAT == 4
+    assert tuple(cells.columns) == ARTIFACT_COLUMNS == FORMAT_THREE_COLUMNS + ("h3_r0", "h3_parent_r3")
+    assert cells["h3_parent_r3"].tolist() == cells["h3_index"].tolist()  # a res-3 cell is its own parent
+    assert cells["h3_r0"].map(h3.get_resolution).eq(0).all()
+    assert cells["h3_r0"].map(h3.get_base_cell_number).tolist() == (
+        cells["h3_index"].map(h3.get_base_cell_number).tolist()
+    )
+
+
+def _cells_metadata(directory: Path) -> list:
+    metadata = pq.ParquetFile(directory / "cells.parquet").metadata
+    return [metadata.row_group(i) for i in range(metadata.num_row_groups)]
+
+
+def test_format_4_writes_zstd_8192_row_groups(tmp_path):
+    manifest = replace(_manifest(), resolution=4, n_cells=8_292)
+    directory = publish(_valid_frame(4, 8_292), tmp_path, manifest=manifest, observations=_observations())
+    groups = _cells_metadata(directory)
+    assert [group.num_rows for group in groups] == [8_192, 100]
+    assert {group.column(i).compression for group in groups for i in range(group.num_columns)} == {"ZSTD"}
+    cells, _ = read(directory)
+    assert len(cells) == 8_292
+
+
+def test_cell_table_writes_the_parents():
+    """Each cell carries its resolution-0 ancestor and its resolution-3 parent."""
+
+    class Fit:
+        correlation_range_km = 1000.0
+
+        def predict(self, lat, lon):
+            quantities = ("post_median", "post_mean", "post_sd", "q025", "q975", "q25", "q75")
+            return pd.DataFrame({name: [0.1] * len(lat) for name in quantities})
+
+        def prior_frequency_sd_at(self, lat, lon):
+            return np.full(len(lat), 0.2)
+
+    lagos, london = "84589c9ffffffff", "84194adffffffff"
+    frame = cell_table(
+        Fit(),
+        h3_index=[lagos, london],
+        lat=np.array([6.5244, 51.5072]),
+        lon=np.array([3.3792, -0.1276]),
+        observations=pd.DataFrame({"lat": [6.5244], "lon": [3.3792]}),
+        variant_id=HBS,
+        model_version="v2",
+        data_version="test",
+    )
+    assert tuple(frame.columns) == ARTIFACT_COLUMNS
+    assert frame["h3_r0"].tolist() == ["8059fffffffffff", "8019fffffffffff"]
+    assert frame["h3_parent_r3"].tolist() == ["83589cfffffffff", "83194afffffffff"]
+
+
+@pytest.mark.parametrize(
+    "column, wrong",
+    [("h3_r0", "8075fffffffffff"), ("h3_parent_r3", "83754efffffffff"), ("h3_r0", None)],
+    ids=["another-base-cell", "another-res-3-parent", "missing"],
+)
+def test_bad_parents_are_refused_before_any_file_exists(tmp_path, column, wrong):
+    frame = _frame()
+    if wrong is None:
+        frame = frame.drop(columns=column)
+    else:
+        frame.loc[1, column] = wrong
+    with pytest.raises(ValueError, match=column):
+        publish(frame, tmp_path, manifest=_manifest(), observations=_observations())
+    assert not list(tmp_path.iterdir())
+
+
+def test_an_off_resolution_cell_or_resolution_2_is_refused(tmp_path):
+    frame = _valid_frame(4, 20)
+    # A res-5 child keeps its res-4 parent's ancestors, so only its resolution is wrong.
+    frame.loc[3, "h3_index"] = h3.cell_to_center_child(frame.loc[3, "h3_index"], 5)
+    manifest = replace(_manifest(), resolution=4, n_cells=20)
+    with pytest.raises(ValueError, match="manifest's resolution 4"):
+        publish(frame, tmp_path, manifest=manifest, observations=_observations())
+    assert not list(tmp_path.iterdir())
+
+    with pytest.raises(ValueError, match="resolution 2"):
+        replace(_manifest(), resolution=2)
+    directory = publish(_frame(), tmp_path, manifest=_manifest(), observations=_observations())
+    path = directory / "manifest.json"
+    path.write_text(json.dumps({**json.loads(path.read_text()), "resolution": 2}))
+    with pytest.raises(ValueError, match="resolution 2"):
+        read(directory)
+
+
+def test_a_format_4_file_rewritten_as_snappy_is_refused_on_read(tmp_path):
+    directory = publish(_frame(), tmp_path, manifest=_manifest(), observations=_observations())
+    path = directory / "cells.parquet"
+    pd.read_parquet(path).to_parquet(path, index=False, compression="snappy")
+    with pytest.raises(ValueError, match="zstd"):
+        read(directory)
+
+
+@pytest.mark.parametrize("row_group_size", [4_096, 10_000])
+def test_a_format_4_file_rewritten_in_other_row_groups_is_refused_on_read(tmp_path, row_group_size):
+    manifest = replace(_manifest(), resolution=4, n_cells=8_292)
+    directory = publish(_valid_frame(4, 8_292), tmp_path, manifest=manifest, observations=_observations())
+    path = directory / "cells.parquet"
+    pd.read_parquet(path).to_parquet(path, index=False, compression="zstd", row_group_size=row_group_size)
+    with pytest.raises(ValueError, match="8,192"):
+        read(directory)
+
+
+def _hand_written_format_three(root: Path) -> Path:
+    """A format-3 artifact as `publish()` wrote it before format 4: no parents, pandas' default
+    snappy, one row group. `publish()` writes only the current format, so this one is written by hand."""
+    directory = root / f"{HBS}__v1__map-2026-08"
+    directory.mkdir(parents=True)
+    _frame()[list(FORMAT_THREE_COLUMNS)].to_parquet(directory / "cells.parquet", index=False)
+    payload, _ = serialize_observations(_observations(), measurement="allele_frequency")
+    (directory / OBSERVATIONS_FILE).write_bytes(payload)
+    manifest = {**json.loads(_manifest().to_json()), "artifact_format": 3}
+    (directory / "manifest.json").write_text(json.dumps(manifest))
+    return directory
+
+
+def test_format_3_stays_readable_without_the_parents(tmp_path):
+    directory = _hand_written_format_three(tmp_path)
+    assert {group.column(0).compression for group in _cells_metadata(directory)} == {"SNAPPY"}
+    frame, manifest = read(directory)
+    assert manifest["artifact_format"] == 3
+    assert tuple(frame.columns) == FORMAT_THREE_COLUMNS
+    pd.testing.assert_frame_equal(read_observations(directory), _observations())
+
+    # It is still held to format 3's own rules.
+    cells = frame.drop(columns="prior_frequency_sd")
+    cells.to_parquet(directory / "cells.parquet", index=False)
+    with pytest.raises(ValueError, match="format-3 columns"):
+        read(directory)

@@ -6,6 +6,7 @@ import json
 import sys
 from pathlib import Path
 
+import h3
 import pandas as pd
 import pytest
 
@@ -15,6 +16,7 @@ from genomeos.publication.surface_codec import GosaError
 from genomeos.publication.web_format import WEB_FORMAT_VERSION
 from genomeos.registry.variants import load as load_variant_registry
 from genomeos.registry.variants import normalized_identity
+from genomeos.surfaces import artifacts
 from genomeos.surfaces.fit_input import OBSERVATIONS_FILE, serialize_observations
 from genomeos.surfaces.prior import PRIOR_DRAWS, PRIOR_NORMALIZATION
 from genomeos.tables import reference
@@ -717,6 +719,27 @@ def test_export_refuses_noninteger_or_boolean_artifact_format(
 
     with pytest.raises(ValueError, match="artifact_format"):
         _export(export_inputs)
+
+
+def test_the_exporter_refuses_format_4_before_writing(export_inputs: dict[str, Path]) -> None:
+    """A format-4 artifact (Atlas data platform design 2026-10-18 §2.5) is valid in the data store, but
+    a new artifact_format value is a web format MAJOR, so the export stops before any JSON exists."""
+    artifact = _upgrade_fixture_to_format_three(export_inputs)
+    cells = pd.read_parquet(artifact / "cells.parquet")
+    cells["h3_r0"] = [h3.cell_to_parent(cell, 0) for cell in cells["h3_index"]]
+    cells["h3_parent_r3"] = cells["h3_index"]  # the fixture's cells are res 3, each its own parent
+    cells.to_parquet(
+        artifact / "cells.parquet",
+        index=False,
+        compression=artifacts.CELLS_COMPRESSION,
+        row_group_size=artifacts.CELLS_ROW_GROUP_ROWS,
+    )
+    manifest_path = artifact / "manifest.json"
+    manifest_path.write_text(json.dumps({**json.loads(manifest_path.read_text()), "artifact_format": 4}))
+    assert artifacts.read(artifact)[1]["artifact_format"] == 4  # the refusal is the web's, not the reader's
+    with pytest.raises(ValueError, match=r"artifact_format 4.*docs/web-data-format\.md"):
+        _export(export_inputs)
+    assert not list(export_inputs["out"].rglob("*.json"))
 
 
 # --- an artifact that carries the table its fit consumed (#45) ---

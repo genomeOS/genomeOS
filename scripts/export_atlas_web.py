@@ -44,7 +44,10 @@ from genomeos.publication.commercial_use import (  # noqa: E402
 from genomeos.publication.commercial_use import (  # noqa: E402
     validate as validate_commercial_use,
 )
-from genomeos.publication.web_format import WEB_FORMAT_VERSION  # noqa: E402
+from genomeos.publication.web_format import (  # noqa: E402
+    WEB_FORMAT_VERSION,
+    require_web_artifact_format,
+)
 from genomeos.registry.sources import afnd as afnd_registry  # noqa: E402
 from genomeos.registry.variants import load as load_variant_registry  # noqa: E402
 from genomeos.registry.variants import normalized_identity  # noqa: E402
@@ -150,9 +153,11 @@ def _validated_surface(
     artifact_dir: Path,
     expected_variant_id: str,
 ) -> tuple[dict[str, Any], pd.DataFrame]:
+    # The web's formats first: a format-4 artifact is valid in the data store, but not yet served.
+    require_web_artifact_format(_read_json(artifact_dir / "manifest.json").get("artifact_format"))
     cells, manifest = read_surface_artifact(artifact_dir)
     _require_fields(manifest, MANIFEST_FIELDS, str(artifact_dir / "manifest.json"))
-    if int(manifest["artifact_format"]) in {2, 3}:
+    if int(manifest["artifact_format"]) >= 2:
         _require_fields(
             manifest,
             GRID_MANIFEST_FIELDS,
@@ -366,7 +371,7 @@ def _surface_payload(
         "resolution": int(manifest["resolution"]),
         "variant_id": str(manifest["variant_id"]),
     }
-    if int(manifest["artifact_format"]) in {2, 3}:
+    if int(manifest["artifact_format"]) >= 2:
         identity.update(
             {
                 "target_grid_source": str(manifest["target_grid_source"]),
