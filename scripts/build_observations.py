@@ -1,13 +1,18 @@
 """Build the observations store from all P1 sources (design §6, P1).
 
     python scripts/build_observations.py \
-        --registry data/registry --gnomad data/raw/gnomad_hgdp_1kg_freqs.tsv \
+        --registry data/registry \
+        [--gnomad data/raw/gnomad_hgdp_1kg_freqs.tsv] \
         --map-surveys data/curated/map_hbs_surveys.csv \
         --literature-evidence data/raw/literature_evidence.tsv \
         --literature-field-evidence data/raw/literature_field_evidence.tsv \
         --wbbc-vcf data/raw/WBBC.chr22.GRCh38.vcf.gz \
         --wbbc-variants data/raw/wbbc-variants.txt \
         --out data/observations
+
+``--gnomad`` is the optional curated per-population TSV, the fixture-backed route. Published
+whole-genome rows come only from ``scripts/recount_gnomad_hgdp_1kg.py`` (data platform §2.10,
+builder's call 36).
 """
 
 from __future__ import annotations
@@ -45,7 +50,12 @@ def _read_variant_ids(path: Path) -> frozenset[str]:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--registry", type=Path, required=True)
-    ap.add_argument("--gnomad", type=Path, required=True)
+    ap.add_argument(
+        "--gnomad",
+        type=Path,
+        help="curated per-population TSV (fixture-backed); published whole-genome rows come from "
+        "scripts/recount_gnomad_hgdp_1kg.py",
+    )
     ap.add_argument(
         "--map-surveys",
         type=Path,
@@ -71,10 +81,11 @@ def main() -> None:
     populations, aliases = read_registry(args.registry)
 
     surveys, survey_report = map_surveys.load(args.map_surveys, VERSION)
-    frames = [
-        gnomad.load(args.gnomad, populations, aliases, VERSION),
-        surveys,
-    ]
+    frames = [surveys]
+    curated_gnomad = None
+    if args.gnomad is not None:
+        curated_gnomad = gnomad.load(args.gnomad, populations, aliases, VERSION)
+        frames.insert(0, curated_gnomad)  # first, as before, so the store's row order is unchanged
     literature_report = None
     retained_evidence = None
     wbbc_report = None
@@ -106,6 +117,12 @@ def main() -> None:
         retained_evidence.to_parquet(args.out / "literature_evidence.parquet", index=False)
 
     # Printed, never swallowed: a refused survey is a decision the operator should see (§12).
+    if curated_gnomad is None:
+        print("gnomAD HGDP+1KG curated TSV: not supplied")
+    else:
+        print(
+            f"gnomAD HGDP+1KG curated TSV: {len(curated_gnomad)} rows (cohort {gnomad.COHORT_ID})"
+        )
     print(f"MAP HbS surveys: {survey_report}")
     if literature_report is not None:
         print(f"Literature evidence: {literature_report}")

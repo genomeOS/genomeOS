@@ -133,6 +133,34 @@ def test_literature_build_options_are_all_or_neither(tmp_path):
     assert "must be supplied together" in completed.stderr
 
 
+def test_build_observations_runs_without_the_curated_gnomad_tsv(tmp_path):
+    """--gnomad is the optional curated route; whole-genome rows come from the recount (call 36)."""
+    registry, out = tmp_path / "registry", tmp_path / "observations"
+    _write_registry(registry)
+    command = _command(registry, out)
+    flag = command.index("--gnomad")
+    del command[flag : flag + 2]
+
+    completed = _run(command)
+
+    assert completed.returncode == 0, completed.stderr
+    assert "gnomAD HGDP+1KG curated TSV: not supplied" in completed.stdout
+    assert "gnomad_hgdp_1kg" not in set(read_observations(out)["source"])
+
+
+def test_build_observations_reports_the_curated_tsv_cohort(tmp_path):
+    registry, out = tmp_path / "registry", tmp_path / "observations"
+    _write_registry(registry)
+
+    completed = _run(_command(registry, out))
+
+    assert completed.returncode == 0, completed.stderr
+    assert (
+        "gnomAD HGDP+1KG curated TSV: 4 rows (cohort gnomad-hgdp-1kg:curated-tsv)"
+        in completed.stdout
+    )
+
+
 def test_registry_build_refuses_legacy_hgdp_input_without_creating_output(tmp_path):
     legacy = tmp_path / "legacy-hgdp.tsv"
     legacy.write_text(

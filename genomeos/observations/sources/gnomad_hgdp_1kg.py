@@ -1,8 +1,9 @@
-"""gnomAD HGDP+1KG harmonized callset adapter (design §6, P1).
+"""gnomAD HGDP+1KG curated per-population TSV adapter (design §6, P1; data platform §2.10, call 36).
 
-The harmonized HGDP+1kGP callset (4,094 genomes, 80 populations, CC0) is the only open resource
-that is simultaneously whole-genome and georeferenceable per-population — design §15's
-recommended starting point.
+This is the curated TSV route: pandas over one small per-population table, fixture-backed. It is
+not the 4,094-genome callset and names no gnomAD release, so its rows carry `COHORT_ID`
+`gnomad-hgdp-1kg:curated-tsv`. Published whole-genome rows come only from the D18 recount in
+`genomeos.observations.sources.gnomad_recount`, under that module's own `cohort_id`.
 
 Ascertainment (§7.1a): gnomAD excludes individuals with severe pediatric disease *and their
 first-degree relatives* by policy, so every row is `healthy_reference` with
@@ -20,7 +21,7 @@ from genomeos.observations.schema import OBSERVATIONS_SCHEMA
 
 SOURCE = "gnomad_hgdp_1kg"
 ALIAS_SOURCES = ("hgdp", "onekg")
-COHORT_ID = "gnomad-v4-hgdp-1kg"
+COHORT_ID = "gnomad-hgdp-1kg:curated-tsv"
 
 
 class UnmappedPopulationError(ValueError):
