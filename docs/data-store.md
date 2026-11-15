@@ -365,6 +365,9 @@ python scripts/build_tables.py --release <YYYY-MM-DD>              # the derived
 python scripts/build_data_release.py --release <YYYY-MM-DD>        # commit data/releases/<release>.json
                                                                    #   and data/catalog/catalog.sql
 python scripts/smoke_catalog.py --catalog data/catalog/atlas.duckdb --local data/   # parity smoke: golden
+git tag -a data-release-<YYYY-MM-DD> -m "data release <YYYY-MM-DD>"  # on the release commit
+git push origin data-release-<YYYY-MM-DD>                          # before anything is uploaded
+git ls-remote --exit-code origin refs/tags/data-release-<YYYY-MM-DD>
 export CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT=data-store-publisher@$GENOMEOS_GCP_PROJECT.iam.gserviceaccount.com
 python scripts/publish_data_store.py --dry-run
 python scripts/publish_data_store.py                               # gcloud warns it is impersonating; expected
@@ -387,6 +390,23 @@ sampling discs within 500 km of Lagos against the golden counts (check 8).
 Merge the release manifest only after publishing and the anonymous `--verify-remote` and smoke pass:
 `fetch_data.py` reads the newest committed manifest, so a merged manifest whose objects are not yet
 uploaded breaks every fetch on `main`.
+
+Tag the release commit and push the tag before uploading. Every `tables/` file records the commit
+that built it (`genomeos.git_sha`; `build_tables.py` stamps `HEAD`), and check 9 resolves the file's
+`git:` inputs at that commit (Atlas data platform design 2026-10-18 §2.7). The upload is immutable,
+but a branch commit is not durable. A squash or rebase merge leaves it off `main`, and the head branch
+is deleted on merge, so afterwards only GitHub's pull-request ref would hold it. The release commit
+descends from the stamped one, so its tag keeps the stamped commit on GitHub whatever happens to the
+branch. Check that with `git merge-base --is-ancestor <sha> data-release-<YYYY-MM-DD>`, where `<sha>`
+is the commit the files record:
+
+```sql
+SELECT DISTINCT decode(value) FROM parquet_kv_metadata('data/tables/v1/**/*.parquet')
+WHERE decode(key) = 'genomeos.git_sha';
+```
+
+Merge the release PR with a merge commit, not squash or rebase, so the stamped commit is on `main`
+too. Never rebase a branch past a stamped commit; merge `main` into it instead.
 
 Publishing checks every local file against the manifest, describes every key before uploading
 anything, uploads absent objects with `--if-generation-match=0`, skips identical ones, treats any
