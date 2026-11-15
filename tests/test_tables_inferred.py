@@ -16,12 +16,13 @@ import pandas as pd
 import pyarrow.parquet as pq
 import pytest
 
-from genomeos.tables import contracts, inferred, provenance, write_once, writer
+from genomeos.tables import contracts, fit_inputs, inferred, provenance, write_once, writer
 from genomeos.tables.contracts import TableError
 from genomeos.tables.provenance import InputRef
 from scripts import build_data_release, build_tables
 from tests import tables_fixtures
 from tests.tables_fixtures import (
+    ART,
     EPOCH,
     GIT_SHA,
     HBS_V1,
@@ -36,8 +37,9 @@ from tests.tables_fixtures import (
     cells_frame,
 )
 
-#: The shared pytest fixture, registered in this module by name.
+#: The shared pytest fixtures, registered in this module by name.
 fixture_tree = tables_fixtures.fixture_tree
+served_tree = tables_fixtures.served_tree
 
 PARTS = tuple(
     f"tables/v1/inferred/cells_by_cell/epoch=2026-11-20/res={k}/h3_r0={r0}/part-0.parquet"
@@ -328,6 +330,35 @@ def test_artifacts_record_their_first_release_keys(fixture_tree):
         hbs["target_grid_source"] is None
         and rows[HBS_V3]["target_grid_source"] == "worldpop-1km-unconstrained"
     )
+
+
+def test_inferred_evidence_comes_from_the_matches(served_tree):
+    """Step 1.9: a served JSON that matched its ingest is web-json-match; a served artifact whose data has no
+    published ingest is none with that reason (p1-R15); every other one keeps its released reason."""
+    hbs = fit_inputs.WebObservations(
+        HBS_V3,
+        "chr11-5227002-T-A",
+        "v3",
+        "map-2026-08",
+        "allele_frequency",
+        "map-survey-coordinates-v1",
+        pd.DataFrame(),
+    )
+    web = (*served_tree.web, hbs)
+    rows = build_tables.build_fit_inputs(served_tree.ctx, web=web)
+    build_tables.build_inferred(served_tree.ctx, **fit_inputs.evidence_kwargs(web, rows, refused={}))
+    frame = pd.read_parquet(served_tree.data / contracts.table_path(inferred.ARTIFACTS_TABLE))
+    by_artifact = frame.set_index("artifact")
+    assert by_artifact.loc[ART, "fit_input_evidence"] == "web-json-match"
+    assert pd.isna(by_artifact.loc[ART, "fit_input_evidence_reason"])
+    columns = ["fit_input_evidence", "fit_input_evidence_reason"]
+    assert by_artifact.loc[HBS_V3, columns].tolist() == ["none", "no published ingest for map-2026-08"]
+    assert by_artifact.loc[KIR_V3, columns].tolist() == [
+        "none",
+        build_data_release.RELEASED_WITHOUT_INPUT[KIR_V3],
+    ]
+    assert frame["fit_input_evidence"].notna().all()
+    assert (frame["fit_input_evidence_reason"].notna() == (frame["fit_input_evidence"] == "none")).all()
 
 
 def test_artifacts_frame_requires_evidence_for_every_artifact(epoch):

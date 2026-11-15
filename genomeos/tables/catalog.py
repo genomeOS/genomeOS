@@ -51,6 +51,7 @@ HIVE_TYPES: dict[str, dict[str, str]] = {
     "inferred.cells_by_cell": {"epoch": "VARCHAR", "res": "INTEGER", "h3_r0": "VARCHAR"},
     "measured.allele_observations": {"source": "VARCHAR", "ingest_version": "VARCHAR"},
     "measured.carrier_observations": {"source": "VARCHAR", "ingest_version": "VARCHAR"},
+    "measured.fit_inputs": {"epoch": "VARCHAR"},
 }
 TABLES_SCHEMA = "genomeos-tables"
 TABLES_SCHEMA_VERSION = "1.0"
