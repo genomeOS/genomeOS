@@ -14,6 +14,11 @@ credential is used, and gnomAD's public objects are read anonymously.
         --ingest-version <iv> --sampling-design <O1> --disease-ascertainment-excluded <O1> \\
         --out data --ledger-dir ledgers --workdir work
     python scripts/recount_gnomad_hgdp_1kg.py combine --ledger-dir ledgers --out-summary summary.json
+    python scripts/recount_gnomad_hgdp_1kg.py compare --region chr11:5200000-5250000 \\
+        --vcf <GNOMAD_VCF_URL for chr11, or a local indexed copy> \\
+        --metadata gnomad_meta_updated.tsv \\
+        --karyotypes gnomad.genomes.v3.1.2.hgdp_1kg_subset_sample_meta.tsv.bgz \\
+        --stage stage.txt --stage-name paper_ancestry_exclusion_4094
 
 - ``plan`` prints the job ids as ``{"jobs": [...]}``.
 - ``cite`` HEADs the chromosome's VCF, ``METADATA_URL`` and ``SAMPLE_META_URL`` and prints each as a cited
@@ -33,6 +38,12 @@ credential is used, and gnomAD's public objects are read anonymously.
     the commit the code ran at.
 - ``combine`` combines every ``<job>.json`` ledger of ``--ledger-dir`` into the ingest summary, checks that it
   makes a ``measured.ingests`` row, writes the summary and prints its totals.
+- ``compare`` runs the native count and the independent counter over ``--region`` (1-based, inclusive, by
+  POS) of ``--vcf``, a URL or a local indexed copy, under the stage that ``--metadata``, ``--karyotypes``,
+  ``--stage`` and ``--stage-name`` give, as ``run`` reads them; it prints ``crosscheck.compare_counters``'
+  result and exits 1 unless the two agree on every cell and on the tally (§2.7 check 12). It writes no
+  files: both counts run in a temporary folder, which is also the working directory, since htslib saves a
+  remote VCF's index there, and the folder is then removed.
 
 Ledgers are ``<ledger-dir>/<job>.json``; each job counts in ``<workdir>/<job>``. A refusal prints to stderr
 and exits 1.
@@ -41,11 +52,14 @@ and exits 1.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import gzip
 import hashlib
 import json
+import re
 import subprocess
 import sys
+import tempfile
 from collections.abc import Sequence
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -57,7 +71,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from genomeos.observations.sources.gnomad_recount import jobs, native  # noqa: E402
+from genomeos.observations.sources.gnomad_recount import crosscheck, jobs, native  # noqa: E402
 from genomeos.observations.sources.gnomad_recount.rows import (  # noqa: E402
     population_table,
     recount_cohort_id,
@@ -77,6 +91,7 @@ from genomeos.tables.lookup_sets import GRCH38_LENGTHS  # noqa: E402
 from genomeos.tables.provenance import InputRef  # noqa: E402
 
 CITED = ("vcf", "metadata", "karyotypes")
+REGION = re.compile(r"(chr[0-9XY]+):([1-9][0-9]*)-([1-9][0-9]*)")
 
 
 def git_sha() -> str:
@@ -112,7 +127,12 @@ def _local(cited: jobs.CitedFile, path: Path, flag: str) -> tuple[jobs.CitedFile
             f"{flag} {path} is not the cited {cited.url}: {len(raw)} bytes with md5 {md5}, where the "
             f"citation gives {cited.size} bytes with md5 {cited.md5}"
         )
-    return replace(cited, sha256=sha256), gzip.decompress(raw) if path.suffix in (".bgz", ".gz") else raw
+    return replace(cited, sha256=sha256), _decoded(path, raw)
+
+
+def _decoded(path: Path, raw: bytes) -> bytes:
+    """``raw``, the content of ``path``, through gzip when the file is ``.bgz`` or ``.gz``."""
+    return gzip.decompress(raw) if path.suffix in (".bgz", ".gz") else raw
 
 
 def _registry(
@@ -216,6 +236,30 @@ def _combine(args: argparse.Namespace) -> int:
     return 0
 
 
+def _compare(args: argparse.Namespace) -> int:
+    match = REGION.fullmatch(args.region)
+    if match is None:
+        raise RecountError(f"--region {args.region!r} is not chr:start-end, such as chr11:5200000-5250000")
+    chrom, start, end = match[1], int(match[2]), int(match[3])
+    stage = read_stage(
+        _decoded(args.metadata, args.metadata.read_bytes()),
+        _decoded(args.karyotypes, args.karyotypes.read_bytes()),
+        args.stage.read_bytes(),
+        name=args.stage_name,
+    )
+    vcf = args.vcf if "://" in args.vcf else str(Path(args.vcf).resolve())
+    with tempfile.TemporaryDirectory(prefix="genomeos-compare-") as workdir, contextlib.chdir(workdir):
+        result = crosscheck.compare_counters(vcf, chrom, start, end, stage, Path(workdir))
+    print(json.dumps(asdict(result)))
+    if result.identical != result.cells or not result.tally_equal:
+        differ = result.cells - result.identical
+        raise RecountError(
+            f"{args.region}: the native and independent counters disagree on {differ} of {result.cells} "
+            f"cell(s){'' if result.tally_equal else ' and on the tally'} (§2.7 check 12)"
+        )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Recount gnomAD HGDP + 1KG in 166 resumable 20 Mb jobs (D18)."
@@ -242,6 +286,15 @@ def build_parser() -> argparse.ArgumentParser:
     combine.add_argument("--ledger-dir", type=Path, required=True)
     combine.add_argument("--out-summary", type=Path, required=True)
     combine.set_defaults(command=_combine)
+    compare = commands.add_parser(
+        "compare", help="run both counters over a region and compare them cell for cell; writes no files"
+    )
+    compare.add_argument("--region", required=True, help="chr:start-end, 1-based and inclusive")
+    compare.add_argument("--vcf", required=True, help="a gnomAD VCF URL or a local indexed copy")
+    for flag in ("--metadata", "--karyotypes", "--stage"):
+        compare.add_argument(flag, type=Path, required=True)
+    compare.add_argument("--stage-name", required=True)
+    compare.set_defaults(command=_compare)
     return parser
 
 
