@@ -25,6 +25,7 @@ from genomeos.observations.schema import OBSERVATIONS_SCHEMA
 from genomeos.publication import data_release as dr
 from genomeos.publication import raw_harvests as rh
 from genomeos.tables import catalog, contracts, measured, provenance, reference, writer
+from genomeos.tables.binned import SOURCE_RECORD_ID_TEMPLATE
 from genomeos.tables.contracts import TableError
 from genomeos.tables.measured import ALLELE_TABLE, CARRIER_TABLE, INGESTS_PATH, SORT_KEY
 from genomeos.tables.provenance import InputRef
@@ -216,6 +217,64 @@ def test_check_9_refuses_inputs_that_are_not_released_or_cited(built):
         bytes=10, url="https://example.org/afnd.tsv", md5="1B2M2Y8AsgTpgAmY7PhCfg==", generation=1
     )
     measured.check_ingest_inputs([replace(ingest, inputs=(cited,))], released)
+
+
+def test_ingestinput_url_form_takes_an_optional_sha256(built):
+    """D17 cites the recount's metadata by URL, md5 and generation, and by the sha256 of the bytes read."""
+    url = {"url": "https://example.org/meta.tsv", "md5": "0" * 32, "generation": 1}
+    cited = measured.IngestInput(bytes=1, **url, sha256="b" * 64)
+    assert cited.sha256 == "b" * 64
+    # check 9 records a cited sha256 and never looks it up as a manifest key
+    measured.check_ingest_inputs([replace(built.ingests[0], inputs=(cited,))], {})
+    with pytest.raises(TableError, match=r"lacks \['url', 'md5', 'generation'\]"):
+        measured.IngestInput(bytes=1, sha256="b" * 64)
+    with pytest.raises(TableError, match="sha256"):
+        measured.IngestInput(bytes=1, **url, sha256="B" * 64)
+
+
+def test_sample_rule_and_stage_round_trip_and_are_none_for_a_curated_ingest(built, tmp_path):
+    assert {
+        (i.sample_rule, i.sample_stage_sha256) for i in measured.read_ingests(built.out / INGESTS_PATH)
+    } == {(None, None)}
+    cited = measured.IngestInput(
+        bytes=1, url="https://example.org/meta.tsv", md5="0" * 32, generation=1, sha256="b" * 64
+    )
+    recount = replace(
+        built.ingests[0],
+        table=measured.BINNED_TABLE,
+        source="gnomad_hgdp_1kg",
+        ingest_version="2026-12-recount",
+        registry_version="1.0.0+sha256." + "d" * 64,
+        adapter="genomeos/observations/sources/gnomad_recount/jobs.py",
+        inputs=(cited,),
+        refusals=(
+            measured.Refusal("low_gq", "hgdp-han", 2),
+            measured.Refusal("monomorphic_in_stage", None, 1),
+        ),
+        source_record_id_template=SOURCE_RECORD_ID_TEMPLATE,
+        sample_rule="gnomad-v3.1.2-hgdp-1kg:fixture-8:d18-v1",
+        sample_stage_sha256="e" * 64,
+    )
+    path = tmp_path / "ingests.parquet"
+    writer.write_frame(
+        writer.connect(),
+        measured.ingests_table([*built.ingests, recount]).to_pandas(),
+        path,
+        table=measured.INGESTS_TABLE,
+        git_sha=GIT_SHA,
+        inputs=[InputRef("git:data/releases/WITHDRAWN.json", "0" * 64)],
+        sources=["genomeos"],
+        order_by=contracts.INGESTS.key,
+    )
+    assert measured.read_ingests(path) == tuple(sorted([*built.ingests, recount], key=lambda i: i.key))
+    assert pq.read_schema(path).names[-2:] == ["sample_rule", "sample_stage_sha256"]
+    assert contracts.INGESTS.schema_version == "1.1"
+    with pytest.raises(TableError, match="sample_stage_sha256"):
+        replace(recount, sample_stage_sha256=None)
+    with pytest.raises(TableError, match="sample_stage_sha256"):
+        replace(recount, sample_stage_sha256="E" * 64)
+    with pytest.raises(TableError, match="curated part"):
+        replace(recount, table="measured.allele_observations_lookup")
 
 
 def test_check_4_reingest_must_give_the_same_record_ids(built):

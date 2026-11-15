@@ -1,0 +1,10 @@
+s	gnomad_sex_imputation
+SYN01	{"sex_karyotype":"XX"}
+SYN02	{"sex_karyotype":"XY"}
+SYN03	{"sex_karyotype":"XX"}
+SYN04	{"sex_karyotype":"XY"}
+SYN05	{"sex_karyotype":"XX"}
+SYN06	{"sex_karyotype":"XY"}
+SYN07	{"sex_karyotype":"XX"}
+SYN08	{"sex_karyotype":"XY"}
+SYN09	{"sex_karyotype":"XXY"}

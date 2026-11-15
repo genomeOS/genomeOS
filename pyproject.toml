@@ -78,8 +78,9 @@ genomeos = ["static/*.html", "covariates/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q -m 'not network'"
 pythonpath = ["."]
+markers = ["network: streams public gnomAD bytes anonymously; run with -m network"]
 
 [tool.ruff]
 line-length = 110

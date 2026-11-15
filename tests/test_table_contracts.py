@@ -153,9 +153,15 @@ def test_no_measured_table_has_a_frequency_column():
         assert not [name for name in columns(table) if name == "af" or "freq" in name], table
 
 
+# Each contract's MINOR, pinned so an accidental bump fails here. Every table not named is at 1.0.
+# measured.ingests 1.1 adds the nullable sample_rule and sample_stage_sha256 (whole-genome plan, Task 6; D17).
+EXPECTED_MINOR = {"measured.ingests": 1}
+
+
 def test_a_contract_digest_is_the_sha256_of_its_frozen_file():
+    assert set(EXPECTED_MINOR) <= set(TABLE_CONTRACTS), sorted(set(EXPECTED_MINOR) - set(TABLE_CONTRACTS))
     for table, contract in TABLE_CONTRACTS.items():
-        assert contract.schema_version == "1.0"
+        assert contract.schema_version == f"1.{EXPECTED_MINOR.get(table, 0)}", table
         assert contract_sha256(table) == hashlib.sha256((ROOT / contract.path).read_bytes()).hexdigest()
 
 
