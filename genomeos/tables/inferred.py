@@ -270,7 +270,7 @@ def artifacts_frame(
         if artifact not in epochs:
             raise TableError(f"{artifact}: no cells_by_cell epoch holds its cells")
         measurement, measurement_from = measurement_of(artifact, manifest)
-        value, reason = _checked_evidence(artifact, evidence)
+        value, reason = checked_evidence(artifact, evidence)
         rows.append(
             {
                 "artifact": artifact,
@@ -543,9 +543,7 @@ def _support_counts(artifact: str, counts: object) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
-def _checked_evidence(
-    artifact: str, evidence: Mapping[str, tuple[str, str | None]]
-) -> tuple[str, str | None]:
+def checked_evidence(artifact: str, evidence: Mapping[str, tuple[str, str | None]]) -> tuple[str, str | None]:
     """Check 10: an evidence value for every artifact, with a reason exactly when it is ``none``."""
     if artifact not in evidence:
         raise TableError(

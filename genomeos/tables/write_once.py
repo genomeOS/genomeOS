@@ -20,13 +20,13 @@ from genomeos.publication import data_release as dr
 from genomeos.tables.contracts import TableError
 from genomeos.tables.provenance import published_paths
 
-__all__ = ("published_paths", "require_published_local")
+__all__ = ("fetch_prefix", "published_paths", "require_published_local")
 
 
 def require_published_local(data_root: Path, path: str, sha256: str) -> Path:
     """The local copy of the published ``path``, refused unless it is there with sha256 ``sha256``."""
     local = data_root / dr.assert_data_path(path)
-    fetch = f"python scripts/fetch_data.py --prefix {_fetch_prefix(path)}"
+    fetch = f"python scripts/fetch_data.py --prefix {fetch_prefix(path)}"
     if not local.is_file():
         raise TableError(
             f"{path}: an earlier release published it, and {data_root} lacks it; fetch it first: {fetch}"
@@ -41,7 +41,7 @@ def require_published_local(data_root: Path, path: str, sha256: str) -> Path:
     return local
 
 
-def _fetch_prefix(path: str) -> str:
+def fetch_prefix(path: str) -> str:
     """The ``fetch_data.py --prefix`` that fetches ``path``: every artifact, or the path's top folder."""
     if path.startswith(dr.ARTIFACT_PREFIX):
         return dr.ARTIFACT_PREFIX

@@ -18,6 +18,18 @@ Inputs travel with outputs (#45): every artifact carries ``observations.parquet`
 consumed, recorded in its ``manifest.json``. An artifact without it, or whose record does not match the
 file, is refused. The artifacts released before that rule are named in ``RELEASED_WITHOUT_INPUT``, each
 with a reason; they are immutable, so none of them may gain the file.
+
+The catalog (Atlas data platform design 2026-10-18 §2.6, §2.7 check 7; calls 4 and 17) is built in two
+passes, after ``build_tables.py`` has written the release's ``tables/``:
+
+1. key everything outside ``catalog/``, then run checks 1, 2, 6, 9 and 10 on every ``tables/`` file;
+2. write ``catalog/catalog.sql`` over those keys;
+3. build ``catalog/atlas.duckdb`` from it twice, over the local copies only, and require identical bytes;
+4. write ``catalog/tables.json``, then run check 7 on both files against the keys and ``WITHDRAWN.json``;
+5. refuse any other file under ``catalog/``;
+6. key the three: ``catalog.sql`` is committed (in git), and each carries the union of the sources of the
+   files it lists (call 16);
+7. write the manifest, which the catalog therefore never names (``meta.release`` names its key instead).
 """
 
 from __future__ import annotations
@@ -27,6 +39,7 @@ import hashlib
 import json
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable, Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -40,11 +53,15 @@ if str(ROOT) not in sys.path:
 
 from genomeos.publication import artifact_inputs as ai  # noqa: E402
 from genomeos.publication import data_release as dr  # noqa: E402
-from genomeos.tables import provenance  # noqa: E402
+from genomeos.tables import catalog as tables_catalog  # noqa: E402  (build's flag is ``catalog``)
+from genomeos.tables import checks, contracts, provenance, writer  # noqa: E402
+from genomeos.tables.contracts import TableError  # noqa: E402
 
 DATA = ROOT / "data"
 RELEASES = DATA / "releases"
 CHUNK = 1 << 20
+#: The include root the catalog pass writes; the first pass keys everything else.
+CATALOG_ROOT = "catalog"
 
 #: Paths under data/ that a release publishes (design §3 C7). Everything else stays local.
 INCLUDE = (
@@ -351,11 +368,13 @@ def _refuse_pickled_npy(path: Path, relative: str) -> None:
         raise dr.DataReleaseError(f"{relative}: object-dtype .npy holds a pickle and is never published")
 
 
-def included_files(data_root: Path, *, published: Collection[str] = ()) -> list[str]:
-    """Every file under the include roots. An absent optional root is skipped only while no path in
-    ``published`` (what earlier releases hold) lies under it; any other absent root is an error."""
+def included_files(
+    data_root: Path, *, published: Collection[str] = (), roots: Sequence[str] = INCLUDE
+) -> list[str]:
+    """Every file under ``roots`` (the include roots). An absent optional root is skipped only while no
+    path in ``published`` (what earlier releases hold) lies under it; any other absent root is an error."""
     found: list[str] = []
-    for root in INCLUDE:
+    for root in roots:
         base = data_root / root
         if base.is_file():
             found.append(root)
@@ -370,9 +389,11 @@ def included_files(data_root: Path, *, published: Collection[str] = ()) -> list[
     return sorted(found)
 
 
-def collect(data_root: Path, tracked: set[str], *, published: Collection[str] = ()) -> list[dr.FileRecord]:
+def collect(
+    data_root: Path, tracked: set[str], *, published: Collection[str] = (), roots: Sequence[str] = INCLUDE
+) -> list[dr.FileRecord]:
     records: list[dr.FileRecord] = []
-    for relative in included_files(data_root, published=published):
+    for relative in included_files(data_root, published=published, roots=roots):
         dr.media_type_for(relative)  # refuses pickles before anything is hashed
         path = data_root / relative
         if relative.endswith(".npy"):
@@ -436,13 +457,123 @@ def build(
     tracked: set[str],
     released_without_input: Mapping[str, str],
     previous: Sequence[Mapping[str, Any]] = (),
+    withdrawn: Sequence[dr.Withdrawal] = (),
+    catalog: bool = False,
 ) -> dict[str, Any]:
+    """The release manifest of ``data_root``; with ``catalog``, the two passes of the module docstring.
+
+    ``withdrawn`` is ``WITHDRAWN.json``'s list, which the release's ``meta.withdrawn`` must restate.
+    """
     published = {item.path for manifest in previous for item in dr.validate_manifest(manifest)}
-    records = collect(data_root, tracked, published=published)
+    roots = tuple(root for root in INCLUDE if root != CATALOG_ROOT) if catalog else INCLUDE
+    records = collect(data_root, tracked, published=published, roots=roots)
     check_inputs(data_root, records, previous, released_without_input)
+    manifest = _manifest(data_root, records, release, previous)
+    if not catalog:
+        return manifest
+    objects = dr.validate_manifest(manifest)
+    checks.check_release_tables(
+        data_root,
+        objects,
+        manifests=previous,
+        repo_root=ROOT,
+        new_sources={record.path: record.sources for record in records},
+    )
+    listed = write_catalog(data_root, release, objects, tracked=tracked, withdrawn=withdrawn)
+    return _manifest(data_root, [*records, *listed], release, previous)
+
+
+def _manifest(
+    data_root: Path, records: Sequence[dr.FileRecord], release: str, previous: Sequence[Mapping[str, Any]]
+) -> dict[str, Any]:
     used = {name for record in records for name in record.sources}
     available = {**REVIEWED_SOURCES, **_record_sources(data_root)}
     return dr.build_manifest(records, {name: available[name] for name in used}, release, previous)
+
+
+def listed_files(
+    data_root: Path, objects: Sequence[dr.ReleaseObject]
+) -> tuple[tables_catalog.CatalogFile, ...]:
+    """The files of ``objects`` the catalog's views read, each with the row count of its local copy."""
+    rows = {
+        item.path: pq.read_metadata(data_root / item.path).num_rows
+        for item in objects
+        if tables_catalog.catalog_table(item.path) is not None
+    }
+    return tables_catalog.catalog_files(objects, rows)
+
+
+def write_catalog(
+    data_root: Path,
+    release: str,
+    objects: Sequence[dr.ReleaseObject],
+    *,
+    tracked: Collection[str],
+    withdrawn: Sequence[dr.Withdrawal],
+) -> list[dr.FileRecord]:
+    """Passes 2-6: ``catalog/`` over the first pass's ``objects``, and its three files as records."""
+    keys = frozenset(entry.key for entry in withdrawn)
+    _check_withdrawn_table(data_root, objects, keys)
+    files = listed_files(data_root, objects)
+    sql = tables_catalog.render_catalog_sql(release, files)
+    (data_root / CATALOG_ROOT).mkdir(exist_ok=True)
+    (data_root / tables_catalog.CATALOG_SQL).write_text(sql, encoding="utf-8")
+    database = writer.build_catalog_db(sql, data_root / tables_catalog.CATALOG_DB, data_root=data_root)
+    with tempfile.TemporaryDirectory() as scratch:
+        again = writer.build_catalog_db(sql, Path(scratch) / "atlas.duckdb", data_root=data_root)
+        if again.read_bytes() != database.read_bytes():
+            database.unlink()
+            raise TableError(
+                f"{tables_catalog.CATALOG_DB}: two builds differ; the catalog builds byte for byte from "
+                "catalog.sql with the pinned DuckDB (§2.7 check 7, call 15)"
+            )
+    tables_json = tables_catalog.render_tables_json(release, files)
+    (data_root / tables_catalog.TABLES_JSON).write_bytes(tables_json)
+    tables_catalog.check_catalog(sql, tables_json, {item.key: item for item in objects}, keys)
+    found = (path.relative_to(data_root).as_posix() for path in (data_root / CATALOG_ROOT).rglob("*"))
+    written = set(tables_catalog.CATALOG_PATHS)
+    stray = sorted(path for path in found if path not in written and (data_root / path).is_file())
+    if stray:
+        raise dr.DataReleaseError(
+            f"{stray[0]}: data/{CATALOG_ROOT}/ holds only catalog.sql, atlas.duckdb and tables.json, which "
+            f"the release build writes; remove {len(stray)} other file(s) and build again"
+        )
+    by_path = {item.path: item for item in objects}
+    sources = tuple(sorted({name for file in files for name in by_path[file.path].sources}))
+    return [
+        dr.FileRecord(
+            path,
+            (data_root / path).stat().st_size,
+            sha256_of(data_root / path),
+            path == tables_catalog.CATALOG_SQL or path in tracked,
+            sources,
+        )
+        for path in tables_catalog.CATALOG_PATHS
+    ]
+
+
+def _check_withdrawn_table(
+    data_root: Path, objects: Sequence[dr.ReleaseObject], keys: frozenset[str]
+) -> None:
+    """The release's ``meta.withdrawn`` restates ``keys``, the list check 7 refuses: the views anti-join
+    that table, so a stale one would serve what the committed list withdraws."""
+    path = contracts.table_path(tables_catalog.WITHDRAWN_TABLE)
+    if not any(item.path == path for item in objects):
+        return  # catalog_files refuses a release without it
+    found = frozenset(pq.read_table(data_root / path, columns=["key"]).column("key").to_pylist())
+    if found != keys:
+        raise TableError(
+            f"{path} withdraws {sorted(found)}, but {dr.WITHDRAWN_FILE} lists {sorted(keys)}; rebuild the "
+            "tables from the committed list: python scripts/build_tables.py"
+        )
+
+
+def withdrawn_entries(directory: Path) -> tuple[dr.Withdrawal, ...]:
+    """``directory``'s ``WITHDRAWN.json`` (beside the manifests), or nothing when it has none."""
+    path = directory / dr.WITHDRAWN_FILE
+    if not path.is_file():
+        return ()
+    return dr.validate_withdrawn(json.loads(path.read_text(encoding="utf-8")))
 
 
 def git_tracked(data_root: Path) -> set[str]:
@@ -480,10 +611,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             tracked=tracked,
             released_without_input=RELEASED_WITHOUT_INPUT,
             previous=previous,
+            withdrawn=withdrawn_entries(out.parent),
+            catalog=True,
         )
     except (dr.DataReleaseError, OSError, KeyError, ValueError, subprocess.CalledProcessError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
+    sql = (args.data / tables_catalog.CATALOG_SQL).read_text(encoding="utf-8")
+    views, urls = tables_catalog.catalog_views(sql), tables_catalog.catalog_urls(sql)
+    database = next(item for item in manifest["objects"] if item["path"] == tables_catalog.CATALOG_DB)
+    print(
+        f"catalog: {len(views)} views over {len(urls)} files; atlas.duckdb {database['bytes']:,} bytes, "
+        "identical over two builds"
+    )
     payload = dr.canonical_bytes(manifest)
     if out.exists():
         if out.read_bytes() != payload:

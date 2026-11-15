@@ -267,6 +267,11 @@ data/store/*
 # 2026-10-17; history was not rewritten. The fits that produced the artifacts are pickles and stay
 # local (design §8).
 !data/releases/
+# Each release's catalog.sql is committed with its manifest; atlas.duckdb and tables.json, built from
+# it, are published to the data store only (Atlas data platform design 2026-10-18 §2.6, call 17).
+!data/catalog/
+data/catalog/*
+!data/catalog/catalog.sql
 # The harvested AFND population table is committed, unlike other fetched sources. The rule is
 # cost, not principle: MAP is one HTTP request and stays fetched-by-script, but this is 1,825
 # requests and about two hours. A pod re-scraping it spent 1.7 billed hours before fitting

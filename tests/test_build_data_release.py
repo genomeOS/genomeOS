@@ -20,13 +20,26 @@ from genomeos.surfaces.fit_input import (
     contract_sha256,
     serialize_observations,
 )
-from genomeos.tables import writer
+from genomeos.tables import catalog, writer
 from genomeos.tables.contracts import TableError
 from scripts import build_data_release as build
 from scripts import build_tables
+from tests import tables_fixtures
 from tests.observation_fixtures import kir_fit_rows, observation_rows
-from tests.tables_fixtures import GIT_INPUT_FLAGS, copy_committed_releases
+from tests.tables_fixtures import (
+    EPOCH,
+    FIXTURE_RELEASE,
+    FIXTURE_WITHOUT_INPUT,
+    GIT_INPUT_FLAGS,
+    HBS_V3,
+    build_catalog_tables,
+    copy_committed_releases,
+    release_catalog_tree,
+)
 from tests.test_data_release import EMPTY
+
+#: The shared pytest fixture, registered in this module by name.
+catalog_tree = tables_fixtures.catalog_tree
 
 ROOT = Path(__file__).resolve().parents[1]
 RELEASE = "2026-10-17"
@@ -238,35 +251,47 @@ def test_an_unknown_data_version_prefix_is_refused(tree: Path) -> None:
         _build(tree)
 
 
+def _cli(root: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """``main``'s arguments for release ``EPOCH`` of ``catalog_tree``, whose tables are built here.
+
+    ``main`` always builds the catalog (both passes), so the tree needs its tables and a parity file.
+    """
+    monkeypatch.setattr(build, "RELEASED_WITHOUT_INPUT", FIXTURE_WITHOUT_INPUT)
+    build_catalog_tables(root)
+    out = root / "releases" / f"{EPOCH}.json"
+    return ["--data", str(root / "data"), "--release", EPOCH, "--out", str(out), "--no-git"]
+
+
 def test_cli_writes_once_and_refuses_to_replace_a_different_release(
-    tree: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    catalog_tree: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(build, "RELEASED_WITHOUT_INPUT", {})
-    out = tmp_path / "releases" / f"{RELEASE}.json"
-    arguments = ["--data", str(tree), "--release", RELEASE, "--out", str(out), "--no-git"]
+    arguments = _cli(catalog_tree, monkeypatch)
+    out = catalog_tree / "releases" / f"{EPOCH}.json"
     assert build.main(arguments) == 0
+    printed = capsys.readouterr().out
+    assert "catalog: 8 views over 10 files; atlas.duckdb " in printed
+    assert " bytes, identical over two builds" in printed
     written = out.read_bytes()
     assert build.main(arguments) == 0  # identical: unchanged, not rewritten
     assert out.read_bytes() == written
-    _write(tree, "store/INVENTORY.json", b'{"changed": true}')
+    _write(catalog_tree / "data", "store/INVENTORY.json", b'{"changed": true}')
     assert build.main(arguments) == 1
     assert out.read_bytes() == written
 
 
 def test_cli_reuses_keys_from_earlier_committed_releases(
-    tree: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    catalog_tree: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(build, "RELEASED_WITHOUT_INPUT", {})
-    releases = tmp_path / "releases"
-    first = ["--data", str(tree), "--release", "2026-10-01", "--out", str(releases / "2026-10-01.json")]
-    assert build.main([*first, "--no-git"]) == 0
-    _write(tree, "store/INVENTORY.json", b'{"changed": true}')
-    out = releases / f"{RELEASE}.json"
-    assert build.main(["--data", str(tree), "--release", RELEASE, "--out", str(out), "--no-git"]) == 0
+    arguments = _cli(catalog_tree, monkeypatch)
+    curated = catalog_tree / "data" / build.CURATED_RECORD
+    curated.write_bytes(curated.read_bytes() + b"\n")  # changed since release 2026-10-17
+    assert build.main(arguments) == 0
+    out = catalog_tree / "releases" / f"{EPOCH}.json"
     keys = {item["path"]: item["key"] for item in json.loads(out.read_text())["objects"]}
-    assert keys[f"{ARTIFACT}/cells.parquet"] == f"releases/2026-10-01/{ARTIFACT}/cells.parquet"
-    assert keys[f"{ARTIFACT}/{OBSERVATIONS_FILE}"] == f"releases/2026-10-01/{ARTIFACT}/{OBSERVATIONS_FILE}"
-    assert keys["store/INVENTORY.json"] == f"releases/{RELEASE}/store/INVENTORY.json"
+    cells = f"{dr.ARTIFACT_PREFIX}{HBS_V3}/cells.parquet"
+    assert keys[cells] == f"releases/{FIXTURE_RELEASE}/{cells}"
+    assert keys[build.CURATED_RECORD] == f"releases/{EPOCH}/{build.CURATED_RECORD}"
+    assert keys["store/INVENTORY.json"] == f"releases/{EPOCH}/store/INVENTORY.json"
 
 
 def _committed_manifests() -> list[Path]:
@@ -349,6 +374,57 @@ def test_an_unstamped_tables_file_is_refused(tree: Path) -> None:
     writer.connect().execute(f"COPY (SELECT 'a' AS artifact) TO '{out}' (FORMAT parquet)")
     with pytest.raises(TableError, match="genomeos.sources"):
         _build(tree)
+
+
+# --- the catalog, in two passes (Atlas data platform design 2026-10-18 §2.6; calls 4 and 17, step 1.6) ---
+
+
+def test_the_release_lists_the_catalog(catalog_tree: Path) -> None:
+    build_catalog_tables(catalog_tree)
+    manifest = release_catalog_tree(catalog_tree)
+    objects = _paths(manifest)
+    sql_object, database = objects[catalog.CATALOG_SQL], objects[catalog.CATALOG_DB]
+    assert (sql_object["media_type"], sql_object["in_git"]) == ("application/sql", True)
+    assert (database["media_type"], database["in_git"]) == ("application/octet-stream", False)
+    assert objects[catalog.TABLES_JSON]["in_git"] is False
+    sql = (catalog_tree / "data" / catalog.CATALOG_SQL).read_text(encoding="utf-8")
+    keys = {item["key"] for item in manifest["objects"]}
+    urls = catalog.catalog_urls(sql)
+    assert len(urls) == 10
+    assert all(url.startswith(dr.DATA_STORE_BASE_URL) for url in urls)
+    assert {url.removeprefix(dr.DATA_STORE_BASE_URL) for url in urls} <= keys
+    assert "genereviews" in sql_object["sources"]  # call 16: a non_commercial source survives the union
+    assert manifest["sources"]["genereviews"]["non_commercial"] is True
+
+
+def test_a_stray_catalog_file_is_refused(catalog_tree: Path) -> None:
+    """Pass 1 skips catalog/, so the stray reaches pass 5 instead of the source rules."""
+    build_catalog_tables(catalog_tree)
+    _write(catalog_tree / "data", "catalog/notes.txt", b"x\n")
+    with pytest.raises(dr.DataReleaseError, match="catalog/notes.txt: data/catalog/ holds only"):
+        release_catalog_tree(catalog_tree)
+
+
+def test_two_differing_catalog_builds_are_refused(
+    catalog_tree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    build_catalog_tables(catalog_tree)
+    real = writer.build_catalog_db
+    calls: list[Path] = []
+
+    def differing(sql: str, out: Path, *, data_root: Path) -> Path:
+        built = real(sql, out, data_root=data_root)
+        calls.append(out)
+        if len(calls) == 2:
+            with built.open("ab") as stream:
+                stream.write(b"\0")
+        return built
+
+    monkeypatch.setattr(writer, "build_catalog_db", differing)
+    with pytest.raises(TableError, match="two builds differ"):
+        release_catalog_tree(catalog_tree)
+    assert len(calls) == 2
+    assert not (catalog_tree / "data" / catalog.CATALOG_DB).exists()
 
 
 # --- inputs travel with outputs (#45) ---

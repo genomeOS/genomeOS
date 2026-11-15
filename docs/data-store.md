@@ -39,6 +39,9 @@ data/
                   observations.parquet  the exact observation table its fit consumed (#45)
                   manifest.json         what was published, and under what assumptions; written last
     INVENTORY.json                      checksums of what was on the publishing machine
+  tables/v1/                            derived query tables (scripts/build_tables.py); in the data store
+  catalog/catalog.sql                   committed: each release's catalog views (see "Query a release")
+  catalog/{atlas.duckdb,tables.json}    built from catalog.sql; in the data store
   validation/                           held-out validation evidence; in the data store
 reference/                              committed: Natural Earth countries (1:110m, and the 1:50m
                                         admin-0 source of the Atlas borders), Piel 2013 estimates
@@ -56,6 +59,8 @@ docs/figures/                           committed: review figures
 | `data/store/artifacts/` | no (since 2026-10-17) | **yes** | the citable output; immutable once released |
 | `data/store/artifacts/*/observations.parquet` | no | **yes** | each artifact's fit input, hash-pinned in its manifest; required for every new artifact. The 61 released 2026-10-17 have none and are listed (below) |
 | `data/validation/` | no (since 2026-10-17) | **yes** | held-out validation evidence |
+| `data/tables/v1/` | no | **yes** | derived from released bytes, never cited; each file records its inputs and sources |
+| `data/catalog/catalog.sql` | **yes** | **yes** | the release's views; `atlas.duckdb` and `tables.json` beside it are in the data store only |
 | `data/raw/` (other files) | no | not yet (phase 2) | sources are versioned upstream; re-fetchable by script |
 | `data/store/fits/*.pkl` | no | **never** | pickles: environment-coupled, and loading one executes code. Format 3 also holds the fit's input, which is how it reaches the artifact |
 
@@ -213,7 +218,8 @@ python scripts/publish_artifacts.py --fits data/store/fits --out data/store/arti
     --hbs data/curated/map_hbs_surveys.csv --g6pd data/raw/map_g6pd_surveys.csv
 python scripts/store_inventory.py --root data --out data/store/INVENTORY.json
 python scripts/fetch_data.py                              # every released file, so the new release
-python scripts/build_data_release.py --release <YYYY-MM-DD>   # lists them all; then "Public data store"
+python scripts/build_tables.py --release <YYYY-MM-DD>         # lists them all, with its derived tables
+python scripts/build_data_release.py --release <YYYY-MM-DD>   # and its catalog; then "Public data store"
 ```
 
 `publish_artifacts.py` refuses an artifact directory that any committed release already holds, even
@@ -355,15 +361,30 @@ python scripts/gcloud_repo.py auth login
 python scripts/gcloud_repo.py init --account <maintainer> --project <project>
 export GENOMEOS_GCP_PROJECT=<project>
 python scripts/fetch_data.py                                       # the previous release, locally
+python scripts/build_tables.py --release <YYYY-MM-DD>              # the derived tables/ files
 python scripts/build_data_release.py --release <YYYY-MM-DD>        # commit data/releases/<release>.json
+                                                                   #   and data/catalog/catalog.sql
+python scripts/smoke_catalog.py --catalog data/catalog/atlas.duckdb --local data/   # parity smoke: golden
 export CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT=data-store-publisher@$GENOMEOS_GCP_PROJECT.iam.gserviceaccount.com
 python scripts/publish_data_store.py --dry-run
 python scripts/publish_data_store.py                               # gcloud warns it is impersonating; expected
 unset CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT
 python scripts/fetch_data.py --verify-remote                       # anonymous, every object
+python scripts/smoke_catalog.py --release <YYYY-MM-DD>             # anonymous: parity smoke: golden
 ```
 
-Merge the release manifest only after publishing and the anonymous `--verify-remote` pass:
+`build_tables.py` writes the release's `tables/v1/` files from the released bytes (Atlas data platform
+design 2026-10-18 §2.4). `build_data_release.py` then builds the catalog in two passes: it keys every
+file outside `catalog/` and checks every `tables/` file again (§2.7 checks 1, 2, 6, 9 and 10), writes
+`catalog/catalog.sql` over those keys, builds `catalog/atlas.duckdb` from it twice over the local copies
+and requires identical bytes, writes `catalog/tables.json`, checks both against the keys and
+`data/releases/WITHDRAWN.json` (check 7), and only then writes the manifest. It prints
+`catalog: <n> views over <m> files; atlas.duckdb <bytes> bytes, identical over two builds`. A file the
+catalog lists but the tree lacks stops the build with the `fetch_data.py --prefix` that fetches it, and
+nothing else may sit under `data/catalog/`. The smoke counts `evidence.parity_observations` and the
+sampling discs within 500 km of Lagos against the golden counts (check 8).
+
+Merge the release manifest only after publishing and the anonymous `--verify-remote` and smoke pass:
 `fetch_data.py` reads the newest committed manifest, so a merged manifest whose objects are not yet
 uploaded breaks every fetch on `main`.
 
@@ -382,3 +403,38 @@ publishing still works, because the publisher reads through its own role. The an
 exists. The raw third-party harvests (MAP WFS exports, AFND frequencies and page caches, gnomAD, the
 WorldPop grid, the external caches) are phase 2. Until then they live locally and in the interim
 Hugging Face mirror (`scripts/sync_store.py`).
+
+## Query a release
+
+Each release publishes a catalog (Atlas data platform design 2026-10-18 §2.6): `catalog/atlas.duckdb`,
+a views-only DuckDB file that any DuckDB from 1.2 attaches read-only over HTTPS, with no account, and
+`catalog/tables.json`, which lists every file the views read (key, URL, sha256, bytes, rows, access)
+for Polars, pandas, R or `curl`. Its key is under the release that built it:
+
+```sql
+ATTACH 'https://storage.googleapis.com/genomeos-atlas-data/releases/<release>/catalog/atlas.duckdb'
+    AS atlas (READ_ONLY);
+SELECT * FROM atlas.meta.release;                     -- release, manifest key, how to cite it
+SELECT count(*), sum(an), sum(ac) FROM atlas.evidence.parity_observations;
+SELECT * FROM atlas.inferred.artifacts WHERE variant_id = 'chr11-5227002-T-A';
+```
+
+Each view names its files by key, so nothing lists the bucket, and a filter on a partition column
+such as `h3_r0` skips the files and row groups it rules out. Every view leaves out the files
+`meta.withdrawn` lists, and the `inferred` views every row of an artifact whose `cells.parquet` is
+withdrawn; the owner then deletes the withdrawn bytes, so an older catalog that names them fails
+loudly rather than serving them (§2.9). Remote reads are not hash-checked. To read verified local
+copies instead, fetch what you need and point the catalog at them before querying (keep `=` out of
+that folder's path, which DuckDB would read as a partition):
+
+```bash
+python scripts/fetch_data.py --prefix catalog/ --prefix tables/ --prefix validation/
+```
+
+```sql
+SET VARIABLE genomeos_local = 'data/';                -- 'data' works too; unset it to read over HTTPS
+ATTACH 'data/catalog/atlas.duckdb' AS atlas (READ_ONLY);
+```
+
+`meta.release` names the manifest's key, not its sha256, because the manifest lists the catalog.
+Measured observations and inferred surfaces stay in separate schemas and are never joined by a view.

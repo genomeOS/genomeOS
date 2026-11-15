@@ -17,6 +17,11 @@ uploads drop the md5). Each carries its provenance in the Parquet key-value meta
 A file is written to ``<out>.partial``, checked against its contract (check 1) and its size cap, and
 only then renamed into place: a file that fails is never left under its name. Check 2, that every
 ``key=value`` folder of a partitioned file equals the file's own column, runs over a release's paths.
+
+The same DuckDB builds a release's views-only ``atlas.duckdb`` from its ``catalog.sql`` (§2.6, call 15),
+in storage version ``STORAGE_VERSION`` so DuckDB 1.2.x can attach it. A view binds when it is created,
+reading its files' schemas, so ``build_catalog_db`` binds every view over the local copies: a listed file
+the tree lacks stops the build, and the builder never reads a file over HTTPS.
 """
 
 from __future__ import annotations
@@ -33,9 +38,10 @@ import pandera.errors
 import pyarrow
 import pyarrow.parquet as pq
 
-from genomeos.tables import contracts, provenance
+from genomeos.tables import catalog, contracts, provenance
 from genomeos.tables.contracts import TableError
 from genomeos.tables.provenance import InputRef
+from genomeos.tables.write_once import fetch_prefix
 
 DUCKDB_VERSION = "1.5.5"
 #: The storage version of every catalog file, so DuckDB 1.2.x can attach it (call 15).
@@ -58,6 +64,8 @@ _DERIVED = {
     "bin": "CAST(pos // 1000000 AS VARCHAR)",
 }
 _FRAME_VIEW = "genomeos_frame"
+#: The name the catalog file is attached under while its views are created.
+_CATALOG_ALIAS = "atlas_build"
 
 
 def connect() -> duckdb.DuckDBPyConnection:
@@ -234,6 +242,58 @@ def check_partitions(con: duckdb.DuckDBPyConnection, path: Path, relative: str) 
             raise TableError(
                 f"{relative}: {count} rows have {key} {example!r}, not the folder's {value!r} (check 2)"
             )
+
+
+def build_catalog_db(sql: str, out: Path, *, data_root: Path) -> Path:
+    """The views-only DuckDB file of ``sql`` at ``out``, its views bound over the copies under ``data_root``.
+
+    ``genomeos_local`` is set before any view is created, because a view binds when it is created; the
+    stored view keeps its ``CASE``, so a reader chooses URLs or local copies again at query time. A
+    DuckDB error is a ``TableError`` naming the first listed file ``data_root`` lacks and the command that
+    fetches it. The file is written as ``<out>.partial`` and renamed into place only once complete.
+    """
+    partial = out.with_name(f"{out.name}.partial")
+    if "'" in str(partial):
+        raise TableError(f"{out}: a path holding a quote (') cannot be attached")
+    if any("=" in part for part in data_root.resolve().parts):
+        raise TableError(
+            f"{data_root}: a folder name holding '=' would be read as a partition column of every view"
+        )
+    _remove_database(partial)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    con = connect()
+    try:
+        con.execute("SET VARIABLE genomeos_local = ?", [f"{data_root}/"])
+        con.execute(f"ATTACH '{partial}' AS {_CATALOG_ALIAS} (STORAGE_VERSION '{STORAGE_VERSION}')")
+        try:
+            con.execute(f"USE {_CATALOG_ALIAS}")
+            con.execute(sql)
+        finally:
+            con.execute("USE memory")
+            con.execute(f"DETACH {_CATALOG_ALIAS}")
+        os.replace(partial, out)
+    except duckdb.Error as error:
+        missing = [path for path in catalog.catalog_local_paths(sql) if not (data_root / path).is_file()]
+        if missing:
+            more = f" (and {len(missing) - 1} more)" if len(missing) > 1 else ""
+            raise TableError(
+                f"{missing[0]}: catalog.sql lists it, and {data_root} lacks it{more}; its view binds over "
+                "the local copy when it is created, never over HTTPS; fetch it first: "
+                f"python scripts/fetch_data.py --prefix {fetch_prefix(missing[0])}"
+            ) from error
+        raise TableError(
+            f"catalog.sql does not build over the local copies in {data_root}: {error}"
+        ) from error
+    finally:
+        con.close()
+        _remove_database(partial)
+    return out
+
+
+def _remove_database(path: Path) -> None:
+    """``path`` and its write-ahead log, if either is there."""
+    path.unlink(missing_ok=True)
+    path.with_name(f"{path.name}.wal").unlink(missing_ok=True)
 
 
 def _metadata(table: str, git_sha: str, inputs: Sequence[InputRef], sources: Sequence[str]) -> dict[str, str]:
