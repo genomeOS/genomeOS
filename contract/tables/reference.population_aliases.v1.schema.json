@@ -1,0 +1,61 @@
+{
+  "contract": "genomeos-table",
+  "key": [
+    "registry_version",
+    "source",
+    "label"
+  ],
+  "pandera": {
+    "coerce": true,
+    "columns": {
+      "label": {
+        "dtype": "string[pyarrow]",
+        "meaningful_text": {
+          "error": "this reads like a spelling of absence rather than a name (-, n/a, na, none, not reported, null, tbd, unknown). It has been kept, because a verbatim column records what the source said. Check whether the source meant a real value or had none: if it had none, the row should not carry an invented identity.",
+          "raise_warning": true
+        },
+        "non_empty_text": {
+          "error": "a verbatim source value may be anything except empty"
+        }
+      },
+      "population_id": {
+        "dtype": "string[pyarrow]",
+        "str_matches": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+      },
+      "registry_version": {
+        "dtype": "string[pyarrow]",
+        "meaningful_text": {
+          "error": "this value resembles a spelling of absence (-, n/a, na, none, not reported, null, tbd, unknown). It has been preserved for human review. Confirm whether the source intended a real literal value or missing metadata; missingness must use the field's explicit recorded state rather than looking like trusted metadata.",
+          "raise_warning": true
+        },
+        "non_blank_text": {
+          "error": "required text must contain at least one non-whitespace character"
+        }
+      },
+      "source": {
+        "dtype": "string[pyarrow]",
+        "meaningful_text": {
+          "error": "this value resembles a spelling of absence (-, n/a, na, none, not reported, null, tbd, unknown). It has been preserved for human review. Confirm whether the source intended a real literal value or missing metadata; missingness must use the field's explicit recorded state rather than looking like trusted metadata.",
+          "raise_warning": true
+        },
+        "non_blank_text": {
+          "error": "required text must contain at least one non-whitespace character"
+        }
+      }
+    },
+    "drop_invalid_rows": false,
+    "name": "reference_population_aliases",
+    "schema_type": "dataframe",
+    "strict": true,
+    "unique": [
+      "registry_version",
+      "source",
+      "label"
+    ]
+  },
+  "partitions": [
+    "registry_version"
+  ],
+  "schema_version": "1.0",
+  "table": "reference.population_aliases"
+}

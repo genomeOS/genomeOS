@@ -1,0 +1,8 @@
+alias_source	population	latitude	longitude	uncertainty_radius_km	location_type	provenance	biocultural_notice
+hgdp	Yoruba	7.38	3.90	2.5	ancestral	synthetic:hgdp-1kg-fixture-v1#row-1	Indigenous-population panel. Reuse governed by the CARE Principles; see https://www.gida-global.org/careprinciples
+hgdp	Sardinian	40.10	9.00	75	ancestral	synthetic:hgdp-1kg-fixture-v1#row-2	Indigenous-population panel. Reuse governed by the CARE Principles; see https://www.gida-global.org/careprinciples
+hgdp	Han	32.27	114.02	25	ancestral	synthetic:hgdp-1kg-fixture-v1#row-3	Indigenous-population panel. Reuse governed by the CARE Principles; see https://www.gida-global.org/careprinciples
+hgdp	NorthernHan	39.90	116.40	50	ancestral	synthetic:hgdp-1kg-fixture-v1#row-4	Indigenous-population panel. Reuse governed by the CARE Principles; see https://www.gida-global.org/careprinciples
+hgdp	PapuanHighlands	-6.00	145.00	100	ancestral	synthetic:hgdp-1kg-fixture-v1#row-5	Indigenous-population panel. Reuse governed by the CARE Principles; see https://www.gida-global.org/careprinciples
+hgdp	PapuanSepik	-4.00	142.00	100	ancestral	synthetic:hgdp-1kg-fixture-v1#row-6	Indigenous-population panel. Reuse governed by the CARE Principles; see https://www.gida-global.org/careprinciples
+onekg	GBR	52.50	-1.90	300	sampling	synthetic:hgdp-1kg-fixture-v1#row-7	
