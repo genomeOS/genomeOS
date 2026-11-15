@@ -1,0 +1,63 @@
+{
+  "arrow": [
+    {
+      "name": "table",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "source",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "ingest_version",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "registry_version",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "adapter",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "adapter_git_sha",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "inputs",
+      "nullable": false,
+      "type": "list<item: struct<bytes: int64, key: string, sha256: string, url: string, md5: string, generation: int64>>"
+    },
+    {
+      "name": "n_rows",
+      "nullable": false,
+      "type": "int64"
+    },
+    {
+      "name": "refusals",
+      "nullable": false,
+      "type": "list<item: struct<reason: string, population_id: string, count: int64>>"
+    },
+    {
+      "name": "source_record_id_template",
+      "nullable": true,
+      "type": "string"
+    }
+  ],
+  "contract": "genomeos-table",
+  "key": [
+    "table",
+    "source",
+    "ingest_version"
+  ],
+  "partitions": [],
+  "schema_version": "1.0",
+  "table": "measured.ingests"
+}

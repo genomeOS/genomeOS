@@ -21,7 +21,9 @@ and so is a path no rule claims; nothing is ever given a source by default.
 Inputs travel with outputs (#45): every artifact carries ``observations.parquet``, the table its fit
 consumed, recorded in its ``manifest.json``. An artifact without it, or whose record does not match the
 file, is refused. The artifacts released before that rule are named in ``RELEASED_WITHOUT_INPUT``, each
-with a reason; they are immutable, so none of them may gain the file.
+with a reason; they are immutable, so none of them may gain the file. Every input ``measured.ingests``
+records is a key of this release or a committed one, with its sha256, or a cited URL with md5 and
+generation (Atlas data platform design 2026-10-18 §2.7 check 9, step 1.9).
 
 The catalog (Atlas data platform design 2026-10-18 §2.6, §2.7 check 7; calls 4 and 17) is built in two
 passes, after ``build_tables.py`` has written the release's ``tables/``:
@@ -62,7 +64,7 @@ from genomeos.publication import data_release as dr  # noqa: E402
 from genomeos.publication import raw_harvests as rh  # noqa: E402
 from genomeos.publication.source_terms import REVIEWED_SOURCES  # noqa: E402
 from genomeos.tables import catalog as tables_catalog  # noqa: E402  (build's flag is ``catalog``)
-from genomeos.tables import checks, contracts, provenance, writer  # noqa: E402
+from genomeos.tables import checks, contracts, measured, provenance, writer  # noqa: E402
 from genomeos.tables.contracts import TableError  # noqa: E402
 
 DATA = ROOT / "data"
@@ -277,6 +279,9 @@ _RULES: tuple[tuple[Callable[[str], bool], Callable[[Path, str], tuple[str, ...]
         lambda path: path.startswith("registry/curated-v1-candidate.1/"),
         lambda root, path: ("clinvar", "cpic", "genereviews"),
     ),
+    # The HGDP + 1KG registry input (step 1.7, D18): gnomAD's identities and coordinates, with our
+    # radius, location_type and notice.
+    (lambda path: path.startswith("registry/hgdp_1kg/"), lambda root, path: ("genomeos", "gnomad_hgdp_1kg")),
     (
         lambda path: path
         in {"registry/variant_normalization.tsv", "store/INVENTORY.json", "store/catalog-metadata.json"},
@@ -443,6 +448,9 @@ def build(
     )
     check_inputs(data_root, records, previous, released_without_input)
     manifest = _manifest(data_root, records, release, previous)
+    if any(record.path == measured.INGESTS_PATH for record in records):
+        released = {item.key: item for found in (*previous, manifest) for item in dr.validate_manifest(found)}
+        measured.check_ingest_inputs(measured.read_ingests(data_root / measured.INGESTS_PATH), released)
     if not catalog:
         return manifest
     objects = dr.validate_manifest(manifest)
