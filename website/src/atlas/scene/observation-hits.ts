@@ -23,10 +23,12 @@
  *   adds (PolylineVS.glsl), each ring first culled by its bounding sphere.
  *
  * A marker the globe hides does not count: behind the horizon, or under terrain with relief behind
- * the ground. Of several, one over the centre pixel beats one the window only grazes, as the
- * pick's spiral out from that pixel has it, and among those the nearest to the camera wins, as its
- * depth test has it. The texture filtering of an image's edge is not modelled, so there a hover and
- * a click can still differ by a fraction of a pixel.
+ * the ground. A see-through Earth (opacity under 1) hides none: Cesium then culls nothing behind
+ * the horizon (Scene.js `getOccluder`) and the globe writes no depth, so a click picks the far
+ * side's markers through it. Of several, one over the centre pixel beats one the window only
+ * grazes, as the pick's spiral out from that pixel has it, and among those the nearest to the
+ * camera wins, as its depth test has it. The texture filtering of an image's edge is not modelled,
+ * so there a hover and a click can still differ by a fraction of a pixel.
  */
 
 import * as Cesium from 'cesium';
@@ -44,6 +46,7 @@ import {
   VerticalOrigin,
   type Billboard,
   type BillboardCollection,
+  type Globe,
   type PointPrimitive,
   type PointPrimitiveCollection,
   type Polyline,
@@ -90,16 +93,31 @@ export interface HitView {
   pickWindow(position: Cartesian2): Cartesian2[];
 }
 
+/**
+ * Whether Cesium draws the globe's front faces see-through (GlobeTranslucencyState.js
+ * `isFaceTranslucent`), which `applyEarthOpacity` turns on below opacity 1.
+ */
+function seeThrough(globe: Globe): boolean {
+  const { baseColor, translucency } = globe;
+  if (!translucency.enabled) return false;
+  const byDistance = translucency.frontFaceAlphaByDistance;
+  const alphas = byDistance ? [byDistance.nearValue, byDistance.farValue] : [1];
+  return (
+    baseColor.alpha < 1 ||
+    alphas.some((alpha) => alpha * translucency.frontFaceAlpha < 1)
+  );
+}
+
 /** The scene's own view for one hover. */
 export function createHitView(scene: Scene): HitView {
   const { camera, canvas, mode } = scene;
-  const onGlobe = mode === SceneMode.SCENE3D;
-  const occluder = onGlobe
+  // Only an opaque globe hides a marker, by its horizon or by its rendered ground.
+  const hides = mode === SceneMode.SCENE3D && !seeThrough(scene.globe);
+  const occluder = hides
     ? new EllipsoidalOccluder(Ellipsoid.WGS84, camera.positionWC)
     : null;
   const relief =
-    onGlobe &&
-    !(scene.globe.terrainProvider instanceof EllipsoidTerrainProvider);
+    hides && !(scene.globe.terrainProvider instanceof EllipsoidTerrainProvider);
   // Cesium leaves these out of its typings: the drawing buffer's pixels per CSS px, and the
   // uniform state whose `view3D` the billboard shader turns an aligned axis by.
   const { context, pixelRatio } = scene as unknown as {
@@ -135,7 +153,9 @@ export function createHitView(scene: Scene): HitView {
       ).y,
     mode,
     pickRay: (position) =>
-      onGlobe ? camera.getPickRay(position, new Ray()) : undefined,
+      mode === SceneMode.SCENE3D
+        ? camera.getPickRay(position, new Ray())
+        : undefined,
     pickWindow: (position) => {
       // `readPixels` takes the rectangle's corner, one pixel before the pointer, as whole pixels;
       // its rows count up from the drawing buffer's bottom.

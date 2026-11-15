@@ -1,14 +1,27 @@
 /**
  * The CPU hit test of a hover over the displayed observations (Atlas design §11; owner decision
  * 2026-11-14 on #483): each marker as drawn, from its projected position and its drawn size, the
- * pick window's slack around it, nothing the globe hides, and the nearest of several.
+ * pick window's slack around it, nothing the globe hides, and the nearest of several. The scene's
+ * own view (`createHitView`) reads the click's pick window and what the globe hides: the horizon
+ * and the rendered ground, neither on a see-through Earth.
  */
 import { cellToLatLng } from 'h3-js';
-import { Cartesian2, Cartesian3, SceneMode } from 'cesium';
+import {
+  Cartesian2,
+  Cartesian3,
+  Color,
+  EllipsoidTerrainProvider,
+  Matrix4,
+  Ray,
+  SceneMode,
+} from 'cesium';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { ObservationArtifact } from '../src/atlas/contracts';
-import type { HitView } from '../src/atlas/scene/observation-hits';
+import {
+  createHitView,
+  type HitView,
+} from '../src/atlas/scene/observation-hits';
 import {
   buildObservationLayer,
   observationPickId,
@@ -265,5 +278,114 @@ describe('the hover’s observation hit test (#483)', () => {
         at(2),
       ),
     ).toEqual(observationPickId('map-surveys:2', KEY));
+  });
+});
+
+/**
+ * The scene `createHitView` reads: a camera 10,000 km over (LAT, LON), an 800 × 600 px canvas at
+ * `pixelRatio`, the Earth's opacity as `applyEarthOpacity` sets it, and World Terrain's rendered
+ * ground (`ground`, where `globe.pick` meets it) or the smooth globe.
+ */
+function hitScene({
+  ground = null,
+  opacity = 1,
+  pixelRatio = 1,
+}: {
+  ground?: ((ray: Ray) => Cartesian3 | undefined) | null;
+  opacity?: number;
+  pixelRatio?: number;
+} = {}) {
+  const pick = vi.fn((ray: Ray) => ground?.(ray));
+  return {
+    pick,
+    scene: {
+      camera: { positionWC: Cartesian3.fromDegrees(LON, LAT, 10_000_000) },
+      canvas: { clientHeight: 600, clientWidth: 800 },
+      context: { uniformState: { view3D: Matrix4.IDENTITY } },
+      drawingBufferHeight: 600 * pixelRatio,
+      drawingBufferWidth: 800 * pixelRatio,
+      globe: {
+        baseColor: Color.fromCssColorString('#071b35'),
+        pick,
+        terrainProvider: ground ? {} : new EllipsoidTerrainProvider(),
+        translucency: {
+          backFaceAlpha: opacity,
+          enabled: opacity < 1,
+          frontFaceAlpha: opacity,
+        },
+      },
+      mode: SceneMode.SCENE3D,
+      pixelRatio,
+    },
+  };
+}
+
+function viewOf(scene: ReturnType<typeof hitScene>['scene']): HitView {
+  return createHitView(scene as never);
+}
+
+describe('the scene’s view for a hover (#483)', () => {
+  const near = Cartesian3.fromDegrees(LON, LAT, 7_650);
+  const farSide = Cartesian3.fromDegrees(LON + 180, -LAT, 7_650);
+
+  it('hides a marker behind the horizon of an opaque Earth, and none through a see-through one', () => {
+    const opaque = viewOf(hitScene().scene);
+    expect(opaque.visible(near)).toBe(true);
+    expect(opaque.visible(farSide)).toBe(false);
+    // Earth opacity under 1: Cesium culls nothing behind the horizon (Scene.js `getOccluder`) and
+    // the globe writes no depth, so a click picks the far side's markers through it.
+    const seeThrough = viewOf(hitScene({ opacity: 0.2 }).scene);
+    expect(seeThrough.visible(near)).toBe(true);
+    expect(seeThrough.visible(farSide)).toBe(true);
+  });
+
+  it('hides a marker the rendered ground stands in front of, under World Terrain only', () => {
+    const camera = Cartesian3.fromDegrees(LON, LAT, 10_000_000);
+    /** The ground `share` of the way from the camera to the marker. */
+    const groundAt = (share: number) => () =>
+      Cartesian3.lerp(camera, near, share, new Cartesian3());
+    const before = hitScene({ ground: groundAt(0.99) });
+    expect(viewOf(before.scene).visible(near)).toBe(false);
+    expect(before.pick).toHaveBeenCalledOnce();
+    // The ray from the camera toward the marker, which the ground is tested along.
+    const [ray] = before.pick.mock.calls[0];
+    expect(Cartesian3.equalsEpsilon(ray.origin, camera, 1e-6)).toBe(true);
+    expect(
+      Cartesian3.equalsEpsilon(
+        ray.direction,
+        Cartesian3.normalize(
+          Cartesian3.subtract(near, camera, new Cartesian3()),
+          new Cartesian3(),
+        ),
+        1e-9,
+      ),
+    ).toBe(true);
+    expect(
+      viewOf(hitScene({ ground: groundAt(1.01) }).scene).visible(near),
+    ).toBe(true);
+    expect(
+      viewOf(hitScene({ ground: () => undefined }).scene).visible(near),
+    ).toBe(true);
+    // A see-through Earth's ground hides nothing either.
+    const seeThrough = hitScene({ ground: groundAt(0.99), opacity: 0.2 });
+    expect(viewOf(seeThrough.scene).visible(near)).toBe(true);
+    // The smooth globe has no ground to stand in front: it is never asked.
+    const smooth = hitScene();
+    expect(viewOf(smooth.scene).visible(near)).toBe(true);
+    expect(smooth.pick).not.toHaveBeenCalled();
+  });
+
+  it('tests the nine drawing-buffer pixels a click reads, the pointer’s first', () => {
+    // At 2 drawing-buffer px per CSS px, the pointer lies in the pixel whose centre is
+    // (100.25, 200.75) CSS px; its neighbours' centres lie half a CSS px on.
+    const window = viewOf(hitScene({ pixelRatio: 2 }).scene).pickWindow(
+      new Cartesian2(100.3, 200.7),
+    );
+    expect(window[0]).toEqual(new Cartesian2(100.25, 200.75));
+    const xs = [99.75, 100.25, 100.75];
+    const ys = [200.25, 200.75, 201.25];
+    expect(window.map(({ x, y }) => `${x},${y}`).sort()).toEqual(
+      xs.flatMap((x) => ys.map((y) => `${x},${y}`)).sort(),
+    );
   });
 });

@@ -360,6 +360,36 @@ test.describe('hover without a GPU pick @desktop-chromium', () => {
     });
   });
 
+  test('a hover and a click agree on a marker seen through a see-through Earth', async ({
+    page,
+  }) => {
+    test.setTimeout(240_000);
+    // 15,000 km over the lone survey's antipode, looking down: the survey stands behind the Earth.
+    // Seen through it below opacity 1, a click picks it (or a marker beside it); an opaque Earth
+    // hides them all, and the ocean before them holds no cell.
+    const throughEarth: Place = { ...LONE, metres: SYMBOL_CLEARANCE };
+    const kinds: Record<string, string | null> = {};
+    for (const earthOpacity of ['0.2', '1']) {
+      await openPlaced(
+        page,
+        loneQuery('circle', {
+          earthOpacity,
+          height: '15000000',
+          lat: String(-LONE.lat),
+          lon: String(LONE.lon - 180),
+        }),
+      );
+      const agreed = await agreeAt(page, {
+        [`at Earth opacity ${earthOpacity}`]: throughEarth,
+      });
+      Object.assign(kinds, agreed);
+    }
+    expect(kinds).toEqual({
+      'at Earth opacity 0.2': 'observation',
+      'at Earth opacity 1': null,
+    });
+  });
+
   test('a hover and a click agree on the draped summit and the sphere above it', async ({
     page,
   }) => {
