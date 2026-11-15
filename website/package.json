@@ -24,6 +24,7 @@
     "test:performance:marketing": "ATLAS_DATA_DIR=${ATLAS_DATA_DIR:-tests/fixtures/atlas/e2e} npm run test:performance -- tests/marketing-performance.spec.ts --trace retain-on-failure",
     "serve:test": "serve dist -c ../serve.json -l tcp://127.0.0.1:${PLAYWRIGHT_PORT:-4322} --no-clipboard",
     "serve:atlas-data": "node scripts/serve-atlas-data.mjs --root tests/fixtures/atlas/e2e",
+    "serve:data-store": "node scripts/serve-data-store.mjs --root tests/fixtures/data-store",
     "check:links": "node scripts/check-links.mjs",
     "capture": "node scripts/capture-homepage.mjs",
     "capture:atlas": "npm run build:e2e && node scripts/capture-atlas.mjs",

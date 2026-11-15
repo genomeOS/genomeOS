@@ -3,6 +3,7 @@
  * the lazy Cesium scene chunk before React mounts, so neither waits for hydration.
  */
 
+import { publishBrowserSqlTestHook } from './e2e-hooks';
 import { startAtlasWorker, type AtlasWorkerClient } from './worker/client';
 
 export type AtlasSceneModule = typeof import('./scene/atlas-scene');
@@ -32,11 +33,15 @@ export function loadAtlasSceneModule(): Promise<AtlasSceneModule> {
   return sceneModule;
 }
 
-/** Called once at island module evaluation; a no-op during server rendering. */
+/**
+ * Called once at island module evaluation; a no-op during server rendering. The e2e build also
+ * publishes its browser SQL hook here, which loads nothing until a test opens it.
+ */
 export function bootAtlas(): void {
   if (typeof window === 'undefined') return;
   atlasWorker();
   void loadAtlasSceneModule().catch(() => undefined);
+  publishBrowserSqlTestHook();
 }
 
 /**

@@ -244,13 +244,16 @@ _EMPTY_WITHDRAWN = {
 }
 
 
-def write_parity_file(data: Path) -> Path:
-    """``PARITY_ROWS`` as the 17 observation columns of the released parity file, by the pinned DuckDB."""
+def write_parity_file(
+    data: Path, parity_rows: Sequence[tuple[float, float, float, int, int]] = PARITY_ROWS
+) -> Path:
+    """``parity_rows``, each ``(lat, lon, radius_km, an, ac)``, as the 17 observation columns of the
+    released parity file, by the pinned DuckDB."""
     out = data / catalog.PARITY_FILE
     out.parent.mkdir(parents=True, exist_ok=True)
     rows = ", ".join(
         f"({index}, {lat!r}, {lon!r}, {radius!r}, {an}, {ac})"
-        for index, (lat, lon, radius, an, ac) in enumerate(PARITY_ROWS)
+        for index, (lat, lon, radius, an, ac) in enumerate(parity_rows)
     )
     writer.connect().execute(
         "COPY (SELECT 'chr11-5227002-T-A' AS variant_id, 'rs334' AS rsid, 'map-hbs-' || i AS population_id, "

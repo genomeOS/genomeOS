@@ -4,6 +4,8 @@
  * lib/catalog-build.ts), so no production build carries them.
  */
 
+import type { BrowserSql } from './browser-sql/engine';
+
 /** Whether the camera is still moving, as `window.__atlasCameraMotion` reports it. */
 export interface CameraMotion {
   /** A flight the scene started has neither completed nor been cancelled. */
@@ -21,7 +23,29 @@ declare global {
     __atlasRevealWaveHold?: number | null;
     /** Reads the camera's motion, so a browser test can wait out a flight. */
     __atlasCameraMotion?: () => CameraMotion;
+    /** Opens the pinned DuckDB-WASM, so a browser test can measure how it reads the data store. */
+    __atlasBrowserSql?: BrowserSqlTestHook;
   }
+}
+
+export interface BrowserSqlTestHook {
+  open(): Promise<BrowserSql>;
+}
+
+/**
+ * Publishes `window.__atlasBrowserSql` in the e2e build; nothing elsewhere. The browser SQL engine
+ * loads by dynamic `import()` on the first `open()` (Atlas data platform design 2026-10-18 §3.1,
+ * step 1.13).
+ */
+export function publishBrowserSqlTestHook(): void {
+  if (
+    import.meta.env.PUBLIC_ATLAS_E2E_HOOKS !== '1' ||
+    typeof window === 'undefined'
+  )
+    return;
+  window.__atlasBrowserSql = {
+    open: async () => (await import('./browser-sql/engine')).openBrowserSql(),
+  };
 }
 
 /** The reveal wave's hold for the e2e build, read on each wave frame; undefined elsewhere. */

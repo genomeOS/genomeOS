@@ -1,7 +1,13 @@
-/** The e2e build's camera motion hook (fast-load design §B.8; #453). */
+/**
+ * The e2e build's camera motion hook (fast-load design §B.8; #453) and its browser SQL hook (Atlas
+ * data platform design 2026-10-18 §3.1, step 1.13).
+ */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { cameraMotionTestHook } from '../src/atlas/e2e-hooks';
+import {
+  cameraMotionTestHook,
+  publishBrowserSqlTestHook,
+} from '../src/atlas/e2e-hooks';
 
 /** A Cesium-like camera whose move events the test raises. */
 function camera() {
@@ -101,5 +107,21 @@ describe('cameraMotionTestHook', () => {
     expect(page.__atlasCameraMotion).toBe(reader);
     newer.destroy();
     expect(page.__atlasCameraMotion).toBeUndefined();
+  });
+});
+
+describe('publishBrowserSqlTestHook', () => {
+  it('publishes nothing outside the e2e build', () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '');
+    publishBrowserSqlTestHook();
+    expect(page.__atlasBrowserSql).toBeUndefined();
+  });
+
+  it('publishes an opener in the e2e build', () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    publishBrowserSqlTestHook();
+    expect(page.__atlasBrowserSql?.open).toBeTypeOf('function');
   });
 });
