@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -23,6 +25,18 @@ from genomeos.surfaces import model_export
 from genomeos.surfaces.fit import fit_surface
 from tests.surface_fixtures import FAST_CONFIG, published_artifact, synthetic_observations
 
+ROOT = Path(__file__).resolve().parents[1]
+#: The export's layout: ``model_exports`` defines it and ``genomeos.surfaces.model_export`` imports it.
+LAYOUT = (
+    "EXPORT_SCHEMA",
+    "MODEL_MANIFEST",
+    "MODEL_FILE",
+    "INDUCING_FILE",
+    "POSTERIOR_DIR",
+    "MANIFEST_FIELDS",
+    "FILE_FIELDS",
+    "POSTERIOR_FILE",
+)
 ARTIFACT = "a__v4__map-x"
 FIT_INPUT = "c" * 64
 PAYLOADS = {
@@ -63,10 +77,11 @@ def test_a_complete_export_bound_to_its_artifacts_input_passes() -> None:
 
 
 def test_the_layout_constants_are_model_exports(tmp_path: Path) -> None:
-    """The release rule copies the exporter's layout (it never imports the surface stack), so they must
-    agree; and what ``export_model`` writes passes the rule unchanged."""
-    for name in ("EXPORT_SCHEMA", "MODEL_MANIFEST", "MODEL_FILE", "INDUCING_FILE", "POSTERIOR_DIR"):
-        assert getattr(me, name) == getattr(model_export, name), name
+    """One module owns the export's layout: the release rule defines it, and the exporter imports it from
+    there (never the reverse, so the release builder stays free of the surface stack). The two cannot
+    drift, and what ``export_model`` writes passes the rule unchanged."""
+    for name in LAYOUT:
+        assert getattr(model_export, name) is getattr(me, name), name
     assert me.EXPORT_FORMATS == frozenset({1})
     assert model_export.EXPORT_FORMAT in me.EXPORT_FORMATS
 
@@ -83,6 +98,20 @@ def test_the_layout_constants_are_model_exports(tmp_path: Path) -> None:
     manifests = {directory.name: json.loads((directory / me.MODEL_MANIFEST).read_text(encoding="utf-8"))}
     fit_input = json.loads((artifact / "manifest.json").read_text(encoding="utf-8"))["observations"]
     me.check_model_exports(manifests, files, artifact_inputs={artifact.name: fit_input["sha256"]})
+
+
+def test_the_release_rule_imports_no_surface_code() -> None:
+    """The release builder never imports the surface stack (plan, global constraints), so the layout
+    lives in this pure module. Read in a fresh interpreter: this process already holds the surfaces."""
+    code = (
+        "import sys, genomeos.publication.model_exports, scripts.build_data_release; "
+        "print(sorted(m for m in sys.modules if m.startswith('genomeos.surfaces') "
+        "or m.partition('.')[0] in ('pymc', 'pytensor', 'arviz')))"
+    )
+    loaded = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, check=True, cwd=ROOT, text=True
+    )
+    assert loaded.stdout.strip() == "[]"
 
 
 @pytest.mark.parametrize(

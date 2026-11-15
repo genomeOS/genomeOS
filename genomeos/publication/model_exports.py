@@ -4,8 +4,9 @@
 §2.1 publishes a trained model as a safe export beside its artifact, ``store/models/<artifact-id>/``:
 "pickles never". ``genomeos.surfaces.model_export`` writes one (JSON and float64 ``.npy``, then a
 manifest) and loads it back without unpickling. This module is what a release checks before it lists
-one, and imports no surface code: the release builder never imports the surface stack, so the layout
-constants below repeat the exporter's, and a test holds them equal.
+one, and it owns the export's layout (its file names and the manifest's keys): the exporter imports the
+layout from here. The dependency runs that way only, because the release builder never imports the
+surface stack, so this module imports no surface code.
 
 R0 (no pickle, no object-dtype ``.npy``) is applied to every file before it is hashed, by
 ``scripts/build_data_release.py``'s ``collect``; ``data_release.build_manifest`` keeps a released model
@@ -25,19 +26,22 @@ from typing import Any
 
 from genomeos.publication import data_release as dr
 
-#: ``genomeos.surfaces.model_export``'s layout, repeated (see the module docstring).
+# The export's layout. ``genomeos.surfaces.model_export`` writes and reads it, importing it from here.
 EXPORT_SCHEMA = "genomeos-model-export"
-#: The export formats a release accepts.
+#: The export formats a release accepts (``model_export.EXPORT_FORMAT`` is the one the exporter writes).
 EXPORT_FORMATS = frozenset({1})
+#: Written last, so a directory with a manifest is a directory whose files are all there.
 MODEL_MANIFEST = "manifest.json"
 MODEL_FILE = "model.json"
 INDUCING_FILE = "inducing_points.npy"
 POSTERIOR_DIR = "posterior"
+#: The manifest's closed keys, and those of each file it lists.
+MANIFEST_FIELDS = frozenset({"schema", "export_format", "artifact", "fit_input_sha256", "files", "software"})
+FILE_FIELDS = frozenset({"sha256", "bytes"})
+#: One ``.npy`` per free random variable; the group is the variable's name.
+POSTERIOR_FILE = re.compile(rf"{POSTERIOR_DIR}/([A-Za-z_][A-Za-z0-9_]*)\.npy")
 
-_MANIFEST_FIELDS = frozenset({"schema", "export_format", "artifact", "fit_input_sha256", "files", "software"})
-_FILE_FIELDS = frozenset({"sha256", "bytes"})
 _SHA256 = re.compile(r"[0-9a-f]{64}")
-_POSTERIOR_FILE = re.compile(rf"{POSTERIOR_DIR}/[A-Za-z_][A-Za-z0-9_]*\.npy")
 
 
 @dataclass(frozen=True)
@@ -96,7 +100,7 @@ def _check_manifest(
     """Closed keys, a known schema and format, its own artifact, and that artifact's fit input."""
     if not isinstance(manifest, Mapping):
         raise dr.DataReleaseError(f"{where}{MODEL_MANIFEST} is not a JSON object")
-    unknown, missing = sorted(set(manifest) - _MANIFEST_FIELDS), sorted(_MANIFEST_FIELDS - set(manifest))
+    unknown, missing = sorted(set(manifest) - MANIFEST_FIELDS), sorted(MANIFEST_FIELDS - set(manifest))
     if unknown or missing:
         raise dr.DataReleaseError(
             f"{where}{MODEL_MANIFEST}: unknown fields {unknown}, missing fields {missing}"
@@ -135,11 +139,11 @@ def _recorded_files(where: str, files: object) -> dict[str, ModelFile]:
         )
     recorded: dict[str, ModelFile] = {}
     for name, entry in files.items():
-        if name not in (MODEL_FILE, INDUCING_FILE) and not _POSTERIOR_FILE.fullmatch(name):
+        if name not in (MODEL_FILE, INDUCING_FILE) and not POSTERIOR_FILE.fullmatch(name):
             raise dr.DataReleaseError(f"{where}{MODEL_MANIFEST}: {name!r} is not a file a model export holds")
         if (
             not isinstance(entry, Mapping)
-            or set(entry) != _FILE_FIELDS
+            or set(entry) != FILE_FIELDS
             or not isinstance(entry["sha256"], str)
             or not _SHA256.fullmatch(entry["sha256"])
             or type(entry["bytes"]) is not int

@@ -13,6 +13,9 @@ when loaded, so it can never be shared. An export instead holds only what the gr
 - ``manifest.json``, written last: the artifact it belongs to, the sha256 of that artifact's fit input,
   and the sha256 and size of every other file.
 
+The layout (these file names and the manifest's keys) is ``genomeos.publication.model_exports``'s, the
+pure rule a release checks an export against, imported from there so that the two cannot drift.
+
 Arrays are ``.npy`` format 1.0, written and read with ``allow_pickle=False``. The loader rebuilds the
 graph with ``build_surface_model`` from the artifact's own ``observations.parquet`` (#45), so the graph
 and the draws can only meet if the code still builds the model the draws came from: every refusal is a
@@ -42,6 +45,16 @@ import pytensor
 import genomeos
 from genomeos.observations.schema import OBSERVATIONS_SCHEMA
 from genomeos.observations.sources.afnd_carriers import as_binomial
+from genomeos.publication.model_exports import (
+    EXPORT_SCHEMA,
+    FILE_FIELDS,
+    INDUCING_FILE,
+    MANIFEST_FIELDS,
+    MODEL_FILE,
+    MODEL_MANIFEST,
+    POSTERIOR_DIR,
+    POSTERIOR_FILE,
+)
 from genomeos.surfaces.artifacts import read_observations
 from genomeos.surfaces.fit import (
     FitConfig,
@@ -52,18 +65,12 @@ from genomeos.surfaces.fit import (
     surface_fit_from,
 )
 
-EXPORT_SCHEMA = "genomeos-model-export"
+#: The format this exporter writes; a release accepts ``model_exports.EXPORT_FORMATS``.
 EXPORT_FORMAT = 1
-#: Written last, so a directory with a manifest is a directory whose files are all there.
-MODEL_MANIFEST = "manifest.json"
-MODEL_FILE = "model.json"
-INDUCING_FILE = "inducing_points.npy"
-POSTERIOR_DIR = "posterior"
 #: How many of an artifact's cells a rebuilt fit must reproduce, and how closely.
 REPRODUCTION_SAMPLE = 64
 REPRODUCTION_ATOL = 1e-6
 
-_MANIFEST_FIELDS = frozenset({"schema", "export_format", "artifact", "fit_input_sha256", "files", "software"})
 _MODEL_FIELDS = frozenset(
     {
         "variant_id",
@@ -77,9 +84,7 @@ _MODEL_FIELDS = frozenset(
         "free_variables",
     }
 )
-_FILE_FIELDS = frozenset({"sha256", "bytes"})
 _SHA256 = re.compile(r"[0-9a-f]{64}")
-_POSTERIOR_FILE = re.compile(rf"{POSTERIOR_DIR}/([A-Za-z_][A-Za-z0-9_]*)\.npy")
 #: The artifact columns `predict` recomputes; `require_reproduces_cells` also recomputes the prior SD.
 _SUMMARIES = ("post_median", "post_mean", "post_sd", "q025", "q975", "q25", "q75")
 #: The artifact manifest's record of the fit, and the fit's own value of each.
@@ -282,7 +287,7 @@ def _read_export_manifest(model_dir: Path, artifact: str) -> dict[str, Any]:
     path = model_dir / MODEL_MANIFEST
     if not path.is_file():
         raise ValueError(f"{model_dir} has no {MODEL_MANIFEST}, so it is not a complete model export")
-    manifest = _closed_json(path, _MANIFEST_FIELDS)
+    manifest = _closed_json(path, MANIFEST_FIELDS)
     if (
         manifest["schema"] != EXPORT_SCHEMA
         or _not_int(manifest["export_format"])
@@ -305,11 +310,11 @@ def _read_export_manifest(model_dir: Path, artifact: str) -> dict[str, Any]:
     if not isinstance(files, dict):
         raise ValueError(f"{path}: files must map each file to its sha256 and bytes")
     for name, entry in files.items():
-        if name not in (MODEL_FILE, INDUCING_FILE) and not _POSTERIOR_FILE.fullmatch(name):
+        if name not in (MODEL_FILE, INDUCING_FILE) and not POSTERIOR_FILE.fullmatch(name):
             raise ValueError(f"{path}: {name!r} is not a file a model export holds")
         if (
             not isinstance(entry, dict)
-            or set(entry) != _FILE_FIELDS
+            or set(entry) != FILE_FIELDS
             or not isinstance(entry["sha256"], str)
             or not _SHA256.fullmatch(entry["sha256"])
             or _not_int(entry["bytes"])
@@ -393,7 +398,7 @@ def _require_rebuilt(
 def _read_posterior(
     model_dir: Path, files: Mapping[str, Any], shapes: Mapping[str, tuple[int, ...]], config: FitConfig
 ) -> dict[str, np.ndarray]:
-    stems = {match.group(1) for name in files if (match := _POSTERIOR_FILE.fullmatch(name))}
+    stems = {match.group(1) for name in files if (match := POSTERIOR_FILE.fullmatch(name))}
     _require_names(f"{POSTERIOR_DIR}/", stems, shapes)
     posterior = {}
     for name, shape in shapes.items():
