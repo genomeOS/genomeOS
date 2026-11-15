@@ -18,21 +18,29 @@ production origin ``PROBE_ORIGIN`` this sends what a browser sends and requires:
 - ``HEAD``: 200 and ``Accept-Ranges: bytes``;
 
 and on each, ``Access-Control-Allow-Origin`` of ``*`` or the origin. Header names compare
-case-insensitively. The object is the newest committed release's ``catalog/atlas.duckdb``, else its first
-``.parquet``, or ``--path``; its key and byte count come from the manifest, so nothing lists the bucket.
-The base URL is the committed one or a loopback mirror (``fetch_data.base_url``). Nothing is cached: every
-run sends fresh requests, each with ``Cache-Control: no-cache``, which asks any cache on the way to
-revalidate rather than answer from a copy stored before the CORS change. Standard library only, no
-credentials.
+case-insensitively, and repeated header lines are joined with ", " as a browser joins them. The object
+is the newest committed release's ``catalog/atlas.duckdb``, else its first ``.parquet``, or ``--path``;
+its key and byte count come from the manifest, so nothing lists the bucket. The base URL is the
+committed one or a loopback mirror (``fetch_data.base_url``). Standard library only, no credentials.
+
+The probe tests the bucket's live CORS, not a cached copy. Google's edge cache keeps a public object for
+its ``max-age`` (3600 s) with the CORS headers it was stored under, and GCS's built-in cache offers no
+invalidation (docs.cloud.google.com/storage/docs/caching). Anonymous reads on 2026-11-15 (task 28
+review) found that the edge ignores a request's ``Cache-Control: no-cache`` (a ``no-cache`` GET came back
+with ``Age: 8``) but misses on a URL whose query it has not seen. So each request carries its own
+``?probe=<random hex>``, a query GCS ignores. Browsers send no such query: for up to an hour after a
+CORS change, a page can still get the old headers for an object fetched in full in the hour before it.
 """
 
 from __future__ import annotations
 
 import argparse
+import email.message
 import http.client
 import sys
 import urllib.error
 import urllib.request
+import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,7 +60,9 @@ CATALOG_PATH = "catalog/atlas.duckdb"
 EXPOSED = ("Content-Range", "Accept-Ranges")
 TIMEOUT_S = 30
 #: Sent with every request, beside the browser's own headers.
-COMMON_HEADERS = {"User-Agent": "genomeos-check-data-store-cors/1", "Cache-Control": "no-cache"}
+COMMON_HEADERS = {"User-Agent": "genomeos-check-data-store-cors/1"}
+#: The query parameter that keeps each request out of the edge cache (module docstring).
+CACHE_BUSTER = "probe"
 _OPENER = urllib.request.build_opener()
 
 
@@ -115,15 +125,28 @@ def _origin_problems(what: str, headers: Mapping[str, str], origin: str) -> list
     return [f"{what} Access-Control-Allow-Origin is {allowed!r}, expected {origin!r} or '*'"]
 
 
+def _merged(message: email.message.Message) -> dict[str, str]:
+    """Every header line, lowercased by name; a repeated name's values joined in order with ", ", as
+    Fetch combines them. ``dict(message.items())`` would keep only the last line, and GCS's edge sends
+    ``Access-Control-Expose-Headers`` as one line per name."""
+    merged: dict[str, str] = {}
+    for name, value in message.items():
+        key = name.lower()
+        merged[key] = f"{merged[key]}, {value}" if key in merged else value
+    return merged
+
+
 def _send(url: str, method: str, headers: Mapping[str, str]) -> Reply:
-    """One request, no retry and no cache; an HTTP error status is an answer, not an exception."""
-    request = urllib.request.Request(url, method=method, headers={**COMMON_HEADERS, **headers})
+    """One request, no retry, and a fresh query so no cache answers it; an HTTP error status is an
+    answer, not an exception."""
+    fresh = f"{url}?{CACHE_BUSTER}={uuid.uuid4().hex}"  # unique, not reproducible: not a science path
+    request = urllib.request.Request(fresh, method=method, headers={**COMMON_HEADERS, **headers})
     try:
         with _OPENER.open(request, timeout=TIMEOUT_S) as response:
             body = response.read(RANGE_PROBE_BYTES + 1) if method == "GET" else b""
-            return Reply(response.status, dict(response.headers.items()), len(body))
+            return Reply(response.status, _merged(response.headers), len(body))
     except urllib.error.HTTPError as error:
-        reply = Reply(error.code, dict(error.headers.items()), 0)
+        reply = Reply(error.code, _merged(error.headers), 0)
         error.close()
         return reply
     except (OSError, http.client.HTTPException) as error:  # refused, DNS, timeout, reset, TLS, truncation
