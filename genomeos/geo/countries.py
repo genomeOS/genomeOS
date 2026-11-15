@@ -43,7 +43,6 @@ from functools import lru_cache
 
 import pandas as pd
 
-from genomeos.surfaces.mask import aggregate_cells
 from genomeos.viz.basemap import load_countries
 
 #: Natural Earth 1:110m records `-99` in `iso_a3` for features whose sovereignty is contested or
@@ -320,6 +319,10 @@ def rollup_by_country(
     how a mask stops being enforced. `value` is null for a country whose cells are all masked:
     §9's no-number-rather-than-a-wrong-one, at country scale.
     """
+    # Deferred: the release builder reaches this module through the registry sources and never
+    # imports the surface stack (data platform plan, global constraints).
+    from genomeos.surfaces.mask import aggregate_cells
+
     if "iso3" not in cells.columns:
         raise ValueError("`cells` must carry an `iso3` column; see assign_countries")
     unassigned = int(cells["iso3"].isna().sum())

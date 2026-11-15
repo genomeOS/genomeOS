@@ -25,6 +25,11 @@ with a reason; they are immutable, so none of them may gain the file. Every inpu
 records is a key of this release or a committed one, with its sha256, or a cited URL with md5 and
 generation (Atlas data platform design 2026-10-18 §2.7 check 9, step 1.9).
 
+A trained model is published beside its artifact as ``store/models/<artifact-id>/`` (Atlas data platform
+design 2026-10-18 §2.1, step 1.12; #471): a safe export, never a pickle, bound to its artifact's fit input
+by sha256 and listing exactly its files (``check_models``); a released model directory is closed, like an
+artifact. Every manifest built is then held to the release guard (§4.2, ``check_release_guard``).
+
 The catalog (Atlas data platform design 2026-10-18 §2.6, §2.7 check 7; calls 4 and 17) is built in two
 passes, after ``build_tables.py`` has written the release's ``tables/``:
 
@@ -48,7 +53,7 @@ import json
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -59,8 +64,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from genomeos.publication import access_policy as ap  # noqa: E402
 from genomeos.publication import artifact_inputs as ai  # noqa: E402
 from genomeos.publication import data_release as dr  # noqa: E402
+from genomeos.publication import model_exports as me  # noqa: E402
 from genomeos.publication import raw_harvests as rh  # noqa: E402
 from genomeos.publication.source_terms import REVIEWED_SOURCES  # noqa: E402
 from genomeos.tables import catalog as tables_catalog  # noqa: E402  (build's flag is ``catalog``)
@@ -83,13 +90,15 @@ INCLUDE = (
     "store/artifacts",
     "store/catalog-metadata.json",
     "store/external",
+    "store/models",
     "tables",
     "validation",
 )
 #: Include roots a tree may lack until a release publishes under them (Atlas data platform design
 #: 2026-10-18 §2.3): the v1 tables and their catalog arrive with release 1, the external caches with
-#: step 1.8. Once published, each is required. ``main`` requires every cache in ``EXTERNAL_CACHES``.
-OPTIONAL_ROOTS: tuple[str, ...] = ("catalog", "store/external", "tables")
+#: step 1.8, the trained models with step 1.12. Once published, each is required. ``main`` requires every
+#: cache in ``EXTERNAL_CACHES``.
+OPTIONAL_ROOTS: tuple[str, ...] = ("catalog", "store/external", "store/models", "tables")
 #: The reviewed raw harvests ``main`` publishes, each root required (step 1.8). A test of ``main`` on a
 #: tree that holds none sets this to ``()``.
 RAW_HARVESTS: tuple[rh.RawHarvest, ...] = rh.RAW_HARVESTS
@@ -231,9 +240,7 @@ def _record_sources(data_root: Path) -> dict[str, dict[str, Any]]:
     return found
 
 
-def _artifact_sources(data_root: Path, path: str) -> tuple[str, ...]:
-    directory = path.split("/")[2]
-    data_version = directory.rsplit("__", 1)[-1]
+def _data_source(path: str, data_version: str) -> str:
     source = next(
         (name for prefix, name in ARTIFACT_DATA_SOURCES.items() if data_version.startswith(prefix)), None
     )
@@ -241,6 +248,13 @@ def _artifact_sources(data_root: Path, path: str) -> tuple[str, ...]:
         raise dr.DataReleaseError(
             f"{path}: data_version {data_version!r} has no reviewed source; add it to ARTIFACT_DATA_SOURCES"
         )
+    return source
+
+
+def _artifact_sources(data_root: Path, path: str) -> tuple[str, ...]:
+    directory = path.split("/")[2]
+    data_version = directory.rsplit("__", 1)[-1]
+    source = _data_source(path, data_version)
     manifest_path = data_root / dr.ARTIFACT_PREFIX / directory / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("data_version") != data_version:
@@ -255,10 +269,20 @@ def _artifact_sources(data_root: Path, path: str) -> tuple[str, ...]:
     return (source, "worldpop") if grid.startswith("worldpop") else (source,)
 
 
+def _model_sources(data_root: Path, path: str) -> tuple[str, ...]:
+    """A model was fit on its artifact's input alone, so it carries the artifact's data source. It is read
+    from the directory name, not the artifact's manifest, so a model with no artifact reaches
+    ``check_models``."""
+    closed = dr.closed_directory(path)
+    assert closed is not None  # the rule matched MODEL_PREFIX
+    return (_data_source(path, closed[1].rsplit("__", 1)[-1]),)
+
+
 _CACHE_PREFIXES = tuple(f"{rh.EXTERNAL_PREFIX}{name}/" for name in rh.EXTERNAL_CACHE_SOURCES)
 
 _RULES: tuple[tuple[Callable[[str], bool], Callable[[Path, str], tuple[str, ...]]], ...] = (
     (lambda path: path.startswith(dr.ARTIFACT_PREFIX), _artifact_sources),
+    (lambda path: path.startswith(dr.MODEL_PREFIX), _model_sources),
     # A derived table records the union of its inputs' sources (Atlas data platform design 2026-10-18
     # §9, call 16); a file that records none is refused.
     (lambda path: path.startswith("tables/"), provenance.recorded_sources),
@@ -418,6 +442,60 @@ def check_inputs(
     )
 
 
+def _fit_input_of(path: str) -> str | None:
+    """The artifact whose fit input ``path`` is, or None."""
+    closed = dr.closed_directory(path)
+    if closed is not None and path == f"{dr.ARTIFACT_PREFIX}{closed[1]}/{ai.INPUT_FILE}":
+        return closed[1]
+    return None
+
+
+def check_models(
+    data_root: Path, records: Sequence[dr.FileRecord], previous: Sequence[Mapping[str, Any]]
+) -> None:
+    """Refuse a ``store/models/`` directory that is not a complete safe export bound to its artifact's fit
+    input: ``model_exports.check_model_exports`` over this release's model files, with the fit inputs this
+    release and the earlier ones publish (§2.1, step 1.12; #471)."""
+    files: dict[str, me.ModelFile] = {}
+    manifests: dict[str, Any] = {}
+    for record in records:
+        closed = dr.closed_directory(record.path)
+        if closed is None or closed[0] != dr.MODEL_PREFIX:
+            continue
+        files[record.path] = me.ModelFile(record.sha256, record.bytes)
+        if record.path == f"{dr.MODEL_PREFIX}{closed[1]}/{me.MODEL_MANIFEST}":
+            try:
+                manifests[closed[1]] = json.loads((data_root / record.path).read_text(encoding="utf-8"))
+            except ValueError as error:
+                raise dr.DataReleaseError(f"{record.path}: not a JSON manifest ({error})") from error
+    earlier = [(item.path, item.sha256) for manifest in previous for item in dr.validate_manifest(manifest)]
+    current = [(record.path, record.sha256) for record in records]
+    inputs = {
+        artifact: sha256
+        for path, sha256 in (*earlier, *current)
+        if (artifact := _fit_input_of(path)) is not None
+    }
+    me.check_model_exports(manifests, files, artifact_inputs=inputs)
+
+
+def models_summary(objects: Iterable[Mapping[str, Any]]) -> str:
+    """``main``'s line about ``store/models/``: how many models the release holds, or why it holds none."""
+    paths = [item["path"] for item in objects]
+    models = {
+        closed[1]
+        for path in paths
+        if (closed := dr.closed_directory(path)) is not None and closed[0] == dr.MODEL_PREFIX
+    }
+    if models:
+        plural = "" if len(models) == 1 else "s"
+        return f"store/models: {len(models)} model{plural}, each bound to its artifact's fit input"
+    bound = {artifact for path in paths if (artifact := _fit_input_of(path)) is not None}
+    if not bound:
+        return "store/models: absent (no released artifact has a fit input)"
+    counted = "1 released artifact has" if len(bound) == 1 else f"{len(bound)} released artifacts have"
+    return f"store/models: absent ({counted} a fit input; none has an exported model)"
+
+
 def build(
     data_root: Path,
     release: str,
@@ -448,6 +526,9 @@ def build(
     )
     check_inputs(data_root, records, previous, released_without_input)
     manifest = _manifest(data_root, records, release, previous)
+    # After the manifest, so a released model directory that changed is refused as closed (cannot gain,
+    # immutable) before its listing is compared.
+    check_models(data_root, records, previous)
     if any(record.path == measured.INGESTS_PATH for record in records):
         released = {item.key: item for found in (*previous, manifest) for item in dr.validate_manifest(found)}
         measured.check_ingest_inputs(measured.read_ingests(data_root / measured.INGESTS_PATH), released)
@@ -470,7 +551,9 @@ def _manifest(
 ) -> dict[str, Any]:
     used = {name for record in records for name in record.sources}
     available = {**REVIEWED_SOURCES, **_record_sources(data_root)}
-    return dr.build_manifest(records, {name: available[name] for name in used}, release, previous)
+    manifest = dr.build_manifest(records, {name: available[name] for name in used}, release, previous)
+    ap.check_release_guard(manifest["objects"])
+    return manifest
 
 
 def listed_files(
@@ -629,6 +712,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"release {args.release}: {totals['objects']} objects, {totals['bytes']:,} bytes "
         f"({totals['in_git_objects']} objects, {totals['in_git_bytes']:,} bytes also tracked in git)"
     )
+    guarded, cap = ap.check_release_guard(manifest["objects"]), ap.OPEN_RELEASE_GCS_MAX_BYTES / (1 << 30)
+    print(f"release guard: {guarded:,} bytes are within the {cap:g} GiB cap")
+    print(models_summary(manifest["objects"]))
     return 0
 
 

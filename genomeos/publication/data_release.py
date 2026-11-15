@@ -15,13 +15,14 @@ earlier records and releases as ``restricted`` (Atlas data platform design 2026-
 Keys are immutable and release-versioned, ``releases/<release>/<path>``; a later release reuses an
 earlier key for byte-identical content, and a published artifact whose bytes changed is refused (AGENTS
 "Artifacts are immutable"; design §5). So is a file added to an artifact directory an earlier release
-published: a cited artifact is a closed set of files. So is a changed ``tables/`` part under a
-``PARTITION_KEYS`` folder, or in a population registry's folder (``is_write_once``): a takedown or a
-rebuild writes a new epoch, ingest version or registry release instead (Atlas data platform design
-2026-10-18 §2.3, §2.9; builder's calls 5 and 6). A changed summary table such as
-``tables/v1/inferred/artifacts.parquet`` gets this release's key, by design.
-Pickles are never published: loading one from the internet executes code (data store design §8).
-Every violation is a hard error (design §12).
+published: a cited artifact is a closed set of files, and so is the model exported beside it under
+``store/models/`` (``closed_directory``; Atlas data platform design 2026-10-18 §2.2 rule 1, step 1.12).
+So is a changed ``tables/`` part under a ``PARTITION_KEYS`` folder, or in a population registry's folder
+(``is_write_once``): a takedown or a rebuild writes a new epoch, ingest version or registry release
+instead (Atlas data platform design 2026-10-18 §2.3, §2.9; builder's calls 5 and 6). A changed summary
+table such as ``tables/v1/inferred/artifacts.parquet`` gets this release's key, by design. Pickles are
+never published: loading one from the internet executes code (data store design §8). Every violation is
+a hard error (design §12).
 
 ``WITHDRAWN.json`` sits beside the manifests in ``data/releases/``: the keys withdrawn from serving,
 for the owner to delete (Atlas data platform design 2026-10-18 §2.9). It is not a release, so every
@@ -50,6 +51,10 @@ MANIFEST_PREFIX = "manifests/"
 CACHE_CONTROL = "public, max-age=3600"
 NOT_CHECKED = "not_checked"
 ARTIFACT_PREFIX = "store/artifacts/"
+#: Where a trained model is published, beside its artifact (Atlas data platform design 2026-10-18 §2.1).
+MODEL_PREFIX = "store/models/"
+#: Each directory under these is a closed set of files once released: an artifact, and its model.
+_CLOSED_PREFIXES = (ARTIFACT_PREFIX, MODEL_PREFIX)
 BASE_URL_VARIABLE = "GENOMEOS_DATA_BASE_URL"
 BUCKET_VARIABLE = "GENOMEOS_DATA_BUCKET"
 #: The public, read-only data store. Committed by owner decision (2026-10-17): a public bucket's URL and
@@ -193,12 +198,27 @@ def assert_data_path(value: object) -> str:
     return value
 
 
+def closed_directory(path: str) -> tuple[str, str] | None:
+    """``(prefix, directory)`` for a file in a directory under ``ARTIFACT_PREFIX`` or ``MODEL_PREFIX``,
+    which a release publishes as a closed set of files; ``None`` for a path under neither prefix.
+
+    A file directly under one of the prefixes names no directory and is refused.
+    """
+    prefix = next((prefix for prefix in _CLOSED_PREFIXES if path.startswith(prefix)), None)
+    if prefix is None:
+        return None
+    directory, _, name = path[len(prefix) :].partition("/")
+    if not directory or not name:
+        raise DataReleaseError(f"{path}: not a file inside a directory under {prefix}")
+    return prefix, directory
+
+
 def artifact_directory(path: str) -> str:
     """The artifact directory a ``store/artifacts/<directory>/<file>`` path lies in."""
-    parts = path[len(ARTIFACT_PREFIX) :].split("/") if path.startswith(ARTIFACT_PREFIX) else []
-    if len(parts) < 2 or not parts[0]:
+    found = closed_directory(path) if path.startswith(ARTIFACT_PREFIX) else None
+    if found is None:
         raise DataReleaseError(f"{path}: not a file inside an artifact directory under {ARTIFACT_PREFIX}")
-    return parts[0]
+    return found[1]
 
 
 def is_write_once(path: str) -> bool:
@@ -322,24 +342,25 @@ def build_manifest(
     """A validated manifest for ``records``, reusing earlier keys for byte-identical files."""
     assert_release_id(release)
     published = _published(previous, release)
-    released_artifacts = {artifact_directory(path) for path in published if path.startswith(ARTIFACT_PREFIX)}
+    released_directories = {found for path in published if (found := closed_directory(path)) is not None}
     objects: dict[str, dict[str, Any]] = {}
     for record in records:
         path = assert_data_path(record.path)
         if path in objects:
             raise DataReleaseError(f"{path}: listed twice")
         earlier = published.get(path)
-        directory = artifact_directory(path) if path.startswith(ARTIFACT_PREFIX) else None
-        if earlier is None and directory in released_artifacts:
+        closed = closed_directory(path)
+        if earlier is None and closed in released_directories:
             raise DataReleaseError(
-                f"{path}: {directory} was released without this file, and a released artifact is immutable "
-                "and cannot gain one (design §5); publish a new model_version instead"
+                f"{path}: {''.join(closed)}/ was released without this file, and a released directory is "
+                "immutable and cannot gain one (design §5); publish a new model_version instead"
             )
         if earlier is not None and (earlier.sha256, earlier.bytes) != (record.sha256, record.bytes):
-            if path.startswith(ARTIFACT_PREFIX):
+            if closed is not None:
                 raise DataReleaseError(
-                    f"{path}: published in an earlier release with sha256 {earlier.sha256}; artifacts are "
-                    "immutable (design §5), so publish a new model_version instead of changing one"
+                    f"{path}: published in an earlier release with sha256 {earlier.sha256}; artifacts and "
+                    "their models are immutable (design §5), so publish a new model_version instead of "
+                    "changing one"
                 )
             if is_write_once(path):
                 raise DataReleaseError(

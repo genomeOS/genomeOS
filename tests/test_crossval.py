@@ -6,7 +6,6 @@ be mistaken for a bug in the model.
 
 import numpy as np
 import pytest
-from test_surface_fit import _observations
 
 from genomeos.surfaces.fit import FitConfig
 from genomeos.validation.crossval import (
@@ -17,6 +16,7 @@ from genomeos.validation.crossval import (
     make_folds,
     studies_split_across_folds,
 )
+from tests.surface_fixtures import synthetic_observations as _observations
 
 # n_inducing must respect the M<<N guard against the *fold* size, not the full dataset: each
 # fold trains on (k-1)/k of the data, so a budget that is fine overall can be too large per fold.
