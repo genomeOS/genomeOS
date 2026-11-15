@@ -358,6 +358,55 @@ test.describe(
       ).toHaveAttribute('href', QUERY_ERROR_DOCS.paused.href);
     });
 
+    /** Opens the panel while the store answers 403, so its first start fails, then lifts the 403. */
+    async function failFirstStart(
+      page: Page,
+      request: APIRequestContext,
+    ): Promise<Locator> {
+      await request.get(`${STORE}__control?force=403`);
+      await page.goto(HBS_PAGE);
+      const panel = queryPanel(page);
+      await panel.locator('summary').click();
+      await expect(panel.getByRole('alert').locator('p').first()).toHaveText(
+        PAUSED_TEXT,
+        { timeout: DUCKDB_MS },
+      );
+      await expect(
+        panel.getByRole('group', { name: 'Example queries' }),
+      ).toHaveCount(0);
+      await request.get(`${STORE}__control?force=off`);
+      return panel;
+    }
+
+    test('a failed start is tried again when the panel is reopened', async ({
+      page,
+      request,
+    }) => {
+      const panel = await failFirstStart(page, request);
+      await panel.locator('summary').click();
+      await expect(panel).not.toHaveAttribute('open');
+      await panel.locator('summary').click();
+      await expect(
+        panel.getByRole('group', { name: 'Example queries' }),
+      ).toBeVisible({ timeout: DUCKDB_MS });
+      await expect(panel.getByRole('alert')).toHaveCount(0);
+    });
+
+    test('a failed start is tried again from its "Try again" button', async ({
+      page,
+      request,
+    }) => {
+      const panel = await failFirstStart(page, request);
+      await panel.getByRole('button', { name: 'Try again' }).click();
+      await expect(
+        panel.getByRole('group', { name: 'Example queries' }),
+      ).toBeVisible({ timeout: DUCKDB_MS });
+      await expect(panel.getByRole('alert')).toHaveCount(0);
+      await expect(
+        panel.getByRole('button', { name: 'Try again' }),
+      ).toHaveCount(0);
+    });
+
     test('says a file is withdrawn when the store answers 404 for it', async ({
       page,
       request,

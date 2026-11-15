@@ -7,7 +7,8 @@
  * objects the catalog has. An example's result shows under Measured or Inferred, never both (Atlas
  * v1 §4); a query typed by hand shows under neither. "Copy for DuckDB" gives the same statement,
  * after the ATTACH, for the DuckDB CLI, Python or R. A failure says what the reader can do: wait out
- * a paused store (and use gnomAD meanwhile), reload for a withdrawn file, or fix their SQL.
+ * a paused store (and use gnomAD meanwhile), reload for a withdrawn file, or fix their SQL. A start
+ * that failed is tried again from its "Try again" button, or when the panel is reopened.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -240,7 +241,12 @@ export function BrowserQueryPanel({
     <details
       className="atlas-control-sheet atlas-browser-sql"
       onToggle={(event) => {
-        if (event.currentTarget.open && status.state === 'closed') void start();
+        // A failed start is tried again: a transient fetch error or a lifted pause needs no reload.
+        if (
+          event.currentTarget.open &&
+          (status.state === 'closed' || status.state === 'failed')
+        )
+          void start();
       }}
     >
       <summary>Query in your browser</summary>
@@ -254,7 +260,14 @@ export function BrowserQueryPanel({
           <p role="status">Starting DuckDB and attaching the catalog…</p>
         )}
         {status.state === 'failed' && (
-          <ErrorNote artifact={artifact} error={status.error} />
+          <>
+            <ErrorNote artifact={artifact} error={status.error} />
+            <div className="atlas-browser-sql__actions">
+              <button type="button" onClick={() => void start()}>
+                Try again
+              </button>
+            </div>
+          </>
         )}
         {examples.length > 0 && (
           <div
