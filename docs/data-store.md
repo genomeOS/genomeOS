@@ -175,8 +175,22 @@ canonical, citable JSON (surface, observations and manifest per artifact, plus `
 an export directory. When an artifact carries `observations.parquet` (#45), the exporter reads it
 back and refuses rows reloaded from the source export that differ from it on any column the
 observations JSON uses, and the manifest it serves drops `observations.path`, which names a
-data-store file the bucket does not hold. `export_atlas_web.py` output is an intermediate; the
-site build fails until `encode_atlas_web.py` has run on it and the result is published:
+data-store file the bucket does not hold.
+
+Such an artifact serves its observations JSON as a projection of that input (web format 1.1,
+Atlas data platform design 2026-10-18 §2.8, step 1.10): the rows are the input itself, in the fit's
+order, each adding `measurement`, `population_id`, `rsid` and `source`. Pass the registry folder it
+was fitted under, `--registry data/tables/v1/reference/populations/<folder>`. The export stops before
+writing the artifact when there is no registry, when its `registry_version` is not the artifact's,
+when no committed release holds the input under the sha256 its manifest records, when the input
+counts carriers and the web artifact does not (or the reverse), or when a row's `population_id` is
+not in the registry. It prints `projected observations: <n>`. Pass
+`--published-catalog website/public/data/atlas/catalog.json` to every re-export: a surface or
+observations JSON the deployed catalog serves is never regenerated with other bytes, and the export
+stops before writing one.
+
+`export_atlas_web.py` output is an intermediate; the site build fails until `encode_atlas_web.py`
+has run on it and the result is published:
 
 ```bash
 python scripts/encode_atlas_web.py --in <export-dir> --out data/atlas-web --with-downloads

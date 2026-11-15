@@ -30,7 +30,7 @@ from collections.abc import Mapping
 #: The format this code writes. Bump it per docs/web-data-format.md. ``tests/test_web_format.py``
 #: and ``website/tests/atlas-format-version.test.ts`` hold the TypeScript constant and every committed
 #: catalog to this value.
-WEB_FORMAT_VERSION = "1.0"
+WEB_FORMAT_VERSION = "1.1"
 FIELD = "format_version"
 
 # ASCII digits only and no leading zeros, so one version has exactly one spelling.

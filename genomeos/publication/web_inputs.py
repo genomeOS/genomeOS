@@ -1,11 +1,11 @@
 """An artifact's fit input at the web publication boundary (#45; data store design 2026-10-17 §5).
 
 Every new artifact carries ``observations.parquet``, the exact table its fit consumed, pinned by
-sha256 in its manifest. The Atlas exporter still builds its observations JSON from rows it reloads
-through the source adapters, because only they join each row to its citation and study label. So
-when an artifact pins its input, the reloaded rows must be that table, row for row, on every column
-the web JSON carries. The same number of rows is not enough: the site would show a surface beside
-rows it was not fitted to.
+sha256 in its manifest. The Atlas exporter serves that table's rows (web format 1.1,
+``web_observations.project_rows``), but joins each to its citation and study label through the rows
+it reloads with the source adapters, because only they carry them. So when an artifact pins its input,
+the reloaded rows must be that table, row for row, on every column the web JSON carries. The same
+number of rows is not enough: the site would show a surface beside rows it was not fitted to.
 
 The bucket also serves a copy of the manifest. The input record's ``path`` is relative to the
 artifact's directory in the data store, which the bucket does not hold, so the copy drops it and

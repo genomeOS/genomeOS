@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
 from genomeos.observations.sources import map_surveys
+from genomeos.publication import web_observations as wo
 from genomeos.publication.surface_codec import GosaError
 from genomeos.publication.web_format import WEB_FORMAT_VERSION
 from genomeos.registry.variants import load as load_variant_registry
 from genomeos.registry.variants import normalized_identity
 from genomeos.surfaces.fit_input import OBSERVATIONS_FILE, serialize_observations
 from genomeos.surfaces.prior import PRIOR_DRAWS, PRIOR_NORMALIZATION
-from scripts import encode_atlas_web, encode_natural_earth_borders, export_atlas_web
+from genomeos.tables import reference
+from scripts import build_tables, encode_atlas_web, encode_natural_earth_borders, export_atlas_web
+from tests import test_reference_tables
 
 HF_REVISION = "fc17bc1c1d96a0d0766746dcf26277ccdc669717"
 VARIANT_ID = "chr11-5227002-T-A"
@@ -744,12 +748,23 @@ def _served_manifest(export_inputs: dict[str, Path]) -> dict:
     return json.loads((export_inputs["out"] / "hbs-rs334.manifest.json").read_text())
 
 
+ARTIFACT_DIR = "hbs-test__v1__map-test"
+#: The fixture row's population, as `map_surveys` names it, in the fixture's pinned registry.
+REGISTRY = wo.PinnedRegistry("map-test-registry", frozenset({"map-hbs-9001"}))
+
+
+def _projecting(manifest: dict, *, registry: wo.PinnedRegistry = REGISTRY) -> dict[str, object]:
+    """What a projection needs (web format 1.1): the pinned registry, and a committed release that
+    holds the artifact's fit input under the sha256 its manifest records."""
+    return {"registry": registry, "released_inputs": {ARTIFACT_DIR: manifest["observations"]["sha256"]}}
+
+
 def test_export_serves_a_pinned_input_record_without_its_data_store_path(
     export_inputs: dict[str, Path],
 ) -> None:
     """`observations.path` names a file beside the artifact in the data store, not in the bucket."""
     _, manifest = _pin_fixture_input(export_inputs)
-    _export(export_inputs)
+    _export(export_inputs, **_projecting(manifest))
     served = _served_manifest(export_inputs)
     record = manifest.pop("observations")
     assert served.pop("observations") == {key: value for key, value in record.items() if key != "path"}
@@ -766,9 +781,9 @@ def test_export_refuses_reloaded_rows_that_are_not_the_input_the_fit_consumed(
     export_inputs: dict[str, Path], change
 ) -> None:
     """As many rows is not the same rows: the site must not show a surface beside other data."""
-    _pin_fixture_input(export_inputs, change=change)
+    _, manifest = _pin_fixture_input(export_inputs, change=change)
     with pytest.raises(ValueError, match="differ in .* from the table its fit consumed"):
-        _export(export_inputs)
+        _export(export_inputs, **_projecting(manifest))
     assert not (export_inputs["out"] / "catalog.json").exists()
 
 
@@ -778,8 +793,8 @@ def test_export_reads_a_carrier_input_back_in_the_fit_shape(export_inputs: dict[
     metadata = json.loads(metadata_path.read_text())
     metadata["variants"][VARIANT_ID]["measurement"] = "carrier_frequency"
     metadata_path.write_text(json.dumps(metadata))
-    _pin_fixture_input(export_inputs, measurement="carrier_frequency")
-    _export(export_inputs)
+    _, manifest = _pin_fixture_input(export_inputs, measurement="carrier_frequency")
+    _export(export_inputs, **_projecting(manifest))
     assert _served_manifest(export_inputs)["observations"]["columns"][6:8] == ["carriers", "n_individuals"]
 
 
@@ -807,6 +822,135 @@ def test_export_without_a_pinned_input_copies_the_manifest_and_reads_no_input(
     (artifact / OBSERVATIONS_FILE).write_bytes(b"not parquet, and named by no record")
     _export(export_inputs)
     assert _served_manifest(export_inputs) == json.loads((artifact / "manifest.json").read_text())
+
+
+# --- web format 1.1: an artifact released with its fit input serves its projection (§2.8, step 1.10) ---
+
+
+def _served_observations(export_inputs: dict[str, Path]) -> dict:
+    return json.loads((export_inputs["out"] / "hbs-rs334.observations.json").read_text())
+
+
+def _set_web_measurement(export_inputs: dict[str, Path], measurement: str) -> None:
+    metadata_path = export_inputs["store"] / "catalog-metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata["variants"][VARIANT_ID]["measurement"] = measurement
+    metadata_path.write_text(json.dumps(metadata))
+
+
+def test_an_artifact_with_a_fit_input_serves_its_projection(
+    export_inputs: dict[str, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    _, manifest = _pin_fixture_input(export_inputs)
+    _export(export_inputs, **_projecting(manifest))
+    (row,) = _served_observations(export_inputs)["observations"]
+    assert {key: row[key] for key in wo.PROJECTION_FIELDS} == {
+        "measurement": "allele_frequency",
+        "population_id": "map-hbs-9001",
+        "rsid": "rs334",
+        "source": "map_surveys",
+    }
+    assert row["radius_km"] == 73.25
+    assert set(row) == {*wo.LEGACY_ROW_FIELDS, *wo.PROJECTION_FIELDS}
+    assert "projected observations: 1" in capsys.readouterr().out
+
+
+def test_an_artifact_without_a_fit_input_serves_legacy_rows_only(
+    export_inputs: dict[str, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    _export(export_inputs, registry=REGISTRY)
+    rows = _served_observations(export_inputs)["observations"]
+    assert rows and [set(row) for row in rows] == [set(wo.LEGACY_ROW_FIELDS)] * len(rows)
+    assert "projected observations: 0" in capsys.readouterr().out
+
+
+def test_a_projection_without_a_registry_writes_nothing(export_inputs: dict[str, Path]) -> None:
+    _, manifest = _pin_fixture_input(export_inputs)
+    released = _projecting(manifest)["released_inputs"]
+    with pytest.raises(ValueError, match="--registry"):
+        _export(export_inputs, released_inputs=released)
+    assert not [path for path in export_inputs["out"].rglob("*") if path.is_file()]
+
+
+def test_a_projection_under_another_registry_is_refused(export_inputs: dict[str, Path]) -> None:
+    _, manifest = _pin_fixture_input(export_inputs)
+    other = wo.PinnedRegistry(reference.AFND_LEGACY, REGISTRY.population_ids)
+    with pytest.raises(ValueError, match="map-test-registry") as refused:
+        _export(export_inputs, **_projecting(manifest, registry=other))
+    assert reference.AFND_LEGACY in str(refused.value)
+
+
+def test_a_projection_needs_a_committed_release(export_inputs: dict[str, Path]) -> None:
+    _, manifest = _pin_fixture_input(export_inputs)
+    with pytest.raises(ValueError, match="no committed release"):
+        _export(export_inputs, registry=REGISTRY)
+    with pytest.raises(ValueError, match="committed release holds 0{64}"):
+        _export(export_inputs, registry=REGISTRY, released_inputs={ARTIFACT_DIR: "0" * 64})
+
+
+def test_a_carrier_artifact_projects_carrier_rows(export_inputs: dict[str, Path]) -> None:
+    """KIR presence is fitted as carriers over individuals in the `ac`/`an` shape (#133)."""
+    _set_web_measurement(export_inputs, "carrier_frequency")
+    _, manifest = _pin_fixture_input(export_inputs, measurement="carrier_frequency")
+    _export(export_inputs, **_projecting(manifest))
+    (row,) = _served_observations(export_inputs)["observations"]
+    assert (row["measurement"], row["ac"], row["an"]) == ("carrier_frequency", 6, 50)
+
+
+@pytest.mark.parametrize(
+    ("web", "fit"),
+    [("allele_frequency", "carrier_frequency"), ("carrier_frequency", "allele_frequency")],
+)
+def test_a_contradicting_measurement_is_refused(export_inputs: dict[str, Path], web: str, fit: str) -> None:
+    _set_web_measurement(export_inputs, web)
+    _, manifest = _pin_fixture_input(export_inputs, measurement=fit)
+    with pytest.raises(ValueError, match="carrier_frequency"):
+        _export(export_inputs, **_projecting(manifest))
+    assert not (export_inputs["out"] / "hbs-rs334.observations.json").exists()
+
+
+def test_a_changed_reexport_is_refused(export_inputs: dict[str, Path]) -> None:
+    """A published observations JSON is cited by its sha256: the same identity never gets other bytes."""
+    _, manifest = _pin_fixture_input(export_inputs)
+    _export(export_inputs, **_projecting(manifest))
+    published = json.loads((export_inputs["out"] / "catalog.json").read_text())
+    served = (export_inputs["out"] / "hbs-rs334.observations.json").read_bytes()
+    _export(export_inputs, **_projecting(manifest), published_catalog=published)
+    source = pd.read_csv(export_inputs["hbs"])
+    source.loc[0, "citation"] = "Another synthetic citation"
+    source.to_csv(export_inputs["hbs"], index=False)
+    with pytest.raises(ValueError, match=r"never regenerated.*observations_sha256"):
+        _export(export_inputs, **_projecting(manifest), published_catalog=published)
+    assert (export_inputs["out"] / "hbs-rs334.observations.json").read_bytes() == served
+
+
+def test_the_cli_reads_the_registry_folder_and_the_committed_releases(
+    export_inputs: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--registry` is a registry folder (`reference.read_reference`); the released inputs are those of
+    the committed manifests, which hold none, so a fit input is refused there and nowhere earlier."""
+    tree = test_reference_tables._tree(tmp_path / "reference")
+    build_tables.build_reference(tree.ctx)
+    folder = (tree.data / reference.reference_paths(reference.MAP_LEGACY)[1]).parent
+    argv = ["export_atlas_web.py", "--registry", str(folder)]
+    for flag, key in (("--store", "store"), ("--hbs-csv", "hbs"), ("--g6pd-csv", "g6pd")):
+        argv += [flag, str(export_inputs[key])]
+    argv += ["--allowlist", str(export_inputs["allowlist"]), "--out", str(export_inputs["out"])]
+    monkeypatch.setattr(sys, "argv", argv)
+    assert export_atlas_web.main() == 0
+    doctored = json.loads((export_inputs["out"] / "catalog.json").read_text())
+    doctored["artifacts"][0]["observations_sha256"] = "0" * 64
+    (tmp_path / "published.json").write_text(json.dumps(doctored))
+    monkeypatch.setattr(sys, "argv", [*argv, "--published-catalog", str(tmp_path / "published.json")])
+    with pytest.raises(ValueError, match="never regenerated"):
+        export_atlas_web.main()
+    metadata_path = export_inputs["store"] / "catalog-metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata_path.write_text(json.dumps({**metadata, "registry_version": reference.MAP_LEGACY}))
+    _pin_fixture_input(export_inputs)
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(ValueError, match="no committed release"):
+        export_atlas_web.main()
 
 
 def test_export_refuses_variant_mismatch(export_inputs: dict[str, Path]) -> None:
