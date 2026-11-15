@@ -318,6 +318,13 @@ and the builder refuses a released artifact whose bytes changed.
   substitute for them.
 - The bucket's URL and name are committed in `genomeos/publication/data_release.py`, and any other
   value is refused. The project id is never committed (`docs/repo-gcloud-auth.md`).
+- CORS (`deploy/data-store-cors.json`) lets any origin `GET` and `HEAD` and lets a page read
+  `Content-Range` and `Accept-Ranges`, so DuckDB-WASM can range-read a release's Parquet files and
+  `catalog/atlas.duckdb` in a browser (Atlas data platform design 2026-10-18, step 1.13). GCS also takes
+  the request headers a preflight may ask for from `responseHeader`, so it lists `Range` too. Once
+  provisioning has applied it, `python scripts/check_data_store_cors.py` probes the newest release
+  anonymously from `https://genome-os.org`: a preflight, a ranged GET that must return 206 with the
+  manifest's byte count in `Content-Range`, and a HEAD that must return `Accept-Ranges: bytes`.
 
 **Reading** needs no credentials: run `scripts/fetch_data.py`. Downloads stream into
 `data/.fetch-partial/`, are checked against the manifest's byte count and sha256, and only then are
