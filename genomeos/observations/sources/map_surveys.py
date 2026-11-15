@@ -162,8 +162,12 @@ def _explicit_radii(rows: pd.DataFrame) -> pd.Series:
     return radius.astype(float)
 
 
-def _population_id(survey_id: object) -> str:
-    """One id per survey *site* — this is a location, not a cohort."""
+def population_id(survey_id: object) -> str:
+    """One id per survey *site* — this is a location, not a cohort.
+
+    Public, because the legacy `map-survey-coordinates-v1` registry's alias rows are built from it
+    (`genomeos.tables.reference`, Atlas data platform design 2026-10-18 call 18).
+    """
     return f"map-hbs-{int(survey_id)}"
 
 
@@ -311,7 +315,7 @@ def load(
         {
             "variant_id": HBS_VARIANT_ID,
             "rsid": RSID,
-            "population_id": rows["id"].map(_population_id),
+            "population_id": rows["id"].map(population_id),
             "lat": rows["latitude"].astype(float),
             "lon": rows["longitude"].astype(float),
             "radius_km": radius,

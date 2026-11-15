@@ -16,9 +16,10 @@ Keys are immutable and release-versioned, ``releases/<release>/<path>``; a later
 earlier key for byte-identical content, and a published artifact whose bytes changed is refused (AGENTS
 "Artifacts are immutable"; design §5). So is a file added to an artifact directory an earlier release
 published: a cited artifact is a closed set of files. So is a changed ``tables/`` part under a
-``PARTITION_KEYS`` folder (``is_write_once``): a takedown or a rebuild writes a new epoch or ingest
-version instead (Atlas data platform design 2026-10-18 §2.9, builder's call 6). A changed summary table
-such as ``tables/v1/inferred/artifacts.parquet`` gets this release's key, by design.
+``PARTITION_KEYS`` folder, or in a population registry's folder (``is_write_once``): a takedown or a
+rebuild writes a new epoch, ingest version or registry release instead (Atlas data platform design
+2026-10-18 §2.3, §2.9; builder's calls 5 and 6). A changed summary table such as
+``tables/v1/inferred/artifacts.parquet`` gets this release's key, by design.
 Pickles are never published: loading one from the internet executes code (data store design §8).
 Every violation is a hard error (design §12).
 
@@ -63,6 +64,9 @@ TABLES_PREFIX = "tables/"
 #: The ``tables/`` partition folders whose parts are written once (Atlas data platform design 2026-10-18
 #: §2.4; builder's call 6): a released part never changes bytes.
 PARTITION_KEYS = ("epoch", "ingest_version", "chrom", "bin")
+#: Where each population registry release has its folder, also written once (Atlas data platform design
+#: 2026-10-18 §2.3; builder's calls 5 and 6): a registry release never changes its rows.
+REGISTRY_PREFIX = "tables/v1/reference/populations/"
 
 #: Closed: an extension missing here is refused rather than served under a guessed type.
 MEDIA_TYPES: Mapping[str, str] = {
@@ -198,9 +202,12 @@ def artifact_directory(path: str) -> str:
 
 
 def is_write_once(path: str) -> bool:
-    """A ``tables/`` part inside a ``<key>=`` folder of ``PARTITION_KEYS`` (builder's call 6)."""
+    """A ``tables/`` part inside a ``<key>=`` folder of ``PARTITION_KEYS``, or a registry folder's file
+    under ``REGISTRY_PREFIX`` (builder's calls 5 and 6)."""
     if not path.startswith(TABLES_PREFIX):
         return False
+    if path.startswith(REGISTRY_PREFIX):
+        return True
     folders = path.split("/")[:-1]
     return any(folder.partition("=")[0] in PARTITION_KEYS for folder in folders if "=" in folder)
 
@@ -337,7 +344,8 @@ def build_manifest(
             if is_write_once(path):
                 raise DataReleaseError(
                     f"{path}: published in an earlier release with sha256 {earlier.sha256}; a released part "
-                    "is immutable (data platform builder's call 6); write a new epoch or ingest version"
+                    "is immutable (data platform builder's call 6); write a new epoch or ingest version, or "
+                    "a new registry release"
                 )
             earlier = None
         objects[path] = {

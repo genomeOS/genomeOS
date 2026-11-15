@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Build a release's derived ``tables/`` files into the local ``data/`` tree.
 
-Atlas data platform design 2026-10-18 §2.3-§2.5, §2.7 check 9 and §2.9; builder's calls 4, 7, 15 and 16.
+Atlas data platform design 2026-10-18 §2.3-§2.5, §2.7 checks 5 and 9, and §2.9; builder's calls 4-7, 15, 16
+and 18.
 
     python scripts/build_tables.py --release 2026-11-20
 
@@ -19,6 +20,15 @@ it or the commit lacks it: commit the edit first, or stamp the commit that holds
 The ``meta`` stage writes ``tables/v1/meta/{release_objects,sources,served,withdrawn}.parquet`` from
 the committed manifests, the web ``catalog.json`` and ``data/releases/WITHDRAWN.json``, and prints
 ``<table>: <n> rows`` for each. The same inputs give byte-identical files (one pinned DuckDB, call 15).
+
+The ``reference`` stage (§2.3, §2.4; calls 5, 6 and 18) writes the population registry's folders under
+``tables/v1/reference/populations/``: ``afnd-2026-08`` rebuilt from the released raw file
+``raw/afnd_populations.tsv``, and ``map-survey-coordinates-v1``, alias rows only, from the MAP harvest
+(``raw/map/2026-08/``). An input an earlier release published is read from a local copy with its
+published sha256; any other is keyed under this release. A folder an earlier release published is never
+written again: its rows are re-derived and verified against the released files, so a rerun under another
+git sha keeps the first writer's bytes. Any other local file under that root is refused before a folder is
+written. It prints ``<table> <folder>: <n> rows, written`` (or ``verified``) for each file.
 
 The ``inferred`` stage (§2.4, §2.8; calls 6, 8, 22) reads every released artifact under
 ``store/artifacts/`` plus any this release adds, keyed from the committed manifests or else under this
@@ -43,13 +53,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from genomeos.publication import artifact_inputs as ai  # noqa: E402
 from genomeos.publication import data_release as dr  # noqa: E402
-from genomeos.tables import contracts, inferred, meta, provenance, write_once, writer  # noqa: E402
+from genomeos.publication import raw_harvests as rh  # noqa: E402
+from genomeos.tables import contracts, inferred, meta, provenance, reference, write_once, writer  # noqa: E402
 from genomeos.tables.contracts import TableError  # noqa: E402
 from genomeos.tables.provenance import InputRef  # noqa: E402
 from scripts import build_data_release  # noqa: E402
@@ -58,6 +71,13 @@ DATA = ROOT / "data"
 RELEASES = DATA / "releases"
 #: Every stage, in the order a build runs them.
 STAGES = ("meta", "reference", "measured", "fit_inputs", "inferred")
+#: The released raw file the ``afnd-2026-08`` registry is rebuilt from (call 18).
+AFND_POPULATIONS = "raw/afnd_populations.tsv"
+_MAP_HARVEST = next(harvest for harvest in rh.RAW_HARVESTS if harvest.source == "map")
+#: The MAP harvest's HbS and G6PD survey layers, the ``map-survey-coordinates-v1`` aliases' inputs.
+MAP_SURVEYS = tuple(
+    rh.harvest_path(_MAP_HARVEST, name) for name in ("map_hbs_surveys.csv", "map_g6pd_surveys.csv")
+)
 
 
 @dataclass(frozen=True)
@@ -121,6 +141,59 @@ def build_meta(
         counts[table] = len(frame)
         print(f"{table}: {len(frame)} rows")
     return counts
+
+
+def build_reference(ctx: BuildContext) -> list[str]:
+    """The registry folders ``afnd-2026-08`` and ``map-survey-coordinates-v1``; their files' release paths.
+
+    A file an earlier release published is verified against its re-derived rows, never written (call 6).
+    """
+    afnd_input, afnd_copy = _stage_input(ctx, AFND_POPULATIONS)
+    map_inputs = [_stage_input(ctx, path) for path in MAP_SURVEYS]
+    registries = (
+        (reference.AFND_LEGACY, *reference.afnd_legacy(afnd_copy), (afnd_input,)),
+        (
+            reference.MAP_LEGACY,
+            None,
+            reference.map_legacy_aliases(*(copy for _, copy in map_inputs)),
+            tuple(ref for ref, _ in map_inputs),
+        ),
+    )
+    built: dict[str, tuple[str, pd.DataFrame, tuple[InputRef, ...]]] = {}
+    for version, populations, aliases, inputs in registries:
+        frames = reference.reference_frames(populations, aliases, registry_version=version)
+        tables = (reference.POPULATIONS_TABLE, reference.ALIASES_TABLE)
+        for path, table, frame in zip(reference.reference_paths(version), tables, frames, strict=True):
+            if frame is not None:
+                built[path] = (table, frame, inputs)
+    _refuse_registry_strays(ctx, built)
+    con = writer.connect()
+    new_sources = {
+        path: build_data_release.sources_for(ctx.data_root, path)
+        for path in (AFND_POPULATIONS, *MAP_SURVEYS)
+        if path not in ctx.published
+    }
+    for path, (table, frame, inputs) in sorted(built.items()):
+        key = contracts.TABLE_CONTRACTS[table].key
+        item = ctx.published.get(path)
+        if item is not None:
+            copy = write_once.require_published_local(ctx.data_root, path, item.sha256)
+            write_once.require_same_rows(copy, frame, key=key)
+            status = "verified"
+        else:
+            writer.write_frame(
+                con,
+                frame,
+                ctx.out_root / path,
+                table=table,
+                git_sha=ctx.git_sha,
+                inputs=inputs,
+                sources=provenance.union_sources(inputs, manifests=_by_release(ctx), new_sources=new_sources),
+                order_by=key,
+            )
+            status = "written"
+        print(f"{table} {path.split('/')[-2]}: {len(frame)} rows, {status}")
+    return sorted(built)
 
 
 def artifact_records(ctx: BuildContext) -> tuple[inferred.ArtifactRecord, ...]:
@@ -357,6 +430,10 @@ def _run_meta(ctx: BuildContext, args: argparse.Namespace) -> None:
     build_meta(ctx, web_catalog=args.web_catalog, withdrawn=args.withdrawn)
 
 
+def _run_reference(ctx: BuildContext, args: argparse.Namespace) -> None:
+    build_reference(ctx)
+
+
 def _run_inferred(ctx: BuildContext, args: argparse.Namespace) -> None:
     build_inferred(ctx)
 
@@ -364,8 +441,43 @@ def _run_inferred(ctx: BuildContext, args: argparse.Namespace) -> None:
 #: The stages this checkout builds, each run from the parsed arguments; ``--stage`` takes only these.
 _RUNNERS: dict[str, Callable[[BuildContext, argparse.Namespace], object]] = {
     "meta": _run_meta,
+    "reference": _run_reference,
     "inferred": _run_inferred,
 }
+
+
+def _stage_input(ctx: BuildContext, path: str) -> tuple[InputRef, Path]:
+    """``path`` as an input: under the key of the release that published it, read from a local copy with
+    its published sha256; otherwise the local file, keyed under ``ctx.release``."""
+    item = ctx.published.get(path)
+    if item is not None:
+        copy = write_once.require_published_local(ctx.data_root, path, item.sha256)
+        return InputRef(item.key, item.sha256), copy
+    local = ctx.data_root / dr.assert_data_path(path)
+    if not local.is_file():
+        harvest = next((found for found in rh.RAW_HARVESTS if path.startswith(f"{found.root}/")), None)
+        hint = ""
+        if harvest is not None and harvest.copied_from:
+            hint = f"; copy it from {harvest.copied_from}/{path.rsplit('/', 1)[1]}"
+        elif harvest is not None:
+            hint = f"; fetch it: {harvest.fetch_command}"
+        raise TableError(
+            f"{path}: the build reads it, no release published it, and {ctx.data_root} lacks it" + hint
+        )
+    return InputRef(dr.release_key(ctx.release, path), build_data_release.sha256_of(local)), local
+
+
+def _refuse_registry_strays(ctx: BuildContext, built: Mapping[str, object]) -> None:
+    """Refuse any local file under the registry root that no release published and this build does not
+    write: the release builder would publish it as a registry release."""
+    root = ctx.out_root / contracts.REGISTRY_ROOT
+    found = sorted(path.relative_to(ctx.out_root).as_posix() for path in root.rglob("*") if path.is_file())
+    strays = [path for path in found if path not in built and path not in ctx.published]
+    if strays:
+        raise TableError(
+            f"{strays[0]}: no release published it and this build does not write it ({len(strays)} such "
+            f"file(s) under {contracts.REGISTRY_ROOT}); remove them and build again"
+        )
 
 
 def _inferred_inputs(

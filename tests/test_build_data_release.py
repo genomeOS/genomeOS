@@ -33,6 +33,7 @@ from tests.tables_fixtures import (
     FIXTURE_WITHOUT_INPUT,
     GIT_INPUT_FLAGS,
     HBS_V3,
+    FixtureTree,
     build_catalog_tables,
     copy_committed_releases,
     release_catalog_tree,
@@ -509,6 +510,28 @@ def test_meta_files_carry_their_inputs_sources(tree: Path, tmp_path: Path) -> No
     for name in ("release_objects", "sources"):
         assert "genereviews" in objects[f"{meta}/{name}.parquet"]["sources"]  # call 16: it survives the union
     assert objects[f"{meta}/withdrawn.parquet"]["sources"] == ["genomeos"]
+
+
+def test_reference_folders_carry_their_sources(tree: Path, tmp_path: Path) -> None:
+    """Step 1.7: each registry folder carries its inputs' sources (call 16), and is written once (call 6)."""
+    fixtures = ROOT / "tests" / "fixtures"
+    _write(tree, build_tables.AFND_POPULATIONS, (fixtures / "afnd_populations.tsv").read_bytes())
+    names = [path.rsplit("/", 1)[1] for path in build_tables.MAP_SURVEYS]
+    harvest = _harvest(tree, "map", "2026-08", {name: (fixtures / name).read_bytes() for name in names})
+    fixture = FixtureTree(tmp_path, tree, tmp_path / "releases")
+    built = build_tables.build_reference(fixture.context(release=EPOCH))
+    manifest = _build(tree, EPOCH, raw_harvests=[harvest])
+    objects = _paths(manifest)
+    assert {path: objects[path]["sources"] for path in built} == {
+        "tables/v1/reference/populations/afnd-2026-08/population_aliases.parquet": ["afnd"],
+        "tables/v1/reference/populations/afnd-2026-08/populations.parquet": ["afnd"],
+        "tables/v1/reference/populations/map-survey-coordinates-v1/population_aliases.parquet": ["map"],
+    }
+    # Rewritten under another git sha (as if never released), the folder's bytes change.
+    build_tables.build_reference(fixture.context(release="2026-11-21", git_sha="1" * 40))
+    immutable = "reference/populations/afnd-2026-08/.*a released part is immutable"
+    with pytest.raises(dr.DataReleaseError, match=immutable):
+        _build(tree, "2026-11-21", raw_harvests=[harvest], previous=[manifest])
 
 
 def test_an_unstamped_tables_file_is_refused(tree: Path) -> None:

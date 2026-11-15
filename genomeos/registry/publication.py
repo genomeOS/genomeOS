@@ -17,6 +17,7 @@ from genomeos.registry.release_contract import (
     RegistryFile,
     RegistryInput,
     RegistryManifest,
+    RegistryRelease,
     encode_registry_manifest,
     identify_input,
     parse_registry_manifest,
@@ -112,6 +113,22 @@ def _deserialize_table(payload: bytes, filename: str) -> pd.DataFrame:
         raise ValueError(f"invalid registry Parquet file {filename}") from exc
 
 
+def registry_release(
+    populations: pd.DataFrame,
+    aliases: pd.DataFrame,
+    *,
+    inputs: tuple[RegistryInput, ...],
+    release_version: str,
+) -> RegistryRelease:
+    """The validated tables and full identity ``publish_registry`` writes, without writing anything.
+
+    The identity covers the source ``inputs`` and this registry code's own bytes, exactly as a published
+    registry's does, so a table built from it (Atlas data platform design 2026-10-18 §2.3, step 1.7)
+    names the same ``registry_version``.
+    """
+    return prepare_registry_release(populations, aliases, _publication_inputs(inputs), release_version)
+
+
 def publish_registry(
     populations: pd.DataFrame,
     aliases: pd.DataFrame,
@@ -124,13 +141,7 @@ def publish_registry(
     out = Path(out)
     if _path_exists(out):
         raise FileExistsError(f"registry publication destination already exists: {out}")
-    publication_inputs = _publication_inputs(inputs)
-    release = prepare_registry_release(
-        populations,
-        aliases,
-        publication_inputs,
-        release_version,
-    )
+    release = registry_release(populations, aliases, inputs=inputs, release_version=release_version)
     software_versions = _software_versions()
 
     out.parent.mkdir(parents=True, exist_ok=True)
