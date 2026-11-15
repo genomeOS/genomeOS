@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Build a release's derived ``tables/`` files into the local ``data/`` tree.
 
-Atlas data platform design 2026-10-18 §2.3-§2.5, §2.7 checks 5 and 9, and §2.9; builder's calls 4-7, 15, 16
-and 18.
+Atlas data platform design 2026-10-18 §2.3-§2.5, §2.7 checks 2-5 and 9, and §2.9; builder's calls 4-7, 15,
+16 and 18.
 
     python scripts/build_tables.py --release 2026-11-20
 
@@ -33,6 +33,16 @@ verified against the released files, so a rerun under another git sha keeps the 
 Any other local file under that root is refused before a folder is written. It prints
 ``<table> <folder>: <n> rows, written`` (or ``verified``) for each file.
 
+The ``measured`` stage (§2.4, §2.7 checks 2-5; call 6; step 1.9) writes each curated ingest
+(``measured.CURATED_INGESTS``: the three AFND adapters over the AFND harvest ``raw/afnd/2026-08/`` and
+``raw/afnd_populations.tsv``) as ``tables/v1/measured/<table>/source=<s>/ingest_version=<iv>/part-0.parquet``,
+and ``tables/v1/measured/ingests.parquet``, one row per ingest. Its inputs resolve through
+``fetch_data.require_local``, then as the reference stage reads them. Every part passes checks 2, 3 and 5
+before anything is written, and a stray local part stops the stage. A part an earlier release published is
+re-ingested and verified, never written again. It prints ``<table> source=<s> ingest_version=<iv>: <n>
+rows, written`` (or ``verified``), each refusal as ``  refused <count> <reason>``, and ``measured.ingests:
+<n> rows``.
+
 The ``inferred`` stage (§2.4, §2.8; calls 6, 8, 22) reads every released artifact under
 ``store/artifacts/`` plus any this release adds, keyed from the committed manifests or else under this
 release. It writes ``cells_by_cell`` parts only for artifacts no earlier epoch holds, under
@@ -51,11 +61,12 @@ import json
 import subprocess
 import sys
 from collections import Counter
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import duckdb
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,17 +76,26 @@ if str(ROOT) not in sys.path:
 from genomeos.publication import artifact_inputs as ai  # noqa: E402
 from genomeos.publication import data_release as dr  # noqa: E402
 from genomeos.publication import raw_harvests as rh  # noqa: E402
-from genomeos.tables import contracts, inferred, meta, provenance, reference, write_once, writer  # noqa: E402
+from genomeos.tables import (  # noqa: E402
+    contracts,
+    inferred,
+    measured,
+    meta,
+    provenance,
+    reference,
+    write_once,
+    writer,
+)
 from genomeos.tables.contracts import TableError  # noqa: E402
 from genomeos.tables.provenance import InputRef  # noqa: E402
-from scripts import build_data_release  # noqa: E402
+from scripts import build_data_release, fetch_data  # noqa: E402
 
 DATA = ROOT / "data"
 RELEASES = DATA / "releases"
 #: Every stage, in the order a build runs them.
 STAGES = ("meta", "reference", "measured", "fit_inputs", "inferred")
 #: The released raw file the ``afnd-2026-08`` registry is rebuilt from (call 18).
-AFND_POPULATIONS = "raw/afnd_populations.tsv"
+AFND_POPULATIONS = measured.AFND_POPULATIONS
 _MAP_HARVEST = next(harvest for harvest in rh.RAW_HARVESTS if harvest.source == "map")
 #: The MAP harvest's HbS and G6PD survey layers, the ``map-survey-coordinates-v1`` aliases' inputs.
 MAP_SURVEYS = tuple(
@@ -176,7 +196,7 @@ def build_reference(ctx: BuildContext) -> list[str]:
         for path, table, frame in zip(reference.reference_paths(version), tables, frames, strict=True):
             if frame is not None:
                 built[path] = (table, frame, inputs)
-    _refuse_registry_strays(ctx, built)
+    _refuse_strays(ctx, (contracts.REGISTRY_ROOT,), built)
     con = writer.connect()
     new_sources = {
         path: build_data_release.sources_for(ctx.data_root, path)
@@ -204,6 +224,139 @@ def build_reference(ctx: BuildContext) -> list[str]:
             status = "written"
         print(f"{table} {path.split('/')[-2]}: {len(frame)} rows, {status}")
     return sorted(built)
+
+
+def build_measured(
+    ctx: BuildContext, ingests: Sequence[measured.CuratedIngest] = measured.CURATED_INGESTS
+) -> tuple[measured.Ingest, ...]:
+    """Each curated ingest's part under ``tables/v1/measured/``, and ``measured.ingests``.
+
+    Every part passes checks 2, 3 and 5 before anything is written. A part an earlier release published is
+    re-ingested and verified (check 4, then its rows, call 6), never written again.
+    """
+    measured.check_curated_ingests(ingests)
+    paths = sorted({path for ingest in ingests for path in ingest.inputs})
+    staged = {path: _measured_input(ctx, path) for path in paths}
+    registries: dict[str, tuple[pd.DataFrame | None, pd.DataFrame]] = {}
+    parts = []
+    for curated in ingests:
+        rows, report = curated.load(*(staged[path][1] for path in curated.inputs), curated.ingest_version)
+        part = measured.ingest_part(rows, table=curated.table)
+        path = measured.part_path(curated.table, curated.source, curated.ingest_version)
+        measured.check_partition_values(path, part)
+        version = curated.registry_version
+        if version not in registries:
+            registries[version] = _registry(ctx, version, staged)
+        populations, aliases = registries[version]
+        reference.require_resolved(part["population_id"], populations, aliases, registry_version=version)
+        if populations is not None:
+            reference.require_registry_coordinates(part, populations, registry_version=version)
+        parts.append((curated, path, part, measured.refusals_of(report)))
+    roots = [contracts.table_path(table) for table in measured.PART_TABLES]
+    _refuse_strays(ctx, roots, [path for _, path, _, _ in parts])
+    con = writer.connect()
+    unreleased = [path for path in paths if path not in ctx.published]
+    new_sources = {path: build_data_release.sources_for(ctx.data_root, path) for path in unreleased}
+    records = []
+    for curated, path, part, refusals in parts:
+        refs = tuple(staged[name][0] for name in curated.inputs)
+        status = _write_part(ctx, con, curated.table, path, part, refs, new_sources)
+        records.append(
+            measured.Ingest(
+                table=curated.table,
+                source=curated.source,
+                ingest_version=curated.ingest_version,
+                registry_version=curated.registry_version,
+                adapter=curated.adapter,
+                adapter_git_sha=ctx.git_sha,
+                inputs=tuple(_ingest_input(*staged[name]) for name in curated.inputs),
+                n_rows=len(part),
+                refusals=refusals,
+                source_record_id_template=None,
+            )
+        )
+        print(
+            f"{curated.table} source={curated.source} ingest_version={curated.ingest_version}: "
+            f"{len(part)} rows, {status}"
+        )
+        for refusal in refusals:
+            where = f" in {refusal.population_id}" if refusal.population_id else ""
+            print(f"  refused {refusal.count} {refusal.reason}{where}")
+    inputs = tuple(sorted({ref for ref, _ in staged.values()}))
+    writer.write_frame(
+        con,
+        measured.ingests_table(records).to_pandas(),
+        ctx.out_root / measured.INGESTS_PATH,
+        table=measured.INGESTS_TABLE,
+        git_sha=ctx.git_sha,
+        inputs=inputs,
+        sources=provenance.union_sources(inputs, manifests=_by_release(ctx), new_sources=new_sources),
+        order_by=contracts.INGESTS.key,
+    )
+    print(f"{measured.INGESTS_TABLE}: {len(records)} rows")
+    return tuple(sorted(records, key=lambda ingest: ingest.key))
+
+
+def _write_part(
+    ctx: BuildContext,
+    con: duckdb.DuckDBPyConnection,
+    table: str,
+    path: str,
+    part: pd.DataFrame,
+    refs: Sequence[InputRef],
+    new_sources: Mapping[str, tuple[str, ...]],
+) -> str:
+    """Write a new part, or verify a released one against its re-ingest (check 4, call 6); the status."""
+    item = ctx.published.get(path)
+    if item is None:
+        writer.write_frame(
+            con,
+            part,
+            ctx.out_root / path,
+            table=table,
+            git_sha=ctx.git_sha,
+            inputs=refs,
+            sources=provenance.union_sources(refs, manifests=_by_release(ctx), new_sources=new_sources),
+            order_by=measured.SORT_KEY,
+        )
+        return "written"
+    copy = write_once.require_published_local(ctx.data_root, path, item.sha256)
+    try:
+        measured.reingest_matches(pd.read_parquet(copy), part)
+    except TableError as error:
+        raise TableError(f"{path}: {error}") from error
+    write_once.require_same_rows(copy, part, key=contracts.TABLE_CONTRACTS[table].key)
+    return "verified"
+
+
+def _ingest_input(ref: InputRef, copy: Path) -> measured.IngestInput:
+    return measured.IngestInput(bytes=copy.stat().st_size, key=ref.key, sha256=ref.sha256)
+
+
+def _measured_input(ctx: BuildContext, path: str) -> tuple[InputRef, Path]:
+    """An ingest's input as ``_stage_input`` reads it, once ``fetch_data.require_local`` has fetched it into
+    the checkout's ``data/`` if a committed release publishes it there (any other tree is the caller's)."""
+    try:
+        fetch_data.require_local(ctx.data_root / path)
+    except fetch_data.FetchError as error:
+        raise TableError(f"{path}: {error}") from error
+    return _stage_input(ctx, path)
+
+
+def _registry(
+    ctx: BuildContext, version: str, staged: Mapping[str, tuple[InputRef, Path]]
+) -> tuple[pd.DataFrame | None, pd.DataFrame]:
+    """Registry ``version``'s populations and aliases, for check 5: ``afnd-2026-08``, rebuilt from the
+    released AFND population table exactly as the reference stage builds it (call 18). ``staged`` holds the
+    inputs the stage has already read."""
+    if version != reference.AFND_LEGACY:
+        raise TableError(
+            f"registry {version}: the measured stage resolves populations only in {reference.AFND_LEGACY} "
+            "(check 5); add a reader for it"
+        )
+    found = staged.get(AFND_POPULATIONS)
+    _, copy = found if found is not None else _measured_input(ctx, AFND_POPULATIONS)
+    return reference.afnd_legacy(copy)
 
 
 def artifact_records(ctx: BuildContext) -> tuple[inferred.ArtifactRecord, ...]:
@@ -444,6 +597,10 @@ def _run_reference(ctx: BuildContext, args: argparse.Namespace) -> None:
     build_reference(ctx)
 
 
+def _run_measured(ctx: BuildContext, args: argparse.Namespace) -> None:
+    build_measured(ctx)
+
+
 def _run_inferred(ctx: BuildContext, args: argparse.Namespace) -> None:
     build_inferred(ctx)
 
@@ -452,6 +609,7 @@ def _run_inferred(ctx: BuildContext, args: argparse.Namespace) -> None:
 _RUNNERS: dict[str, Callable[[BuildContext, argparse.Namespace], object]] = {
     "meta": _run_meta,
     "reference": _run_reference,
+    "measured": _run_measured,
     "inferred": _run_inferred,
 }
 
@@ -479,17 +637,18 @@ def _stage_input(ctx: BuildContext, path: str) -> tuple[InputRef, Path]:
     return InputRef(dr.release_key(ctx.release, path), build_data_release.sha256_of(local)), local
 
 
-def _refuse_registry_strays(ctx: BuildContext, built: Mapping[str, object]) -> None:
-    """Refuse any local file under the registry root that no release published and this build does not
-    write: the release builder would publish it as a registry release."""
-    root = ctx.out_root / contracts.REGISTRY_ROOT
-    found = sorted(path.relative_to(ctx.out_root).as_posix() for path in root.rglob("*") if path.is_file())
-    strays = [path for path in found if path not in built and path not in ctx.published]
-    if strays:
-        raise TableError(
-            f"{strays[0]}: no release published it and this build does not write it ({len(strays)} such "
-            f"file(s) under {contracts.REGISTRY_ROOT}); remove them and build again"
-        )
+def _refuse_strays(ctx: BuildContext, roots: Sequence[str], built: Collection[str]) -> None:
+    """Refuse any local file under ``roots`` that no release published and this build does not write: the
+    release builder would publish it, as a registry release or a measured part."""
+    for root in roots:
+        files = (ctx.out_root / root).rglob("*")
+        found = sorted(path.relative_to(ctx.out_root).as_posix() for path in files if path.is_file())
+        strays = [path for path in found if path not in built and path not in ctx.published]
+        if strays:
+            raise TableError(
+                f"{strays[0]}: no release published it and this build does not write it ({len(strays)} such "
+                f"file(s) under {root}); remove them and build again"
+            )
 
 
 def _inferred_inputs(
