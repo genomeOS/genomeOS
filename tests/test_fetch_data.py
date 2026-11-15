@@ -281,15 +281,12 @@ def test_released_dirs_maps_each_directory_to_its_first_release(tmp_path: Path) 
     releases.mkdir()
     model = "store/models/a__v4__map-x"
     first = _publish(served, releases, "2026-12-01", {**FILES, f"{model}/manifest.json": b'{"artifact": 1}'})
-    _publish(
-        served,
-        releases,
-        "2026-12-02",
-        {**FILES, f"{model}/manifest.json": b'{"artifact": 1}', "store/models/README.md": b"not a directory"},
-        [first],
-    )
+    _publish(served, releases, "2026-12-02", {**FILES, f"{model}/manifest.json": b'{"artifact": 1}'}, [first])
 
     assert fd.released_dirs("store/models/", releases) == {"a__v4__map-x": "2026-12-01"}
+    # A file directly under the prefix names no directory. Under store/models/ a release cannot hold one
+    # (dr.closed_directory refuses it), so a prefix that is not closed shows it.
+    assert fd.released_dirs("validation/", releases) == {}
     assert fd.released_dirs(dr.ARTIFACT_PREFIX, releases) == {"x__v3__map-2026-08": "2026-12-01"}
     assert fd.released_dirs(dr.ARTIFACT_PREFIX, releases) == fd.released_artifact_dirs(releases)
     with pytest.raises(ValueError, match="end with '/'"):

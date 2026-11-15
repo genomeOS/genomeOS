@@ -47,7 +47,7 @@ def test_the_cli_refuses_a_released_artifact(tmp_path, capsys):
     releases.mkdir()
     data = b'{"artifact": "released"}\n'
     record = dr.FileRecord(
-        f"{export_models.MODEL_PREFIX}{ARTIFACT}/manifest.json",
+        f"{dr.MODEL_PREFIX}{ARTIFACT}/manifest.json",
         len(data),
         hashlib.sha256(data).hexdigest(),
         False,

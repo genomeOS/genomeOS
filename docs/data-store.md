@@ -39,6 +39,8 @@ data/
                   cells.parquet         the citable per-cell surface (§5, §6)
                   observations.parquet  the exact observation table its fit consumed (#45)
                   manifest.json         what was published, and under what assumptions; written last
+    models/<artifact-id>/               the artifact's trained model, a safe export (scripts/export_models.py): JSON and
+                                        float64 .npy, bound to the artifact's fit input by sha256, never a pickle; in the data store
     external/<source>/                  the gnomAD, dbSNP and AlphaGenome caches the Atlas serves, pinned to their served content (raw_harvests.EXTERNAL_CACHES), no non-commercial field; in the data store
     INVENTORY.json                      checksums of what was on the publishing machine
   tables/v1/                            derived query tables (scripts/build_tables.py); in the data store
@@ -64,6 +66,7 @@ docs/figures/                           committed: review figures
 | `data/tables/v1/` | no | **yes** | derived from released bytes, never cited; each file records its inputs and sources |
 | `data/catalog/catalog.sql` | **yes** | **yes** | the release's views; `atlas.duckdb` and `tables.json` beside it are in the data store only |
 | `data/raw/` (other files) | no | not yet (phase 2) | sources are versioned upstream; re-fetchable by script |
+| `data/store/models/` | no | **yes** | safe exports of fits (#471): each names its artifact, is bound to that artifact's `observations.parquet` by sha256 and lists its files; immutable once released |
 | `data/store/fits/*.pkl` | no | **never** | pickles: environment-coupled, and loading one executes code. Format 3 also holds the fit's input, which is how it reaches the artifact |
 
 ## A fit is not an artifact
@@ -73,8 +76,8 @@ repeat. That is a **cache**: pickle is coupled to the installed PyMC and pytenso
 arbitrary code on load, so it can be neither archival nor shared. It is also large — the HbS fit is
 **121 MB** against a **1.1 MB** artifact, a 110x difference, because the posterior carries a draw
 of `f`, `p` and `freq_pred` for every observation. The fits stay local and are **never** published to
-the data store (`build_data_release.py` refuses a pickle); the artifacts are. Publishing trained
-models needs a safe export format first (data store design §8).
+the data store (`build_data_release.py` refuses a pickle); the artifacts are, and so is each trained
+model as a safe export under `store/models/` (#471), which loads without unpickling.
 
 The artifact is `store/artifacts/.../cells.parquet` — per-cell posterior summaries in plain
 columns, readable by anything that reads parquet, and what §5 means when it says the read API
@@ -364,6 +367,8 @@ python scripts/gcloud_repo.py init --account <maintainer> --project <project>
 export GENOMEOS_GCP_PROJECT=<project>
 python scripts/fetch_data.py                                       # the previous release, locally
 python scripts/build_tables.py --release <YYYY-MM-DD>              # the derived tables/ files
+python scripts/export_models.py --fits data/store/fits --artifacts data/store/artifacts --artifact <id>
+                                                                   # each new artifact with a fit input; repeat --artifact
 python scripts/build_data_release.py --release <YYYY-MM-DD>        # commit data/releases/<release>.json
                                                                    #   and data/catalog/catalog.sql
 python scripts/smoke_catalog.py --catalog data/catalog/atlas.duckdb --local data/   # parity smoke: golden
@@ -391,6 +396,22 @@ and requires identical bytes, writes `catalog/tables.json`, checks both against 
 catalog lists but the tree lacks stops the build with the `fetch_data.py --prefix` that fetches it, and
 nothing else may sit under `data/catalog/`. The smoke counts `evidence.parity_observations` and the
 sampling discs within 500 km of Lagos against the golden counts (check 8).
+
+`export_models.py` writes each artifact's model to `data/store/models/<artifact-id>/` from its saved
+fit, and refuses an artifact that does not publish its fit input or whose model a release already
+holds. The release refuses a pickle or an object-dtype `.npy` anywhere (R0), a model whose artifact
+publishes no fit input in this release or an earlier one, a model exported from another input, and a
+model directory whose files are not exactly the ones its `manifest.json` lists with their sha256s. A
+released model directory is closed like an artifact: it cannot gain a file. The build prints
+`store/models: <n> model(s), each bound to its artifact's fit input`, or `store/models: absent (…)`
+with the reason, such as `no released artifact has a fit input`.
+
+**The release guard** (Atlas data platform design 2026-10-18 §4.2). A release's free whole-file
+bytes that no zero-egress host holds total at most 2 GiB (`access_policy.OPEN_RELEASE_GCS_MAX_BYTES`),
+so serving it once costs us at most $0.24. Phase 1 has no mirror and no lookup set, so that is every
+byte the release lists: the build prints `release guard: <bytes> bytes are within the 2 GiB cap`, and
+over the cap it fails before the manifest is written. The fixes are a zero-egress mirror, declaring a
+lookup set, an override, or an owner PR that raises the cap with the new worst case.
 
 Upload only after the release PR is open as a draft, CI passes on it, and the owner has confirmed
 every item its body asks about, such as the release's `cite_as` or a measurement the release takes
@@ -429,10 +450,10 @@ If the budget kill switch has made the bucket private ([`cost-controls.md`](cost
 publishing still works, because the publisher reads through its own role. The anonymous
 `fetch_data.py --verify-remote` check fails until the owner re-enables public access.
 
-**What is not published yet.** Fits are pickles and are never published until a safe export format
-exists. The raw third-party harvests (MAP WFS exports, AFND frequencies and page caches, gnomAD, the
-WorldPop grid, the external caches) are phase 2. Until then they live locally and in the interim
-Hugging Face mirror (`scripts/sync_store.py`).
+**What is not published yet.** Fits are pickles and are never published; their safe exports are
+(`store/models/`). The raw third-party harvests (MAP WFS exports, AFND frequencies and page caches,
+gnomAD, the WorldPop grid, the external caches) are phase 2. Until then they live locally and in the
+interim Hugging Face mirror (`scripts/sync_store.py`).
 
 ## Query a release
 

@@ -268,6 +268,39 @@ def test_a_released_artifact_directory_cannot_gain_a_file() -> None:
     dr.build_manifest([*_records(), sibling], SOURCES, RELEASE, previous=[previous])
 
 
+def test_closed_directory() -> None:
+    """An artifact, and the model exported beside it, are each a closed set of files (Atlas data platform
+    design 2026-10-18 §2.2 rule 1, step 1.12)."""
+    assert dr.MODEL_PREFIX == "store/models/"
+    assert dr.closed_directory("store/models/a__v4__map-x/posterior/lengthscale.npy") == (
+        "store/models/",
+        "a__v4__map-x",
+    )
+    assert dr.closed_directory("store/artifacts/x__v3__map-2026-08/cells.parquet") == (
+        dr.ARTIFACT_PREFIX,
+        "x__v3__map-2026-08",
+    )
+    assert dr.closed_directory("validation/x.json") is None
+    with pytest.raises(dr.DataReleaseError, match="not a file inside a directory under store/models/"):
+        dr.closed_directory("store/models/loose.json")
+
+
+def test_a_released_model_directory_is_closed_like_an_artifact() -> None:
+    model = "store/models/x__v3__map-2026-08/posterior/lengthscale.npy"
+
+    def model_file(path: str, sha256: str = SHA_A) -> dr.FileRecord:
+        return dr.FileRecord(path, 8, sha256, False, ("map",))
+
+    previous = dr.build_manifest([*_records(), model_file(model)], SOURCES, "2026-10-01")
+    with pytest.raises(dr.DataReleaseError, match="immutable"):
+        dr.build_manifest([*_records(), model_file(model, SHA_B)], SOURCES, RELEASE, previous=[previous])
+    gained = model_file("store/models/x__v3__map-2026-08/posterior/sigma.npy")
+    with pytest.raises(dr.DataReleaseError, match="cannot gain"):
+        dr.build_manifest([*_records(), model_file(model), gained], SOURCES, RELEASE, previous=[previous])
+    sibling = model_file("store/models/x__v4__map-2026-08/posterior/sigma.npy")
+    dr.build_manifest([*_records(), model_file(model), sibling], SOURCES, RELEASE, previous=[previous])
+
+
 def test_artifact_directory_names_the_directory_under_the_artifact_prefix() -> None:
     assert dr.artifact_directory("store/artifacts/x__v3__map-2026-08/cells.parquet") == "x__v3__map-2026-08"
     with pytest.raises(dr.DataReleaseError, match="artifact"):

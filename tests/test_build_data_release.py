@@ -5,13 +5,17 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import shutil
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from genomeos.publication import access_policy as ap
 from genomeos.publication import artifact_inputs as ai
 from genomeos.publication import data_release as dr
+from genomeos.publication import model_exports as me
 from genomeos.publication import raw_harvests as rh
 from genomeos.publication.commercial_use import COMMERCIAL_USE_FINDINGS
 from genomeos.surfaces.fit_input import (
@@ -276,6 +280,9 @@ def test_cli_writes_once_and_refuses_to_replace_a_different_release(
     printed = capsys.readouterr().out
     assert "catalog: 8 views over 10 files; atlas.duckdb " in printed
     assert " bytes, identical over two builds" in printed
+    assert "release guard: " in printed and " bytes are within the 2 GiB cap" in printed
+    # What release 2 prints: its 61 artifacts all predate inputs (#45), as this tree's do (step 1.12).
+    assert "store/models: absent (no released artifact has a fit input)\n" in printed
     written = out.read_bytes()
     assert build.main(arguments) == 0  # identical: unchanged, not rewritten
     assert out.read_bytes() == written
@@ -902,3 +909,150 @@ def test_a_later_release_cannot_drop_an_artifacts_input(tree: Path) -> None:
     _without_input(tree, ARTIFACT)
     with pytest.raises(dr.DataReleaseError, match=f"no {OBSERVATIONS_FILE}"):
         _build(tree, previous=previous)
+
+
+# --- trained models beside their artifacts (Atlas data platform design 2026-10-18 §2.1, §4.2; 1.12, #471) ---
+
+
+def _npy(values: np.ndarray) -> bytes:
+    buffer = io.BytesIO()
+    np.save(buffer, values, allow_pickle=False)
+    return buffer.getvalue()
+
+
+def _model(root: Path, artifact: str, *, fit_input_sha256: str | None = None) -> str:
+    """A model of ``artifact`` laid out as ``export_model`` writes one, with numpy only: JSON and float64
+    ``.npy``, then the manifest naming the artifact and, unless given, its recorded fit input's sha256.
+    Returns the model directory's data path."""
+    name = artifact.rsplit("/", 1)[-1]
+    directory = f"{dr.MODEL_PREFIX}{name}"
+    if fit_input_sha256 is None:
+        recorded = json.loads((root / artifact / "manifest.json").read_text(encoding="utf-8"))
+        fit_input_sha256 = recorded["observations"]["sha256"]
+    payloads = {
+        me.MODEL_FILE: b'{"variant_id": "chr11-5227002-T-A"}\n',
+        me.INDUCING_FILE: _npy(np.zeros((0, 3))),
+        f"{me.POSTERIOR_DIR}/lengthscale.npy": _npy(np.linspace(1.0, 2.0, 8).reshape(1, 8)),
+    }
+    for path, data in payloads.items():
+        _write(root, f"{directory}/{path}", data)
+    manifest = {
+        "schema": me.EXPORT_SCHEMA,
+        "export_format": 1,
+        "artifact": name,
+        "fit_input_sha256": fit_input_sha256,
+        "files": {
+            path: {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+            for path, data in payloads.items()
+        },
+        "software": {"numpy": np.__version__},
+    }
+    _write(root, f"{directory}/{me.MODEL_MANIFEST}", json.dumps(manifest, sort_keys=True).encode())
+    return directory
+
+
+def test_a_model_ships_beside_its_artifact(tree: Path) -> None:
+    """A model was fit on its artifact's input alone; WorldPop only chose the artifact's cells."""
+    directory = _model(tree, ARTIFACT)
+    objects = _paths(_build(tree))
+    models = {path: item for path, item in objects.items() if path.startswith(dr.MODEL_PREFIX)}
+    names = (me.MODEL_MANIFEST, me.MODEL_FILE, me.INDUCING_FILE, f"{me.POSTERIOR_DIR}/lengthscale.npy")
+    assert set(models) == {f"{directory}/{name}" for name in names}
+    assert {tuple(item["sources"]) for item in models.values()} == {("map",)}
+    assert objects[f"{ARTIFACT}/cells.parquet"]["sources"] == ["map", "worldpop"]
+    summary = "store/models: 1 model, each bound to its artifact's fit input"
+    assert build.models_summary(objects.values()) == summary
+
+
+def _gain_a_file(tree: Path, directory: str) -> None:
+    _write(tree, f"{directory}/{me.POSTERIOR_DIR}/sigma.npy", _npy(np.ones((1, 8))))
+
+
+def _without_its_artifact(tree: Path) -> dict:
+    _model(tree, "store/artifacts/chr11-5227002-T-A__v9__map-2026-08", fit_input_sha256="a" * 64)
+    return {}
+
+
+def _another_input(tree: Path) -> dict:
+    _model(tree, ARTIFACT, fit_input_sha256="0" * 64)
+    return {}
+
+
+def _an_artifact_released_without_one(tree: Path) -> dict:
+    previous, exempt = _history(tree)
+    _model(tree, ARTIFACT, fit_input_sha256="a" * 64)
+    return {"previous": previous, "released_without_input": exempt}
+
+
+def _an_unlisted_file(tree: Path) -> dict:
+    _gain_a_file(tree, _model(tree, ARTIFACT))
+    return {}
+
+
+def _wrong_bytes(tree: Path) -> dict:
+    directory = _model(tree, ARTIFACT)
+    _write(tree, f"{directory}/{me.POSTERIOR_DIR}/lengthscale.npy", _npy(np.ones((1, 8))))
+    return {}
+
+
+def _a_pickle(tree: Path) -> dict:
+    _write(tree, f"{_model(tree, ARTIFACT)}/fit.pkl", b"\x80\x04")
+    return {}
+
+
+def _an_object_dtype_npy(tree: Path) -> dict:
+    directory = _model(tree, ARTIFACT)
+    target = tree / directory / me.POSTERIOR_DIR / "lengthscale.npy"
+    np.save(target, np.array([{"a": 1}], dtype=object), allow_pickle=True)
+    return {}
+
+
+def _a_missing_root_after_one_was_published(tree: Path) -> dict:
+    _model(tree, ARTIFACT)
+    previous = _released_with_input(tree)
+    shutil.rmtree(tree / dr.MODEL_PREFIX)
+    return {"previous": previous}
+
+
+def _a_released_directory_that_gains_a_file(tree: Path) -> dict:
+    directory = _model(tree, ARTIFACT)
+    previous = _released_with_input(tree)
+    _gain_a_file(tree, directory)
+    return {"previous": previous}
+
+
+@pytest.mark.parametrize(
+    ("change", "match"),
+    [
+        (_without_its_artifact, "no artifact"),
+        (_another_input, "fit input"),
+        (_an_artifact_released_without_one, "fit input"),
+        (_an_unlisted_file, "not listed"),
+        (_wrong_bytes, "sha256"),
+        (_a_pickle, "pickle"),
+        (_an_object_dtype_npy, "pickle"),
+        (_a_missing_root_after_one_was_published, "store/models is missing"),
+        (_a_released_directory_that_gains_a_file, "cannot gain"),
+    ],
+    ids=lambda value: value.__name__.strip("_") if callable(value) else None,
+)
+def test_a_model_is_refused(tree: Path, change: Callable[[Path], dict], match: str) -> None:
+    options = change(tree)
+    with pytest.raises(dr.DataReleaseError, match=match):
+        _build(tree, **options)
+
+
+def test_the_models_line_says_why_a_release_holds_none(tree: Path) -> None:
+    objects = _paths(_build(tree)).values()
+    assert build.models_summary(objects) == (
+        "store/models: absent (2 released artifacts have a fit input; none has an exported model)"
+    )
+    bare = [item for item in objects if not item["path"].endswith(f"/{OBSERVATIONS_FILE}")]
+    assert build.models_summary(bare) == "store/models: absent (no released artifact has a fit input)"
+
+
+def test_a_release_over_the_guard_is_refused(tree: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    total = _build(tree)["totals"]["bytes"]
+    monkeypatch.setattr(ap, "OPEN_RELEASE_GCS_MAX_BYTES", 100)
+    with pytest.raises(dr.DataReleaseError, match=f"release guard: {total:,} bytes"):
+        _build(tree)

@@ -33,6 +33,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from genomeos.publication import data_release as dr  # noqa: E402
 from genomeos.surfaces.fit import load_fit  # noqa: E402
 from genomeos.surfaces.model_export import (  # noqa: E402
     export_model,
@@ -44,9 +45,6 @@ try:
     from scripts.fetch_data import DATA, RELEASES, released_dirs  # noqa: E402
 except ModuleNotFoundError:  # Direct `python scripts/export_models.py` entry.
     from fetch_data import DATA, RELEASES, released_dirs  # noqa: E402
-
-#: Where exports are published in the data store (§2.3).
-MODEL_PREFIX = "store/models/"
 
 
 def fit_path_for(fits: Path, variant_id: str) -> Path:
@@ -64,7 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--out",
         type=Path,
-        default=DATA / MODEL_PREFIX,
+        default=DATA / dr.MODEL_PREFIX,
         help="where exports land (default: data/store/models)",
     )
     parser.add_argument("--releases", type=Path, default=RELEASES, help=argparse.SUPPRESS)
@@ -73,7 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def bound_fits(args: argparse.Namespace, names: Sequence[str]) -> dict[str, Path]:
     """Each artifact's saved fit, after refusing a released model and an artifact with no fit input."""
-    released = released_dirs(MODEL_PREFIX, args.releases)
+    released = released_dirs(dr.MODEL_PREFIX, args.releases)
     clashes = sorted(name for name in names if name in released)
     if clashes:
         raise ValueError(
