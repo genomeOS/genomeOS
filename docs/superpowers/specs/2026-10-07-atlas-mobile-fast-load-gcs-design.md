@@ -804,7 +804,16 @@ scene (when import resolves) ── observations → chunk scheduler (B.6.7) →
      ray, from the cells rebuilt as drawn. On the globe a walk along the ray through the lifted
      shell finds the candidates. In Columbus view and 2D the shear makes neither the lift nor the
      ray's height a safe parameter, so a trace of where the ray meets each lift's sheared sheet,
-     over a grid in distance along the ray and lift, finds them; mid-morph nothing.
+     over a grid in distance along the ray and lift, finds them; mid-morph nothing. The trace runs
+     along the ray in order and stops once no cell it could still reach is drawn before the first
+     hit found, so it gives the first hit the whole trace gives wherever that is the ray's true
+     first hit (#506 review). At the production grid (resolution 4) it costs, per hover, a mean of
+     1.8–2.0 ms, a p95 of 4.7–4.9 ms and a maximum of 9.6–9.9 ms at exaggeration 5 (without the
+     stop 2.5–3.8 ms, 8.3–12.8 ms and 13.5–24 ms), and a mean of 0.4 ms and a maximum of 3.1–4.0 ms
+     at the default exaggeration 1. The slowest are shallow rays that meet no cell, traced to the
+     map's edge. Measured 2026-11-14 on an Apple M3 Pro under Node 23.9 (vitest): synthetic lifted
+     disks of 6,211 and 36,631 extruded cells, 400 random rays (half at 0.5–8.5° pitch) and 64
+     grazing ones (0.2–2°) each, the fastest of three runs per ray.
 
    The e2e build logs every hover's and click's resolution (`window.__atlasPickLog`), so the browser
    tests hold each hover to the click at the same point.)
