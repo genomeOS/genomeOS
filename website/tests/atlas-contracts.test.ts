@@ -57,6 +57,22 @@ const observation = {
   study_label: 'Example study',
 };
 
+// Web format 1.1: a row projected from the artifact's fit input and its pinned registry.
+const projected = {
+  ...observation,
+  measurement: 'allele_frequency',
+  population_id: 'afnd-albania-pop-2',
+  rsid: 'rs334',
+  source: 'map_surveys',
+};
+
+function observationArtifact(
+  rows: readonly object[],
+  identity: object = artifact,
+): unknown {
+  return { artifact: identity, observations: rows, schema_version: 1 };
+}
+
 const downloads = {
   manifest: {
     label: 'Artifact manifest',
@@ -355,6 +371,66 @@ describe('atlas browser contracts', () => {
         }),
       ).toThrow();
     }
+  });
+
+  it('accepts projected rows, including rsid null', () => {
+    const rows = [projected, { ...projected, rsid: null }];
+
+    expect(
+      observationArtifactSchema.parse(observationArtifact(rows)).observations,
+    ).toEqual(rows);
+  });
+
+  it('refuses a mix of projected and legacy rows', () => {
+    const { rsid: _rsid, ...withoutRsid } = projected;
+
+    for (const rows of [
+      [projected, observation],
+      [observation, projected],
+      [projected, withoutRsid],
+      [withoutRsid],
+    ]) {
+      expect(() =>
+        observationArtifactSchema.parse(observationArtifact(rows)),
+      ).toThrow(/every row/);
+    }
+  });
+
+  it('refuses a carrier mismatch either way', () => {
+    const carrierArtifact = { ...artifact, measurement: 'carrier_frequency' };
+    const carrierRow = { ...projected, measurement: 'carrier_frequency' };
+
+    expect(() =>
+      observationArtifactSchema.parse(observationArtifact([carrierRow])),
+    ).toThrow(/carrier_frequency/);
+    expect(() =>
+      observationArtifactSchema.parse(
+        observationArtifact([projected], carrierArtifact),
+      ),
+    ).toThrow(/carrier_frequency/);
+    // Legacy rows carry no row measurement, so the served KIR carrier artifacts still parse.
+    for (const row of [carrierRow, observation]) {
+      expect(
+        observationArtifactSchema.parse(
+          observationArtifact([row], carrierArtifact),
+        ).observations,
+      ).toEqual([row]);
+    }
+  });
+
+  it('refuses an unknown key and phenotype_frequency', () => {
+    expect(() =>
+      observationArtifactSchema.parse(
+        observationArtifact([{ ...projected, freq: 0.1 }]),
+      ),
+    ).toThrow(/freq/);
+    expect(() =>
+      observationArtifactSchema.parse(
+        observationArtifact([
+          { ...projected, measurement: 'phenotype_frequency' },
+        ]),
+      ),
+    ).toThrow(/measurement/);
   });
 
   it('requires the supported schema version, revisions, and checksums', () => {
