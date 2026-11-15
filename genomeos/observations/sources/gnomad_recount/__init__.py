@@ -18,4 +18,13 @@ Module map:
 - ``counter``: the independent Python counter over ``bcftools query`` output (``recount_python``).
 - ``native``: the native bcftools count of a region or bin (``native_bin``), with its ``+check-ploidy``
   audit and partial-genotype guard, and the independent path's ``view | query`` (``query_bin``).
+- ``rows``: one bin's rows of ``measured.allele_observations_binned`` (``binned_rows``): the registry join
+  of each stage label to a ``population_id`` and its coordinate (``population_table``), the rows' own
+  cohort (``recount_cohort_id``) and the ids derived under ``SOURCE_RECORD_ID_TEMPLATE``
+  (``with_derived_ids``).
+- ``jobs``: the 166 jobs of 20 Mb (``JOB_SPAN``, ``plan_jobs``, ``job_by_id``); the anonymous-HEAD
+  citation of upstream files (``head_identity``, ``CitedFile``, D17); each job's ``JobIdentity`` and its
+  ledger (``read_ledger``, ``write_ledger``); ``run_job`` with per-bin resume; and ``combine_ledgers``, the
+  ``IngestSummary`` (``write_summary``, ``read_summary``) and its ``measured.ingests`` row
+  (``recount_ingest``).
 """
