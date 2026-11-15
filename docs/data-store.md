@@ -368,6 +368,9 @@ python scripts/smoke_catalog.py --catalog data/catalog/atlas.duckdb --local data
 git tag -a data-release-<YYYY-MM-DD> -m "data release <YYYY-MM-DD>"  # on the release commit
 git push origin data-release-<YYYY-MM-DD>                          # before anything is uploaded
 git ls-remote --exit-code origin refs/tags/data-release-<YYYY-MM-DD>
+git push origin <branch>                                           # the release branch; open its PR as a draft
+gh pr create --draft --base main                                   # its body lists what the owner must confirm
+gh pr checks <n> --watch                                           # CI passes; the owner confirms in the PR
 export CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT=data-store-publisher@$GENOMEOS_GCP_PROJECT.iam.gserviceaccount.com
 python scripts/publish_data_store.py --dry-run
 python scripts/publish_data_store.py                               # gcloud warns it is impersonating; expected
@@ -386,6 +389,11 @@ and requires identical bytes, writes `catalog/tables.json`, checks both against 
 catalog lists but the tree lacks stops the build with the `fetch_data.py --prefix` that fetches it, and
 nothing else may sit under `data/catalog/`. The smoke counts `evidence.parity_observations` and the
 sampling discs within 500 km of Lagos against the golden counts (check 8).
+
+Upload only after the release PR is open as a draft, CI passes on it, and the owner has confirmed
+every item its body asks about, such as the release's `cite_as` or a measurement the release takes
+from a reviewed table. An uploaded release is immutable, so a correction after the upload needs a
+new release.
 
 Merge the release manifest only after publishing and the anonymous `--verify-remote` and smoke pass:
 `fetch_data.py` reads the newest committed manifest, so a merged manifest whose objects are not yet
