@@ -517,20 +517,26 @@ def test_reference_folders_carry_their_sources(tree: Path, tmp_path: Path) -> No
     fixtures = ROOT / "tests" / "fixtures"
     # The AFND fixture without the two rows the adapter refuses, each of which stops the build (v1 §12).
     _write(tree, build_tables.AFND_POPULATIONS, (fixtures / "afnd_registry_populations.tsv").read_bytes())
+    # The synthetic HGDP + 1KG input, at the committed file's path (step 1.7).
+    _write(tree, build_tables.HGDP_1KG_REGISTRY, (fixtures / "hgdp_1kg_populations.tsv").read_bytes())
     names = [path.rsplit("/", 1)[1] for path in build_tables.MAP_SURVEYS]
     harvest = _harvest(tree, "map", "2026-08", {name: (fixtures / name).read_bytes() for name in names})
     fixture = FixtureTree(tmp_path, tree, tmp_path / "releases")
     built = build_tables.build_reference(fixture.context(release=EPOCH))
     manifest = _build(tree, EPOCH, raw_harvests=[harvest])
     objects = _paths(manifest)
+    hgdp = [path for path in built if path.startswith("tables/v1/reference/populations/1.0.0-")]
     assert {path: objects[path]["sources"] for path in built} == {
         "tables/v1/reference/populations/afnd-2026-08/population_aliases.parquet": ["afnd"],
         "tables/v1/reference/populations/afnd-2026-08/populations.parquet": ["afnd"],
         "tables/v1/reference/populations/map-survey-coordinates-v1/population_aliases.parquet": ["map"],
+        **{path: ["genomeos", "gnomad_hgdp_1kg"] for path in hgdp},
     }
-    # Rewritten under another git sha (as if never released), the folder's bytes change.
+    assert len(hgdp) == 2
+    assert objects[build_tables.HGDP_1KG_REGISTRY]["sources"] == ["genomeos", "gnomad_hgdp_1kg"]
+    # Rewritten under another git sha (as if never released), the folders' bytes change.
     build_tables.build_reference(fixture.context(release="2026-11-21", git_sha="1" * 40))
-    immutable = "reference/populations/afnd-2026-08/.*a released part is immutable"
+    immutable = "reference/populations/.*a released part is immutable"
     with pytest.raises(dr.DataReleaseError, match=immutable):
         _build(tree, "2026-11-21", raw_harvests=[harvest], previous=[manifest])
 

@@ -16,6 +16,12 @@ their names as folders (call 18):
   (``map-hbs-<id>``, ``map-g6pd-<id>``), from the MAP harvest (``map_legacy_aliases``). A MAP survey
   carries its own coordinates, which stay authoritative, so this registry places nothing.
 
+The 80 HGDP + 1KG identities of D18 (§1.2, item 1) are a registry with a digest
+(``hgdp_1kg_registry``): release ``HGDP_1KG_RELEASE`` of the curated input
+``registry/hgdp_1kg/1.0.0/populations.tsv``, read by ``registry.sources.hgdp_1kg``. Its
+``registry_version`` is the one ``registry.publication.registry_release`` gives, so its folder is
+``1.0.0-<sha8>``.
+
 Every other registry places each of its populations, and its aliases name only populations it places
 (``reference_frames``). A released folder is never rewritten (calls 5 and 6): a later build re-derives its
 rows and verifies them against the released file (``write_once.require_same_rows``).
@@ -39,14 +45,20 @@ import pandera.pandas as pa
 import pyarrow.parquet as pq
 
 from genomeos.observations.sources import map_g6pd, map_surveys
-from genomeos.registry.release_contract import validate_release_version
+from genomeos.registry.publication import registry_release
+from genomeos.registry.release_contract import RegistryRelease, identify_input, validate_release_version
 from genomeos.registry.schema import ALIASES_SCHEMA, POPULATIONS_SCHEMA
 from genomeos.registry.sources import afnd as afnd_registry
+from genomeos.registry.sources import hgdp_1kg
 from genomeos.tables import contracts, writer
 from genomeos.tables.contracts import TableError
 
 AFND_LEGACY = "afnd-2026-08"
 MAP_LEGACY = "map-survey-coordinates-v1"
+#: The release label of the HGDP + 1KG registry (step 1.7, D18), the ``1.0.0`` of its input's path.
+HGDP_1KG_RELEASE = "1.0.0"
+#: The role of the curated TSV among that registry's identity inputs.
+HGDP_1KG_INPUT_ROLE = "hgdp_1kg"
 #: The registries that keep their names as folders (call 18).
 LEGACY_REGISTRIES = (AFND_LEGACY, MAP_LEGACY)
 POPULATIONS_TABLE = contracts.REFERENCE_POPULATIONS.table
@@ -117,6 +129,22 @@ def afnd_legacy(tsv: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
             "stops (v1 §12)"
         )
     return populations, aliases
+
+
+def hgdp_1kg_registry(tsv: Path) -> RegistryRelease:
+    """The 80 HGDP + 1KG identities in the curated ``tsv``, as registry release ``HGDP_1KG_RELEASE``.
+
+    ``hgdp_1kg.load`` reads the rows, refusing a blank radius, ``location_type`` or provenance and an
+    ``hgdp`` row without HGDP's notice. ``registry_release`` then gives them the identity that
+    ``publish_registry`` would give: ``1.0.0+sha256.<hex>`` over the TSV's bytes and the registry code.
+    A refusal is a ``TableError`` naming the file.
+    """
+    try:
+        populations, aliases = hgdp_1kg.load(tsv, HGDP_1KG_RELEASE)
+        source = identify_input("source", HGDP_1KG_INPUT_ROLE, tsv.read_bytes())
+        return registry_release(populations, aliases, inputs=(source,), release_version=HGDP_1KG_RELEASE)
+    except (ValueError, pandera.errors.SchemaError, pandera.errors.SchemaErrors) as error:
+        raise TableError(f"registry hgdp_1kg {HGDP_1KG_RELEASE}: {tsv}: {error}") from error
 
 
 def map_legacy_aliases(hbs_csv: Path, g6pd_csv: Path) -> pd.DataFrame:

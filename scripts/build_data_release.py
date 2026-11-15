@@ -277,6 +277,9 @@ _RULES: tuple[tuple[Callable[[str], bool], Callable[[Path, str], tuple[str, ...]
         lambda path: path.startswith("registry/curated-v1-candidate.1/"),
         lambda root, path: ("clinvar", "cpic", "genereviews"),
     ),
+    # The HGDP + 1KG registry input (step 1.7, D18): gnomAD's identities and coordinates, with our
+    # radius, location_type and notice.
+    (lambda path: path.startswith("registry/hgdp_1kg/"), lambda root, path: ("genomeos", "gnomad_hgdp_1kg")),
     (
         lambda path: path
         in {"registry/variant_normalization.tsv", "store/INVENTORY.json", "store/catalog-metadata.json"},

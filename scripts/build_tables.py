@@ -23,13 +23,15 @@ the committed manifests, the web ``catalog.json`` and ``data/releases/WITHDRAWN.
 
 The ``reference`` stage (§2.3, §2.4; calls 5, 6 and 18) writes the population registry's folders under
 ``tables/v1/reference/populations/``: ``afnd-2026-08`` rebuilt from the released raw file
-``raw/afnd_populations.tsv``, and ``map-survey-coordinates-v1``, alias rows only, from the MAP harvest
-(``raw/map/2026-08/``). A row the AFND adapter refuses stops the stage before anything is written (v1
-§12). An input an earlier release published is read from a local copy with its published sha256; any
-other is keyed under this release. A folder an earlier release published is never
-written again: its rows are re-derived and verified against the released files, so a rerun under another
-git sha keeps the first writer's bytes. Any other local file under that root is refused before a folder is
-written. It prints ``<table> <folder>: <n> rows, written`` (or ``verified``) for each file.
+``raw/afnd_populations.tsv``; ``map-survey-coordinates-v1``, alias rows only, from the MAP harvest
+(``raw/map/2026-08/``); and ``1.0.0-<sha8>``, the 80 HGDP + 1KG identities of D18, from the committed
+registry input ``registry/hgdp_1kg/1.0.0/populations.tsv`` (step 1.7), without which the stage stops. A
+row the AFND adapter refuses stops the stage before anything is written (v1 §12). An input an earlier
+release published is read from a local copy with its published sha256; any other is keyed under this
+release. A folder an earlier release published is never written again: its rows are re-derived and
+verified against the released files, so a rerun under another git sha keeps the first writer's bytes.
+Any other local file under that root is refused before a folder is written. It prints
+``<table> <folder>: <n> rows, written`` (or ``verified``) for each file.
 
 The ``inferred`` stage (§2.4, §2.8; calls 6, 8, 22) reads every released artifact under
 ``store/artifacts/`` plus any this release adds, keyed from the committed manifests or else under this
@@ -79,6 +81,9 @@ _MAP_HARVEST = next(harvest for harvest in rh.RAW_HARVESTS if harvest.source == 
 MAP_SURVEYS = tuple(
     rh.harvest_path(_MAP_HARVEST, name) for name in ("map_hbs_surveys.csv", "map_g6pd_surveys.csv")
 )
+#: The curated input of the 80 HGDP + 1KG identities (step 1.7, D18): committed, and published under
+#: ``registry/``. ``scripts/curate_hgdp_1kg_registry.py --check`` holds it to gnomAD's metadata.
+HGDP_1KG_REGISTRY = f"registry/hgdp_1kg/{reference.HGDP_1KG_RELEASE}/populations.tsv"
 
 
 @dataclass(frozen=True)
@@ -145,12 +150,15 @@ def build_meta(
 
 
 def build_reference(ctx: BuildContext) -> list[str]:
-    """The registry folders ``afnd-2026-08`` and ``map-survey-coordinates-v1``; their files' release paths.
+    """The registry folders ``afnd-2026-08``, ``map-survey-coordinates-v1`` and HGDP + 1KG's
+    ``1.0.0-<sha8>``; their files' release paths.
 
     A file an earlier release published is verified against its re-derived rows, never written (call 6).
     """
     afnd_input, afnd_copy = _stage_input(ctx, AFND_POPULATIONS)
     map_inputs = [_stage_input(ctx, path) for path in MAP_SURVEYS]
+    hgdp_input, hgdp_copy = _stage_input(ctx, HGDP_1KG_REGISTRY)
+    hgdp_release = reference.hgdp_1kg_registry(hgdp_copy)
     registries = (
         (reference.AFND_LEGACY, *reference.afnd_legacy(afnd_copy), (afnd_input,)),
         (
@@ -159,6 +167,7 @@ def build_reference(ctx: BuildContext) -> list[str]:
             reference.map_legacy_aliases(*(copy for _, copy in map_inputs)),
             tuple(ref for ref, _ in map_inputs),
         ),
+        (hgdp_release.registry_version, hgdp_release.populations, hgdp_release.aliases, (hgdp_input,)),
     )
     built: dict[str, tuple[str, pd.DataFrame, tuple[InputRef, ...]]] = {}
     for version, populations, aliases, inputs in registries:
@@ -171,7 +180,7 @@ def build_reference(ctx: BuildContext) -> list[str]:
     con = writer.connect()
     new_sources = {
         path: build_data_release.sources_for(ctx.data_root, path)
-        for path in (AFND_POPULATIONS, *MAP_SURVEYS)
+        for path in (AFND_POPULATIONS, *MAP_SURVEYS, HGDP_1KG_REGISTRY)
         if path not in ctx.published
     }
     for path, (table, frame, inputs) in sorted(built.items()):
@@ -462,6 +471,8 @@ def _stage_input(ctx: BuildContext, path: str) -> tuple[InputRef, Path]:
             hint = f"; copy it from {harvest.copied_from}/{path.rsplit('/', 1)[1]}"
         elif harvest is not None:
             hint = f"; fetch it: {harvest.fetch_command}"
+        elif path == HGDP_1KG_REGISTRY:
+            hint = "; write it as docs/hgdp-registry-input.md says (its radius rule is the owner's, #508)"
         raise TableError(
             f"{path}: the build reads it, no release published it, and {ctx.data_root} lacks it" + hint
         )
