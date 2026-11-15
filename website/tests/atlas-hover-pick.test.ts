@@ -222,6 +222,28 @@ describe('the hover resolves on the CPU (#483)', () => {
     expect(hover(space, context(), view)(CENTRE)).toBeNull();
   });
 
+  it('under World Terrain keeps a chunk’s cell only where the wave has reached it; a draped group has no wave', () => {
+    const view = nadirView(LAT, LON, MPP, CENTRE);
+    // Chunks on World Terrain's ground while the data lies flat still grow with the wave.
+    const unreached = context({ draped: () => true, reveal: () => 0 });
+    expect(hover(fakeScene(view), unreached, view)(CENTRE)).toBeNull();
+    expect(
+      hover(
+        fakeScene(view),
+        context({ draped: () => true, reveal: () => 1 }),
+        view,
+      )(CENTRE),
+    ).toEqual(PICKED);
+    // A draped group fades in on the wave's timeline instead (`drawn`); its cells have no wave.
+    expect(
+      hover(
+        fakeScene(view),
+        context({ reveal: () => 0 }, target({ draped: true })),
+        view,
+      )(CENTRE),
+    ).toEqual(PICKED);
+  });
+
   it('with data elevation, takes the first drawn cell along the pick ray, with no GPU pick', () => {
     const view = nadirView(LAT, LON, MPP, CENTRE);
     const lifted = context({ factor: () => 3 });
@@ -295,9 +317,18 @@ describe('the hover resolves on the CPU (#483)', () => {
   it('asks only the pick target’s observations, so nothing answers without a displayed artifact', () => {
     const view = nadirView(LAT, LON, MPP, CENTRE);
     const observationAt = vi.fn((): ObservationPick | null => OBSERVATION);
-    const resolve = hover(fakeScene(view), context({}, null), view);
+    let pickTarget: PickTarget | null = null;
+    const resolve = hover(
+      fakeScene(view),
+      { ...context(), target: () => pickTarget },
+      view,
+    );
     expect(resolve(CENTRE)).toBeNull();
     expect(observationAt).not.toHaveBeenCalled();
+    // Once there is a target, its own observations answer, asked with the hit view and the pointer.
+    pickTarget = target({ observations: { artifactKey: KEY, observationAt } });
+    expect(resolve(CENTRE)).toEqual(OBSERVATION);
+    expect(observationAt).toHaveBeenCalledExactlyOnceWith(view, CENTRE);
     // An answer naming another artifact is not the displayed one's: it is refused.
     const other = observationPickId(
       'map-surveys:1',
