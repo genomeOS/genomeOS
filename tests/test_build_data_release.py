@@ -25,7 +25,7 @@ from genomeos.tables.contracts import TableError
 from scripts import build_data_release as build
 from scripts import build_tables
 from tests.observation_fixtures import kir_fit_rows, observation_rows
-from tests.tables_fixtures import GIT_SHA, copy_committed_releases
+from tests.tables_fixtures import GIT_INPUT_FLAGS, copy_committed_releases
 from tests.test_data_release import EMPTY
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -332,9 +332,8 @@ def test_an_optional_root_file_needs_a_reviewed_source_rule(tree: Path) -> None:
 
 def test_meta_files_carry_their_inputs_sources(tree: Path, tmp_path: Path) -> None:
     releases = copy_committed_releases(tmp_path / "releases")
-    built = build_tables.main(
-        ["--release", "2026-11-20", "--data", str(tree), "--git-sha", GIT_SHA, "--releases", str(releases)]
-    )
+    arguments = ["--release", "2026-11-20", "--data", str(tree), "--releases", str(releases)]
+    built = build_tables.main([*arguments, "--git-sha", "HEAD", *GIT_INPUT_FLAGS])
     assert built == 0
     objects = _paths(_build(tree))
     meta = "tables/v1/meta"

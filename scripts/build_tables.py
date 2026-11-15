@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build a release's derived ``tables/`` files into the local ``data/`` tree.
 
-Atlas data platform design 2026-10-18 §2.3-§2.5 and §2.9; builder's calls 4, 7, 15 and 16.
+Atlas data platform design 2026-10-18 §2.3-§2.5, §2.7 check 9 and §2.9; builder's calls 4, 7, 15 and 16.
 
     python scripts/build_tables.py --release 2026-11-20
 
@@ -9,7 +9,12 @@ Run before ``build_data_release.py``, which then publishes each file with the so
 Stages run in the order of ``STAGES``, each taking one ``BuildContext``; ``--stage`` (repeatable) picks
 some. The context holds the committed manifests of every earlier release and each released path's first
 publication, read from ``data/releases/``; a release id already committed, or older than the newest
-one, is refused. ``--git-sha`` (default ``HEAD``) is the commit every file is stamped with.
+one, is refused. ``--git-sha`` (default ``HEAD``) is the commit every file is stamped with; it must
+name a commit in this repository, a full sha included.
+
+A ``git:<path>`` input is recorded as that file at the stamped commit (§2.7 check 9), so it is read
+from the commit, and the build is refused, naming the path, when the working tree's file differs from
+it or the commit lacks it: commit the edit first, or stamp the commit that holds it.
 
 The ``meta`` stage writes ``tables/v1/meta/{release_objects,sources,served,withdrawn}.parquet`` from
 the committed manifests, the web ``catalog.json`` and ``data/releases/WITHDRAWN.json``, and prints
@@ -59,11 +64,15 @@ class BuildContext:
 def build_meta(
     ctx: BuildContext, *, web_catalog: Path | None = None, withdrawn: Path | None = None
 ) -> dict[str, int]:
-    """The four ``meta.*`` files. ``web_catalog`` and ``withdrawn`` replace the repository's files (tests)."""
+    """The four ``meta.*`` files.
+
+    The web catalog and the withdrawn list are read at ``ctx.git_sha`` (``read_git_input``).
+    ``web_catalog`` and ``withdrawn`` replace them with a file read as it stands (tests only).
+    """
     by_release = {manifest["release"]: manifest for manifest in ctx.manifests}
     manifest_refs = tuple(provenance.manifest_ref(manifest) for manifest in ctx.manifests)
-    catalog_bytes, catalog = _read_json(web_catalog or ctx.repo_root / meta.WEB_CATALOG)
-    withdrawn_bytes, document = _read_json(withdrawn or ctx.repo_root / meta.WITHDRAWN_LIST)
+    catalog_bytes, catalog = _git_json(ctx, meta.WEB_CATALOG, web_catalog)
+    withdrawn_bytes, document = _git_json(ctx, meta.WITHDRAWN_LIST, withdrawn)
     entries = dr.validate_withdrawn(document)
     withdrawn_refs = (
         InputRef(f"{provenance.GIT_PREFIX}{meta.WITHDRAWN_LIST}", _sha256(withdrawn_bytes)),
@@ -117,9 +126,7 @@ def committed_manifests(directory: Path) -> tuple[dict[str, Any], ...]:
 
 
 def resolve_git_sha(value: str, repo_root: Path) -> str:
-    """A full commit sha: ``value`` itself when it is one, else what git resolves it to."""
-    if writer.GIT_SHA_PATTERN.fullmatch(value):
-        return value
+    """The full sha of the commit ``value`` names in ``repo_root``; a full sha must name one too."""
     try:
         resolved = subprocess.run(
             ["git", "rev-parse", "--verify", "--quiet", f"{value}^{{commit}}"],
@@ -130,7 +137,38 @@ def resolve_git_sha(value: str, repo_root: Path) -> str:
         ).stdout.strip()
     except (OSError, subprocess.CalledProcessError) as error:
         raise TableError(f"--git-sha {value!r} names no commit in {repo_root}") from error
+    if not writer.GIT_SHA_PATTERN.fullmatch(resolved):
+        raise TableError(f"--git-sha {value!r} resolves to {resolved!r}, not a 40-character commit sha")
     return resolved
+
+
+def read_git_input(repo_root: Path, git_sha: str, path: str) -> bytes:
+    """``path`` as commit ``git_sha`` holds it, refused unless the working tree's file is those bytes.
+
+    A ``git:<path>`` input records the sha256 of the file at the stamped ``genomeos.git_sha`` (§2.7
+    check 9). Reading the working tree alone would record an uncommitted edit, or a file the stamped
+    commit does not hold, under a commit that never contained it.
+    """
+    try:
+        committed = subprocess.run(
+            ["git", "cat-file", "blob", f"{git_sha}:{path}"],
+            cwd=repo_root,
+            capture_output=True,
+            check=True,
+        ).stdout
+    except OSError as error:
+        raise TableError(f"{provenance.GIT_PREFIX}{path}: git cannot run: {error}") from error
+    except subprocess.CalledProcessError as error:
+        raise TableError(
+            f"{provenance.GIT_PREFIX}{path}: commit {git_sha} holds no {path}; "
+            "commit it, or pass the --git-sha that holds it"
+        ) from error
+    if (repo_root / path).read_bytes() != committed:
+        raise TableError(
+            f"{provenance.GIT_PREFIX}{path}: the working tree's {path} differs from commit {git_sha}; "
+            "commit it, or pass the --git-sha that holds it"
+        )
+    return committed
 
 
 def context(args: argparse.Namespace, repo_root: Path = ROOT) -> BuildContext:
@@ -156,9 +194,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build a release's derived tables/ files into data/.")
     parser.add_argument("--release", type=dr.assert_release_id, required=True, help="YYYY-MM-DD[.N]")
     parser.add_argument("--data", type=Path, default=DATA, help="the data/ tree (default: the checkout's)")
-    parser.add_argument("--git-sha", default="HEAD", help="the commit each file records (default: HEAD)")
+    parser.add_argument(
+        "--git-sha", default="HEAD", help="the commit files record and read git: inputs at (default: HEAD)"
+    )
     parser.add_argument("--stage", action="append", choices=tuple(_RUNNERS), help="repeatable; default: all")
-    # Hidden: tests read copies, never the committed releases/, web catalog or withdrawn list.
+    # Hidden, for tests: a releases/ folder of copies, and a web catalog and withdrawn list read as
+    # they stand instead of at --git-sha.
     parser.add_argument("--releases", type=Path, default=RELEASES, help=argparse.SUPPRESS)
     parser.add_argument("--web-catalog", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--withdrawn", type=Path, help=argparse.SUPPRESS)
@@ -187,12 +228,22 @@ def _run_meta(ctx: BuildContext, args: argparse.Namespace) -> None:
 _RUNNERS: dict[str, Callable[[BuildContext, argparse.Namespace], object]] = {"meta": _run_meta}
 
 
+def _git_json(ctx: BuildContext, path: str, override: Path | None) -> tuple[bytes, Any]:
+    """The ``git:`` input ``path`` at ``ctx.git_sha``, or ``override`` as it stands (tests)."""
+    if override is not None:
+        return _read_json(override)
+    return _parse_json(read_git_input(ctx.repo_root, ctx.git_sha, path), f"{provenance.GIT_PREFIX}{path}")
+
+
 def _read_json(path: Path) -> tuple[bytes, Any]:
-    payload = path.read_bytes()
+    return _parse_json(path.read_bytes(), path)
+
+
+def _parse_json(payload: bytes, origin: object) -> tuple[bytes, Any]:
     try:
         return payload, json.loads(payload)
     except json.JSONDecodeError as error:
-        raise TableError(f"{path}: not JSON: {error}") from error
+        raise TableError(f"{origin}: not JSON: {error}") from error
 
 
 def _sha256(payload: bytes) -> str:

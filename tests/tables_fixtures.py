@@ -13,11 +13,20 @@ from typing import Any
 
 import duckdb
 
-from genomeos.tables import provenance
+from genomeos.tables import meta, provenance
 
 ROOT = Path(__file__).resolve().parents[1]
-#: A stand-in commit; the writer requires 40 lowercase hex characters, nothing more.
+#: A stand-in commit for the writer, which requires 40 lowercase hex characters, nothing more.
+#: ``build_tables`` refuses it: its ``--git-sha`` must name a commit, so its tests pass ``HEAD``.
 GIT_SHA = "0" * 40
+#: ``build_tables``' hidden overrides, reading this checkout's web catalog and withdrawn list as they
+#: stand rather than at the stamped commit, so an uncommitted edit to either cannot fail a test.
+GIT_INPUT_FLAGS = (
+    "--web-catalog",
+    str(ROOT / meta.WEB_CATALOG),
+    "--withdrawn",
+    str(ROOT / meta.WITHDRAWN_LIST),
+)
 #: The two releases committed before the tables existed: 245 + 248 objects, 7 sources each.
 COMMITTED_RELEASES = ("2026-10-17", "2026-10-18")
 
