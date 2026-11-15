@@ -328,7 +328,7 @@ repository, `manifests/<release>.json` in the bucket is the same manifest.
 python scripts/fetch_data.py --list                      # what the newest release holds
 python scripts/fetch_data.py --prefix validation/        # one subtree
 python scripts/fetch_data.py --verify-local              # hash local files against the manifest
-python scripts/fetch_data.py --verify-remote             # GET and hash every object; writes nothing
+python scripts/fetch_data.py --verify-remote             # hash new keys in full, HEAD reused ones; writes nothing
 ```
 
 **Publishing a release.** A maintainer uploads as the service account `data-store-publisher`,
@@ -369,7 +369,7 @@ export CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT=data-store-publisher@$GENOMEOS_
 python scripts/publish_data_store.py --dry-run
 python scripts/publish_data_store.py                               # gcloud warns it is impersonating; expected
 unset CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT
-python scripts/fetch_data.py --verify-remote                       # anonymous, every object
+python scripts/fetch_data.py --verify-remote                       # anonymous: new keys in full, reused by HEAD
 python scripts/smoke_catalog.py --release <YYYY-MM-DD>             # anonymous: parity smoke: golden
 ```
 

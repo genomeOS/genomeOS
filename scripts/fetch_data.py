@@ -5,7 +5,7 @@
     python scripts/fetch_data.py --prefix store/artifacts/chr11-5227002-T-A__v3__map-2026-08/
     python scripts/fetch_data.py --list                           # the plan; no network
     python scripts/fetch_data.py --verify-local                   # hash local files; no network
-    python scripts/fetch_data.py --verify-remote                  # GET and hash every object; writes nothing
+    python scripts/fetch_data.py --verify-remote                  # GET and hash new keys, HEAD reused ones
 
 Reads the committed manifest ``data/releases/<release>.json`` (newest by default) and resolves each
 object's key against the committed public base URL (``data_release.DATA_STORE_BASE_URL``), over plain
@@ -16,6 +16,10 @@ anything else is refused, because the committed value is the truth. Nothing here
 renamed into place; a mismatch is deleted and reported. A local file that already matches is skipped;
 one that differs is a hard error and is never overwritten. Objects git already tracks are skipped
 unless ``--include-git-tracked``. Standard library only.
+
+``--verify-remote`` writes nothing. It GETs and hashes only the keys the release first publishes
+(``releases/<release>/``); a key reused from an earlier release was hashed in full when that release
+was verified, so it gets a ``HEAD`` (Atlas data platform design 2026-10-18 §13, builder's call 11).
 
 Other scripts call ``require_local(path)``: it makes every published object under a ``data/`` path
 present and verified, fetching what is missing, and returns the path unchanged.
@@ -106,14 +110,14 @@ def local_state(item: dr.ReleaseObject, dest: Path) -> str:
     return "present"
 
 
-def _open(url: str):
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+def _open(url: str, method: str = "GET"):
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT}, method=method)
     try:
         return urllib.request.urlopen(request, timeout=TIMEOUT_S)  # noqa: S310 - https or loopback only
     except urllib.error.HTTPError as error:
-        raise FetchError(f"GET {url} failed: HTTP {error.code}") from error
+        raise FetchError(f"{method} {url} failed: HTTP {error.code}") from error
     except urllib.error.URLError as error:
-        raise FetchError(f"GET {url} failed: {error.reason}") from error
+        raise FetchError(f"{method} {url} failed: {error.reason}") from error
 
 
 def _stream(url: str, item: dr.ReleaseObject, sink) -> None:
@@ -140,6 +144,28 @@ def _stream(url: str, item: dr.ReleaseObject, sink) -> None:
         raise FetchError(
             f"{item.path}: downloaded sha256 {digest.hexdigest()} is not the manifest's {item.sha256}"
         )
+
+
+def _head(url: str, item: dr.ReleaseObject) -> None:
+    """Check a reused key without its bytes: HTTP 200, the manifest's byte count and no encoding."""
+    try:
+        with _open(url, "HEAD") as response:
+            status = response.status
+            length = response.headers.get("Content-Length")
+            encoding = response.headers.get("Content-Encoding")
+    except (OSError, http.client.HTTPException) as error:
+        raise FetchError(f"HEAD {url} failed: {error!r}") from error
+    if status != 200:
+        raise FetchError(f"HEAD {url}: HTTP {status}, not 200")
+    if encoding:
+        raise FetchError(f"{url}: served with Content-Encoding {encoding!r}; objects are raw bytes")
+    if length != str(item.bytes):
+        raise FetchError(f"{url}: Content-Length {length}, the manifest says {item.bytes} bytes")
+
+
+def first_published(item: dr.ReleaseObject, release: str) -> bool:
+    """Whether ``release`` first publishes ``item`` (its key is under ``releases/<release>/``)."""
+    return item.key.startswith(f"{dr.RELEASE_PREFIX}{release}/")
 
 
 def download(item: dr.ReleaseObject, dest: Path, base: str) -> None:
@@ -186,7 +212,12 @@ def verify_local(objects: Sequence[dr.ReleaseObject], dest: Path) -> list[str]:
 def verify_remote(
     objects: Sequence[dr.ReleaseObject], base: str, release: str, releases: Path = RELEASES
 ) -> list[str]:
-    """GET every object (and the uploaded manifest copy) and check it; nothing is written."""
+    """Check every object over HTTPS, and the uploaded manifest copy; nothing is written.
+
+    A key ``release`` first publishes is streamed and hashed in full. A reused key was hashed when its
+    first release was verified, so it gets a ``HEAD``: 200, ``Content-Length`` equal to the manifest's
+    ``bytes`` and no ``Content-Encoding`` (builder's call 11).
+    """
     problems: list[str] = []
     committed = (releases / f"{release}.json").read_bytes()
     manifest_url = dr.public_url(base, dr.manifest_key(release))
@@ -197,8 +228,12 @@ def verify_remote(
     except FetchError as error:
         problems.append(f"manifest: {error}")
     for item in objects:
+        url = dr.public_url(base, item.key)
         try:
-            _stream(dr.public_url(base, item.key), item, None)
+            if first_published(item, release):
+                _stream(url, item, None)
+            else:
+                _head(url, item)
         except FetchError as error:
             problems.append(f"{item.path}: {error}")
     return problems
@@ -264,7 +299,9 @@ def build_parser() -> argparse.ArgumentParser:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--list", action="store_true", help="print the plan; no network")
     mode.add_argument("--verify-local", action="store_true", help="hash local files; no network")
-    mode.add_argument("--verify-remote", action="store_true", help="GET and hash every object; no writes")
+    mode.add_argument(
+        "--verify-remote", action="store_true", help="GET and hash new keys, HEAD reused ones; no writes"
+    )
     return parser
 
 
@@ -276,7 +313,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         release = manifest["release"]
         if args.verify_remote:
             problems = verify_remote(selected, base_url(args.base_url), release, args.releases)
-            return _report(problems, f"release {release}: {len(selected)} objects verified over HTTPS")
+            full = sum(first_published(item, release) for item in selected)
+            return _report(
+                problems,
+                f"release {release}: {len(selected)} objects verified over HTTPS "
+                f"({full} in full, {len(selected) - full} by HEAD)",
+            )
         chosen = pending(selected, include_git=args.include_git_tracked)
         if args.list:
             for item in chosen:
