@@ -22,8 +22,10 @@ It writes nothing, except that ``--open-issue`` opens one ``needs-human-decision
 trigger with ``gh`` (or ``$GENOMEOS_GH_EXECUTABLE``), skipping any title an issue already has, open or
 closed. Each fired title names its months, so a rerun in the same month opens nothing new.
 
-Exit codes: 0, no trigger fired; 3 (``EXIT_FIRED``), at least one fired; 1, a read failed or returned
-data the report cannot account for (hard errors, never skipped); 2, a required setting is missing.
+Exit codes: 0, no trigger fired; 3 (``EXIT_FIRED``), at least one fired; 1, a read failed, returned
+data the report cannot account for, or returned a page Monitoring marks possibly incomplete (its
+``executionErrors`` or ``unreachable`` is not empty) (hard errors, never skipped); 2, a required
+setting is missing.
 """
 
 from __future__ import annotations
@@ -137,12 +139,39 @@ def _sent_of(point: Mapping[str, Any], where: str) -> int:
     raise CostReportError(f"{where}: a point's value {value!r} is not a non-negative int64Value")
 
 
+def _refuse_incomplete(page: Mapping[str, Any], number: int) -> None:
+    """A page that lists ``executionErrors`` or ``unreachable`` regions may be missing points
+    ([list-response]: https://docs.cloud.google.com/monitoring/api/ref_v3/rest/v3/ListTimeSeriesResponse).
+    A missing point undercounts its month and could hide a trigger, so such a page stops the report."""
+    errors = page.get("executionErrors", [])
+    regions = page.get("unreachable", [])
+    for name, value in (("executionErrors", errors), ("unreachable", regions)):
+        if not isinstance(value, list):
+            raise CostReportError(f"page {number}: {name} is not a list")
+    if errors:
+        first = errors[0]
+        message = first.get("message") if isinstance(first, Mapping) else None
+        detail = message if isinstance(message, str) and message else repr(first)
+        if len(errors) == 1:
+            counted = f"an execution error, so its data may be incomplete: {detail}"
+        else:
+            counted = f"{len(errors)} execution errors, so its data may be incomplete; the first: {detail}"
+        raise CostReportError(f"page {number}: Monitoring reports {counted}")
+    if regions:
+        shown = ", ".join(str(region) for region in regions)
+        raise CostReportError(
+            f"page {number}: Monitoring could not reach {shown}, so its data may be incomplete"
+        )
+
+
 def parse_time_series(pages: Sequence[Mapping[str, Any]]) -> list[ct.BucketDay]:
-    """Every point of every page, one per bucket and UTC day; anything else is a hard error."""
+    """Every point of every page, one per bucket and UTC day; anything else, or a page Monitoring
+    marks incomplete, is a hard error."""
     found: dict[tuple[str, date], ct.BucketDay] = {}
     for number, page in enumerate(pages, start=1):
         if not isinstance(page, Mapping):
             raise CostReportError(f"page {number}: not a JSON object")
+        _refuse_incomplete(page, number)
         listed = page.get("timeSeries", [])
         if not isinstance(listed, list):
             raise CostReportError(f"page {number}: timeSeries is not a list")

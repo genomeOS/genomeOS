@@ -227,7 +227,7 @@ def test_the_time_series_url() -> None:
 
 def test_a_point_counts_for_the_day_it_ends() -> None:
     page = {"timeSeries": [series("example-web", {"2026-11-15T00:00:00Z": 5, "2026-11-16T00:00:00.000Z": 7})]}
-    assert report.parse_time_series([page, {}]) == [
+    assert report.parse_time_series([page, {"executionErrors": [], "unreachable": []}]) == [
         report.ct.BucketDay("example-web", date(2026, 11, 14), 5),
         report.ct.BucketDay("example-web", date(2026, 11, 15), 7),
     ]
@@ -260,6 +260,22 @@ def _page(bucket: Any = "example-web", points: Any = None) -> dict[str, Any]:
         ([_page(points=[_point(interval={"endTime": "2026-11-15T00:00:00"})])], "endTime"),
         ([_page(points=[_point(interval={"endTime": "2026-11-15T07:00:00Z"})])], "not at a UTC midnight"),
         ([_page(), _page()], "two data points"),
+        (
+            [{"timeSeries": [], "executionErrors": [{"code": 13, "message": "partial"}]}],
+            "page 1: Monitoring reports an execution error, so its data may be incomplete: partial",
+        ),
+        (
+            [_page(), {"executionErrors": [{"code": 4, "message": "deadline exceeded"}, {"code": 13}]}],
+            "page 2: Monitoring reports 2 execution errors, so its data may be incomplete; "
+            "the first: deadline exceeded",
+        ),
+        ([{"executionErrors": [7]}], "an execution error, so its data may be incomplete: 7"),
+        ([{"executionErrors": {}}], "page 1: executionErrors is not a list"),
+        (
+            [_page(), {"unreachable": ["us-east1", "europe-west4"]}],
+            "page 2: Monitoring could not reach us-east1, europe-west4, so its data may be incomplete",
+        ),
+        ([{"unreachable": "us-east1"}], "page 1: unreachable is not a list"),
     ],
 )
 def test_malformed_data_is_a_hard_error(pages: list[Any], message: str) -> None:
@@ -300,6 +316,19 @@ def test_a_run_with_no_trigger_exits_0(
     code, _, _ = _run(tmp_path, monkeypatch, quiet, [*ARGS, "--open-issue"])
     assert code == 0
     assert "would open" not in capsys.readouterr().out
+
+
+def test_a_page_monitoring_marks_incomplete_stops_the_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Capsys
+) -> None:
+    """A partial page could undercount a month, so no trigger is judged on it."""
+    partial = {**FIRING.pages["p2"], "executionErrors": [{"code": 13, "message": "query timed out"}]}
+    code, _, server = _run(tmp_path, monkeypatch, FakeMonitoring({**FIRING.pages, "p2": partial}), ARGS)
+    out = capsys.readouterr()
+    assert code == 1
+    assert len(server.requests) == 2
+    assert "page 2: Monitoring reports an execution error" in out.err and "query timed out" in out.err
+    assert "Triggers" not in out.out and "not_fired" not in out.out
 
 
 def test_a_denied_read_names_the_role(

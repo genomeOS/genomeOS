@@ -370,7 +370,7 @@ another UTC day.
 | Exit | Meaning |
 |---|---|
 | 0 | No trigger fired. |
-| 1 | A read failed, or returned data the report cannot account for. These are hard errors; nothing is skipped. |
+| 1 | A read failed, or returned data the report cannot account for, or Monitoring marked a page as possibly incomplete (a non-empty `executionErrors` or `unreachable`). These are hard errors; nothing is skipped. A partial page could undercount a month and hide a trigger, so the report stops instead; rerun it later. |
 | 2 | `--project` (or `GENOMEOS_GCP_PROJECT`) or `--web-bucket` (or `ATLAS_DATA_BUCKET`) is missing. |
 | 3 | At least one trigger fired. With `--open-issue`, each fired trigger has its issue. |
 
