@@ -15,6 +15,10 @@ export function setup(): void {
       ATLAS_CATALOG_PATH: 'public/data/atlas/catalog.json',
       PUBLIC_ATLAS_REQUEST_STALL_MS: '',
       PUBLIC_ATLAS_DATA_BASE_URL: '',
+      // Data platform step 1.13: the committed releases' newest catalog on the committed data
+      // store, as Pages ships it, whatever the shell exports for the e2e build.
+      DATA_STORE_RELEASES_DIR: '',
+      PUBLIC_DATA_STORE_BASE_URL: '',
       // #453: no e2e test hooks in the build the unit tests read; #454 round 2: no motion hooks
       // and no /kit/ page either (tests/motion-hooks.test.ts).
       PUBLIC_ATLAS_E2E_HOOKS: '',

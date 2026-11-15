@@ -15,6 +15,8 @@ import mvpModule from '@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url';
 import ehWorker from '@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url';
 import mvpWorker from '@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url';
 
+import { attachStatement } from './examples';
+import { formatCell } from './format';
 import { WEBSITE_LOOKUP_ROUTE } from './route';
 
 /** The most rows a query returns; a longer result is cut there and marked `truncated`. */
@@ -22,7 +24,7 @@ export const MAX_RESULT_ROWS = 1000;
 
 export interface QueryResult {
   columns: string[];
-  /** Each row's cells as text, `NULL` for a null. */
+  /** Each row's cells as text (`formatCell`), `NULL` for a null. */
   rows: string[][];
   /** The query had more than `MAX_RESULT_ROWS` rows; the rest were never read. */
   truncated: boolean;
@@ -52,14 +54,6 @@ SELECT schema_name || '.' || function_name
 FROM duckdb_functions()
 WHERE database_name = 'atlas' AND NOT internal AND function_type IN ('macro', 'table_macro')
 ORDER BY name`;
-
-function sqlLiteral(text: string): string {
-  return `'${text.replaceAll("'", "''")}'`;
-}
-
-function cellText(value: unknown): string {
-  return value === null || value === undefined ? 'NULL' : String(value);
-}
 
 /** Starts DuckDB-WASM in a worker with the filesystem `WEBSITE_LOOKUP_ROUTE` calls for. */
 export async function openBrowserSql(): Promise<BrowserSql> {
@@ -96,7 +90,8 @@ export async function openBrowserSql(): Promise<BrowserSql> {
   return {
     async attachCatalog(url) {
       await conn.query('DETACH DATABASE IF EXISTS atlas');
-      await conn.query(`ATTACH ${sqlLiteral(url)} AS atlas (READ_ONLY)`);
+      // The statement "Copy for DuckDB" gives the CLI, Python or R.
+      await conn.query(attachStatement(url));
     },
     async catalogObjects() {
       const table = await conn.query(CATALOG_OBJECTS);
@@ -104,14 +99,20 @@ export async function openBrowserSql(): Promise<BrowserSql> {
     },
     async run(sql) {
       const reader = await (await conn.send(sql, true)).open();
-      const columns = (reader.schema?.fields ?? []).map((field) => field.name);
+      const fields = reader.schema?.fields ?? [];
+      const columns = fields.map((field) => field.name);
       const rows: string[][] = [];
       let truncated = false;
       for await (const batch of reader) {
         const vectors = columns.map((_, index) => batch.getChildAt(index));
         for (let row = 0; row < batch.numRows && !truncated; row += 1) {
           if (rows.length === MAX_RESULT_ROWS) truncated = true;
-          else rows.push(vectors.map((vector) => cellText(vector?.get(row))));
+          else
+            rows.push(
+              vectors.map((vector, index) =>
+                formatCell(vector?.get(row), fields[index]!.type),
+              ),
+            );
         }
         if (truncated) break;
       }

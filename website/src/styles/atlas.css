@@ -1091,6 +1091,159 @@ html.atlas-page .site-header--compact .site-header__inner {
   text-decoration: none;
 }
 
+/* "Query in your browser" (Atlas data platform step 1.13): one column at every width. */
+.atlas-browser-sql__body {
+  padding-bottom: 0.9rem;
+  display: grid;
+  gap: 0.6rem;
+  min-width: 0;
+  color: #dbe8f6;
+}
+
+.atlas-browser-sql__body p {
+  margin: 0;
+}
+
+.atlas-browser-sql__note,
+.atlas-browser-sql__copied {
+  color: var(--color-muted);
+}
+
+.atlas-browser-sql__copied:empty {
+  display: none;
+}
+
+.atlas-browser-sql__examples {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.atlas-browser-sql__examples button,
+.atlas-browser-sql__actions button {
+  min-height: 2.75rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid rgb(114 231 193 / 42%);
+  border-radius: 0.45rem;
+  background: rgb(33 101 91 / 44%);
+  color: #dffff5;
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.atlas-browser-sql__examples button {
+  display: grid;
+  gap: 0.15rem;
+  text-align: left;
+}
+
+.atlas-browser-sql__examples small {
+  color: var(--color-muted);
+  font-weight: 650;
+}
+
+.atlas-browser-sql__examples button:disabled,
+.atlas-browser-sql__actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.atlas-browser-sql__query {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.atlas-browser-sql__query textarea,
+.atlas-browser-sql__error pre,
+.atlas-browser-sql__table {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.atlas-browser-sql__query textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem;
+  border: 1px solid rgb(112 230 255 / 44%);
+  border-radius: 0.45rem;
+  background: rgb(3 15 33 / 72%);
+  color: #f4f8fc;
+  resize: vertical;
+}
+
+.atlas-browser-sql__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.atlas-browser-sql__error {
+  padding: 0.6rem;
+  display: grid;
+  gap: 0.4rem;
+  border: 1px solid rgb(244 200 106 / 55%);
+  border-radius: 0.45rem;
+  background: rgb(66 46 8 / 55%);
+}
+
+.atlas-browser-sql__error pre {
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.atlas-browser-sql__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+}
+
+.atlas-browser-sql__links a {
+  color: #9fe8ff;
+}
+
+.atlas-browser-sql__result {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.atlas-browser-sql__result h3 {
+  margin: 0;
+  color: var(--color-ion);
+  font-size: 0.9rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.atlas-browser-sql__table {
+  max-height: 18rem;
+  overflow: auto;
+  border: 1px solid rgb(112 230 255 / 24%);
+  border-radius: 0.45rem;
+}
+
+.atlas-browser-sql__table table {
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+
+.atlas-browser-sql__table th,
+.atlas-browser-sql__table td {
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid rgb(112 230 255 / 16%);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.atlas-browser-sql__table th {
+  position: sticky;
+  top: 0;
+  background: rgb(3 15 33);
+  color: var(--color-muted);
+}
+
 .atlas-external-info {
   margin: -0.4rem 0 0.7rem;
   border-bottom: 1px solid var(--color-line);
@@ -2251,6 +2404,10 @@ body:has(.atlas-explorer) .skip-link {
 .atlas-controls .atlas-downloads__links a,
 .atlas-controls .atlas-external-info__button {
   font-size: 0.8rem;
+}
+
+.atlas-controls .atlas-browser-sql__body {
+  font-size: 0.736rem;
 }
 
 :is(.atlas-controls, .atlas-top-slot) .atlas-info-tip__trigger {

@@ -1,8 +1,9 @@
 /**
  * The live gate of browser SQL (Atlas data platform design 2026-10-18 §1.4, §3.1, step 1.13; F6):
  * the pinned DuckDB-WASM against the public data store and DuckDB's community extensions, from
- * the e2e build's hook. Never in CI: the owner runs it once the bucket's CORS exposes the range
- * headers (deploy/data-store-cors.json),
+ * the e2e build's hook, and the "Query in your browser" parity example on the newest committed
+ * release's catalog (§2.7 check 8's Lagos disc). Never in CI: the owner runs it once the bucket's
+ * CORS exposes the range headers (deploy/data-store-cors.json) and that release is uploaded,
  *
  *   cd website && BROWSER_SQL_LIVE=1 npx playwright test --config playwright.live.config.ts
  *
@@ -14,11 +15,15 @@ import path from 'node:path';
 import { expect, test, type Response } from '@playwright/test';
 import { latLngToCell } from 'h3-js';
 
+import { browserSqlExamples } from '../src/atlas/browser-sql/examples';
 import { WEBSITE_LOOKUP_ROUTE } from '../src/atlas/browser-sql/route';
+import {
+  DATA_STORE_BASE_URL,
+  latestDataStoreCatalog,
+} from '../src/lib/data-store-release';
 import { inBrowser, openBrowserSqlPage } from './browser-sql-session';
+import { ALL, HBS } from './fixtures/browser-sql';
 
-/** `data_release.DATA_STORE_BASE_URL`: the only bucket a tracked file names. */
-const DATA_STORE = 'https://storage.googleapis.com/genomeos-atlas-data/';
 const RELEASES = path.resolve(import.meta.dirname, '../../data/releases');
 const WITHDRAWN = 'WITHDRAWN.json';
 /** Lagos, the parity smoke's centre (check 8). */
@@ -80,7 +85,7 @@ test.describe('browser SQL, live', { tag: '@desktop-chromium' }, () => {
       "the 'p4-api' route reads whole files by design",
     );
     const cells = largestCells();
-    const url = `${DATA_STORE}${cells.key}`;
+    const url = `${DATA_STORE_BASE_URL}${cells.key}`;
     const responses: Response[] = [];
     page.on('response', (response) => {
       if (response.url() === url) responses.push(response);
@@ -125,5 +130,21 @@ test.describe('browser SQL, live', { tag: '@desktop-chromium' }, () => {
     ]);
     expect(session.error).toBeNull();
     expect(session.results[2]!.rows).toEqual([[latLngToCell(...LAGOS, 4)]]);
+  });
+
+  test("the panel's parity example gives check 8's golden Lagos counts", async ({
+    page,
+  }) => {
+    // The catalog the production build bakes into the panel, and the example the panel runs.
+    const catalog = latestDataStoreCatalog(RELEASES, DATA_STORE_BASE_URL);
+    if (catalog === null)
+      throw new Error(`No release in ${RELEASES} lists a catalog.`);
+    const parity = browserSqlExamples(ALL, HBS).find(
+      (example) => example.id === 'parity-near-lagos',
+    )!;
+    const session = await inBrowser(page, [parity.sql], catalog.url);
+    expect(session.error).toBeNull();
+    // scripts/smoke_catalog.py's GOLDEN: 40 discs, sum an 52,340, sum ac 6,459.
+    expect(session.results[0]!.rows).toEqual([['40', '52340', '6459']]);
   });
 });

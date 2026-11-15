@@ -10,6 +10,7 @@ import type {
   ObservationSizeVariable,
 } from '../../atlas/observation-encoding';
 import type { SceneCapabilities } from '../../atlas/scene/atlas-scene';
+import type { DataStoreCatalogRef } from '../../lib/data-store-release';
 import { dataHref } from '../../lib/data-url';
 import type {
   BasemapId,
@@ -21,6 +22,7 @@ import type {
   TerrainId,
 } from '../../atlas/url-state';
 import type { Metric, PaletteId } from '../../atlas/visual-encoding';
+import { BrowserQueryPanel } from './BrowserQueryPanel';
 import { ControlsSheet } from './ControlsSheet';
 import { InfoTip } from './InfoTip';
 import { ExternalInfoPanel } from './ExternalInfoPanel';
@@ -35,6 +37,8 @@ interface ExplorerControlsProps {
   capabilities: SceneCapabilities;
   catalog: AtlasCatalog;
   artifactDataBase: string;
+  /** The newest data-store release's catalog (step 1.13); null renders no browser query panel. */
+  dataStoreCatalog: DataStoreCatalogRef | null;
   state: ExplorerState;
   disabled: boolean;
   explorer: HTMLElement | null;
@@ -104,6 +108,7 @@ export function ExplorerControls({
   capabilities,
   catalog,
   artifactDataBase,
+  dataStoreCatalog,
   state,
   disabled,
   explorer,
@@ -402,6 +407,21 @@ export function ExplorerControls({
               ))}
           </div>
         </details>
+      )}
+
+      {selectedArtifact && dataStoreCatalog && (
+        <BrowserQueryPanel
+          catalog={dataStoreCatalog}
+          artifact={{
+            variantId: selectedArtifact.variant_id,
+            modelVersion: selectedArtifact.model_version,
+            dataVersion: selectedArtifact.data_version,
+            gnomadDataset:
+              selectedArtifact.external_resources.flatMap((resource) =>
+                resource.source === 'gnomad' ? [resource.dataset] : [],
+              )[0] ?? null,
+          }}
+        />
       )}
 
       <div className="atlas-camera-actions" aria-label="Camera controls">

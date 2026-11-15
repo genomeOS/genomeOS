@@ -12,6 +12,7 @@ on:
       - "scripts/check_atlas_web_data.py"
       - "requirements.lock"
       - "tests/fixtures/catalog/**"
+      - "data/releases/**"
   pull_request:
     paths:
       - "website/**"
@@ -22,6 +23,7 @@ on:
       - "scripts/check_atlas_web_data.py"
       - "requirements.lock"
       - "tests/fixtures/catalog/**"
+      - "data/releases/**"
   workflow_dispatch:
 
 permissions:

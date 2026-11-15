@@ -24,20 +24,27 @@ describe('Atlas e2e build wiring', () => {
     // Task 76 (B5.7) holds the detail tier until it releases it. The e2e hooks (#453: a test may
     // hold the reveal wave) are on only here too, and so are the site's motion hooks (#454 round 2
     // spec §3.4: window.__motion and the /kit/ gallery; tests/motion-hooks.test.ts).
+    // Data platform step 1.13: the browser SQL panel attaches the fixture release's catalog.
     expect(npm['build:e2e']).toBe(
-      `ATLAS_CATALOG_PATH=${E2E_CATALOG} PUBLIC_ATLAS_REQUEST_STALL_MS=120000 PUBLIC_ATLAS_E2E_HOOKS=1 PUBLIC_MOTION_HOOKS=1 npm run build`,
+      `ATLAS_CATALOG_PATH=${E2E_CATALOG} DATA_STORE_RELEASES_DIR=tests/fixtures/data-store/manifests PUBLIC_ATLAS_REQUEST_STALL_MS=120000 PUBLIC_ATLAS_E2E_HOOKS=1 PUBLIC_MOTION_HOOKS=1 npm run build`,
     );
     for (const [name, script] of Object.entries(npm))
       if (name !== 'build:e2e') {
         expect(script, name).not.toContain('PUBLIC_ATLAS_REQUEST_STALL_MS');
         expect(script, name).not.toContain('PUBLIC_ATLAS_E2E_HOOKS');
+        expect(script, name).not.toContain('DATA_STORE_RELEASES_DIR');
       }
     // #422: only the browser tests build with a (placeholder) Measurement ID; the fixture stubs
     // gtag.js, and the capture scripts reuse build:e2e without analytics. Design 2026-10-07 §C.3:
     // they also build against the local cross-origin data server.
+    // Data platform step 1.13: and the browser SQL panel against the local data store, which only
+    // the e2e build may name (dataStoreBaseFrom).
     expect(npm['test:e2e']).toBe(
-      'PUBLIC_ATLAS_DATA_BASE_URL=http://127.0.0.1:4323/ PUBLIC_GA_MEASUREMENT_ID=G-TEST123 npm run build:e2e && playwright test',
+      'PUBLIC_ATLAS_DATA_BASE_URL=http://127.0.0.1:4323/ PUBLIC_DATA_STORE_BASE_URL=http://127.0.0.1:4324/ PUBLIC_GA_MEASUREMENT_ID=G-TEST123 npm run build:e2e && playwright test',
     );
+    for (const [name, script] of Object.entries(npm))
+      if (name !== 'test:e2e')
+        expect(script, name).not.toContain('PUBLIC_DATA_STORE_BASE_URL');
     // #454 ruling 10: the marketing performance budgets measure what visitors download, a build
     // with an analytics id (the cookie control ships; GA itself loads only after consent).
     expect(npm['build:deployed']).toBe(

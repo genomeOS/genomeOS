@@ -3,19 +3,31 @@
  * 2026-10-18 §1.4, §3.1, step 1.13). The e2e build publishes `window.__atlasBrowserSql`; Playwright
  * serves `tests/fixtures/data-store/` (scripts/build_browser_sql_fixture.py) on 127.0.0.1:4324
  * with GCS's range and CORS behaviour and a request log. These tests measure whether DuckDB-WASM
- * reads the store by HTTP range, the decision `WEBSITE_LOOKUP_ROUTE` records.
+ * reads the store by HTTP range, the decision `WEBSITE_LOOKUP_ROUTE` records, and drive the "Query
+ * in your browser" panel on the fixture release (`npm run test:e2e` builds it against that store).
  */
 import { statSync } from 'node:fs';
 import path from 'node:path';
 
+import AxeBuilder from '@axe-core/playwright';
 import {
   expect,
   test,
   type APIRequestContext,
+  type Locator,
+  type Page,
   type Request,
 } from '@playwright/test';
 
 import type * as engine from '../src/atlas/browser-sql/engine';
+import {
+  gnomadBrowserUrl,
+  NO_WASM_TEXT,
+  PAUSED_TEXT,
+  QUERY_ERROR_DOCS,
+  WITHDRAWN_TEXT,
+} from '../src/atlas/browser-sql/errors';
+import { attachStatement } from '../src/atlas/browser-sql/examples';
 import {
   ALLOWED_EXTENSION_HOSTS,
   WEBSITE_LOOKUP_ROUTE,
@@ -23,6 +35,7 @@ import {
 import {
   extractArtifactDataBase,
   GTAG_SCRIPT_PATTERN,
+  installAtlasBrowserFixture,
 } from './atlas-browser-fixture';
 import { inBrowser, openBrowserSqlPage } from './browser-sql-session';
 
@@ -197,3 +210,209 @@ test.describe('browser SQL', { tag: '@desktop-chromium' }, () => {
     ]);
   });
 });
+
+/** The HbS map, whose catalog row the fixture release holds. */
+const HBS_PAGE = '/app/?entity=hbs-rs334';
+/**
+ * How long the panel may take to start DuckDB-WASM or answer: each test's fresh browser context
+ * downloads and compiles the 34 MB module again, and a Parquet read autoloads the extension.
+ */
+const DUCKDB_MS = 30_000;
+/** What the page fetches for DuckDB: the engine, the library, its bundles and the store. */
+const isDuckDbRequest = (url: string) =>
+  /\/_astro\/(?:engine|duckdb-)/.test(url) || url.startsWith(STORE);
+
+function queryPanel(page: Page): Locator {
+  return page.locator('details.atlas-browser-sql');
+}
+
+/** Opens the panel on the HbS map and waits for its examples. */
+async function openQueryPanel(page: Page): Promise<Locator> {
+  await page.goto(HBS_PAGE);
+  const panel = queryPanel(page);
+  await panel.locator('summary').click();
+  await expect(
+    panel.getByRole('group', { name: 'Example queries' }),
+  ).toBeVisible({ timeout: DUCKDB_MS });
+  return panel;
+}
+
+/** The result the panel shows: its heading and its rows' cells. */
+async function shownResult(
+  panel: Locator,
+): Promise<{ heading: string; rows: string[][] }> {
+  const result = panel.locator('.atlas-browser-sql__result');
+  await expect(result).toBeVisible({ timeout: DUCKDB_MS });
+  const rows = await result
+    .locator('tbody tr')
+    .evaluateAll((trs) =>
+      trs.map((tr) =>
+        [...tr.querySelectorAll('td')].map((td) => td.textContent ?? ''),
+      ),
+    );
+  return {
+    heading: (await result.getByRole('heading').textContent()) ?? '',
+    rows,
+  };
+}
+
+test.describe(
+  'the "Query in your browser" panel',
+  { tag: '@desktop-chromium' },
+  () => {
+    test.describe.configure({ timeout: 90_000 });
+    test.beforeEach(async ({ page, request }) => {
+      await request.get(`${STORE}__control?force=off`);
+      await installAtlasBrowserFixture(page);
+    });
+    test.afterEach(async ({ page, request }) => {
+      await request.get(`${STORE}__control?force=off`);
+      await page.unrouteAll({ behavior: 'ignoreErrors' });
+    });
+
+    test('loads nothing of DuckDB until the panel opens', async ({ page }) => {
+      const requested: string[] = [];
+      page.context().on('request', (request) => requested.push(request.url()));
+      await page.goto(HBS_PAGE);
+      await expect(page.locator('[data-atlas-ready="true"]')).toBeVisible({
+        timeout: 45_000,
+      });
+      const panel = queryPanel(page);
+      await expect(panel.locator('summary')).toHaveText(
+        'Query in your browser',
+      );
+      expect(requested.filter(isDuckDbRequest)).toEqual([]);
+      await panel.locator('summary').click();
+      await expect(
+        panel.getByRole('group', { name: 'Example queries' }),
+      ).toBeVisible({ timeout: DUCKDB_MS });
+      expect(requested.filter(isDuckDbRequest)).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/\/_astro\/engine\.[\w-]+\.js$/),
+          `${STORE}releases/2000-01-01/catalog/atlas.duckdb`,
+        ]),
+      );
+    });
+
+    test("runs the artifact example and shows HbS's row under Inferred", async ({
+      page,
+    }) => {
+      const panel = await openQueryPanel(page);
+      // The fixture catalog has no lookup macros yet (step 2.7): only its two views' examples.
+      await expect(
+        panel
+          .getByRole('group', { name: 'Example queries' })
+          .getByRole('button'),
+      ).toHaveText([
+        /^This map's artifact/,
+        /^HbS surveys within 500 km of Lagos/,
+      ]);
+      await panel.getByRole('button', { name: /artifact/ }).click();
+      const { heading, rows } = await shownResult(panel);
+      expect(heading).toBe('Inferred');
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toContain('chr11-5227002-T-A');
+      expect(rows[0]).toContain('v3');
+      const { violations } = await new AxeBuilder({ page })
+        .include('details.atlas-browser-sql')
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'])
+        .analyze();
+      expect(
+        violations.filter(({ impact }) =>
+          ['serious', 'critical'].includes(impact ?? ''),
+        ),
+      ).toEqual([]);
+    });
+
+    test('runs the parity example: 3 surveys, an 60 and ac 6, under Measured', async ({
+      page,
+    }) => {
+      const panel = await openQueryPanel(page);
+      await panel.getByRole('button', { name: /Lagos/ }).click();
+      const { heading, rows } = await shownResult(panel);
+      expect(heading).toBe('Measured');
+      expect(rows).toEqual([['3', '60', '6']]);
+      await expect(
+        panel.locator('.atlas-browser-sql__result thead th'),
+      ).toHaveText(['observations', 'an', 'ac']);
+    });
+
+    test('says the store is paused and links gnomAD when the store answers 403', async ({
+      page,
+      request,
+    }) => {
+      await request.get(`${STORE}__control?force=403`);
+      await page.goto(HBS_PAGE);
+      const panel = queryPanel(page);
+      await panel.locator('summary').click();
+      const alert = panel.getByRole('alert');
+      await expect(alert.locator('p').first()).toHaveText(PAUSED_TEXT, {
+        timeout: DUCKDB_MS,
+      });
+      await expect(alert.getByRole('link', { name: /gnomAD/ })).toHaveAttribute(
+        'href',
+        gnomadBrowserUrl('chr11-5227002-T-A', 'gnomad_r4'),
+      );
+      await expect(
+        alert.getByRole('link', { name: QUERY_ERROR_DOCS.paused.label }),
+      ).toHaveAttribute('href', QUERY_ERROR_DOCS.paused.href);
+    });
+
+    test('says a file is withdrawn when the store answers 404 for it', async ({
+      page,
+      request,
+    }) => {
+      const panel = await openQueryPanel(page);
+      await request.get(`${STORE}__control?force=404`);
+      await panel.getByRole('button', { name: /Lagos/ }).click();
+      const alert = panel.getByRole('alert');
+      await expect(alert.locator('p').first()).toHaveText(WITHDRAWN_TEXT, {
+        timeout: DUCKDB_MS,
+      });
+      await expect(alert.getByRole('link', { name: /gnomAD/ })).toHaveCount(0);
+      await expect(panel.locator('.atlas-browser-sql__result')).toHaveCount(0);
+    });
+
+    test('shows SQL errors verbatim', async ({ page }) => {
+      const panel = await openQueryPanel(page);
+      await panel.getByRole('textbox').fill('SELECT * FROM atlas.nope');
+      await panel.getByRole('button', { name: 'Run', exact: true }).click();
+      await expect(panel.getByRole('alert').locator('pre')).toContainText(
+        'atlas.nope',
+        { timeout: DUCKDB_MS },
+      );
+    });
+
+    test('without WebAssembly, says so and still copies the query for DuckDB', async ({
+      page,
+    }) => {
+      await page
+        .context()
+        .grantPermissions(['clipboard-read', 'clipboard-write']);
+      await page.goto(HBS_PAGE);
+      const panel = queryPanel(page);
+      await expect(panel).toBeAttached();
+      await page.evaluate(() => {
+        Reflect.deleteProperty(globalThis, 'WebAssembly');
+      });
+      await panel.locator('summary').click();
+      await expect(panel.getByRole('status').first()).toHaveText(NO_WASM_TEXT);
+      await expect(
+        panel.getByRole('group', { name: 'Example queries' }),
+      ).toHaveCount(0);
+      await panel
+        .getByRole('textbox')
+        .fill('SELECT * FROM atlas.meta.release;');
+      await panel.getByRole('button', { name: 'Copy for DuckDB' }).click();
+      const copied = await page.evaluate(() => navigator.clipboard.readText());
+      expect(copied).toBe(
+        `${attachStatement(CATALOG)}\nSELECT * FROM atlas.meta.release;`,
+      );
+      expect(
+        copied.startsWith(
+          "ATTACH 'http://127.0.0.1:4324/releases/2000-01-01/catalog/atlas.duckdb' AS atlas (READ_ONLY);",
+        ),
+      ).toBe(true);
+    });
+  },
+);
