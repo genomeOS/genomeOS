@@ -1,4 +1,5 @@
-"""Every derived table's frozen contract (Atlas data platform design 2026-10-18 §2.4, §2.5; calls 4, 30, 37).
+"""Every derived table's frozen contract (Atlas data platform design 2026-10-18 §2.3-§2.5; calls 4, 5, 18, 30,
+37).
 
 Everything under ``tables/v1/`` is derived from released bytes, and a reader can trust a file only as
 far as it can name the contract the file obeys. This module is that name: one ``TableContract`` per
@@ -22,6 +23,19 @@ The two allele tables never share a prefix, a file or a contract (§2.4, call 37
 
 Both store counts, never frequencies (v1 §7.1b): ``ac`` and ``an``, and no ``af`` column.
 
+``measured.carrier_observations`` holds carrier counts over individuals (KIR gene presence), under the
+carrier fit-input contract: ``carriers`` and ``n_individuals`` in place of ``ac`` and ``an``. It is never
+unioned with allele counts (§2.2 rule 3, §2.4). ``measured.ingests`` (§2.4 as amended; step 1.9) is an Arrow
+contract: one row per curated ingest, keyed by ``(table, source, ingest_version)`` because two AFND adapters
+share ``afnd``/``afnd-2026-08``, with each ingest's inputs and its refusals as lists of structs. A refusal is
+``{reason, population_id, count}``: a population is its own field, never folded into the reason.
+
+``measured.fit_inputs`` (§2.4, §2.8; call 8) is the only table that links measured to inferred: keys only,
+one row per artifact and measured record, with the artifact's identity and ``measurement``, the record's
+``source``, ``ingest_version`` and ``source_record_id``, and its ``evidence`` (``fit-record`` or
+``web-json-match``). Its ``epoch``, the release that first wrote the artifact's rows, is stored, so check 2
+compares each folder with its rows.
+
 The four ``meta.*`` tables (§2.4, §2.9; calls 4, 7) are Arrow contracts: each field's name, type and
 nullability, in order. ``meta.release_objects`` keeps a list of sources per object, which pandera
 does not describe.
@@ -34,6 +48,13 @@ from, the key and sha256 of each of its files, and its ``fit_input_evidence``, n
 ``h3_r0``, ``h3_parent_r3``, ``measurement``, ``artifact_format``, ``epoch`` and ``res``: partition keys
 are stored columns, so check 2 compares each folder with its rows. Formats 3 and 4 add
 ``prior_frequency_sd``, which needs a MINOR 1.1 of ``cells_by_cell`` before such an artifact ships (F4).
+
+The two ``reference.*`` tables (§2.3, §2.4; calls 5, 18) are the population registry. Each registry
+release is one folder under ``REGISTRY_ROOT``, holding one file of each table (``REGISTRY_FILES``):
+``reference.populations`` is P0's ``POPULATIONS_SCHEMA``, and ``reference.population_aliases`` is P0's
+alias columns plus the ``registry_version`` they belong to. Both carry the full ``registry_version``, the
+partition the folder names (as ``<release>-<sha8>`` or a legacy name, never ``registry_version=``), so
+``table_path`` gives both tables the same root and ``table_of`` tells their files apart by name.
 """
 
 from __future__ import annotations
@@ -50,7 +71,14 @@ import pandera.pandas as pa
 import pyarrow
 from pandera import extensions
 
-from genomeos.observations.schema import OBSERVATIONS_SCHEMA
+from genomeos.observations.schema import (
+    CARRIER_OBSERVATIONS_SCHEMA,
+    OBSERVATIONS_SCHEMA,
+    VARIANT_ID_PATTERN,
+)
+from genomeos.publication import artifact_inputs as ai
+from genomeos.publication import data_release as dr
+from genomeos.registry.schema import ALIASES_SCHEMA, POPULATIONS_SCHEMA
 from genomeos.schema_checks import REVIEWABLE_TEXT
 
 
@@ -158,6 +186,53 @@ ALLELE_OBSERVATIONS_BINNED = TableContract(
     schema=BINNED_OBSERVATIONS_SCHEMA,
 )
 
+#: Carrier counts over individuals (§2.4): exactly the carrier fit-input contract, never unioned with
+#: allele counts.
+CARRIER_OBSERVATIONS = TableContract(
+    "measured.carrier_observations",
+    major=1,
+    minor=0,
+    key=("ingest_version", "source_record_id"),
+    partitions=("source", "ingest_version"),
+    schema=CARRIER_OBSERVATIONS_SCHEMA,
+)
+
+
+#: The evidence a ``measured.fit_inputs`` row may carry (§2.4): ``inferred.FIT_RECORD`` and
+#: ``inferred.WEB_JSON_MATCH``. ``none`` is no row, only a reason in ``inferred.artifacts``.
+FIT_INPUT_EVIDENCE = ("fit-record", "web-json-match")
+#: A release id, ``YYYY-MM-DD`` with an optional ``.N`` (``data_release.assert_release_id``).
+RELEASE_ID_PATTERN = r"^\d{4}-\d{2}-\d{2}(?:\.[1-9]\d*)?$"
+
+#: Which measured record each artifact was fit to, as keys only (§2.4, §2.8; call 8).
+FIT_INPUTS_SCHEMA = pa.DataFrameSchema(
+    {
+        "epoch": pa.Column(str, pa.Check.str_matches(RELEASE_ID_PATTERN), nullable=False),
+        "artifact": pa.Column(str, REVIEWABLE_TEXT, nullable=False),
+        "variant_id": pa.Column(str, pa.Check.str_matches(VARIANT_ID_PATTERN), nullable=False),
+        "model_version": pa.Column(str, REVIEWABLE_TEXT, nullable=False),
+        "data_version": pa.Column(str, REVIEWABLE_TEXT, nullable=False),
+        "measurement": pa.Column(str, pa.Check.isin(list(ai.INPUT_CONTRACTS)), nullable=False),
+        "source": pa.Column(str, REVIEWABLE_TEXT, nullable=False),
+        "ingest_version": pa.Column(str, REVIEWABLE_TEXT, nullable=False),
+        "source_record_id": pa.Column(str, REVIEWABLE_TEXT, nullable=False),
+        "evidence": pa.Column(str, pa.Check.isin(list(FIT_INPUT_EVIDENCE)), nullable=False),
+    },
+    unique=["artifact", "ingest_version", "source_record_id"],
+    strict=True,
+    coerce=True,
+    name="fit_inputs",
+)
+
+FIT_INPUTS = TableContract(
+    "measured.fit_inputs",
+    major=1,
+    minor=0,
+    key=("artifact", "ingest_version", "source_record_id"),
+    partitions=("epoch",),
+    schema=FIT_INPUTS_SCHEMA,
+)
+
 
 def _arrow(*fields: tuple[str, pyarrow.DataType, bool]) -> pyarrow.Schema:
     """An ordered Arrow schema from ``(name, type, nullable)``."""
@@ -165,6 +240,47 @@ def _arrow(*fields: tuple[str, pyarrow.DataType, bool]) -> pyarrow.Schema:
 
 
 _TEXT = pyarrow.string()
+
+# DuckDB writes every field of a struct inside a list as nullable, so the contract says so too; which
+# fields may be null is ``genomeos.tables.measured``'s check (``IngestInput``, ``Refusal``).
+#: One input of an ingest: a released key with its sha256, or a cited upstream URL with md5 and
+#: generation (D17), and its byte count.
+_INGEST_INPUT = pyarrow.struct(
+    [
+        ("bytes", pyarrow.int64()),
+        ("key", _TEXT),
+        ("sha256", _TEXT),
+        ("url", _TEXT),
+        ("md5", _TEXT),
+        ("generation", pyarrow.int64()),
+    ]
+)
+#: Rows an adapter refused for one reason, in one population when it names one.
+_REFUSAL = pyarrow.struct([("reason", _TEXT), ("population_id", _TEXT), ("count", pyarrow.int64())])
+
+#: One row per curated ingest (§2.4 as amended; step 1.9): the table and part it wrote, the registry its
+#: populations resolve in, the adapter (a repository file) and the commit it ran at, its inputs, the rows it
+#: kept and refused, and the ``source_record_id`` template a lookup set derives its ids from (none for a
+#: curated part, which stores them).
+INGESTS = TableContract(
+    "measured.ingests",
+    major=1,
+    minor=0,
+    key=("table", "source", "ingest_version"),
+    partitions=(),
+    arrow_schema=_arrow(
+        ("table", _TEXT, False),
+        ("source", _TEXT, False),
+        ("ingest_version", _TEXT, False),
+        ("registry_version", _TEXT, False),
+        ("adapter", _TEXT, False),
+        ("adapter_git_sha", _TEXT, False),
+        ("inputs", pyarrow.list_(_INGEST_INPUT), False),
+        ("n_rows", pyarrow.int64(), False),
+        ("refusals", pyarrow.list_(_REFUSAL), False),
+        ("source_record_id_template", _TEXT, True),
+    ),
+)
 
 #: Every object of each earlier release, as its committed manifest lists it (§2.4; call 4).
 RELEASE_OBJECTS = TableContract(
@@ -318,6 +434,46 @@ CELLS_BY_CELL = TableContract(
     ),
 )
 
+#: One registry release's populations (§2.3, §2.4; call 5): P0's schema, ``registry_version`` included.
+REFERENCE_POPULATIONS = TableContract(
+    "reference.populations",
+    major=1,
+    minor=0,
+    key=("registry_version", "population_id"),
+    partitions=("registry_version",),
+    schema=POPULATIONS_SCHEMA,
+)
+
+#: One registry release's aliases (§2.3, §2.4; call 18): P0's alias columns plus ``registry_version``, so
+#: the rows of every registry folder, read together, stay apart. A legacy registry may be aliases alone.
+REFERENCE_ALIASES_SCHEMA = pa.DataFrameSchema(
+    # add_columns returns a copy, so this schema never shares a column with P0's.
+    ALIASES_SCHEMA.add_columns({"registry_version": pa.Column(str, REVIEWABLE_TEXT, nullable=False)}).columns,
+    unique=["registry_version", "source", "label"],
+    strict=True,
+    coerce=True,
+    name="reference_population_aliases",
+)
+
+REFERENCE_ALIASES = TableContract(
+    "reference.population_aliases",
+    major=1,
+    minor=0,
+    key=("registry_version", "source", "label"),
+    partitions=("registry_version",),
+    schema=REFERENCE_ALIASES_SCHEMA,
+)
+
+#: The folder every registry release's folder lies in (§2.3): ``<REGISTRY_ROOT><folder>/<file>``.
+REGISTRY_ROOT = dr.REGISTRY_PREFIX
+#: Each reference table's file inside a registry folder (``registry.release_contract``'s file names).
+REGISTRY_FILES: Mapping[str, str] = MappingProxyType(
+    {
+        REFERENCE_POPULATIONS.table: "populations.parquet",
+        REFERENCE_ALIASES.table: "population_aliases.parquet",
+    }
+)
+
 #: Every derived table, by name. A table is written, checked or catalogued only if it is here.
 TABLE_CONTRACTS: Mapping[str, TableContract] = MappingProxyType(
     {
@@ -325,12 +481,17 @@ TABLE_CONTRACTS: Mapping[str, TableContract] = MappingProxyType(
         for contract in (
             ALLELE_OBSERVATIONS,
             ALLELE_OBSERVATIONS_BINNED,
+            CARRIER_OBSERVATIONS,
+            INGESTS,
+            FIT_INPUTS,
             RELEASE_OBJECTS,
             SOURCES,
             SERVED,
             WITHDRAWN,
             INFERRED_ARTIFACTS,
             CELLS_BY_CELL,
+            REFERENCE_POPULATIONS,
+            REFERENCE_ALIASES,
         )
     }
 )
@@ -377,16 +538,35 @@ def columns(table: str) -> tuple[str, ...]:
 
 
 def table_path(table: str) -> str:
-    """Where the table lives in a release: a folder of partitions, or one Parquet file (§2.3)."""
+    """Where the table lives in a release: a folder of partitions, or one Parquet file (§2.3).
+
+    A reference table lives in the registry folders under ``REGISTRY_ROOT``, one file in each.
+    """
     contract = _contract(table)
+    if table in REGISTRY_FILES:
+        return REGISTRY_ROOT
     schema, name = table.split(".", 1)
     base = f"tables/v{contract.major}/{schema}/{name}"
     return f"{base}/" if contract.partitions else f"{base}.parquet"
 
 
 def table_of(path: str) -> str:
-    """The table a release path belongs to, or a ``TableError`` if no contract covers it."""
+    """The table a release path belongs to, or a ``TableError`` if no contract covers it.
+
+    Under ``REGISTRY_ROOT`` only a ``REGISTRY_FILES`` name directly inside a registry folder is covered.
+    """
+    if path.startswith(REGISTRY_ROOT):
+        folder, _, name = path.removeprefix(REGISTRY_ROOT).partition("/")
+        found = [table for table, file_name in REGISTRY_FILES.items() if folder and name == file_name]
+        if found:
+            return found[0]
+        raise TableError(
+            f"{path}: no table contract covers this path; a registry folder holds only "
+            f"{sorted(REGISTRY_FILES.values())}"
+        )
     for table, contract in TABLE_CONTRACTS.items():
+        if table in REGISTRY_FILES:
+            continue
         prefix = table_path(table)
         if (path.startswith(prefix) and path != prefix) if contract.partitions else path == prefix:
             return table
