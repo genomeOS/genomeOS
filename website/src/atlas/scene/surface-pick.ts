@@ -1,8 +1,9 @@
 /** Cell resolution for chunk-level surface picks (Atlas design §11; spec 2026-10-07 §B.6.6).
  *
  * This is a click's resolution, over what its drill pick found. A hover makes no GPU pick and
- * resolves on the CPU (`hover-pick.ts`; owner decision 2026-11-14 on #483), testing the pick
- * target's observations (`PickTarget.observations`) and the same drawn and reveal checks.
+ * resolves on the CPU (`hover-pick.ts`; owner decision 2026-11-14 on #483, §B.6.6 as amended
+ * that day), testing the pick target's observations (`PickTarget.observations`) and the same
+ * drawn and reveal checks.
  *
  * Surface and support primitives pick as a whole chunk. The cell under the
  * pointer comes from the ellipsoid at elevation 0 (no extra render pass) or

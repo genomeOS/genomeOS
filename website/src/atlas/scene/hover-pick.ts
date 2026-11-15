@@ -1,8 +1,9 @@
 /**
- * The hover, resolved on the CPU (Atlas design §11; owner decision 2026-11-14 on #483). A click
- * drill picks (`createSurfacePickResolver`); a hover makes no GPU pick at all, so it never waits
- * for a read-back nor links the pick variants of the programs in view, which on a cold shader
- * cache held the page's first hover for about 650 ms.
+ * The hover, resolved on the CPU (Atlas design §11; fast-load design §B.6.6 and interaction
+ * design §8, both amended 2026-11-14 on the owner's decision, #483). A click drill picks
+ * (`createSurfacePickResolver`); a hover makes no GPU pick at all, so it never waits for a
+ * read-back nor links the pick variants of the programs in view, which on a cold shader cache held
+ * the page's first hover for about 650 ms.
  *
  * What lies under the pointer, as the click resolves it:
  * 1. Nothing without a pick target: the displayed artifact, or the cold reveal's.

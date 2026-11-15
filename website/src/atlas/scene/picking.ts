@@ -1,11 +1,11 @@
 /** Deterministic Cesium pick arbitration for Atlas design §11.
  *
  * A click drill picks and arbitrates what the pick found (`PickResolver`). A hover makes no GPU
- * pick (owner decision 2026-11-14 on #483): it resolves on the CPU (`HoverResolver`,
- * `hover-pick.ts`), once per animation frame at the pointer's latest position. A GPU pick reads
- * its framebuffer back, which waits for the GPU, and the page's first one links the pick
- * variants of the programs it draws: on a cold shader cache that first hover held a frame for
- * about 650 ms.
+ * pick (owner decision 2026-11-14 on #483; fast-load design §B.6.6 and interaction design §8, as
+ * amended that day): it resolves on the CPU (`HoverResolver`, `hover-pick.ts`), once per
+ * animation frame at the pointer's latest position. A GPU pick reads its framebuffer back, which
+ * waits for the GPU, and the page's first one links the pick variants of the programs it draws: on
+ * a cold shader cache that first hover held a frame for about 650 ms.
  */
 
 import {

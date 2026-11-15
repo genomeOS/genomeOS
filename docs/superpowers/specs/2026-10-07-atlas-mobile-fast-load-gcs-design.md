@@ -779,6 +779,35 @@ scene (when import resolves) ── observations → chunk scheduler (B.6.7) →
      `{ kind: 'surface', artifactKey, row }` and dropped if `artifactKey` no longer matches; the
      detail gate checks the detail tier for that `artifactKey`. The highlight layer is keyed the same
      way. Only `drillPick` results containing a `surface-chunk` pick trigger cell resolution.
+
+   (Amended 2026-11-14, #483, owner decision: only a click drill picks. A hover made the page's
+   first GPU pick, which links the pick variants of the programs in view inside the hover's frame:
+   about 650 ms on a cold Metal shader cache. Every later hover waited on a `readPixels` read-back,
+   8–26 ms at production density on Metal and 42–224 ms on SwiftShader. A hover now makes no GPU
+   pick and resolves on the CPU what a click at the same point would; the click's pick shaders are
+   not warmed ahead of it.
+   - Nothing answers without a pick target: the displayed artifact, or the cold reveal's.
+   - An observation of that artifact wins, never one of an incoming group. Each marker is tested as
+     Cesium draws it at the nine drawing-buffer pixel centres of the click's 3 × 3 pick window:
+     circles with their outline and anti-aliasing pad, studs and pins by their image's own alpha
+     (a pin turned with its aligned axis), spheres along each pixel's ray, sampling rings along
+     their projected lines. One over the centre pixel beats one the window only grazes, then the
+     nearest to the camera. A marker an opaque globe hides, behind the horizon or behind World
+     Terrain's rendered ground, does not count. A see-through Earth (opacity under 1) hides none,
+     since Cesium then culls nothing behind the horizon and the globe writes no depth.
+   - Otherwise the cell under the pointer, kept only where a layer draws it and the reveal wave
+     has reached it. A chunk group draws a row only once the chunk carrying it is added: each
+     `chunk` message names its grid rows. That is the CPU's counterpart of the click's
+     `surface-chunk` pick, since a cold reveal's group is shown at opacity 1 before its first chunk
+     arrives. The cell lies on World Terrain's rendered ground (`globe.pick` of the pick ray) or on
+     the ellipsoid at elevation 0. With data elevation it is the first drawn cell along the pick
+     ray, from the cells rebuilt as drawn. On the globe a walk along the ray through the lifted
+     shell finds the candidates. In Columbus view and 2D the shear makes neither the lift nor the
+     ray's height a safe parameter, so a trace of where the ray meets each lift's sheared sheet,
+     over a grid in distance along the ray and lift, finds them; mid-morph nothing.
+
+   The e2e build logs every hover's and click's resolution (`window.__atlasPickLog`), so the browser
+   tests hold each hover to the click at the same point.)
 7. **Chunk scheduler.** Add a batch of k chunk primitives, call `scene.requestRender()`, and time the
    render that follows (`scene.preUpdate` → `scene.postRender`); size the next batch so chunk work
    stays within ~8 ms over the baseline frame on desktop and ~50 ms at 4× CPU; always add at least one

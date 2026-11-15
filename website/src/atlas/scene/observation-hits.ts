@@ -1,8 +1,9 @@
 /**
- * The observation under a hovering pointer, found on the CPU (Atlas design §11; owner decision
- * 2026-11-14 on #483). A hover makes no GPU pick: a pick reads its framebuffer back, which waits
- * for the GPU, and the page's first pick links the pick variants of the programs it draws, which
- * on a cold shader cache held a frame for about 650 ms. A click still drill picks.
+ * The observation under a hovering pointer, found on the CPU (Atlas design §11; fast-load design
+ * §B.6.6 and interaction design §8, both amended 2026-11-14 on the owner's decision, #483). A
+ * hover makes no GPU pick: a pick reads its framebuffer back, which waits for the GPU, and the
+ * page's first pick links the pick variants of the programs it draws, which on a cold shader cache
+ * held a frame for about 650 ms. A click still drill picks.
  *
  * The click's pick reads the 3 × 3 drawing-buffer pixels about the pointer and finds what each
  * pixel's centre shows (Picking.js `computePickingDrawingBufferRectangle`, PickFramebuffer.js; the

@@ -1,5 +1,5 @@
-/** A hover's pick of lifted data on the globe (fast-load spec 2026-10-07 §B.6.6; Atlas design
- * §11; owner decision 2026-11-14 on #483).
+/** A hover's pick of lifted data on the globe (fast-load spec 2026-10-07 §B.6.6, as amended
+ * 2026-11-14 on the owner's decision, #483; Atlas design §11).
  *
  * A click reads the lifted surface's depth through a translucent depth pick. A hover makes no
  * GPU pick, so it finds the first drawn cell along the pointer's ray on the CPU: the cells near
