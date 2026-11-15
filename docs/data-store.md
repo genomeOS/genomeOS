@@ -30,6 +30,7 @@ data/
     map_g6pd_surveys.csv                scripts/fetch_map_hbs.py --layer g6pd
     afnd_populations.tsv                scripts/fetch_afnd.py
     afnd_cache/                         one HTML page per AFND population, so a re-run is free
+    <source>/<harvest_version>/         reviewed raw harvests, each file pinned by sha256 (raw_harvests.RAW_HARVESTS); in the data store
   curated/                              immutable, versioned operator-reviewed inputs
     map_hbs_surveys.csv                 HbS rows plus explicit bounding-disc support evidence
   store/
@@ -38,6 +39,7 @@ data/
                   cells.parquet         the citable per-cell surface (§5, §6)
                   observations.parquet  the exact observation table its fit consumed (#45)
                   manifest.json         what was published, and under what assumptions; written last
+    external/<source>/                  the gnomAD, dbSNP and AlphaGenome caches the Atlas serves, pinned to their served content (raw_harvests.EXTERNAL_CACHES), no non-commercial field; in the data store
     INVENTORY.json                      checksums of what was on the publishing machine
   tables/v1/                            derived query tables (scripts/build_tables.py); in the data store
   catalog/catalog.sql                   committed: each release's catalog views (see "Query a release")

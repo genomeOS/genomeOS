@@ -815,7 +815,8 @@ def test_building_the_catalog_reads_only_local_copies(catalog_tree):
   - Field rules, each a hard error naming the field: `source` is a `REVIEWED_SOURCES` key; `harvest_version` is `YYYY-MM` or `YYYY`; `files` is non-empty, sorted by name and unique, each name one path segment and each sha256 64 lowercase hex; `upstream_url` is `https://`; `copied_from` is `None` or `hf://datasets/bschilder/genomeos-data@<40 hex>/<path>`; `retrieved_at` is `YYYY-MM-DD` or `NOT_RECORDED`; `fetch_command` is non-blank.
   - `harvest_path(harvest: RawHarvest, name: str) -> str`, `RAW_HARVESTS: tuple[RawHarvest, ...]` and `check_raw_harvests(records: Sequence[dr.FileRecord], harvests: Sequence[RawHarvest]) -> None`.
   - `EXTERNAL_CACHE_SOURCES = ("alphagenome", "dbsnp", "gnomad")` and `check_external_cache(path: str, document: object) -> None`, which refuses any key from `commercial_use.KNOWN_NON_COMMERCIAL_FIELDS[source]` at any depth: "split out <field> before publishing (R5, design §4.3)".
-- `build(..., raw_harvests: Sequence[RawHarvest] = (), catalog: bool = False)`; `main` passes `rh.RAW_HARVESTS`.
+  - `EXTERNAL_CACHES: tuple[tuple[str, str], ...]`: each `cache_file` `public-artifacts.json` names, under `store/`, pinned to the `cache_sha256` the served web catalog (`website/public/data/atlas/catalog.json`) records. `cache_sha256(document: object) -> str` is that digest, of the canonical JSON, so a cache's indentation does not change it. `check_external_caches(documents: Mapping[str, object], caches: Sequence[tuple[str, str]]) -> None` runs `check_external_cache` on each cache. It then refuses a cache the Atlas does not serve ("serves no such cache"), other content ("is not the <sha256> the Atlas serves") and a missing served cache ("the release lacks it").
+- `build(..., raw_harvests: Sequence[RawHarvest] = (), external_caches: Sequence[tuple[str, str]] = (), catalog: bool = False)`; `main` passes `rh.RAW_HARVESTS` and `rh.EXTERNAL_CACHES`, so a release without the served caches fails before its manifest is written.
 
 - [ ] **Test:**
 ```python
@@ -832,6 +833,8 @@ def test_the_real_harvest_roster():
     - `test_the_legacy_afnd_table_is_not_a_harvest`.
     - `test_every_real_harvest_has_64_hex_digests_and_recorded_terms`.
     - `test_an_external_cache_carrying_a_non_commercial_field_is_refused`: an `alphagenome` document with `top_attributions` → "top_attributions"; a `gnomad` one with `spliceai` → "spliceai".
+    - `test_the_real_cache_pins_are_the_caches_the_atlas_serves`: `EXTERNAL_CACHES` equals the served catalog's `cache_url` → `cache_sha256`, its paths are `public-artifacts.json`'s `cache_file`s, and each served copy hashes to its pin.
+    - `test_a_cache_is_pinned_to_its_served_content`: the served gnomAD document passes; the same with `schema_version` 1 → "the Atlas serves". Also a missing served cache → "the release lacks it", and an unserved one → "serves no such cache".
   - `tests/test_access_policy.py`:
     - `test_the_section_4_2_constants`: the four values above.
     - `test_an_object_over_1_gib_is_refused_from_a_harvest`: `(1 << 30) + 1` bytes → "R5–R7", while `1 << 30` passes.
@@ -840,6 +843,7 @@ def test_the_real_harvest_roster():
     - `test_a_harvest_root_that_is_absent_locally_is_a_hard_error` → "fetch it first".
     - `test_the_gnomad_hgdp_1kg_terms_are_recorded`: `explicitly_open`; `CC0-1.0`; the note has "reidentify", "SpliceAI" and "tool's name"; `non_commercial` false.
     - `test_the_external_cache_terms_copy_the_web_catalogs_commercial_use`: for each cache source, `terms.status`, `checked_at`, `terms_url` and `recorded_in` equal the `commercial_use` block in `website/src/atlas/public-artifacts.json`.
+    - `test_cli_refuses_a_tree_without_the_served_caches_before_writing`: `main` with the real `EXTERNAL_CACHES` → exit 1, "the release lacks it", no release file.
 - [ ] **Run** `python -m pytest tests/test_raw_harvests.py tests/test_access_policy.py tests/test_build_data_release.py -q`. Expected: `ModuleNotFoundError: No module named 'genomeos.publication.raw_harvests'`.
 - [ ] **Implement.** Add the source verbatim:
 ```python
@@ -857,7 +861,7 @@ def test_the_real_harvest_roster():
 - [ ] **Pin the real files from evidence:**
   - AFND and MAP: `raw/{afnd_frequencies.tsv, map_hbs_surveys.csv, map_g6pd_surveys.csv}` from HF `bschilder/genomeos-data` at `6e77ef278e71fbb86dafd252f4cecc824388f5fc`, the revision the served catalog cites. Their sha256s must equal the released `store/INVENTORY.json`'s (`2436932578…`, `ab92edd3…`, `ad473661…`).
   - WorldPop: read the grid manifest `store/population/worldpop-res4-2020-plus-cok.parquet.manifest.json` from HF at the same revision; its sha256 must be `0571f6d668f6a062ce47ee177ab1902ad4a71d970b866608a725ce6539fecb39` (1,218 B), as `store/INVENTORY.json` records. Fetch the rasters through `scripts/fetch_worldpop.py`, pinned to its `input_rasters[]`. Stop on a mismatch.
-  - External caches: `store/external/{gnomad/chr11-5227002-t-a.json, dbsnp/rs334.json, alphagenome/chr11-5227002-t-a.json}` from HF at the same revision, the three `cache_file`s `public-artifacts.json` names. gnomAD's and dbSNP's sha256s must equal INVENTORY's (`52bfeade…`, `49ef3850…`); AlphaGenome's postdates it, so record its sha256 in the PR.
+  - External caches: `store/external/{gnomad/chr11-5227002-t-a.json, dbsnp/rs334.json, alphagenome/chr11-5227002-t-a.json}`, the three `cache_file`s `public-artifacts.json` names. They come from the publishing machine's `data/store/external/`, the source caches the Atlas web export read, not from HF. HF at that revision holds no AlphaGenome cache. Its gnomAD cache (INVENTORY's `52bfeade…`, hashed 2026-09-07) predates the schema-2 payload the Atlas serves (`retrieved_at` 2026-09-08T15:19:40Z), and `export_atlas_web.py` serves only schema 2. Only HF's dbSNP cache (`49ef3850…`) is the served content. `rh.EXTERNAL_CACHES` pins each cache to the served `cache_sha256`, and the release build refuses a missing cache or one with other content.
   - `retrieved_at`: a date only where a committed record states one.
   - Part B of Task 7's issue: add the gnomAD TSV harvest only if the owner supplied the file and its upstream; otherwise nothing from part B.
 - [ ] **Verify.** `python scripts/build_data_release.py --release 2099-01-01 --out "$SCRATCH/release.json" --no-git`. Each harvest and cache has its source, and every object is ≤ 1,073,741,824 B.
@@ -1383,7 +1387,7 @@ def test_loading_refuses_a_posterior_whose_variables_are_not_the_rebuilt_models(
   - Task 18's TSV is committed, or the owner has written that release 2 ships without it (then 2.6 waits).
   - Release 1 verifies remotely.
 - [ ] **Build.**
-  - Fetch, place the harvests and caches as in Task 16, and download the served JSON into `$SCRATCH/web`.
+  - Fetch and place the harvests as in Task 16. Copy the three caches from the publishing machine's `data/store/external/` (the source caches the Atlas serves, gnomAD schema 2; not the HF copies). The build refuses any whose content is not the served `cache_sha256`. Record all three files' sha256s in the PR. Download the served JSON into `$SCRATCH/web`.
   - `python scripts/build_tables.py --release <R2> --web-observations "$SCRATCH/web"`. Expected:
     - `meta.release_objects` has 245 + 248 + 431 rows, and `meta.sources` 21;
     - three reference folders, three measured parts plus `ingests`;

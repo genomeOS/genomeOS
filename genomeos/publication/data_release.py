@@ -74,6 +74,7 @@ MEDIA_TYPES: Mapping[str, str] = {
     ".npy": "application/octet-stream",
     ".parquet": "application/vnd.apache.parquet",
     ".sql": "application/sql",
+    ".tif": "image/tiff",
     ".tsv": "text/tab-separated-values",
     ".txt": "text/plain",
 }
