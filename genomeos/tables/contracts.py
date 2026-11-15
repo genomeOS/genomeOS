@@ -1,4 +1,5 @@
-"""Every derived table's frozen contract (Atlas data platform design 2026-10-18 §2.4, §2.5; calls 4, 30, 37).
+"""Every derived table's frozen contract (Atlas data platform design 2026-10-18 §2.3-§2.5; calls 4, 5, 18, 30,
+37).
 
 Everything under ``tables/v1/`` is derived from released bytes, and a reader can trust a file only as
 far as it can name the contract the file obeys. This module is that name: one ``TableContract`` per
@@ -34,6 +35,13 @@ from, the key and sha256 of each of its files, and its ``fit_input_evidence``, n
 ``h3_r0``, ``h3_parent_r3``, ``measurement``, ``artifact_format``, ``epoch`` and ``res``: partition keys
 are stored columns, so check 2 compares each folder with its rows. Formats 3 and 4 add
 ``prior_frequency_sd``, which needs a MINOR 1.1 of ``cells_by_cell`` before such an artifact ships (F4).
+
+The two ``reference.*`` tables (§2.3, §2.4; calls 5, 18) are the population registry. Each registry
+release is one folder under ``REGISTRY_ROOT``, holding one file of each table (``REGISTRY_FILES``):
+``reference.populations`` is P0's ``POPULATIONS_SCHEMA``, and ``reference.population_aliases`` is P0's
+alias columns plus the ``registry_version`` they belong to. Both carry the full ``registry_version``, the
+partition the folder names (as ``<release>-<sha8>`` or a legacy name, never ``registry_version=``), so
+``table_path`` gives both tables the same root and ``table_of`` tells their files apart by name.
 """
 
 from __future__ import annotations
@@ -51,6 +59,8 @@ import pyarrow
 from pandera import extensions
 
 from genomeos.observations.schema import OBSERVATIONS_SCHEMA
+from genomeos.publication import data_release as dr
+from genomeos.registry.schema import ALIASES_SCHEMA, POPULATIONS_SCHEMA
 from genomeos.schema_checks import REVIEWABLE_TEXT
 
 
@@ -318,6 +328,46 @@ CELLS_BY_CELL = TableContract(
     ),
 )
 
+#: One registry release's populations (§2.3, §2.4; call 5): P0's schema, ``registry_version`` included.
+REFERENCE_POPULATIONS = TableContract(
+    "reference.populations",
+    major=1,
+    minor=0,
+    key=("registry_version", "population_id"),
+    partitions=("registry_version",),
+    schema=POPULATIONS_SCHEMA,
+)
+
+#: One registry release's aliases (§2.3, §2.4; call 18): P0's alias columns plus ``registry_version``, so
+#: the rows of every registry folder, read together, stay apart. A legacy registry may be aliases alone.
+REFERENCE_ALIASES_SCHEMA = pa.DataFrameSchema(
+    # add_columns returns a copy, so this schema never shares a column with P0's.
+    ALIASES_SCHEMA.add_columns({"registry_version": pa.Column(str, REVIEWABLE_TEXT, nullable=False)}).columns,
+    unique=["registry_version", "source", "label"],
+    strict=True,
+    coerce=True,
+    name="reference_population_aliases",
+)
+
+REFERENCE_ALIASES = TableContract(
+    "reference.population_aliases",
+    major=1,
+    minor=0,
+    key=("registry_version", "source", "label"),
+    partitions=("registry_version",),
+    schema=REFERENCE_ALIASES_SCHEMA,
+)
+
+#: The folder every registry release's folder lies in (§2.3): ``<REGISTRY_ROOT><folder>/<file>``.
+REGISTRY_ROOT = dr.REGISTRY_PREFIX
+#: Each reference table's file inside a registry folder (``registry.release_contract``'s file names).
+REGISTRY_FILES: Mapping[str, str] = MappingProxyType(
+    {
+        REFERENCE_POPULATIONS.table: "populations.parquet",
+        REFERENCE_ALIASES.table: "population_aliases.parquet",
+    }
+)
+
 #: Every derived table, by name. A table is written, checked or catalogued only if it is here.
 TABLE_CONTRACTS: Mapping[str, TableContract] = MappingProxyType(
     {
@@ -331,6 +381,8 @@ TABLE_CONTRACTS: Mapping[str, TableContract] = MappingProxyType(
             WITHDRAWN,
             INFERRED_ARTIFACTS,
             CELLS_BY_CELL,
+            REFERENCE_POPULATIONS,
+            REFERENCE_ALIASES,
         )
     }
 )
@@ -377,16 +429,35 @@ def columns(table: str) -> tuple[str, ...]:
 
 
 def table_path(table: str) -> str:
-    """Where the table lives in a release: a folder of partitions, or one Parquet file (§2.3)."""
+    """Where the table lives in a release: a folder of partitions, or one Parquet file (§2.3).
+
+    A reference table lives in the registry folders under ``REGISTRY_ROOT``, one file in each.
+    """
     contract = _contract(table)
+    if table in REGISTRY_FILES:
+        return REGISTRY_ROOT
     schema, name = table.split(".", 1)
     base = f"tables/v{contract.major}/{schema}/{name}"
     return f"{base}/" if contract.partitions else f"{base}.parquet"
 
 
 def table_of(path: str) -> str:
-    """The table a release path belongs to, or a ``TableError`` if no contract covers it."""
+    """The table a release path belongs to, or a ``TableError`` if no contract covers it.
+
+    Under ``REGISTRY_ROOT`` only a ``REGISTRY_FILES`` name directly inside a registry folder is covered.
+    """
+    if path.startswith(REGISTRY_ROOT):
+        folder, _, name = path.removeprefix(REGISTRY_ROOT).partition("/")
+        found = [table for table, file_name in REGISTRY_FILES.items() if folder and name == file_name]
+        if found:
+            return found[0]
+        raise TableError(
+            f"{path}: no table contract covers this path; a registry folder holds only "
+            f"{sorted(REGISTRY_FILES.values())}"
+        )
     for table, contract in TABLE_CONTRACTS.items():
+        if table in REGISTRY_FILES:
+            continue
         prefix = table_path(table)
         if (path.startswith(prefix) and path != prefix) if contract.partitions else path == prefix:
             return table
