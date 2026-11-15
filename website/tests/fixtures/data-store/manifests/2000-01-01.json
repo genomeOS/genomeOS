@@ -40,7 +40,7 @@
       "key": "releases/2000-01-01/tables/v1/inferred/artifacts.parquet",
       "media_type": "application/vnd.apache.parquet",
       "path": "tables/v1/inferred/artifacts.parquet",
-      "sha256": "a4d83bb66d1278ec40a63584f7f9e9acc6f1c50d950758a61ef067aa019100ed",
+      "sha256": "fc3749c89c09a47b819a8e497202068c35063ad10402367ae3d00b5d234da776",
       "sources": [
         "genomeos"
       ]
@@ -57,12 +57,12 @@
       ]
     },
     {
-      "bytes": 3426,
+      "bytes": 3573,
       "in_git": false,
       "key": "releases/2000-01-01/validation/hbs-piel-parity-2026-09-16/piel-comparable-observations.parquet",
       "media_type": "application/vnd.apache.parquet",
       "path": "validation/hbs-piel-parity-2026-09-16/piel-comparable-observations.parquet",
-      "sha256": "069ce79e83d5b3b7a619ab0275fed90e65f4b114581a819624781d88848d0112",
+      "sha256": "3d97e9d4934c8b99a7fd1a6f1db4110f2a3e16b60f1581979aa213a60318e8e0",
       "sources": [
         "genomeos"
       ]
@@ -87,7 +87,7 @@
     }
   },
   "totals": {
-    "bytes": 452693,
+    "bytes": 452840,
     "in_git_bytes": 0,
     "in_git_objects": 0,
     "objects": 6

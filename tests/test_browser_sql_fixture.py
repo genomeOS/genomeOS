@@ -67,6 +67,25 @@ def test_the_range_probe_is_98304_rows_in_12_zstd_row_groups() -> None:
     assert row == (1, 0xE000 / 98_304)
 
 
+def test_every_parquet_file_of_the_fixture_is_zstd() -> None:
+    """``--check`` compares bytes on every platform CI runs, and DuckDB's default Snappy output differs
+    between macOS and Linux for the same rows; zstd at the writer's settings does not. (The artifact's
+    ``cells.parquet``, which only ``inferred.artifacts``' sha256 records, comes from
+    ``fixture_trees.add_artifact``, whose codec ``tests/test_catalog_fixture.py`` checks.)"""
+    files = sorted(FIXTURE.rglob("*.parquet"))
+    assert len(files) == 4
+    codecs = {
+        path.relative_to(FIXTURE).as_posix(): {
+            metadata.row_group(group).column(column).compression
+            for group in range(metadata.num_row_groups)
+            for column in range(metadata.num_columns)
+        }
+        for path in files
+        for metadata in [pq.ParquetFile(path).metadata]
+    }
+    assert {path: codec for path, codec in codecs.items() if codec - {"ZSTD"}} == {}
+
+
 def test_the_catalog_reads_exactly_the_two_data_views_and_not_the_probe() -> None:
     con = _attached()
     views = {
