@@ -2,15 +2,19 @@
 
 ``tests/test_surface_fit.py``, ``tests/test_surface_model.py``, ``tests/test_surface_mask.py`` and
 ``tests/test_crossval.py`` fit or build from the same frame, so it lives here rather than in a test
-module the others import.
+module the others import. ``jittered_point`` is the point at which two surface graphs' log densities
+are compared.
 """
 
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pymc as pm
+from pymc.initial_point import make_initial_point_fn
 
 from genomeos.observations.schema import OBSERVATIONS_SCHEMA
+from genomeos.surfaces.config import SEED
 from genomeos.surfaces.fit import FitConfig
 
 # Enough draws to actually converge: fit_surface now refuses a fit that has not mixed (§12),
@@ -67,3 +71,14 @@ def synthetic_observations(
             }
         )
     )
+
+
+def jittered_point(model: pm.Model, seed: int = SEED) -> dict[str, np.ndarray]:
+    """A seeded point, on the transformed scale, at which a log density can see the data mapping.
+
+    `Model.initial_point` applies no jitter, so it is the support point: the HSGP coefficients, the
+    design offset and the cohort offsets are all 0 there, the field is the bare intercept, and graphs
+    built from shuffled coordinates, designs or cohorts give the same log density. Jittering every free
+    variable moves each one off its support point, and the seed keeps the point deterministic (#471).
+    """
+    return make_initial_point_fn(model=model, jitter_rvs=set(model.free_RVs), return_transformed=True)(seed)

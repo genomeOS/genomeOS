@@ -24,7 +24,7 @@ from genomeos.surfaces.fit import (
     inducing_points,
     to_unit_sphere,
 )
-from tests.surface_fixtures import FAST_CONFIG, synthetic_observations
+from tests.surface_fixtures import FAST_CONFIG, jittered_point, synthetic_observations
 
 
 @pytest.fixture(scope="module")
@@ -47,14 +47,57 @@ def test_the_built_model_is_the_fits_model(fit):
     built = build_surface_model(synthetic_observations(), FAST_CONFIG)
 
     assert free_variable_shapes(built.model) == free_variable_shapes(fit._model)
-    point = built.model.initial_point(random_seed=SEED)
-    assert built.model.compile_logp()(point) == fit._model.compile_logp()(point)
+    # The support point is blind to the coordinates, designs and cohorts (see `jittered_point`), so
+    # the log density is also compared at a seeded jittered point, where it is not.
+    for point in (built.model.initial_point(random_seed=SEED), jittered_point(built.model)):
+        assert built.model.compile_logp()(point) == fit._model.compile_logp()(point)
     pd.testing.assert_frame_equal(built.observations, fit.observations)
     assert built.design_levels[1:] == fit.design_levels
     assert built.beta_design_applied == fit.beta_design_applied
     assert built.beta_cohort_applied == fit.beta_cohort_applied
     assert built.lengthscale_prior_km == fit.lengthscale_prior_km
     assert built.footprint_metadata == fit.footprint_metadata
+
+
+def test_the_jittered_point_is_seeded_and_off_the_support_point():
+    model = build_surface_model(synthetic_observations(), FAST_CONFIG).model
+    point = jittered_point(model)
+    support = model.initial_point(random_seed=SEED)
+
+    again = jittered_point(model)
+    assert point.keys() == again.keys() == support.keys()
+    assert all(np.array_equal(point[name], again[name]) for name in point)
+    for name in ("f_hsgp_coeffs", "beta_design", "cohort_z"):
+        assert not np.any(support[name]) and np.all(point[name] != 0), name
+
+
+def _shuffled(frame: pd.DataFrame, *columns: str) -> pd.DataFrame:
+    order = np.random.default_rng(SEED).permutation(len(frame))
+    out = frame.copy()
+    for column in columns:
+        out[column] = frame[column].to_numpy()[order]
+    return out
+
+
+@pytest.mark.parametrize(
+    "perturb",
+    [
+        pytest.param(lambda frame: _shuffled(frame, "lat", "lon"), id="coordinates-shuffled"),
+        pytest.param(lambda frame: frame.assign(lon=frame["lon"] + 5.0), id="longitude-shifted"),
+        pytest.param(lambda frame: _shuffled(frame, "sampling_design"), id="designs-shuffled"),
+        pytest.param(lambda frame: _shuffled(frame, "cohort_id"), id="cohorts-shuffled"),
+    ],
+)
+def test_the_logp_comparison_sees_coordinates_designs_and_cohorts(perturb):
+    """The equality above proves nothing unless a graph built from other data fails it.
+
+    At the brief's `initial_point(random_seed=SEED)` all four of these give the reference's log density.
+    """
+    reference = build_surface_model(synthetic_observations(), FAST_CONFIG)
+    drifted = build_surface_model(perturb(synthetic_observations()), FAST_CONFIG)
+
+    point = jittered_point(reference.model)
+    assert drifted.model.compile_logp()(point) != reference.model.compile_logp()(point)
 
 
 def test_free_variable_shapes_name_the_sampled_parameters_not_the_derived_ones():
