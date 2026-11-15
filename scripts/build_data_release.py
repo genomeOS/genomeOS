@@ -206,10 +206,16 @@ REVIEWED_SOURCES: dict[str, dict[str, Any]] = {
         "citation": "WorldPop, University of Southampton. doi:10.5258/SOTON/WP00647",
         "url": "https://hub.worldpop.org/",
         "terms": {
-            "status": dr.NOT_CHECKED,
+            "status": "explicitly_open",
+            "checked_at": "2026-11-14",
+            "terms_url": "https://hub.worldpop.org/",
+            "licence": "CC-BY-4.0",
+            "recorded_in": "docs/audits/worldpop-commercial-use.md",
             "note": (
-                "Selects the population-positive H3 cells a format-2 surface is predicted on; no "
-                "terms check is recorded in this repository."
+                "WorldPop's hub states that WorldPop datasets are licensed under CC BY 4.0, recorded "
+                "as explicitly_open by the owner's decision D5b (2026-10-19; "
+                "docs/superpowers/specs/2026-10-18-atlas-data-platform-design.md §1.1). WorldPop "
+                "selects the population-positive H3 cells a format-2 surface is predicted on."
             ),
         },
         "non_commercial": False,

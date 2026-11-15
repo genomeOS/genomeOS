@@ -144,7 +144,25 @@ def test_terms_are_copied_from_the_committed_records(tree: Path) -> None:
     assert sources["map"]["terms"]["status"] != dr.NOT_CHECKED
     assert sources["map"]["terms"]["terms_url"] == "https://malariaatlas.org/open-access-policy/"
     assert (ROOT / sources["map"]["terms"]["recorded_in"]).is_file()
-    assert sources["worldpop"]["terms"]["status"] == dr.NOT_CHECKED
+
+
+def test_worldpop_is_recorded_as_explicitly_open_from_its_hub() -> None:
+    """WorldPop's hub states CC BY 4.0 (owner decision D5b), and the audit quotes it with the date.
+
+    Atlas data platform design 2026-10-18 §1.1, step 1.3.
+    """
+    terms = build.REVIEWED_SOURCES["worldpop"]["terms"]
+    expected = {
+        "status": "explicitly_open",
+        "terms_url": "https://hub.worldpop.org/",
+        "licence": "CC-BY-4.0",
+        "recorded_in": "docs/audits/worldpop-commercial-use.md",
+    }
+    assert {key: terms.get(key) for key in expected} == expected
+    audit = (ROOT / terms["recorded_in"]).read_text(encoding="utf-8")
+    assert terms["checked_at"] in audit
+    assert "CC BY 4.0" in audit
+    assert terms["terms_url"] in audit
 
 
 def test_project_data_is_recorded_as_cc_by_4() -> None:
