@@ -16,6 +16,7 @@ from genomeos.observations.schema import OBSERVATIONS_SCHEMA
 from genomeos.tables import contracts
 from genomeos.tables.contracts import (
     BINNED_OBSERVATIONS_SCHEMA,
+    REFERENCE_ALIASES_SCHEMA,
     TABLE_CONTRACTS,
     TableContract,
     TableError,
@@ -76,11 +77,44 @@ def test_table_paths_and_names_round_trip():
         "tables/v1/measured/allele_observations.parquet",
         "tables/v1/measured/allele_observations/",
         "store/artifacts/x/cells.parquet",
+        "tables/v1/reference/populations/populations.parquet",
+        "tables/v1/reference/populations/afnd-2026-08/notes.parquet",
+        "tables/v1/reference/populations/afnd-2026-08/x/populations.parquet",
+        "tables/v1/reference/population_aliases/afnd-2026-08/population_aliases.parquet",
+        "tables/v1/reference/populations.parquet",
     ],
 )
 def test_a_path_no_contract_covers_is_refused(path):
     with pytest.raises(TableError, match="contract"):
         table_of(path)
+
+
+def test_a_registry_folders_two_files_are_the_two_reference_tables():
+    """§2.3: ``tables/v1/reference/populations/<folder>/{populations,population_aliases}.parquet``."""
+    folder = "tables/v1/reference/populations/1.0.0-0123abcd"
+    assert table_of(f"{folder}/populations.parquet") == "reference.populations"
+    assert table_of(f"{folder}/population_aliases.parquet") == "reference.population_aliases"
+    legacy = "tables/v1/reference/populations/afnd-2026-08/populations.parquet"
+    assert table_of(legacy) == "reference.populations"
+    for table in ("reference.populations", "reference.population_aliases"):
+        assert table_path(table) == "tables/v1/reference/populations/"
+        assert TABLE_CONTRACTS[table].partitions == ("registry_version",)
+
+
+def test_the_aliases_of_two_registries_stay_apart():
+    """One label in two registry releases is two rows; within one release it is one (§2.4)."""
+    aliases = pd.DataFrame(
+        {
+            "population_id": ["hgdp-han", "hgdp-han"],
+            "source": "hgdp",
+            "label": "Han",
+            "registry_version": ["afnd-2026-08", "1.0.0+sha256." + "0" * 64],
+        }
+    )
+    assert len(REFERENCE_ALIASES_SCHEMA.validate(aliases)) == 2
+    assert TABLE_CONTRACTS["reference.population_aliases"].key == ("registry_version", "source", "label")
+    with pytest.raises((pandera.errors.SchemaError, pandera.errors.SchemaErrors), match="not unique"):
+        REFERENCE_ALIASES_SCHEMA.validate(aliases.assign(registry_version="afnd-2026-08"))
 
 
 def test_a_binned_row_on_a_locus_is_admitted():

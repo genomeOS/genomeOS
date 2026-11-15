@@ -252,6 +252,9 @@ def test_is_write_once() -> None:
     assert not dr.is_write_once("tables/v1/measured/allele_observations/source=afnd/part-0.parquet")
     assert not dr.is_write_once("validation/epoch=2026-11-20/x.parquet")
     assert not dr.is_write_once("tables/v1/epoch=2026-11-20.parquet")
+    # A population registry's folder is one registry release (calls 5 and 6).
+    assert dr.is_write_once("tables/v1/reference/populations/afnd-2026-08/populations.parquet")
+    assert not dr.is_write_once("registry/variant_normalization.tsv")
 
 
 def test_a_released_artifact_directory_cannot_gain_a_file() -> None:

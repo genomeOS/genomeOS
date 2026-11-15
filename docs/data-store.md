@@ -366,7 +366,13 @@ python scripts/gcloud_repo.py auth login
 python scripts/gcloud_repo.py init --account <maintainer> --project <project>
 export GENOMEOS_GCP_PROJECT=<project>
 python scripts/fetch_data.py                                       # the previous release, locally
-python scripts/build_tables.py --release <YYYY-MM-DD>              # the derived tables/ files
+export ATLAS_DATA_BASE_URL="$(gh variable get ATLAS_DATA_BASE_URL)" WEB_OBSERVATIONS="$(mktemp -d)"
+jq -r '.artifacts[].observations_url // empty' website/public/data/atlas/catalog.json |
+    while read -r url; do                                          # the served observations JSON, anonymously
+        curl -fsS --compressed --create-dirs -o "$WEB_OBSERVATIONS/$url" "$ATLAS_DATA_BASE_URL$url"
+    done
+python scripts/build_tables.py --release <YYYY-MM-DD> \
+    --web-observations "$WEB_OBSERVATIONS"                         # the derived tables/ files
 python scripts/export_models.py --fits data/store/fits --artifacts data/store/artifacts --artifact <id>
                                                                    # each new artifact with a fit input; repeat --artifact
 python scripts/build_data_release.py --release <YYYY-MM-DD>        # commit data/releases/<release>.json
@@ -387,7 +393,14 @@ python scripts/smoke_catalog.py --release <YYYY-MM-DD>             # anonymous: 
 ```
 
 `build_tables.py` writes the release's `tables/v1/` files from the released bytes (Atlas data platform
-design 2026-10-18 §2.4). `build_data_release.py` then builds the catalog in two passes: it keys every
+design 2026-10-18 §2.4). Its `fit_inputs` stage (§2.8, step 1.9) also reads the observations JSON the
+website serves, one per served artifact, which the loop above downloads with no credentials from the web
+bucket's base (the repository variable `ATLAS_DATA_BASE_URL`; `--compressed` because the objects are stored
+gzip-encoded). Each file must have the `observations_sha256` that `catalog.json` records, so a stale or
+partial download stops the build. A served JSON that differs from the published AFND ingest in any
+record or field also stops it. Never loosen the comparison: list the artifact in `WEB_JSON_REFUSED`
+(`scripts/build_tables.py`) with its reason, in a reviewed commit of its own, and its `fit_input_evidence`
+becomes `none` with that reason. `build_data_release.py` then builds the catalog in two passes: it keys every
 file outside `catalog/` and checks every `tables/` file again (§2.7 checks 1, 2, 6, 9 and 10), writes
 `catalog/catalog.sql` over those keys, builds `catalog/atlas.duckdb` from it twice over the local copies
 and requires identical bytes, writes `catalog/tables.json`, checks both against the keys and
