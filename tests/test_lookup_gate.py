@@ -310,6 +310,9 @@ def test_one_lookup_reads_at_most_300_kb_in_at_most_15_requests(gate: Gate) -> N
         ).fetchall()
     )
     reqs = gate.server.requests()
+    # Measured on DuckDB 1.5.5, cold with caches off: 109,701 B in 14 requests, 9 to the bin and 5 to
+    # GATE_VARIANT's one curated file. A variant held in a second curated file would pass 15: plan item O5,
+    # the owner's decision at step 2.8.
     assert rows["gnomad_hgdp_1kg"] == 80 and sum(r.bytes for r in reqs) <= 300_000 and len(reqs) <= 15
     assert {r.path for r in reqs if BINNED in r.path} == {gate.path_of("chr11", 5)} and len(
         {r.path for r in reqs if "/allele_observations/" in r.path}
