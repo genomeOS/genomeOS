@@ -219,7 +219,10 @@ operations must use the
 ## License
 
 Except where stated otherwise, project-authored source code and documentation in this repository
-are licensed under the [Apache License 2.0](LICENSE).
+are licensed under the [Apache License 2.0](LICENSE). Data the project makes (every object a
+data-store release lists with the source `genomeos`) is licensed under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) (owner decision D5a, 2026-10-19;
+[design §1.1](docs/superpowers/specs/2026-10-18-atlas-data-platform-design.md)).
 
 Third-party datasets, model outputs, and bundled components are not relicensed by this notice.
 Their source-specific terms remain controlling and are recorded in the relevant provenance,

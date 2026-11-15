@@ -147,6 +147,24 @@ def test_terms_are_copied_from_the_committed_records(tree: Path) -> None:
     assert sources["worldpop"]["terms"]["status"] == dr.NOT_CHECKED
 
 
+def test_project_data_is_recorded_as_cc_by_4() -> None:
+    """Project-made data is CC BY 4.0 (owner decision D5a), and the README says so.
+
+    Atlas data platform design 2026-10-18 §1.1, step 1.3.
+    """
+    terms = build.REVIEWED_SOURCES["genomeos"]["terms"]
+    expected = {
+        "status": "explicitly_open",
+        "checked_at": "2026-10-19",
+        "terms_url": "https://creativecommons.org/licenses/by/4.0/",
+        "licence": "CC-BY-4.0",
+        "recorded_in": "README.md",
+    }
+    assert {key: terms.get(key) for key in expected} == expected
+    readme = (ROOT / terms["recorded_in"]).read_text(encoding="utf-8")
+    assert "[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)" in readme
+
+
 def test_a_new_manifest_writes_restricted_and_keeps_non_commercial(tree: Path) -> None:
     """The record keeps its legacy spelling; a new manifest writes the closed one.
 

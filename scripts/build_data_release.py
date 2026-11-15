@@ -218,10 +218,15 @@ REVIEWED_SOURCES: dict[str, dict[str, Any]] = {
         "name": "genomeOS project-authored data and outputs",
         "url": "https://github.com/genomeOS/genomeOS",
         "terms": {
-            "status": dr.NOT_CHECKED,
+            "status": "explicitly_open",
+            "checked_at": "2026-10-19",
+            "terms_url": "https://creativecommons.org/licenses/by/4.0/",
+            "licence": "CC-BY-4.0",
+            "recorded_in": "README.md",
             "note": (
-                "Project-authored, with no third-party input. The README's Apache-2.0 notice covers "
-                "source code and documentation only; no data licence is recorded."
+                "Project-authored data and outputs are CC BY 4.0 by the owner's decision D5a "
+                "(2026-10-19; docs/superpowers/specs/2026-10-18-atlas-data-platform-design.md §1.1). "
+                "Apache-2.0 covers source code and documentation."
             ),
         },
         "non_commercial": False,
