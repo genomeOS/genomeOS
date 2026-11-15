@@ -15,20 +15,35 @@ Atlas data platform design 2026-10-18 §1.2 D18, §2.10.
 
 ``query_lines`` stands in for ``bcftools query -H -f PY_QUERY_FORMAT -S <ids>``, so the counter's tests run
 without bcftools. ``HARD`` pairs one-record VCF lines with the D18 item each must fail under.
+
+The native count's tests need the tools themselves: ``indexed_vcf`` bgzips and tabix-indexes a fixture VCF,
+and ``requires_native`` skips a test only outside CI on a machine without bcftools, bgzip and tabix. CI
+installs them, so there it never skips.
 """
 
 from __future__ import annotations
 
+import os
+import subprocess
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+import pytest
+
 from genomeos.observations.sources.gnomad_recount.rule import Stage, read_stage
+from tests.reference_tbi_fixture import native_tools
 
 FIXTURES = Path(__file__).parent / "fixtures" / "gnomad_recount"
 #: The samples of every fixture VCF line, in column order.
 SAMPLES = tuple(f"SYN0{i}" for i in range(1, 10))
 _QUERY_COLUMNS = ("CHROM", "POS", "ID", "REF", "ALT", "FILTER")
 _QUERY_FIELDS = ("GT", "GQ", "DP", "AD")
+
+#: Skips outside CI on a machine without bcftools, bgzip and tabix; CI installs them and never skips.
+requires_native = pytest.mark.skipif(
+    native_tools() is None and os.environ.get("CI") != "true",
+    reason="bcftools, bgzip and tabix are unavailable",
+)
 
 
 def fixture_stage() -> Stage:
@@ -65,6 +80,19 @@ def vcf_with(records: Sequence[str]) -> str:
     """``windows.vcf``'s header followed by ``records``."""
     lines = (FIXTURES / "windows.vcf").read_text(encoding="utf-8").splitlines(keepends=True)
     return "".join(line for line in lines if line.startswith("#")) + "".join(f"{line}\n" for line in records)
+
+
+def indexed_vcf(tmp_path: Path, text: str) -> Path:
+    """``text`` bgzipped to ``tmp_path / "windows.vcf.gz"`` and tabix-indexed beside it."""
+    tools = native_tools()
+    if tools is None:
+        raise RuntimeError("bgzip and tabix are required to index a fixture VCF")
+    bgzip, tabix, _ = tools
+    vcf = tmp_path / "windows.vcf.gz"
+    compressed = subprocess.run([bgzip, "-c"], input=text.encode(), check=True, capture_output=True).stdout
+    vcf.write_bytes(compressed)
+    subprocess.run([tabix, "-p", "vcf", str(vcf)], check=True, capture_output=True)
+    return vcf
 
 
 def query_lines(vcf_text: str, sample_ids: Sequence[str]) -> list[str]:

@@ -16,4 +16,6 @@ Module map:
   tallies ``measured.ingests`` records (``Tally``). Every hard error is a ``RecountError`` naming the D18
   item it enforces and never a sample.
 - ``counter``: the independent Python counter over ``bcftools query`` output (``recount_python``).
+- ``native``: the native bcftools count of a region or bin (``native_bin``), with its ``+check-ploidy``
+  audit and partial-genotype guard, and the independent path's ``view | query`` (``query_bin``).
 """
