@@ -27,9 +27,17 @@
  * hit's height says little about the lift. The drawn cells are rebuilt by `drawn-mesh.ts`, which
  * the globe's hover shares (`lifted-pick.ts`). A hover has no depth hit (owner decision
  * 2026-11-14 on #483; §B.6.6 as amended that day): `firstDrawnRowAlong` traces where the ray
- * meets each lift's sheared sheet over the whole stretch of the ray where a lifted cell can be
- * drawn, rather than walking the lift about a hit, and passes the rows the layers do not draw.
- * Cesium-free.
+ * meets each lift's sheared sheet over the stretch of the ray where a lifted cell can be drawn,
+ * rather than walking the lift about a hit, passes the rows the layers do not draw, and stops
+ * once no cell it could still reach is drawn before the first hit it has found (#506 review).
+ *
+ * Cost per hover at the production grid (resolution 4), measured 2026-11-14 on an Apple M3 Pro
+ * under Node 23.9 (vitest), over synthetic lifted disks of 6,211 and 36,631 extruded cells with
+ * 400 random rays (half at 0.5–8.5° pitch) and 64 grazing ones (0.2–2°) each, the fastest of
+ * three runs per ray: at exaggeration 5 a mean of 1.8–2.0 ms, p95 4.7–4.9 ms, max 9.6–9.9 ms
+ * (without the stop 2.5–3.8, 8.3–12.8 and 13.5–24 ms); at the default exaggeration 1 a mean of
+ * 0.4 ms, max 3.1–4.0 ms. The slowest are shallow rays that meet no cell, traced to the edge of
+ * the map. Cesium-free.
  */
 
 import {
@@ -43,6 +51,7 @@ import {
 import {
   CellCache,
   cellTriangles,
+  FirstHit,
   firstRowAmong,
   type DrawnMesh,
   type LatLng,
@@ -63,6 +72,12 @@ const MAX_WALK_STEPS = 4096;
  * of the distance, in a globe-mode world view). */
 const DEPTH_NOISE_FRACTION = 0.02;
 const MIN_DEPTH_NOISE_METRES = 20_000;
+/**
+ * A bound on an H3 cell's circumradius (its centre to its farthest corner), in average edges,
+ * with the WGS84 radius over H3's sphere (1.0011) folded in: over every cell of resolutions 0 to
+ * 4 the largest is 1.0998 average edges.
+ */
+const CIRCUMRADIUS_PER_EDGE = 1.25;
 
 /** The depth hit and the pointer's ray in the map frame. */
 export interface MapFrameHit {
@@ -284,19 +299,14 @@ export function firstDrawnRow(
 
 /**
  * A hover's pick (#483), which has no depth hit: the row of the first drawn cell `ray` meets
- * anywhere a lifted cell can be drawn (`hoverCandidates`).
+ * anywhere a lifted cell can be drawn (`hoverRow`).
  */
 export function firstDrawnRowAlong(
   ray: PickRay,
   mesh: MapFrameMesh,
 ): number | null {
   const span = drawnSpan(ray, mesh);
-  if (!span) return null;
-  const cache = new CellCache(mesh.surface);
-  const { reached, slack } = hoverCandidates(ray, span, mesh);
-  return firstRowAmong(ray, reached, slack, mesh, cache, (cell, row) =>
-    drawnTriangles(cell, row, mesh, cache),
-  );
+  return span ? hoverRow(ray, span, mesh) : null;
 }
 
 /**
@@ -344,8 +354,7 @@ interface GridPoint {
 }
 
 /**
- * Every cell whose drawn geometry can meet the ray in `span`, with the least lift at which it
- * was reached (`slack` is the lift step).
+ * The row of the first drawn cell the ray meets in `span`, or `null`.
  *
  * At a ray point P (distance t along the ray) and a lift s there is one base B whose lift-s
  * point is drawn straight over or under P: B = P_xy − n_xy(B)·s, a fixed point that converges
@@ -357,15 +366,31 @@ interface GridPoint {
  * down) that never meets the cells nearer the camera. So the curve is traced on a grid instead:
  * its points are the grid cells whose corners lie on both sides of it, found from where it
  * crosses the grid's edges and followed cell to cell, and each corner's base brings its
- * `gridDisk(cell, 1)`. One grid step in t or s moves B by at most a third of an average edge,
- * so every cell the curve passes over is reached. A part of the curve that touches none of the
- * grid's edges, closed on itself inside the grid, is not followed.
+ * `gridDisk(cell, 1)`, offered to the first-hit test with the least lift it was reached at. One
+ * grid step in t or s moves B by at most a third of an average edge, so every cell the curve
+ * passes over is reached, from the grid cell holding the point (t, s) where the ray meets it. A
+ * part of the curve that touches none of the grid's edges, closed on itself inside the grid, is
+ * not followed.
+ *
+ * The span runs on to the map's edge, thousands of kilometres past where a shallow ray meets
+ * its first cell (the #506 review measured up to 21 ms a hover over the whole span at
+ * resolution 4, exaggeration 5). So the grid cells are explored column by column (the curve can
+ * turn back towards the camera, so an earlier column can gain cells again; the lowest waiting
+ * column goes first), offering their cells as they come, and the trace stops at a grid line
+ * once every column before it is explored and no cell a grid point at or past the line can
+ * reach is drawn where the ray runs up to the first hit found (`reachTest`). The curve's
+ * crossings of that line are then seeds too, so the grid cells before it include every one the
+ * whole trace explores there, a fold that comes back from beyond the line among them. Then any
+ * cell the whole trace offers that the ray meets before the hit found is offered from before
+ * the line, at no greater lift, so the stop gives the first hit the whole trace gives wherever
+ * that hit is the ray's true first one. A stop a fixed few columns past the hit does not: where
+ * the shear is nearly sideways the trace can reach the first cell only from far past its hit.
  */
-function hoverCandidates(
+function hoverRow(
   ray: PickRay,
   [near, far]: [number, number],
   mesh: MapFrameMesh,
-): { reached: Map<string, number>; slack: number } {
+): number | null {
   const resolution = mesh.surface.grid.resolution;
   const spacing = getHexagonEdgeLengthAvg(resolution, UNITS.m) / 3;
   // How far B moves per metre of the ray point or of lift, past the point's own move: the
@@ -407,7 +432,18 @@ function hoverCandidates(
     points.set(key, point);
     return point;
   };
+  const outOfReach = reachTest(ray, mesh);
+  const cache = new CellCache(mesh.surface);
+  const hit = new FirstHit(
+    ray,
+    mesh.maxLift / sSteps,
+    mesh,
+    cache,
+    (cell, row) => drawnTriangles(cell, row, mesh, cache),
+  );
   const reached = new Map<string, number>();
+  /** Cells whose least lift fell since they were last offered to `hit`. */
+  const fresh = new Set<string>();
   const disks = new Map<string, string[]>();
   const reach = (point: GridPoint, lift: number) => {
     const cell = (point.cell ??= latLngToCell(
@@ -422,39 +458,122 @@ function hoverCandidates(
     }
     for (const near of disk) {
       const seen = reached.get(near);
-      if (seen === undefined || lift < seen) reached.set(near, lift);
+      if (seen === undefined || lift < seen) {
+        reached.set(near, lift);
+        fresh.add(near);
+      }
     }
   };
+  const offerFresh = () => {
+    for (const cell of fresh) hit.offer(cell, reached.get(cell)!);
+    fresh.clear();
+  };
   const crossed = (a: GridPoint, b: GridPoint) => a.above !== b.above;
-  const queue: [number, number][] = [];
+  /** The grid cells waiting to be explored, by column. */
+  const waiting = new Map<number, number[]>();
   const queued = new Set<number>();
+  /** No grid cell waits in a column before this one. */
+  let column = 0;
+  /** Columns from this one on are not explored. */
+  let limit = tSteps;
   const enqueue = (i: number, j: number) => {
-    if (i < 0 || j < 0 || i >= tSteps || j >= sSteps) return;
+    if (i < 0 || j < 0 || i >= limit || j >= sSteps) return;
     const key = i * sSteps + j;
     if (queued.has(key)) return;
     queued.add(key);
-    queue.push([i, j]);
+    const cells = waiting.get(i);
+    if (cells) cells.push(j);
+    else waiting.set(i, [j]);
+    column = Math.min(column, i);
   };
-  // Where the curve crosses the grid's edges.
-  for (let i = 0; i < tSteps; i += 1) {
-    if (crossed(at(i, 0), at(i + 1, 0))) enqueue(i, 0);
-    if (crossed(at(i, sSteps), at(i + 1, sSteps))) enqueue(i, sSteps - 1);
+  /** The curve's crossings of grid line `line`, as seeds of the column `side` of it. */
+  const seedLine = (line: number, side: number) => {
+    for (let j = 0; j < sSteps; j += 1)
+      if (crossed(at(line, j), at(line, j + 1))) enqueue(side, j);
+  };
+  seedLine(0, 0);
+  /** Columns whose bottom and top edges are seeded. */
+  let seeded = 0;
+  while (column < limit) {
+    for (; seeded <= column; seeded += 1) {
+      if (crossed(at(seeded, 0), at(seeded + 1, 0))) enqueue(seeded, 0);
+      if (crossed(at(seeded, sSteps), at(seeded + 1, sSteps)))
+        enqueue(seeded, sSteps - 1);
+      if (seeded === tSteps - 1) seedLine(tSteps, tSteps - 1);
+    }
+    const cells = waiting.get(column);
+    const j = cells?.pop();
+    if (j !== undefined) {
+      // Across each side of the grid cell the curve crosses.
+      const i = column;
+      const corners = [at(i, j), at(i + 1, j), at(i, j + 1), at(i + 1, j + 1)];
+      for (const corner of corners) reach(corner, corners[0].lift);
+      if (crossed(corners[0], corners[1])) enqueue(i, j - 1);
+      if (crossed(corners[2], corners[3])) enqueue(i, j + 1);
+      if (crossed(corners[0], corners[2])) enqueue(i - 1, j);
+      if (crossed(corners[1], corners[3])) enqueue(i + 1, j);
+      continue;
+    }
+    column += 1;
+    offerFresh();
+    const line = near + ((far - near) * column) / tSteps;
+    if (
+      limit === tSteps &&
+      hit.row !== null &&
+      outOfReach([near, hit.entry], [line, far])
+    ) {
+      limit = column;
+      seedLine(limit, limit - 1);
+    }
   }
-  for (let j = 0; j < sSteps; j += 1) {
-    if (crossed(at(0, j), at(0, j + 1))) enqueue(0, j);
-    if (crossed(at(tSteps, j), at(tSteps, j + 1))) enqueue(tSteps - 1, j);
-  }
-  // Then cell to cell, across each side the curve crosses.
-  for (let index = 0; index < queue.length; index += 1) {
-    const [i, j] = queue[index];
-    const corners = [at(i, j), at(i + 1, j), at(i, j + 1), at(i + 1, j + 1)];
-    for (const corner of corners) reach(corner, corners[0].lift);
-    if (crossed(corners[0], corners[1])) enqueue(i, j - 1);
-    if (crossed(corners[2], corners[3])) enqueue(i, j + 1);
-    if (crossed(corners[0], corners[2])) enqueue(i - 1, j);
-    if (crossed(corners[1], corners[3])) enqueue(i + 1, j);
-  }
-  return { reached, slack: mesh.maxLift / sSteps };
+  offerFresh();
+  return hit.row;
+}
+
+/**
+ * A test of whether no cell reached from a trace point at t in `late` is drawn where the ray runs
+ * over t in `early`. A trace point's base lies within its lift of the ray point (|n| = 1), the
+ * point its cell is found at within that or within the ray point's overshoot of a pole (the
+ * latitude is clamped), the cells of its `gridDisk(cell, 1)` within four circumradii of that,
+ * and a drawn vertex within its lift of its cell. That bounds the drawing in map y; in x a cell's
+ * longitudes spread as 1 / cos(latitude), without bound where it can hold a pole, and a cell
+ * split at ±180° is drawn a map width away as well.
+ */
+function reachTest(
+  ray: PickRay,
+  mesh: MapFrameMesh,
+): (early: [number, number], late: [number, number]) => boolean {
+  const lift = mesh.maxLift + CPU_EXTRUSION_EPSILON_METRES;
+  const footprint =
+    4 *
+    CIRCUMRADIUS_PER_EDGE *
+    getHexagonEdgeLengthAvg(mesh.surface.grid.resolution, UNITS.m);
+  const angle = footprint / MAP_RADIUS;
+  /** The least and greatest of the ray's `axis` coordinate over t in [from, to]. */
+  const range = (axis: number, [from, to]: [number, number]) => {
+    const a = ray.origin[axis] + ray.direction[axis] * from;
+    const b = ray.origin[axis] + ray.direction[axis] * to;
+    return a < b ? [a, b] : [b, a];
+  };
+  const apart = (a: number[], b: number[], gap: number) =>
+    a[1] < b[0] - gap || a[0] > b[1] + gap;
+  return (early, late) => {
+    const lateY = range(1, late);
+    const beyond = Math.max(-lateY[0], lateY[1]);
+    const pole = Math.max(0, beyond - MAP_WIDTH / 4);
+    if (apart(range(1, early), lateY, 2 * lift + pole + footprint)) return true;
+    const latitude = Math.min(Math.PI / 2, (beyond + lift) / MAP_RADIUS);
+    if (latitude + angle >= Math.PI / 2) return false;
+    const spread = MAP_RADIUS * Math.asin(Math.sin(angle) / Math.cos(latitude));
+    const earlyX = range(0, early);
+    const lateX = range(0, late);
+    for (let copy = -2; copy <= 2; copy += 1) {
+      const shift = copy * MAP_WIDTH;
+      const shifted = [lateX[0] + shift, lateX[1] + shift];
+      if (!apart(earlyX, shifted, 2 * lift + spread)) return false;
+    }
+    return true;
+  };
 }
 
 function firstRowIn(

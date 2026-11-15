@@ -213,6 +213,65 @@ export function cellTriangles(
 }
 
 /**
+ * The first drawn cell `ray` meets among the cells a walk offers, each with the least lift the
+ * walk has reached it at (`slack` is the walk's largest lift step): ties to the lower row, no
+ * further along the ray than `limit`. The answer does not depend on the order of the offers.
+ */
+export class FirstHit {
+  /** The first hit's row, or `null` while there is none. */
+  row: number | null = null;
+  /** How far along the ray the first hit lies, in units of its direction (∞ without one). */
+  entry = Number.POSITIVE_INFINITY;
+  /** Cells already tested, or never drawn. */
+  readonly #settled = new Set<string>();
+  /** The reach of each drawn cell offered so far. */
+  readonly #reaches = new Map<string, number>();
+
+  constructor(
+    readonly ray: PickRay,
+    readonly slack: number,
+    readonly mesh: DrawnMesh,
+    readonly cache: CellCache,
+    readonly trianglesOf: (cell: string, row: number) => Triangle[],
+    readonly limit = Number.POSITIVE_INFINITY,
+  ) {}
+
+  offer(cell: string, lift: number): void {
+    if (this.#settled.has(cell)) return;
+    const { cache, mesh } = this;
+    const row = cache.row(cell);
+    let reach = this.#reaches.get(cell);
+    if (
+      row === null ||
+      (reach === undefined && mesh.drawn && !mesh.drawn(row))
+    ) {
+      this.#settled.add(cell);
+      return;
+    }
+    if (reach === undefined) {
+      reach = reachOf(cell, mesh, cache);
+      this.#reaches.set(cell, reach);
+    }
+    // A cell reached only above its own reach (plus one step) holds nothing on the ray; a later
+    // offer at a lower lift may still test it.
+    if (lift > reach + this.slack) return;
+    this.#settled.add(cell);
+    for (const triangle of this.trianglesOf(cell, row)) {
+      const entry = rayTriangle(this.ray, triangle);
+      if (
+        entry !== null &&
+        entry <= this.limit &&
+        (entry < this.entry ||
+          (entry === this.entry && this.row !== null && row < this.row))
+      ) {
+        this.row = row;
+        this.entry = entry;
+      }
+    }
+  }
+}
+
+/**
  * The row of the first drawn cell `ray` meets among the cells a walk `reached` (each with the
  * least lift the walk reached it at; `slack` is the walk's largest lift step), ties to the lower
  * row, no further along the ray than `limit`; `null` when it meets none.
@@ -226,25 +285,7 @@ export function firstRowAmong(
   trianglesOf: (cell: string, row: number) => Triangle[],
   limit = Number.POSITIVE_INFINITY,
 ): number | null {
-  let best: number | null = null;
-  let bestEntry = Number.POSITIVE_INFINITY;
-  for (const [cell, lift] of reached) {
-    const row = cache.row(cell);
-    if (row === null || (mesh.drawn && !mesh.drawn(row))) continue;
-    // A cell first reached above its own reach (plus one step) holds nothing on the ray.
-    if (lift > reachOf(cell, mesh, cache) + slack) continue;
-    for (const triangle of trianglesOf(cell, row)) {
-      const entry = rayTriangle(ray, triangle);
-      if (
-        entry !== null &&
-        entry <= limit &&
-        (entry < bestEntry ||
-          (entry === bestEntry && best !== null && row < best))
-      ) {
-        best = row;
-        bestEntry = entry;
-      }
-    }
-  }
-  return best;
+  const hit = new FirstHit(ray, slack, mesh, cache, trianglesOf, limit);
+  for (const [cell, lift] of reached) hit.offer(cell, lift);
+  return hit.row;
 }
