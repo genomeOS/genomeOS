@@ -24,8 +24,10 @@ The ``inferred`` stage (§2.4, §2.8; calls 6, 8, 22) reads every released artif
 ``store/artifacts/`` plus any this release adds, keyed from the committed manifests or else under this
 release. It writes ``cells_by_cell`` parts only for artifacts no earlier epoch holds, under
 ``epoch=<release>``; every earlier epoch's parts are read, never rebuilt, from local copies whose
-sha256 is the published one (``fetch_data.py --prefix tables/`` fetches them). It runs checks 1, 2, 6
-and 10, writes ``tables/v1/inferred/artifacts.parquet`` and prints one line for each table.
+sha256 is the published one (``fetch_data.py --prefix tables/`` fetches them). Any other local file
+under ``cells_by_cell/``, such as an epoch built for a release that was never committed, is refused
+before a part is written (remove it and build again). It runs checks 1, 2, 6 and 10, writes
+``tables/v1/inferred/artifacts.parquet`` and prints one line for each table.
 """
 
 from __future__ import annotations
@@ -203,6 +205,7 @@ def build_inferred(
         epoch=ctx.release,
         out_root=ctx.out_root,
         git_sha=ctx.git_sha,
+        published=ctx.published,
     )
     for path in written:
         writer.check_partitions(con, ctx.out_root / path, path)

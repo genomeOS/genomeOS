@@ -637,6 +637,7 @@ def test_the_first_epoch_partitions_cells_by_res_and_base_cell(fixture):
   - `catalog_urls(sql: str) -> tuple[str, ...]`, `catalog_local_paths(sql: str) -> tuple[str, ...]`
   - `check_catalog(sql: str, tables_json: bytes, objects: Mapping[str, dr.ReleaseObject], withdrawn_keys: frozenset[str]) -> None` (check 7)
 - `checks.check_release_tables(data_root: Path, objects: Sequence[dr.ReleaseObject], *, manifests: Sequence[Mapping[str, Any]], repo_root: Path, new_sources: Mapping[str, tuple[str, ...]]) -> None`: checks 1, 2, 6, 9 and 10; each error reads "check <n>: <file>: …".
+  Check 6 runs `inferred.check_cells_equal` over every `inferred.cells_by_cell` object in the release, every epoch's parts in one call, so an artifact whose cells sit in two epochs fails on its count.
 - `writer.build_catalog_db(sql: str, out: Path, *, data_root: Path) -> Path`.
 - `build(..., catalog: bool = False)`; `main` passes `True`.
 - `smoke_catalog`:
@@ -698,6 +699,7 @@ def test_building_the_catalog_reads_only_local_copies(catalog_tree):
     - one sha256 under both `measured/` and `inferred/` → `"check 2: .*both"`;
     - a part at `h3_r0=8019fffffffffff` holding a Lagos row → `"check 2: .*h3_r0"`;
     - a `cells_by_cell` part with one `post_mean` changed → `"check 6: .*checksum"`;
+    - one artifact's cells in two epochs (its parts copied under a second `epoch=`) → `"check 6: .*count"`;
     - an input key in no manifest → `"check 9: .*releases/"`;
     - a file without `genomeos.sources` → `"check 9: .*genomeos.sources"`;
     - an artifact row whose `fit_input_evidence` is null → `"check 10: .*fit_input_evidence"`.

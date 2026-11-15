@@ -14,8 +14,11 @@ module reads nothing under ``measured/``.
 - ``inferred.cells_by_cell`` holds every cell of every format-1/2 artifact, partitioned as
   ``epoch=<R>/res=<k>/h3_r0=<cell>/part-0.parquet``. ``epoch`` is the release that first wrote the
   artifact's cells: a release writes parts only for artifacts no earlier epoch holds, and a released
-  part is never rewritten (call 6). ``measurement`` keeps the KIR carrier-frequency surfaces apart from
-  allele frequencies, and ``artifact_format`` says which format the cells came from (call 22).
+  part is never rewritten (call 6). Every other file under ``EPOCH_ROOT``, such as an epoch built for a
+  release that was never committed, is refused before a part is written: the release would publish it
+  beside the new epoch, an artifact's cells twice. ``measurement`` keeps the KIR carrier-frequency
+  surfaces apart from allele frequencies, and ``artifact_format`` says which format the cells came from
+  (call 22).
 
 Two format-1 manifests predate the ``measurement`` field; each takes it from ``REVIEWED_MEASUREMENTS``,
 never from a default. Formats 3 and 4 store ``prior_frequency_sd`` per cell, which ``cells_by_cell`` v1
@@ -28,9 +31,9 @@ This module does not import the surface stack.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 from typing import Any
 
@@ -328,12 +331,14 @@ def write_epoch(
     epoch: str,
     out_root: Path,
     git_sha: str,
+    published: Collection[str] = frozenset(),
 ) -> tuple[str, ...]:
     """Write ``records``' cells as epoch ``epoch``: one part per ``(res, h3_r0)``, paths in that order.
 
     Every record is checked before anything is written: its format (1 or 2), its 14 columns, an identity
     that is its directory, every cell an H3 cell at the manifest's resolution, and exactly ``n_cells``
-    distinct cells. A file already in the epoch's folder that this epoch would not write is refused.
+    distinct cells. So is every file already under ``out_root / EPOCH_ROOT``: it must be one of the
+    ``published`` paths (a committed release's parts) or a part this epoch writes, or it is refused.
     """
     dr.assert_release_id(epoch)
     checked = [(record, *_checked_cells(con, record)) for record in records]
@@ -352,7 +357,7 @@ def write_epoch(
             "GROUP BY ALL ORDER BY ALL"
         ).fetchall()
         planned = {part_path(epoch, res, h3_r0): artifacts for res, h3_r0, artifacts in groups}
-        _refuse_strays(out_root, epoch, planned)
+        _refuse_strays(out_root, epoch, planned, published)
         by_artifact = {record.artifact: record for record in records}
         columns = ", ".join(_identifier(name) for name in CELLS_BY_CELL_COLUMNS)
         for (res, h3_r0, artifacts), relative in zip(groups, planned, strict=True):
@@ -505,17 +510,27 @@ def _epoch_columns() -> str:
     return ", ".join(f"{_identifier(field.name)} {types[str(field.type)]}" for field in schema)
 
 
-def _refuse_strays(out_root: Path, epoch: str, planned: Mapping[str, object]) -> None:
-    """A file in the epoch's folder that this epoch would not write (an earlier, different build's)."""
-    folder = out_root / EPOCH_ROOT / f"epoch={epoch}"
-    if not folder.is_dir():
+def _refuse_strays(out_root: Path, epoch: str, planned: Collection[str], published: Collection[str]) -> None:
+    """Refuse a file under ``EPOCH_ROOT`` that is neither a ``published`` part nor one ``planned`` here.
+
+    Such a file is an earlier build's: a stale part in this epoch's folder, or a whole epoch built for a
+    release that was never committed. The release builder keys every file under ``tables/``, so it would
+    publish it beside this epoch, and a second epoch would hold the same artifacts' cells (call 6).
+    """
+    root = out_root / EPOCH_ROOT
+    if not root.is_dir():
         return
-    found = (path.relative_to(out_root).as_posix() for path in folder.rglob("*") if path.is_file())
-    stray = sorted(path for path in found if path not in planned)
+    found = (path.relative_to(out_root).as_posix() for path in root.rglob("*") if path.is_file())
+    stray = sorted(path for path in found if path not in planned and path not in published)
     if stray:
+        folders = sorted({PurePosixPath(path).relative_to(EPOCH_ROOT).parts[0] for path in stray})
+        one = len(stray) == 1
+        them = "it" if one else "them"
         raise TableError(
-            f"{stray} lie in epoch={epoch} but this build does not write them; remove {folder} and build "
-            "again"
+            f"{len(stray)} {'file' if one else 'files'} under {EPOCH_ROOT}/ ({', '.join(folders)}), e.g. "
+            f"{stray[0]}, {'is' if one else 'are'} neither a part a committed release published nor one "
+            f"epoch={epoch} writes: an earlier build left {them}, and the release would publish {them} "
+            f"beside this epoch; remove {them} and build again"
         )
 
 

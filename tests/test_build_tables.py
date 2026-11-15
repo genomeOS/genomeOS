@@ -254,6 +254,22 @@ def test_a_later_release_writes_only_new_artifacts_and_never_touches_an_earlier_
     assert key == f"releases/{LATER}/store/artifacts/{NEW_ARTIFACT}/cells.parquet"
 
 
+def test_a_second_release_built_over_an_unpublished_epoch_is_refused(fixture_tree, capsys):
+    """Two releases built in one tree, the first never committed: its parts are no published epoch, so
+    the release builder would key both epochs, every artifact's cells twice (call 6)."""
+    assert _run_inferred(fixture_tree) == 0
+    stale = _epoch_digests(fixture_tree.data, EPOCH)
+    capsys.readouterr()
+    assert _run_inferred(fixture_tree, release=LATER) == 1
+    error = capsys.readouterr().err
+    assert f"4 files under {CELLS_BY_CELL}/" in error and f"epoch={EPOCH}" in error and "remove" in error
+    assert not (fixture_tree.data / CELLS_BY_CELL / f"epoch={LATER}").exists()
+    assert _epoch_digests(fixture_tree.data, EPOCH) == stale
+    shutil.rmtree(fixture_tree.data / CELLS_BY_CELL / f"epoch={EPOCH}")
+    assert _run_inferred(fixture_tree, release=LATER) == 0
+    assert len(_epoch_digests(fixture_tree.data, LATER)) == 4
+
+
 def test_an_earlier_epoch_listed_but_not_fetched_is_refused(fixture_tree, capsys):
     missing = next(iter(_release_first_epoch(fixture_tree)))
     (fixture_tree.data / missing).unlink()

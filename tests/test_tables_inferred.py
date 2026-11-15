@@ -353,6 +353,24 @@ def test_a_stray_file_in_the_epoch_folder_is_refused_before_writing(epoch):
     assert not (data / PARTS[0]).exists()
 
 
+def test_a_part_of_another_epoch_no_release_published_is_refused_before_writing(epoch):
+    """An earlier build's epoch that was never committed would ship as a second copy of its artifacts'
+    cells: every file under EPOCH_ROOT is a published part or one this epoch writes (call 6)."""
+    data, con, records = epoch
+    stale = "tables/v1/inferred/cells_by_cell/epoch=2026-11-13/res=4/h3_r0=x/part-0.parquet"
+    (data / stale).parent.mkdir(parents=True)
+    (data / stale).write_bytes(b"an earlier build's part")
+    refused = r"1 file under tables/v1/inferred/cells_by_cell/ \(epoch=2026-11-13\), e.g\. .*; remove it"
+    with pytest.raises(TableError, match=refused):
+        inferred.write_epoch(con, records, epoch=EPOCH, out_root=data, git_sha=GIT_SHA)
+    assert not (data / PARTS[0]).exists()
+    published = frozenset({stale})
+    written = inferred.write_epoch(
+        con, records, epoch=EPOCH, out_root=data, git_sha=GIT_SHA, published=published
+    )
+    assert written == PARTS
+
+
 def test_a_published_file_is_read_only_from_a_copy_with_its_published_sha256(fixture_tree):
     path = f"store/artifacts/{KIR_V3}/cells.parquet"
     item = fixture_tree.ctx.published[path]
