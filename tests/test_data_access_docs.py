@@ -39,6 +39,7 @@ FENCED = re.compile(r"^```.*?^```", re.MULTILINE | re.DOTALL)
 STORAGE_URL = re.compile(r"(?:gs://|(?:https?://)?storage\.googleapis\.com/)[^\s`'\")<>]*")
 # The arguments of each fetch_data.py command, inline or in a block, up to a comment or code span's end.
 FETCH_COMMAND = re.compile(r"python scripts/fetch_data\.py([^\n`#]*)")
+R_BLOCK = re.compile(r"^```r\n(.*?)^```", re.MULTILINE | re.DOTALL)
 
 
 def _read(name: str) -> str:
@@ -66,6 +67,16 @@ def test_every_fetch_command_parses() -> None:
                 fd.build_parser().parse_args(shlex.split(arguments))
             except SystemExit:
                 pytest.fail(f"python scripts/fetch_data.py{arguments}: {stderr.getvalue().strip()}")
+
+
+def test_the_r_quickstart_installs_httpfs_before_it_attaches() -> None:
+    # CRAN's R duckdb ships with autoinstall_known_extensions false, so on a fresh install an ATTACH of
+    # an HTTPS URL fails ("Install it first using \"INSTALL httpfs\"") unless the snippet installs it.
+    blocks = [block for block in R_BLOCK.findall(_read("data-access.md")) if "ATTACH" in block]
+    assert blocks, "the page has no R snippet that attaches a catalog"
+    for block in blocks:
+        assert "INSTALL httpfs" in block, block
+        assert block.index("INSTALL httpfs") < block.index("ATTACH"), block
 
 
 def test_the_numbers_match_the_code() -> None:

@@ -15,7 +15,7 @@ and the design behind both is the
 
 The main way in is one variant at a time, read anonymously over HTTPS (design §3.1). Attach the newest
 release's catalog, a small views-only DuckDB file, read-only. This works from DuckDB's CLI, Python or R,
-with any DuckDB from 1.2:
+with any DuckDB from 1.2 (R needs `INSTALL httpfs` once first; see [Quickstarts](#quickstarts)):
 
 ```sql
 ATTACH 'https://storage.googleapis.com/genomeos-atlas-data/releases/2026-11-15/catalog/atlas.duckdb' AS atlas (READ_ONLY);
@@ -71,8 +71,9 @@ smoke test checks (design §2.7, check 8).
 
 An example's result shows under **Measured** or **Inferred**, never both. You can edit the SQL (one
 statement) and run it again; a result stops at 1,000 rows and says so. **Copy for DuckDB** copies the
-`ATTACH` and the query, ready for the CLI, Python or R. Without WebAssembly and Web Workers the panel
-cannot run, so copy the query instead.
+`ATTACH` and the query, ready for the CLI or Python, and for R once it has `httpfs`
+([Quickstarts](#quickstarts)). Without WebAssembly and Web Workers the panel cannot run, so copy the
+query instead.
 
 When a query fails, the panel says why:
 
@@ -128,12 +129,17 @@ R (`install.packages("duckdb")`):
 
 ```r
 con <- DBI::dbConnect(duckdb::duckdb())
+DBI::dbExecute(con, "INSTALL httpfs")   # once per DuckDB version
 DBI::dbExecute(con, "ATTACH 'https://storage.googleapis.com/genomeos-atlas-data/releases/2026-11-15/catalog/atlas.duckdb' AS atlas (READ_ONLY)")
 DBI::dbGetQuery(con, "SELECT * FROM atlas.meta.release")
 ```
 
-DuckDB installs its `httpfs` extension the first time it reads an HTTPS URL. Release 2026-11-15's
-catalog holds these views (`SHOW ALL TABLES` lists them):
+The CLI and Python install DuckDB's `httpfs` extension the first time they read an HTTPS URL. R's
+CRAN package does not install extensions on its own (its `autoinstall_known_extensions` is false), so
+in R, `INSTALL httpfs` runs once per DuckDB version. Without it, the `ATTACH` fails with
+`Install it first using "INSTALL httpfs"`.
+
+Release 2026-11-15's catalog holds these views (`SHOW ALL TABLES` lists them):
 
 | View | Rows |
 |---|---|
