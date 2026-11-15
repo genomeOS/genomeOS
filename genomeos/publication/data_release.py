@@ -15,7 +15,10 @@ earlier records and releases as ``restricted`` (Atlas data platform design 2026-
 Keys are immutable and release-versioned, ``releases/<release>/<path>``; a later release reuses an
 earlier key for byte-identical content, and a published artifact whose bytes changed is refused (AGENTS
 "Artifacts are immutable"; design §5). So is a file added to an artifact directory an earlier release
-published: a cited artifact is a closed set of files.
+published: a cited artifact is a closed set of files. So is a changed ``tables/`` part under a
+``PARTITION_KEYS`` folder (``is_write_once``): a takedown or a rebuild writes a new epoch or ingest
+version instead (Atlas data platform design 2026-10-18 §2.9, builder's call 6). A changed summary table
+such as ``tables/v1/inferred/artifacts.parquet`` gets this release's key, by design.
 Pickles are never published: loading one from the internet executes code (data store design §8).
 Every violation is a hard error (design §12).
 
@@ -56,6 +59,10 @@ DATA_STORE_BASE_URL = "https://storage.googleapis.com/genomeos-atlas-data/"
 WITHDRAWN_FILE = "WITHDRAWN.json"
 WITHDRAWN_SCHEMA = "genomeos-withdrawn"
 WITHDRAWN_SCHEMA_VERSION = 1
+TABLES_PREFIX = "tables/"
+#: The ``tables/`` partition folders whose parts are written once (Atlas data platform design 2026-10-18
+#: §2.4; builder's call 6): a released part never changes bytes.
+PARTITION_KEYS = ("epoch", "ingest_version", "chrom", "bin")
 
 #: Closed: an extension missing here is refused rather than served under a guessed type.
 MEDIA_TYPES: Mapping[str, str] = {
@@ -189,6 +196,14 @@ def artifact_directory(path: str) -> str:
     return parts[0]
 
 
+def is_write_once(path: str) -> bool:
+    """A ``tables/`` part inside a ``<key>=`` folder of ``PARTITION_KEYS`` (builder's call 6)."""
+    if not path.startswith(TABLES_PREFIX):
+        return False
+    folders = path.split("/")[:-1]
+    return any(folder.partition("=")[0] in PARTITION_KEYS for folder in folders if "=" in folder)
+
+
 def media_type_for(path: str) -> str:
     if path.lower().endswith(PICKLE_SUFFIXES):
         raise DataReleaseError(
@@ -317,6 +332,11 @@ def build_manifest(
                 raise DataReleaseError(
                     f"{path}: published in an earlier release with sha256 {earlier.sha256}; artifacts are "
                     "immutable (design §5), so publish a new model_version instead of changing one"
+                )
+            if is_write_once(path):
+                raise DataReleaseError(
+                    f"{path}: published in an earlier release with sha256 {earlier.sha256}; a released part "
+                    "is immutable (data platform builder's call 6); write a new epoch or ingest version"
                 )
             earlier = None
         objects[path] = {

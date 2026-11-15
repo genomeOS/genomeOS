@@ -333,7 +333,7 @@ def test_an_optional_root_file_needs_a_reviewed_source_rule(tree: Path) -> None:
 def test_meta_files_carry_their_inputs_sources(tree: Path, tmp_path: Path) -> None:
     releases = copy_committed_releases(tmp_path / "releases")
     arguments = ["--release", "2026-11-20", "--data", str(tree), "--releases", str(releases)]
-    built = build_tables.main([*arguments, "--git-sha", "HEAD", *GIT_INPUT_FLAGS])
+    built = build_tables.main([*arguments, "--stage", "meta", "--git-sha", "HEAD", *GIT_INPUT_FLAGS])
     assert built == 0
     objects = _paths(_build(tree))
     meta = "tables/v1/meta"

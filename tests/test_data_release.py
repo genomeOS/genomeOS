@@ -217,6 +217,43 @@ def test_a_published_artifact_whose_bytes_changed_is_refused() -> None:
         dr.build_manifest(mutated, SOURCES, RELEASE, previous=[previous])
 
 
+EPOCH_PART = "tables/v1/inferred/cells_by_cell/epoch=2026-11-20/res=3/h3_r0=8019fffffffffff/part-0.parquet"
+SUMMARY_TABLE = "tables/v1/inferred/artifacts.parquet"
+MAP_ONLY = {"map": SOURCES["map"]}
+
+
+def _table_file(path: str, size: int, sha256: str) -> dr.FileRecord:
+    return dr.FileRecord(path, size, sha256, False, ("map",))
+
+
+def test_a_released_partition_part_whose_bytes_changed_is_refused() -> None:
+    """Builder's call 6: an epoch=, ingest_version=, chrom= or bin= part is written once."""
+    previous = dr.build_manifest([_table_file(EPOCH_PART, 10, SHA_A)], MAP_ONLY, "2026-10-01")
+    with pytest.raises(dr.DataReleaseError, match="immutable.*new epoch or ingest version"):
+        dr.build_manifest([_table_file(EPOCH_PART, 10, SHA_B)], MAP_ONLY, RELEASE, previous=[previous])
+    same = dr.build_manifest([_table_file(EPOCH_PART, 10, SHA_A)], MAP_ONLY, RELEASE, previous=[previous])
+    assert same["objects"][0]["key"] == f"releases/2026-10-01/{EPOCH_PART}"
+
+
+def test_a_summary_table_gets_a_new_key_instead() -> None:
+    previous = dr.build_manifest([_table_file(SUMMARY_TABLE, 10, SHA_A)], MAP_ONLY, "2026-10-01")
+    rebuilt = [_table_file(SUMMARY_TABLE, 12, SHA_B)]
+    manifest = dr.build_manifest(rebuilt, MAP_ONLY, RELEASE, previous=[previous])
+    assert manifest["objects"][0]["key"] == f"releases/{RELEASE}/{SUMMARY_TABLE}"
+
+
+def test_is_write_once() -> None:
+    assert dr.PARTITION_KEYS == ("epoch", "ingest_version", "chrom", "bin")
+    assert dr.is_write_once(EPOCH_PART)
+    assert dr.is_write_once(
+        "tables/v1/measured/allele_observations/source=afnd/ingest_version=afnd-2026-08/part-0.parquet"
+    )
+    assert not dr.is_write_once(SUMMARY_TABLE)
+    assert not dr.is_write_once("tables/v1/measured/allele_observations/source=afnd/part-0.parquet")
+    assert not dr.is_write_once("validation/epoch=2026-11-20/x.parquet")
+    assert not dr.is_write_once("tables/v1/epoch=2026-11-20.parquet")
+
+
 def test_a_released_artifact_directory_cannot_gain_a_file() -> None:
     """A cited key names a closed set of files; a later file there would change what it means (§5)."""
     previous = dr.build_manifest(_records(), SOURCES, "2026-10-01")

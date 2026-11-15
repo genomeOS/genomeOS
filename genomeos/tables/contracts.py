@@ -25,6 +25,15 @@ Both store counts, never frequencies (v1 §7.1b): ``ac`` and ``an``, and no ``af
 The four ``meta.*`` tables (§2.4, §2.9; calls 4, 7) are Arrow contracts: each field's name, type and
 nullability, in order. ``meta.release_objects`` keeps a list of sources per object, which pandera
 does not describe.
+
+The two ``inferred.*`` tables (§2.4, §2.8; calls 8, 22) are Arrow contracts too, and never share a
+prefix, file or column set with ``measured.*``. ``inferred.artifacts`` holds one row per released
+artifact: its manifest's fields (``support_counts`` as a map), its ``measurement`` and where that came
+from, the key and sha256 of each of its files, and its ``fit_input_evidence``, never null.
+``inferred.cells_by_cell`` holds the 14 columns of every format-1 and format-2 ``cells.parquet``, plus
+``h3_r0``, ``h3_parent_r3``, ``measurement``, ``artifact_format``, ``epoch`` and ``res``: partition keys
+are stored columns, so check 2 compares each folder with its rows. Formats 3 and 4 add
+``prior_frequency_sd``, which needs a MINOR 1.1 of ``cells_by_cell`` before such an artifact ships (F4).
 """
 
 from __future__ import annotations
@@ -234,6 +243,81 @@ WITHDRAWN = TableContract(
     ),
 )
 
+_DOUBLE = pyarrow.float64()
+_INT = pyarrow.int32()
+
+#: One row per released artifact (§2.4, §2.8; call 8): its manifest's fields, where its ``measurement``
+#: came from, its files' keys and sha256s, and its ``fit_input_evidence`` with a reason exactly when
+#: that is ``none``. A format-1 manifest records no target grid, and no released artifact has an input.
+INFERRED_ARTIFACTS = TableContract(
+    "inferred.artifacts",
+    major=1,
+    minor=0,
+    key=("artifact",),
+    partitions=(),
+    arrow_schema=_arrow(
+        ("artifact", _TEXT, False),
+        ("variant_id", _TEXT, False),
+        ("model_version", _TEXT, False),
+        ("data_version", _TEXT, False),
+        ("artifact_format", _INT, False),
+        ("resolution", _INT, False),
+        ("n_cells", pyarrow.int64(), False),
+        ("n_observations", pyarrow.int64(), False),
+        ("measurement", _TEXT, False),
+        ("measurement_from", _TEXT, False),
+        ("likelihood", _TEXT, False),
+        ("correlation_range_km", _DOUBLE, False),
+        ("lengthscale_sigma", _DOUBLE, False),
+        ("prior_frequency_sd", _DOUBLE, False),
+        ("target_grid_source", _TEXT, True),
+        ("target_grid_version", _TEXT, True),
+        ("support_counts", pyarrow.map_(_TEXT, pyarrow.int64()), False),
+        ("first_release", _TEXT, False),
+        ("epoch", _TEXT, False),
+        ("cells_key", _TEXT, False),
+        ("cells_sha256", _TEXT, False),
+        ("manifest_key", _TEXT, False),
+        ("manifest_sha256", _TEXT, False),
+        ("observations_key", _TEXT, True),
+        ("observations_sha256", _TEXT, True),
+        ("fit_input_evidence", _TEXT, False),
+        ("fit_input_evidence_reason", _TEXT, True),
+    ),
+)
+
+#: Every cell of every format-1/2 artifact, partitioned by the release that first wrote it, the cell's
+#: resolution and its resolution-0 ancestor (§2.4; call 22). The first 14 columns are ``cells.parquet``'s.
+CELLS_BY_CELL = TableContract(
+    "inferred.cells_by_cell",
+    major=1,
+    minor=0,
+    key=("variant_id", "model_version", "data_version", "res", "h3_index"),
+    partitions=("epoch", "res", "h3_r0"),
+    arrow_schema=_arrow(
+        ("h3_index", _TEXT, False),
+        ("variant_id", _TEXT, False),
+        ("post_median", _DOUBLE, False),
+        ("post_mean", _DOUBLE, False),
+        ("post_sd", _DOUBLE, False),
+        ("q025", _DOUBLE, False),
+        ("q975", _DOUBLE, False),
+        ("q25", _DOUBLE, False),
+        ("q75", _DOUBLE, False),
+        ("support", _TEXT, False),
+        ("posterior_contraction", _DOUBLE, False),
+        ("dist_nearest_obs_km", _DOUBLE, False),
+        ("model_version", _TEXT, False),
+        ("data_version", _TEXT, False),
+        ("h3_r0", _TEXT, False),
+        ("h3_parent_r3", _TEXT, False),
+        ("measurement", _TEXT, False),
+        ("artifact_format", _INT, False),
+        ("epoch", _TEXT, False),
+        ("res", _INT, False),
+    ),
+)
+
 #: Every derived table, by name. A table is written, checked or catalogued only if it is here.
 TABLE_CONTRACTS: Mapping[str, TableContract] = MappingProxyType(
     {
@@ -245,6 +329,8 @@ TABLE_CONTRACTS: Mapping[str, TableContract] = MappingProxyType(
             SOURCES,
             SERVED,
             WITHDRAWN,
+            INFERRED_ARTIFACTS,
+            CELLS_BY_CELL,
         )
     }
 )
