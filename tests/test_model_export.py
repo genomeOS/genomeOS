@@ -14,7 +14,7 @@ import json
 import pickle
 import shutil
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
 
 import numpy as np
@@ -107,17 +107,18 @@ def test_an_exported_fit_predicts_what_the_fit_predicts(fit, exported):
     # graph built over other rows would differ (tests.surface_fixtures.jittered_point).
     point = jittered_point(loaded._model)
     assert loaded._model.compile_logp()(point) == fit._model.compile_logp()(point)
-    pd.testing.assert_frame_equal(loaded.observations, fit.observations)
-    assert loaded.config == fit.config
-    assert loaded.variant_id == fit.variant_id
-    assert loaded.design_levels == fit.design_levels
-    assert (loaded.beta_design_applied, loaded.beta_cohort_applied) == (
-        fit.beta_design_applied,
-        fit.beta_cohort_applied,
-    )
-    assert loaded.correlation_range_km == fit.correlation_range_km
-    assert loaded.inducing_spacing_ratio == fit.inducing_spacing_ratio
-    assert loaded.prediction_metadata == fit.prediction_metadata
+    # Every other field is the fit's, so a field that `fit_surface` sets and the loader sets otherwise
+    # (or not at all) fails here, not in a later prediction. `idata` and `_model` are compared above by
+    # what they compute.
+    for spec in fields(SurfaceFit):
+        if spec.name in {"idata", "_model"}:
+            continue
+        recorded, rebuilt = getattr(fit, spec.name), getattr(loaded, spec.name)
+        if isinstance(recorded, pd.DataFrame):
+            pd.testing.assert_frame_equal(rebuilt, recorded)
+        else:
+            np.testing.assert_equal(rebuilt, recorded, err_msg=spec.name)
+            assert type(rebuilt) is type(recorded), spec.name
     assert loaded.footprint_metadata is None
     pd.testing.assert_frame_equal(loaded.design_effects(), fit.design_effects())
 

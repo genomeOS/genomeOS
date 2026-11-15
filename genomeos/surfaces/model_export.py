@@ -49,8 +49,8 @@ from genomeos.surfaces.fit import (
     SurfaceModel,
     build_surface_model,
     free_variable_shapes,
+    surface_fit_from,
 )
-from genomeos.surfaces.observation import ObservationModelMetadata
 
 EXPORT_SCHEMA = "genomeos-model-export"
 EXPORT_FORMAT = 1
@@ -217,30 +217,14 @@ def load_model_export(model_dir: Path, artifact_dir: Path) -> SurfaceFit:
             "constant_data": {data.name: np.asarray(data.get_value()) for data in built.model.data_vars},
         }
     )
-    return SurfaceFit(
-        variant_id=record["variant_id"],
-        config=config,
-        beta_design_applied=built.beta_design_applied,
-        lengthscale_prior_km=built.lengthscale_prior_km,
-        beta_cohort_applied=built.beta_cohort_applied,
-        design_levels=built.design_levels[1:],
-        inducing_spacing_ratio=record["inducing_spacing_ratio"],
+    # `fit_surface`'s own constructor. The variant is `model.json`'s (`_require_rebuilt`), and the graph
+    # was built without footprint support, which `export_model` refuses.
+    return surface_fit_from(
+        built,
+        config,
+        idata,
         correlation_range_km=record["correlation_range_km"],
-        idata=idata,
-        _model=built.model,
-        _centre=np.zeros(3),
-        _scale=np.ones(3),
-        # As `fit_surface` records it.
-        prediction_metadata=ObservationModelMetadata(
-            convention="new_cohort_count_v1",
-            fitted_designs=built.design_levels,
-            training_cohort_ids=built.cohorts,
-            cohort_effect_applied=built.beta_cohort_applied,
-            nugget_applied=config.nugget,
-            likelihood=config.likelihood,
-        ),
-        footprint_metadata=None,
-        observations=built.observations,
+        inducing_spacing_ratio=record["inducing_spacing_ratio"],
     )
 
 

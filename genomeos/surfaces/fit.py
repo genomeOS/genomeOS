@@ -831,6 +831,29 @@ def fit_surface(
                 stacklevel=2,
             )
 
+    return surface_fit_from(
+        built,
+        config,
+        idata,
+        correlation_range_km=correlation_range_km,
+        inducing_spacing_ratio=spacing_ratio,
+    )
+
+
+def surface_fit_from(
+    built: SurfaceModel,
+    config: FitConfig,
+    idata: Any,
+    *,
+    correlation_range_km: float,
+    inducing_spacing_ratio: float | None,
+) -> SurfaceFit:
+    """The fit of `built`'s graph under `config` (the config it was built with), given its draws.
+
+    `fit_surface` returns this after sampling, and a model export's loader after rebuilding the graph
+    from code (Atlas data platform design 2026-10-18 §2.1, step 1.12; #471). One constructor, so the
+    two can never record a fit differently.
+    """
     return SurfaceFit(
         variant_id=str(built.observations["variant_id"].iloc[0]),
         config=config,
@@ -838,7 +861,7 @@ def fit_surface(
         beta_cohort_applied=built.beta_cohort_applied,
         lengthscale_prior_km=built.lengthscale_prior_km,
         design_levels=built.design_levels[1:],
-        inducing_spacing_ratio=spacing_ratio,
+        inducing_spacing_ratio=inducing_spacing_ratio,
         correlation_range_km=correlation_range_km,
         idata=idata,
         _model=built.model,
