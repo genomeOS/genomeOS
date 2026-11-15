@@ -28,7 +28,9 @@ carrier fit-input contract: ``carriers`` and ``n_individuals`` in place of ``ac`
 unioned with allele counts (§2.2 rule 3, §2.4). ``measured.ingests`` (§2.4 as amended; step 1.9) is an Arrow
 contract: one row per curated ingest, keyed by ``(table, source, ingest_version)`` because two AFND adapters
 share ``afnd``/``afnd-2026-08``, with each ingest's inputs and its refusals as lists of structs. A refusal is
-``{reason, population_id, count}``: a population is its own field, never folded into the reason.
+``{reason, population_id, count}``: a population is its own field, never folded into the reason. Its MINOR
+1.1 (§2.10, D17) adds two nullable columns for the whole-genome recount's sample rule, ``sample_rule`` and
+``sample_stage_sha256``, null for a curated ingest.
 
 The four ``meta.*`` tables (§2.4, §2.9; calls 4, 7) are Arrow contracts: each field's name, type and
 nullability, in order. ``meta.release_objects`` keeps a list of sources per object, which pandera
@@ -211,14 +213,15 @@ _INGEST_INPUT = pyarrow.struct(
 #: Rows an adapter refused for one reason, in one population when it names one.
 _REFUSAL = pyarrow.struct([("reason", _TEXT), ("population_id", _TEXT), ("count", pyarrow.int64())])
 
-#: One row per curated ingest (§2.4 as amended; step 1.9): the table and part it wrote, the registry its
+#: One row per ingest (§2.4 as amended; step 1.9): the table and part it wrote, the registry its
 #: populations resolve in, the adapter (a repository file) and the commit it ran at, its inputs, the rows it
 #: kept and refused, and the ``source_record_id`` template a lookup set derives its ids from (none for a
-#: curated part, which stores them).
+#: curated part, which stores them). 1.1 adds the whole-genome recount's sample rule (D17): its
+#: ``cohort_id`` and its stage file's sha256, null for a curated ingest.
 INGESTS = TableContract(
     "measured.ingests",
     major=1,
-    minor=0,
+    minor=1,
     key=("table", "source", "ingest_version"),
     partitions=(),
     arrow_schema=_arrow(
@@ -232,6 +235,8 @@ INGESTS = TableContract(
         ("n_rows", pyarrow.int64(), False),
         ("refusals", pyarrow.list_(_REFUSAL), False),
         ("source_record_id_template", _TEXT, True),
+        ("sample_rule", _TEXT, True),
+        ("sample_stage_sha256", _TEXT, True),
     ),
 )
 

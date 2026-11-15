@@ -20,6 +20,12 @@ every input (``IngestInput``), the rows kept, the refusals (``Refusal``: a reaso
 adapter names one, never folded into the reason, and a count) and the ``source_record_id`` template (none
 for a curated part, which stores its ids). The table is a summary: it gets a new key each release.
 
+``measured.ingests`` 1.1 also records the whole-genome recount (§2.10, D17): its lookup set in
+``measured.allele_observations_binned``, its 24 VCFs and two metadata files cited by URL, md5 and
+generation (the metadata files also by the sha256 of the bytes read), and the sample rule, D17's
+``sample_rule`` (the recount's ``cohort_id``) and ``sample_stage_sha256`` (its stage file's digest). A
+curated ingest has no sample rule; both stay null.
+
 The rules, each refusal a ``TableError`` (v1 §12):
 
 - check 2: a part's ``key=value`` folders equal its rows' values (``check_partition_values``);
@@ -57,6 +63,8 @@ from genomeos.tables import contracts, reference, writer
 from genomeos.tables.contracts import TableError
 
 ALLELE_TABLE = contracts.ALLELE_OBSERVATIONS.table
+#: A lookup set's table: an ingest of it is a folder of bins (``genomeos.tables.lookup_sets``), not a part.
+BINNED_TABLE = contracts.ALLELE_OBSERVATIONS_BINNED.table
 CARRIER_TABLE = contracts.CARRIER_OBSERVATIONS.table
 INGESTS_TABLE = contracts.INGESTS.table
 #: The order of a part's rows, and of the writer's ``ORDER BY``.
@@ -90,7 +98,7 @@ def part_path(table: str, source: str, ingest_version: str) -> str:
 @dataclass(frozen=True)
 class IngestInput:
     """One input of an ingest and its byte count: a released key with its sha256, or a cited upstream URL
-    with its md5 and generation (§2.7 check 9, D17)."""
+    with its md5 and generation and, when the bytes read were hashed, their sha256 (§2.7 check 9, D17)."""
 
     bytes: int
     key: str | None = None
@@ -112,13 +120,15 @@ class IngestInput:
                 raise TableError(f"ingest input {self.key}: a released key cites no url, md5 or generation")
             return
         missing = [name for name, value in cited.items() if value is None]
-        if self.sha256 is not None or missing:
+        if missing:
             raise TableError(
                 f"ingest input {self.url}: an input is a released key with its sha256, or a cited url with "
-                f"its md5 and generation (D17); it lacks {missing or ['key']}"
+                f"its md5 and generation (D17); it lacks {missing}"
             )
         if not str(self.url).startswith("https://") or not self.md5 or not _is_count(self.generation, 1):
             raise TableError(f"ingest input {self.url}: an https url, an md5 and a positive generation")
+        if self.sha256 is not None and not _SHA256.fullmatch(str(self.sha256)):
+            raise TableError(f"ingest input {self.url}: a cited sha256 is 64 lowercase hex characters")
 
 
 @dataclass(frozen=True)
@@ -137,7 +147,8 @@ class Refusal:
 
 @dataclass(frozen=True)
 class Ingest:
-    """One row of ``measured.ingests``."""
+    """One row of ``measured.ingests``. ``sample_rule`` and ``sample_stage_sha256`` are the whole-genome
+    recount's sample rule (D17), recorded together; a curated ingest has neither."""
 
     table: str
     source: str
@@ -149,9 +160,15 @@ class Ingest:
     n_rows: int
     refusals: tuple[Refusal, ...]
     source_record_id_template: str | None
+    sample_rule: str | None = None
+    sample_stage_sha256: str | None = None
 
     def __post_init__(self) -> None:
-        part_path(self.table, self.source, self.ingest_version)
+        if self.table == BINNED_TABLE:
+            _segment("source", self.source)
+            _segment("ingest_version", self.ingest_version)
+        else:
+            part_path(self.table, self.source, self.ingest_version)
         reference.registry_folder(self.registry_version)
         _adapter_path(self.adapter)
         sha = self.adapter_git_sha
@@ -166,6 +183,12 @@ class Ingest:
             raise TableError(f"{self.name}: refusal {repeated[0]} is listed twice")
         if self.source_record_id_template is not None and not _is_text(self.source_record_id_template):
             raise TableError(f"{self.name}: a source_record_id template is text, or none")
+        rule = (self.sample_rule, self.sample_stage_sha256)
+        if rule != (None, None) and not (_is_text(rule[0]) and _SHA256.fullmatch(str(rule[1]))):
+            raise TableError(
+                f"{self.name}: sample_rule and sample_stage_sha256 (64 lowercase hex) are recorded together, "
+                f"or neither (a curated ingest); got {rule}"
+            )
 
     @property
     def key(self) -> tuple[str, str, str]:
@@ -298,6 +321,8 @@ def ingests_table(ingests: Sequence[Ingest]) -> pyarrow.Table:
             "n_rows": ingest.n_rows,
             "refusals": [asdict(item) for item in sorted(ingest.refusals, key=_refusal_key)],
             "source_record_id_template": ingest.source_record_id_template,
+            "sample_rule": ingest.sample_rule,
+            "sample_stage_sha256": ingest.sample_stage_sha256,
         }
         for ingest in sorted(ingests, key=lambda ingest: ingest.key)
     ]
@@ -325,7 +350,7 @@ def read_ingests(path: Path) -> tuple[Ingest, ...]:
 def check_ingest_inputs(ingests: Sequence[Ingest], published: Mapping[str, dr.ReleaseObject]) -> None:
     """Check 9: every released input of every ingest is a key of ``published`` (each key of this release and
     the committed earlier ones), with that object's sha256 and bytes. A cited input carries its md5 and
-    generation, which ``IngestInput`` requires."""
+    generation, which ``IngestInput`` requires; a sha256 it records is never looked up as a key."""
     for ingest in ingests:
         for item in ingest.inputs:
             if item.key is None:

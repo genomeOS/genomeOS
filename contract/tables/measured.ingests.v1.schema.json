@@ -49,6 +49,16 @@
       "name": "source_record_id_template",
       "nullable": true,
       "type": "string"
+    },
+    {
+      "name": "sample_rule",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "sample_stage_sha256",
+      "nullable": true,
+      "type": "string"
     }
   ],
   "contract": "genomeos-table",
@@ -58,6 +68,6 @@
     "ingest_version"
   ],
   "partitions": [],
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "table": "measured.ingests"
 }
