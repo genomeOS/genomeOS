@@ -395,6 +395,13 @@ def test_the_release_lists_the_catalog(catalog_tree: Path) -> None:
     assert {url.removeprefix(dr.DATA_STORE_BASE_URL) for url in urls} <= keys
     assert "genereviews" in sql_object["sources"]  # call 16: a non_commercial source survives the union
     assert manifest["sources"]["genereviews"]["non_commercial"] is True
+    # §9: meta.release names the manifest's key and cite_as cites it, so each catalog/ file carries every
+    # source of the release, cpic included, though no file the catalog lists derives from sources/cpic/
+    # (first published in this release).
+    assert "cpic" in manifest["sources"]
+    assert {path: objects[path]["sources"] for path in catalog.CATALOG_PATHS} == {
+        path: sorted(manifest["sources"]) for path in catalog.CATALOG_PATHS
+    }
 
 
 def test_a_stray_catalog_file_is_refused(catalog_tree: Path) -> None:

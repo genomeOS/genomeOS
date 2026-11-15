@@ -89,7 +89,7 @@
 - **Build stages** run in the order `meta`, `reference`, `measured`, `fit_inputs`, `inferred`, each taking a `BuildContext`.
 - **Inputs.** `genomeos.inputs` lists data only: store keys, `manifests/<R>.json` and `git:<path>`. Code never adds a source. A `git:` input's sources come from the reviewed `provenance.GIT_INPUT_SOURCES`, and an unlisted git path fails.
 - **Check 9 (was F3).** It accepts a committed `manifests/<R>.json` and a `git:<path>` whose sha256 is that file at the stamped `genomeos.git_sha`. Task 11 amends §2.7 check 9 in its own commit.
-- **Sources of `meta/` (§9).** `meta.release_objects` and `meta.sources` take the manifests as inputs, so they carry every source. `meta.served` also takes each served artifact's `manifest.json` key, so it carries those artifacts' sources plus `genomeos`. `meta.withdrawn` carries `genomeos` plus its listed objects' sources. Task 11's amendment commit narrows §9's "`catalog/` and `meta/` carry every source" to `catalog/`, `meta.release_objects` and `meta.sources`.
+- **Sources of `meta/` (§9).** `meta.release_objects` and `meta.sources` take the manifests as inputs, so they carry every source. `meta.served` also takes each served artifact's `manifest.json` key, so it carries those artifacts' sources plus `genomeos`. `meta.withdrawn` carries `genomeos` plus its listed objects' sources. Task 11's amendment commit narrows §9's "`catalog/` and `meta/` carry every source" to `catalog/`, `meta.release_objects` and `meta.sources`. `catalog/` takes every pass-1 object as an input, since `meta.release` names the manifest's key (Task 13, pass 6).
 - **Step order.** 1.8 (Task 16) runs before 1.7 (Tasks 17–18), which read its harvests. Step 1.5 publishes nothing on its own.
 - **`measured.ingests` key** is `(table, source, ingest_version)`, because two AFND adapters emit `afnd`/`afnd-2026-08` (cytokine alleles and KIR carriers). Task 19 amends §2.4 in its own commit.
 - **Withdrawals (§2.9, was F11).** Every view over files reads `read_parquet(<files>, filename = true)` and anti-joins the withdrawn files' URLs or local paths. The `inferred` views also anti-join by withdrawn `cells.parquet` path. Check 7 still refuses a catalog that lists a withdrawn key, so the file-level anti-join guards old catalogs and a regressed check 7.
@@ -665,7 +665,7 @@ def test_the_first_epoch_partitions_cells_by_res_and_base_cell(fixture):
 3. Build `atlas.duckdb` twice. Identical bytes are required ("two builds differ").
 4. Write `tables.json`, then run check 7.
 5. Refuse a stray `catalog/` file.
-6. `catalog.sql` goes in git, with the union of the sources of what it lists.
+6. `catalog.sql` goes in git. `meta.release` names the manifest's key and `cite_as` cites it, so the three `catalog/` files carry the union of the sources of every pass-1 object, which is the manifest's `sources` block (§9). The listed files' sources alone would miss a source first published in this release that no `tables/` file derives from.
 7. Write the final manifest.
 
 `main` prints `catalog: <n> views over <m> files; atlas.duckdb <bytes:,> bytes, identical over two builds`.
@@ -704,7 +704,7 @@ def test_building_the_catalog_reads_only_local_copies(catalog_tree):
     - a file without `genomeos.sources` → `"check 9: .*genomeos.sources"`;
     - an artifact row whose `fit_input_evidence` is null → `"check 10: .*fit_input_evidence"`.
   - `tests/test_build_data_release.py`:
-    - `test_the_release_lists_the_catalog`: `catalog/catalog.sql` is `application/sql` and in git; `catalog/atlas.duckdb` is `application/octet-stream` and not; every URL in `catalog.sql` is a manifest key; `catalog.sql`'s sources include `genereviews`, `non_commercial` (call 16).
+    - `test_the_release_lists_the_catalog`: `catalog/catalog.sql` is `application/sql` and in git; `catalog/atlas.duckdb` is `application/octet-stream` and not; every URL in `catalog.sql` is a manifest key; `catalog.sql`'s sources include `genereviews`, `non_commercial` (call 16); each `catalog/` file's sources equal `sorted(manifest["sources"])`, `cpic` included (§9).
     - `test_a_stray_catalog_file_is_refused`: `data/catalog/notes.txt` → "catalog/".
     - `test_two_differing_catalog_builds_are_refused`: `writer.build_catalog_db` monkeypatched to append a byte on its second call → "two builds differ".
   - `tests/test_smoke_catalog.py`:

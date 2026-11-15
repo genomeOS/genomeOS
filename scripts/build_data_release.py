@@ -27,8 +27,10 @@ passes, after ``build_tables.py`` has written the release's ``tables/``:
 3. build ``catalog/atlas.duckdb`` from it twice, over the local copies only, and require identical bytes;
 4. write ``catalog/tables.json``, then run check 7 on both files against the keys and ``WITHDRAWN.json``;
 5. refuse any other file under ``catalog/``;
-6. key the three: ``catalog.sql`` is committed (in git), and each carries the union of the sources of the
-   files it lists (call 16);
+6. key the three: ``catalog.sql`` is committed (in git). ``meta.release`` names the manifest's key and
+   ``cite_as`` cites it, so each of the three carries the union of the sources of every object pass 1
+   keyed (call 16), not only of the files it lists. That union is the manifest's ``sources`` block, so
+   ``catalog/`` carries every source (§9);
 7. write the manifest, which the catalog therefore never names (``meta.release`` names its key instead).
 """
 
@@ -538,8 +540,10 @@ def write_catalog(
             f"{stray[0]}: data/{CATALOG_ROOT}/ holds only catalog.sql, atlas.duckdb and tables.json, which "
             f"the release build writes; remove {len(stray)} other file(s) and build again"
         )
-    by_path = {item.path: item for item in objects}
-    sources = tuple(sorted({name for file in files for name in by_path[file.path].sources}))
+    # §9: meta.release names the manifest's key and cite_as cites it, so catalog/ derives from every
+    # pass-1 object, not only the files it lists (call 16). A source first published in this release
+    # reaches catalog/ even when no tables/ file derives from it.
+    sources = tuple(sorted({name for item in objects for name in item.sources}))
     return [
         dr.FileRecord(
             path,
