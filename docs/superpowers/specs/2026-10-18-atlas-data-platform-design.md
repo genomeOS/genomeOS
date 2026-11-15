@@ -179,7 +179,7 @@ tables/v1/                                                                      
 catalog/{catalog.sql, atlas.duckdb, tables.json}
 ```
 
-`key=value` folders need `assert_data_path` to accept `=` (builder's call 5). A `registry_version` (`RELEASE+sha256.DIGEST`) is not path-safe, so registry folders are `<release>-<sha8>`, with the full value as a column.
+`key=value` folders need `assert_data_path` to accept `=` (builder's call 5). A `registry_version` (`RELEASE+sha256.DIGEST`) is not path-safe, so registry folders are `<release>-<sha8>`, with the full value as a column. The two legacy registries, whose `registry_version` holds no digest to derive a folder from, keep their names as folders: `afnd-2026-08` and `map-survey-coordinates-v1` (call 18).
 
 ### 2.4 Tables and partitions
 
@@ -523,7 +523,7 @@ Settled by the builder; each can be reversed by a PR.
 2. Offline mode works from any named download (`--prefix tables/` until 2.2 adds `--table` and `--set`).
 3. The smoke tests run on `evidence.parity_observations` from step 1.6 and on rs334 from 2.8.
 4. `meta.release` names the manifest key, not its sha256; two-pass build (§2.6).
-5. `_SEGMENT` accepts `=` after the first character, still refusing `%`, `+`, `:`; registry folders are `<release>-<sha8>`.
+5. `_SEGMENT` accepts `=` after the first character, still refusing `%`, `+`, `:`; registry folders are `<release>-<sha8>`, except the two legacy registries' (call 18).
 6. The changed-bytes refusal extends to `epoch=`, `ingest_version=`, `chrom=` and `bin=` parts; summary tables are re-keyed by design.
 7. Served = the 30 artifacts in the web `catalog.json` until the refit pin lands; `WITHDRAWN.json` starts empty.
 8. Legacy fit-input evidence: `web-json-match` only where web JSON and a published ingest exist, else `none` (§2.8).
@@ -536,7 +536,7 @@ Settled by the builder; each can be reversed by a PR.
 15. Pin `duckdb==1.5.5`, write `STORAGE_VERSION 'v1.2.0'`, test attach from DuckDB 1.2.x and the pinned WASM, build with `threads = 1`.
 16. Derived sources are the computed union of inputs'; a test checks a `non_commercial` flag survives.
 17. `catalog.sql` is in git; `atlas.duckdb`, `tables.json`, `tables/` are not; the bulk bucket joins `COMMITTED_PUBLIC_URLS` in 3.2, the lookup bucket in 2.5.
-18. Check 5 keeps MAP's coordinates exception; `afnd-2026-08` is rebuilt from the released raw file; `map-survey-coordinates-v1` becomes legacy alias rows.
+18. Check 5 keeps MAP's coordinates exception; `afnd-2026-08` is rebuilt from the released raw file; `map-survey-coordinates-v1` becomes legacy alias rows; each keeps its name as its registry folder.
 19. R1 matches by path; CI recomputes each manifest under its own `access_policy`.
 20. Credentials only with `--billing-project` and a named token source (§5).
 21. A mirror hash mismatch falls back loudly with a non-zero exit (§3.2).

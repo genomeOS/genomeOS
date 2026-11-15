@@ -152,8 +152,12 @@ def _centroid_radius_km(country: object) -> float | None:
         return None
 
 
-def _population_id(survey_id: object) -> str:
-    """One id per survey *site* — this is a location, not a cohort."""
+def population_id(survey_id: object) -> str:
+    """One id per survey *site* — this is a location, not a cohort.
+
+    Public, because the legacy `map-survey-coordinates-v1` registry's alias rows are built from it
+    (`genomeos.tables.reference`, Atlas data platform design 2026-10-18 call 18).
+    """
     return f"map-g6pd-{int(survey_id)}"
 
 
@@ -224,7 +228,7 @@ def load(path: Path, ingest_version: str) -> tuple[pd.DataFrame, IngestReport]:
             # and a Series built with a fresh RangeIndex would be aligned by union rather
             # than positionally, silently lengthening the frame.
             "rsid": pd.Series([pd.NA] * len(rows), index=rows.index, dtype="string[pyarrow]"),
-            "population_id": rows["id"].map(_population_id),
+            "population_id": rows["id"].map(population_id),
             "lat": rows["latitude"].astype(float),
             "lon": rows["longitude"].astype(float),
             "radius_km": radius[keep].astype(float),
