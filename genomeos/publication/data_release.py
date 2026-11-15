@@ -27,6 +27,8 @@ a hard error (design §12).
 ``WITHDRAWN.json`` sits beside the manifests in ``data/releases/``: the keys withdrawn from serving,
 for the owner to delete (Atlas data platform design 2026-10-18 §2.9). It is not a release, so every
 reader lists that directory through ``release_ids``, which skips it and refuses any other stray name.
+``build_manifest`` is told the list and never reuses a withdrawn key: a byte-identical file at its path
+is refused, naming the entry, until the path leaves ``data/`` or its content is published anew.
 """
 
 from __future__ import annotations
@@ -338,10 +340,18 @@ def build_manifest(
     sources: Mapping[str, Mapping[str, Any]],
     release: str,
     previous: Sequence[Mapping[str, Any]] = (),
+    *,
+    withdrawn: Iterable[Withdrawal] = (),
 ) -> dict[str, Any]:
-    """A validated manifest for ``records``, reusing earlier keys for byte-identical files."""
+    """A validated manifest for ``records``, reusing earlier keys for byte-identical files.
+
+    ``withdrawn`` is ``WITHDRAWN.json``'s list. A byte-identical file whose earlier key is on it is
+    refused: the owner deletes a withdrawn key's bytes, so no later release may cite it (Atlas data
+    platform design 2026-10-18 §2.9).
+    """
     assert_release_id(release)
     published = _published(previous, release)
+    withdrawals = {entry.key: entry for entry in withdrawn}
     released_directories = {found for path in published if (found := closed_directory(path)) is not None}
     objects: dict[str, dict[str, Any]] = {}
     for record in records:
@@ -369,6 +379,13 @@ def build_manifest(
                     "a new registry release"
                 )
             earlier = None
+        if earlier is not None and (withdrawal := withdrawals.get(earlier.key)) is not None:
+            raise DataReleaseError(
+                f"{path}: its bytes are those of {earlier.key}, which {WITHDRAWN_FILE} withdraws "
+                f"({withdrawal.reason}; {withdrawal.issue}), and a release never cites a withdrawn key "
+                "(Atlas data platform design 2026-10-18 §2.9); remove the path from data/, or publish "
+                "the content anew: a new epoch, ingest version, registry release or model_version"
+            )
         objects[path] = {
             "path": path,
             "key": earlier.key if earlier is not None else release_key(release, path),

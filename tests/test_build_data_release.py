@@ -347,6 +347,25 @@ def test_earlier_releases_skip_the_withdrawn_list(tmp_path: Path) -> None:
         build.earlier_releases(releases, RELEASE)
 
 
+def test_a_byte_identical_file_whose_earlier_key_is_withdrawn_is_refused(tree: Path) -> None:
+    """§2.9: the build is told WITHDRAWN.json and never reuses a withdrawn key, outside tables/ too."""
+    first = _build(tree)
+    summary = _paths(first)["validation/crossval_summary.json"]
+    entry = dr.Withdrawal(
+        summary["key"],
+        summary["sha256"],
+        "a fixture takedown",
+        "https://github.com/genomeOS/genomeOS/issues/1",
+        "2026-11-14",
+        "owner",
+    )
+    with pytest.raises(dr.DataReleaseError, match=r"validation/crossval_summary\.json: .*WITHDRAWN\.json"):
+        _build(tree, "2026-11-20", previous=[first], withdrawn=[entry])
+    (tree / "validation/crossval_summary.json").unlink()
+    later = _build(tree, "2026-11-20", previous=[first], withdrawn=[entry])
+    assert "validation/crossval_summary.json" not in _paths(later)
+
+
 def test_include_roots_cover_the_committed_inputs() -> None:
     for path in ("raw/afnd_populations.tsv", "registry", "sources", "store/INVENTORY.json"):
         assert any(path == root or path.startswith(f"{root}/") for root in build.INCLUDE), path

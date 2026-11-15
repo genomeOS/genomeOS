@@ -7,8 +7,9 @@ Hashes every file under the include roots, maps each path to its sources with th
 below, copies the terms each source's record already holds, and writes
 ``data/releases/<release>.json`` (sorted, no clock: the same tree gives the same bytes). Earlier
 committed releases are read so a byte-identical file reuses its earlier key and a published artifact
-whose bytes changed is refused. A release file that already exists is never replaced: an identical
-rebuild reports "unchanged", a different one is a hard error.
+whose bytes changed is refused; a byte-identical file whose earlier key ``WITHDRAWN.json`` lists is
+refused too (Atlas data platform design 2026-10-18 §2.9). A release file that already exists is never
+replaced: an identical rebuild reports "unchanged", a different one is a hard error.
 
 Nothing outside ``INCLUDE`` and the reviewed raw harvests is published: fits (pickles, design §8) and
 any raw file no harvest lists stay local. A raw harvest (Atlas data platform design 2026-10-18 §2.1,
@@ -510,7 +511,8 @@ def build(
 ) -> dict[str, Any]:
     """The release manifest of ``data_root``; with ``catalog``, the two passes of the module docstring.
 
-    ``withdrawn`` is ``WITHDRAWN.json``'s list, which the release's ``meta.withdrawn`` must restate.
+    ``withdrawn`` is ``WITHDRAWN.json``'s list, which the release's ``meta.withdrawn`` must restate and
+    whose keys neither pass may reuse (§2.9).
     ``raw_harvests`` are published beside the include roots, each root required, and ``store/external/``
     holds exactly ``external_caches`` (step 1.8).
     """
@@ -525,7 +527,7 @@ def build(
         external_caches=external_caches,
     )
     check_inputs(data_root, records, previous, released_without_input)
-    manifest = _manifest(data_root, records, release, previous)
+    manifest = _manifest(data_root, records, release, previous, withdrawn)
     # After the manifest, so a released model directory that changed is refused as closed (cannot gain,
     # immutable) before its listing is compared.
     check_models(data_root, records, previous)
@@ -543,15 +545,21 @@ def build(
         new_sources={record.path: record.sources for record in records},
     )
     listed = write_catalog(data_root, release, objects, tracked=tracked, withdrawn=withdrawn)
-    return _manifest(data_root, [*records, *listed], release, previous)
+    return _manifest(data_root, [*records, *listed], release, previous, withdrawn)
 
 
 def _manifest(
-    data_root: Path, records: Sequence[dr.FileRecord], release: str, previous: Sequence[Mapping[str, Any]]
+    data_root: Path,
+    records: Sequence[dr.FileRecord],
+    release: str,
+    previous: Sequence[Mapping[str, Any]],
+    withdrawn: Sequence[dr.Withdrawal],
 ) -> dict[str, Any]:
     used = {name for record in records for name in record.sources}
     available = {**REVIEWED_SOURCES, **_record_sources(data_root)}
-    manifest = dr.build_manifest(records, {name: available[name] for name in used}, release, previous)
+    manifest = dr.build_manifest(
+        records, {name: available[name] for name in used}, release, previous, withdrawn=withdrawn
+    )
     ap.check_release_guard(manifest["objects"])
     return manifest
 

@@ -459,6 +459,24 @@ def test_withdrawal_fields_and_header_are_closed_sorted_and_unique() -> None:
         dr.validate_withdrawn(_withdrawn(later, WITHDRAWAL))
 
 
+def test_a_withdrawn_key_is_never_reused_for_byte_identical_content() -> None:
+    """§2.9: the owner deletes a withdrawn key's bytes, so no later release may cite it."""
+    previous = dr.build_manifest(_records(), SOURCES, "2026-10-01")
+    raw = "raw/afnd_populations.tsv"
+    entry = dr.Withdrawal(**{**WITHDRAWAL, "key": f"releases/2026-10-01/{raw}", "sha256": SHA_B})
+    with pytest.raises(dr.DataReleaseError) as refused:
+        dr.build_manifest(_records(), SOURCES, RELEASE, previous=[previous], withdrawn=[entry])
+    message = str(refused.value)
+    for named in (raw, entry.key, "WITHDRAWN.json", entry.reason, entry.issue, "remove", "new epoch"):
+        assert named in message
+    # Changed bytes at the path get this release's key, which no one withdrew.
+    changed = [_records()[0], dr.FileRecord(raw, 5, SHA_A, True, ("afnd",))]
+    manifest = dr.build_manifest(changed, SOURCES, RELEASE, previous=[previous], withdrawn=[entry])
+    assert {item["path"]: item["key"] for item in manifest["objects"]}[raw] == f"releases/{RELEASE}/{raw}"
+    # Without the path, the release builds.
+    dr.build_manifest(_records()[:1], MAP_ONLY, RELEASE, previous=[previous], withdrawn=[entry])
+
+
 def test_release_ids_skip_the_withdrawn_list_and_refuse_strays() -> None:
     names = ["2026-10-18.json", "WITHDRAWN.json", "2026-10-17.1.json", "2026-10-17.json"]
     assert dr.release_ids(names) == ["2026-10-17", "2026-10-17.1", "2026-10-18"]

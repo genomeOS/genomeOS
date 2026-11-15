@@ -19,10 +19,12 @@ from genomeos.tables import catalog, inferred, writer
 from genomeos.tables.catalog import PARITY_FILE
 from genomeos.tables.contracts import TableError
 from scripts import build_data_release as build
+from scripts import build_tables
 from scripts import smoke_catalog as smoke
 from tests import tables_fixtures
 from tests.tables_fixtures import (
     EPOCH,
+    FIXTURE_WITHOUT_INPUT,
     KIR_V3,
     build_catalog_tables,
     published_objects,
@@ -138,24 +140,38 @@ def test_two_builds_are_byte_identical(built: Path) -> None:
     assert first.read_bytes() == second.read_bytes() == (data / catalog.CATALOG_DB).read_bytes()
 
 
+def _views_alone(root: Path) -> dict[str, int]:
+    """The view counts of release ``EPOCH``'s catalog over a pass 1 that was not told ``WITHDRAWN.json``:
+    what the views' anti-join of ``meta.withdrawn`` drops on its own (§2.9)."""
+    manifest = build.build(
+        root / "data",
+        EPOCH,
+        tracked=set(),
+        released_without_input=FIXTURE_WITHOUT_INPUT,
+        previous=build_tables.committed_manifests(root / "releases"),
+    )
+    data = root / "data"
+    sql = catalog.render_catalog_sql(EPOCH, build.listed_files(data, dr.validate_manifest(manifest)))
+    return _counts(_attach(writer.build_catalog_db(sql, root / "atlas.duckdb", data_root=data), data))
+
+
 def test_withdrawing_an_artifact_drops_it_from_the_inferred_views(catalog_tree: Path) -> None:
+    """The release itself refuses the withdrawn key while the tree still holds its bytes; a takedown that
+    drops the artifact's files must also get past check 6 (deferred with build_tables' Task 12 minor)."""
     cells = published_objects(catalog_tree)[f"{dr.ARTIFACT_PREFIX}{KIR_V3}/{inferred.CELLS_FILE}"]
-    _build(catalog_tree, withdrawn=[withdrawal(cells)])
-    data = catalog_tree / "data"
-    counts = _counts(_attach(data / catalog.CATALOG_DB, data))
+    build_catalog_tables(catalog_tree, withdrawn=[withdrawal(cells)])
+    counts = _views_alone(catalog_tree)
     assert counts == {**COUNTS, "inferred.artifacts": 2, "inferred.cells_by_cell": 4, "meta.withdrawn": 1}
+    with pytest.raises(dr.DataReleaseError, match=f"{cells.path}: .*WITHDRAWN.json withdraws"):
+        release_catalog_tree(catalog_tree)
 
 
 def test_every_view_anti_joins_the_withdrawn_files(catalog_tree: Path) -> None:
-    """Check 7 refuses a catalog naming a withdrawn key; the views drop its rows even without check 7."""
+    """The views drop a withdrawn file's rows even without the release's refusal, which names the entry;
+    check 7's own refusal of a withdrawn key is ``test_check_catalog_refuses[a-withdrawn-key]``."""
     build_catalog_tables(catalog_tree, withdrawn=[withdrawal(published_objects(catalog_tree)[PARITY_FILE])])
-    objects = dr.validate_manifest(release_catalog_tree(catalog_tree, catalog=False))
-    data = catalog_tree / "data"
-    sql = catalog.render_catalog_sql(EPOCH, build.listed_files(data, objects))
-    database = writer.build_catalog_db(sql, catalog_tree / "atlas.duckdb", data_root=data)
-    counts = _counts(_attach(database, data))
-    assert counts == {**COUNTS, "evidence.parity_observations": 0, "meta.withdrawn": 1}
-    with pytest.raises(TableError, match=r"check 7: https://\S+: withdrawn"):
+    assert _views_alone(catalog_tree) == {**COUNTS, "evidence.parity_observations": 0, "meta.withdrawn": 1}
+    with pytest.raises(dr.DataReleaseError, match=f"{PARITY_FILE}: .*WITHDRAWN.json withdraws"):
         release_catalog_tree(catalog_tree)
 
 
