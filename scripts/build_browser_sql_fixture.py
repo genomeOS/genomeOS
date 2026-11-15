@@ -26,8 +26,8 @@ Parquet file, so their bytes depend on no pandas or pyarrow version.
     python scripts/build_browser_sql_fixture.py --check    # fail if stale
 
 ``--check`` builds it again and compares every file byte for byte, except ``atlas.duckdb``, compared by its
-views' SQL as ``build_catalog_fixture.py`` does (the fixture is built on macOS and checked on Linux), and so
-the manifest, compared without that file's bytes and sha256.
+views' and macros' SQL as ``build_catalog_fixture.py`` does (the fixture is built on macOS and checked on
+Linux), and so the manifest, compared without that file's bytes and sha256.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ from genomeos.tables import catalog, contracts, inferred, meta, writer  # noqa: 
 from genomeos.tables.contracts import TableError  # noqa: E402
 from genomeos.tables.provenance import GIT_PREFIX, InputRef  # noqa: E402
 from scripts import build_data_release, fixture_trees  # noqa: E402
-from scripts.build_catalog_fixture import database_views, fixture_files  # noqa: E402
+from scripts.build_catalog_fixture import database_definitions, fixture_files  # noqa: E402
 
 FIXTURE_RELEASE = "2000-01-01"
 FIXTURE_BASE_URL = "http://127.0.0.1:4324/"
@@ -130,7 +130,7 @@ def check_fixture(out: Path) -> list[str]:
         problems += [f"{path}: not part of the fixture" for path in sorted(found - wanted)]
         for path in sorted(found & wanted):
             if path.endswith(catalog.CATALOG_DB):
-                same = database_views(out / path) == database_views(built / path)
+                same = database_definitions(out / path) == database_definitions(built / path)
             elif path == _MANIFEST:
                 same = _comparable(out / path) == _comparable(built / path)
             else:

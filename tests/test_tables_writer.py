@@ -11,8 +11,11 @@ import pyarrow.parquet as pq
 import pytest
 
 from genomeos.tables import contracts, provenance, writer
+from genomeos.tables.binned import write_bin
 from genomeos.tables.contracts import TableError
+from genomeos.tables.lookup_sets import GRCH38_LENGTHS, BinRef, lookup_set
 from genomeos.tables.provenance import InputRef
+from tests.lookup_fixtures import W, binned_row
 from tests.observation_fixtures import observation_rows
 from tests.tables_fixtures import GIT_SHA, rewrite_parquet
 
@@ -194,3 +197,7 @@ def test_check_partitions_derives_chrom_and_bin_for_the_binned_table(tmp_path):
     wrong = f"{base}/chrom=chr11/bin=4/part-0.parquet"
     with pytest.raises(TableError, match="bin"):
         writer.check_partitions(con, _part(con, tmp_path, wrong, rows, table=BINNED), wrong)
+    # An empty bin, written as every bin is (call 29), still has the columns chrom and bin derive from.
+    lookup = lookup_set("gnomad_hgdp_1kg", "fixture-1", GRCH38_LENGTHS)
+    empty = write_bin(binned_row().iloc[:0], tmp_path / "empty", lookup, BinRef("chr11", 6), **W)
+    writer.check_partitions(con, tmp_path / "empty" / empty.path, empty.path)

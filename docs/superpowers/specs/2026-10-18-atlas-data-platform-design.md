@@ -220,7 +220,7 @@ The 61 artifacts of 2026-10-17 have no input (`RELEASED_WITHOUT_INPUT`), and the
 
 ### 2.9 Withdrawals
 
-Views and macros anti-join `meta.withdrawn`. A takedown that must remove bytes rebuilds the affected parts into a new epoch (or a new ingest version, for a lookup set) without those rows, publishes a new catalog, and lists the superseded parts in `data/releases/WITHDRAWN.json` (`key, sha256, reason, issue, date, decided_by`) for the owner to delete. Older catalogs naming a deleted part then fail loudly, as `docs/data-access.md` says.
+Views anti-join `meta.withdrawn`. Macros leave withdrawn files out when the catalog is rendered, because an attached macro cannot read a view: a release's catalog is rendered from that release's own `meta.withdrawn`, so the two are equivalent, and check 7 still refuses a catalog that names a withdrawn key. A withdrawn bin of a lookup set fails the build; its takedown takes the new-ingest-version route below. A takedown that must remove bytes rebuilds the affected parts into a new epoch (or a new ingest version, for a lookup set) without those rows, publishes a new catalog, and lists the superseded parts in `data/releases/WITHDRAWN.json` (`key, sha256, reason, issue, date, decided_by`) for the owner to delete. Older catalogs naming a deleted part then fail loudly, as `docs/data-access.md` says.
 
 ### 2.10 Whole-genome observations (D4)
 
