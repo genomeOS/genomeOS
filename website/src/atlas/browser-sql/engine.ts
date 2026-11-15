@@ -46,7 +46,8 @@ const BUNDLES: DuckDB.DuckDBBundles = {
   eh: { mainModule: ehModule, mainWorker: ehWorker },
 };
 
-const CATALOG_OBJECTS = `
+/** The attached catalog's views and macros, as `schema.name`; exported for the WASM attach test. */
+export const CATALOG_OBJECTS = `
 SELECT schema_name || '.' || view_name AS name
 FROM duckdb_views() WHERE database_name = 'atlas' AND NOT internal
 UNION
