@@ -42,8 +42,6 @@ import http.client
 import json
 import os
 import re
-import shutil
-import tempfile
 import urllib.request
 from collections import Counter
 from collections.abc import Collection, Mapping, Sequence
@@ -479,12 +477,7 @@ def run_job(
         if recorded is not None and _file_sha256(out_root / recorded.file.path) == recorded.file.sha256:
             continue
         ref = BinRef(job.chrom, b)
-        # Each count runs in a new folder. On macOS, native's [guard] at times stays blocked in read() with
-        # no writer left: in 7 of 4,800 counts at FIFO paths used before, 1 of 4,900 at new paths.
-        workdir.mkdir(parents=True, exist_ok=True)
-        counting = Path(tempfile.mkdtemp(prefix=f"{job.chrom}-bin{b}-", dir=workdir))
-        counted = native.native_bin(source, ref, stage, counting)
-        shutil.rmtree(counting)
+        counted = native.native_bin(source, ref, stage, workdir)
         rows = binned_rows(
             counted.sites,
             table,

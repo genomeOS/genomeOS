@@ -2,13 +2,13 @@
 builder's call 38).
 
 One region at a time, bcftools applies D18's rule to the stage's genotypes and counts per population. The
-pipeline is ``subprocess.Popen`` processes with no shell, joined by pipes and two FIFOs. Every plugin stage
+pipeline is ``subprocess.Popen`` processes with no shell, joined by anonymous pipes. Every plugin stage
 carries its own options after ``--``:
 
     [view]   bcftools view --no-update --regions-overlap pos -r CHR:START-END -S stage.txt -Ou VCF
-    [tee]    tee fifo_ploidy fifo_partial, stdout to [c]
-    [audit]  bcftools +check-ploidy -i 'FILTER="PASS"' fifo_ploidy > ploidy.tsv
-    [guard]  bcftools query -i PARTIAL_GENOTYPE -f '%CHROM:%POS\\n' fifo_partial > partial.txt
+    [tee]    tee /dev/fd/P /dev/fd/Q (the write ends of pipes P and Q), stdout to [c]
+    [audit]  bcftools +check-ploidy -i 'FILTER="PASS"' - < pipe P > ploidy.tsv
+    [guard]  bcftools query -i PARTIAL_GENOTYPE -f '%CHROM:%POS\\n' - < pipe Q > partial.txt
     [c]      bcftools +fill-tags -Ou - -- -S groups_c.txt -t NS
     [gq]     bcftools +setGT -Ou - -- -t q -n . -i QC_LOW_GQ
     [g]      bcftools +fill-tags -Ou - -- -S groups_g.txt -t NS
@@ -38,9 +38,14 @@ The checks run in a fixed order, and a bin is recorded only after all of them pa
 4. Only then are the lines parsed: ``check_record`` on every line (Decision 2), then the refusals and the
    consistency check on PASS lines (``parse_native_line``).
 
-A FIFO reader that dies before opening its FIFO would leave tee blocked in ``open`` forever. When [audit]
-or [guard] fails, the stages still running are stopped. bcftools' stderr names samples, so every stage
-sample id in an error is replaced by ``<sample>``: errors never name a sample (``rule``).
+tee's two readers read anonymous pipes, not named FIFOs: on macOS a FIFO's reader at times stayed blocked in
+``read`` after tee, its only writer, had exited (15 of 12,000 counts, always [guard]), and the count never
+ended. This side holds each pipe's read end until every stage has exited, so a reader that dies leaves tee
+blocked on a full pipe rather than killed by SIGPIPE; the stages still running are then stopped, and the
+reader is the stage named. A reader still running ``_READER_GRACE_SECONDS`` after every other stage exited
+is stopped, and the count raises instead of waiting forever (a job resumes, so rerunning it is safe).
+bcftools' stderr names samples, so every stage sample id in an error is replaced by ``<sample>``: errors
+never name a sample (``rule``).
 
 ``query_region`` and ``query_bin`` are the independent path: ``view | query -H -f PY_QUERY_FORMAT``,
 counted by ``counter.recount_python`` (§2.7 check 12). Offline batch work; one region at a time per
@@ -109,10 +114,13 @@ QC_LOW_ALLELE_BALANCE = (
 PARTIAL_GENOTYPE = r'FILTER="PASS" & (GT~"[01][/|]\." | GT~"\.[/|][01]")'
 
 _AUDIT = ("bcftools", "+check-ploidy", "-i", 'FILTER="PASS"')
-_FIFO_READERS = ("audit", "guard")
-#: Where the failure is reported from: tee's two FIFO readers come after the counting chain. When [c] refuses
+_TEE_READERS = ("audit", "guard")
+#: Where the failure is reported from: tee's two pipe readers come after the counting chain. When [c] refuses
 #: a record mid-stream, tee dies of SIGPIPE and the audits read a truncated stream, so [c] is the cause.
-_REPORT_ORDER = ("view", "tee", "c", "gq", "g", "dp", "d", "ab", "p", "query", *_FIFO_READERS)
+_REPORT_ORDER = ("view", "tee", "c", "gq", "g", "dp", "d", "ab", "p", "query", *_TEE_READERS)
+#: How long tee's readers may run once every other stage has exited. tee has then written its last bytes, so
+#: each reader has at most one pipe buffer left; a reader still running after this never saw its input end.
+_READER_GRACE_SECONDS = 60.0
 _GROUPS = ("c", "g", "d", "p")
 _COUNT_TAGS = ("NS_c", "NS_g", "NS_d", "NS_p", "AC_p", "AN_p")
 _RECORD_FORMAT = ("%CHROM", "%POS", "%ID", "%REF", "%ALT", "%FILTER")
@@ -348,9 +356,22 @@ class _Pipeline:
         self.workdir, self.tag = workdir, tag
         self.procs: dict[str, subprocess.Popen[bytes]] = {}
         self.stopped: set[str] = set()
+        self.held: set[int] = set()
 
     def _stderr(self, name: str) -> Path:
         return self.workdir / f"{self.tag}-{name}.stderr"
+
+    def pipe(self) -> tuple[int, int]:
+        """A new anonymous pipe's read and write ends, held here until ``release`` or ``close``."""
+        read_end, write_end = os.pipe()
+        self.held.update((read_end, write_end))
+        return read_end, write_end
+
+    def release(self, *ends: int) -> None:
+        """Close this side's copy of each pipe end."""
+        for end in ends:
+            self.held.discard(end)
+            os.close(end)
 
     def start(
         self,
@@ -358,12 +379,17 @@ class _Pipeline:
         argv: Sequence[str],
         *,
         upstream: subprocess.Popen[bytes] | None = None,
+        stdin: int | None = None,
         stdout: IO[bytes] | int = subprocess.PIPE,
+        pass_fds: Sequence[int] = (),
     ) -> subprocess.Popen[bytes]:
-        """Start ``argv``, reading ``upstream``'s stdout (whose copy here is closed) or nothing."""
-        stdin = subprocess.DEVNULL if upstream is None else upstream.stdout
+        """Start ``argv``, reading ``upstream``'s stdout (whose copy here is closed), the pipe end ``stdin``
+        or nothing; ``pass_fds`` stay open in the stage under their own numbers."""
+        source = upstream.stdout if upstream is not None else subprocess.DEVNULL if stdin is None else stdin
         with self._stderr(name).open("wb") as stderr:
-            self.procs[name] = subprocess.Popen(list(argv), stdin=stdin, stdout=stdout, stderr=stderr)
+            self.procs[name] = subprocess.Popen(
+                list(argv), stdin=source, stdout=stdout, stderr=stderr, pass_fds=tuple(pass_fds)
+            )
         if upstream is not None and upstream.stdout is not None:
             upstream.stdout.close()
         return self.procs[name]
@@ -374,11 +400,23 @@ class _Pipeline:
                 proc.kill()
                 self.stopped.add(name)
 
-    def wait(self, fifo_readers: Sequence[str] = ()) -> None:
-        """Wait for every stage; a failed FIFO reader stops the rest, which could block on its FIFO."""
+    def wait(self, readers: Sequence[str] = (), *, where: str = "") -> None:
+        """Wait for every stage. A failed tee reader stops the rest, which could block on its pipe; a reader
+        still running ``_READER_GRACE_SECONDS`` after every other stage exited is stopped, and raises."""
+        others_done: float | None = None
         while [proc.poll() for proc in self.procs.values()].count(None):  # polls every stage
-            if any(self.procs[name].returncode not in (None, 0) for name in fifo_readers):
+            if any(self.procs[name].returncode not in (None, 0) for name in readers):
                 self.stop_running()
+            elif readers and all(p.returncode is not None for n, p in self.procs.items() if n not in readers):
+                others_done = time.monotonic() if others_done is None else others_done
+                if time.monotonic() - others_done > _READER_GRACE_SECONDS:
+                    running = [f"[{name}]" for name in readers if self.procs[name].returncode is None]
+                    self.stop_running()
+                    grace = f"{_READER_GRACE_SECONDS:g} s"
+                    raise RecountError(
+                        f"{where}: {', '.join(running)} still running {grace} after every other stage "
+                        "exited: its input never ended"
+                    )
             time.sleep(_POLL_SECONDS)
 
     def close(self) -> None:
@@ -388,6 +426,7 @@ class _Pipeline:
             proc.wait()
             if proc.stdout is not None:
                 proc.stdout.close()
+        self.release(*sorted(self.held))
 
     def check(self, where: str, order: Sequence[str], stage: Stage) -> None:
         """Raise on the earliest failed stage in ``order`` that neither died of SIGPIPE nor was stopped."""
@@ -466,30 +505,27 @@ def native_region(vcf: str, chrom: str, start: int, end: int, stage: Stage, work
     stage_file = _prepare(workdir, stage)
     for group in _GROUPS:
         (workdir / f"groups_{group}.txt").write_text(groups_file(stage, group), encoding="utf-8")
-    fifo_ploidy, fifo_partial = workdir / "fifo_ploidy", workdir / "fifo_partial"
     ploidy, partial, counts = workdir / "ploidy.tsv", workdir / "partial.txt", workdir / "native.tsv"
-    for fifo in (fifo_ploidy, fifo_partial):
-        fifo.unlink(missing_ok=True)
-        os.mkfifo(fifo)
     pipeline = _Pipeline(workdir, "native")
     try:
+        (ploidy_in, ploidy_out), (partial_in, partial_out) = pipeline.pipe(), pipeline.pipe()
         view = pipeline.start("view", _view(vcf, where, stage_file))
-        upstream = pipeline.start("tee", ["tee", str(fifo_ploidy), str(fifo_partial)], upstream=view)
+        tee = ["tee", f"/dev/fd/{ploidy_out}", f"/dev/fd/{partial_out}"]
+        upstream = pipeline.start("tee", tee, upstream=view, pass_fds=(ploidy_out, partial_out))
+        pipeline.release(ploidy_out, partial_out)  # tee is then their only writer
         with ploidy.open("wb") as out:
-            pipeline.start("audit", [*_AUDIT, str(fifo_ploidy)], stdout=out)
+            pipeline.start("audit", [*_AUDIT, "-"], stdin=ploidy_in, stdout=out)
         with partial.open("wb") as out:
-            guard = ["bcftools", "query", "-i", PARTIAL_GENOTYPE, "-f", "%CHROM:%POS\n", str(fifo_partial)]
-            pipeline.start("guard", guard, stdout=out)
+            guard = ["bcftools", "query", "-i", PARTIAL_GENOTYPE, "-f", "%CHROM:%POS\n", "-"]
+            pipeline.start("guard", guard, stdin=partial_in, stdout=out)
         *chain, (last, query) = _chain(workdir, len(stage.populations))
         for name, argv in chain:
             upstream = pipeline.start(name, argv, upstream=upstream)
         with counts.open("wb") as out:
             pipeline.start(last, query, upstream=upstream, stdout=out)
-        pipeline.wait(_FIFO_READERS)
+        pipeline.wait(_TEE_READERS, where=where)
     finally:
         pipeline.close()
-        for fifo in (fifo_ploidy, fifo_partial):
-            fifo.unlink(missing_ok=True)
     pipeline.check(where, _REPORT_ORDER, stage)
     partial_lines = partial.read_text(encoding="utf-8").splitlines()
     if partial_lines:

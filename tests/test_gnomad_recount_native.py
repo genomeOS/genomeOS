@@ -9,7 +9,9 @@ controller's check order (stages, then the partial guard, then the ploidy audit,
 
 from __future__ import annotations
 
+import contextlib
 import signal
+from collections.abc import Iterator
 
 import pytest
 
@@ -32,6 +34,7 @@ from tests.gnomad_recount_fixtures import (
     HARD,
     fixture_stage,
     indexed_vcf,
+    record,
     requires_native,
     vcf_with,
 )
@@ -154,19 +157,57 @@ def test_index_and_header_contigs(tmp_path):
     assert header_contig_lengths(vcf) == dict(GRCH38_LENGTHS)
 
 
-def test_an_audit_that_dies_before_opening_its_fifo_fails_without_hanging(tmp_path, monkeypatch):
-    # tee blocks opening a FIFO nobody reads; the pipeline stops the stages still running and names [audit].
-    monkeypatch.setattr(native, "_AUDIT", ("bcftools", "+no-such-plugin"))
-    vcf = _windows(tmp_path)
+@contextlib.contextmanager
+def _within(seconds: int) -> Iterator[None]:
+    """Raise ``TimeoutError`` in the block after ``seconds``, so a hung pipeline fails the test."""
 
     def hung(signum, frame):
         raise TimeoutError("the native pipeline hung")
 
     previous = signal.signal(signal.SIGALRM, hung)
-    signal.alarm(60)
+    signal.alarm(seconds)
     try:
-        with pytest.raises(RecountError, match=r"\[audit\]"):
-            native_bin(vcf, BinRef("chr1", 0), fixture_stage(), tmp_path / "w")
+        yield
     finally:
         signal.alarm(0)
         signal.signal(signal.SIGALRM, previous)
+
+
+def test_tee_feeds_its_readers_through_anonymous_pipes_not_named_fifos(tmp_path, monkeypatch):
+    # On macOS a named FIFO's reader at times stayed blocked in read() after tee, its only writer, had exited
+    # (15 of 12,000 counts, always [guard]), so the count never ended. Anonymous pipes do not do that.
+    monkeypatch.setattr(native.os, "mkfifo", lambda *args, **kwargs: pytest.fail("made a named FIFO"))
+    vcf, ref = _windows(tmp_path), BinRef("chr1", 0)
+    with _within(60):
+        counted = native_bin(vcf, ref, fixture_stage(), tmp_path / "n")
+    assert (counted.sites, counted.tally) == query_bin(vcf, ref, fixture_stage(), tmp_path / "q")
+
+
+@pytest.mark.parametrize("records", [0, 4_000], ids=["stream-fits-a-pipe", "tee-blocks-on-a-full-pipe"])
+@pytest.mark.parametrize(
+    ("name", "value", "reader"),
+    [("_AUDIT", ("bcftools", "+no-such-plugin"), "audit"), ("PARTIAL_GENOTYPE", "GT~", "guard")],
+)
+def test_a_tee_reader_that_dies_is_the_stage_named(tmp_path, monkeypatch, records, name, value, reader):
+    # 4,000 records make a stream larger than a pipe buffer, so tee blocks writing to the dead reader's pipe
+    # (this side holds its read end, so tee gets no SIGPIPE): the stages still running are stopped, and the
+    # reader is named, not [c] reading a stream cut short.
+    monkeypatch.setattr(native, name, value)
+    lines = [record("chr1", 1_000 + i, "A", "G") for i in range(records)]
+    vcf = str(indexed_vcf(tmp_path, vcf_with(lines))) if records else _windows(tmp_path)
+    with _within(60), pytest.raises(RecountError, match=rf"chr1:1-999999: \[{reader}\]"):
+        native_bin(vcf, BinRef("chr1", 0), fixture_stage(), tmp_path / "w")
+
+
+def test_a_tee_reader_whose_input_never_ends_fails_instead_of_hanging(tmp_path, monkeypatch):
+    monkeypatch.setattr(native, "_READER_GRACE_SECONDS", 0.2)
+    pipeline = native._Pipeline(tmp_path, "native")
+    try:
+        pipeline.start("tee", ["true"])
+        pipeline.start("guard", ["sleep", "60"])
+        stalled = r"chr1:1-999999: \[guard\] still running .* its input never ended"
+        with _within(30), pytest.raises(RecountError, match=stalled):
+            pipeline.wait(("guard",), where="chr1:1-999999")
+    finally:
+        pipeline.close()
+    assert pipeline.procs["guard"].returncode == -signal.SIGKILL and pipeline.procs["tee"].returncode == 0

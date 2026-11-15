@@ -126,6 +126,9 @@ jobs:
     # Skipped only when `changes` answered exactly "false"; if it failed, the tests run.
     if: ${{ !cancelled() && needs.changes.outputs.python != 'false' }}
     runs-on: ubuntu-latest
+    # The job takes 12-25 minutes (Nov 2026). A hung test, such as a native pipeline stage waiting on input
+    # that never ends, fails the job here instead of running to GitHub's six-hour default.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
