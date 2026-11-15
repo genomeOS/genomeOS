@@ -256,10 +256,12 @@ def _cli(root: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """``main``'s arguments for release ``EPOCH`` of ``catalog_tree``, whose tables are built here.
 
     ``main`` always builds the catalog (both passes), so the tree needs its tables and a parity file. It
-    also publishes ``RAW_HARVESTS``, which this tree does not hold: the harvests have tests of their own.
+    also publishes ``RAW_HARVESTS`` and ``EXTERNAL_CACHES``, which this tree does not hold: the harvests
+    and the caches have tests of their own.
     """
     monkeypatch.setattr(build, "RELEASED_WITHOUT_INPUT", FIXTURE_WITHOUT_INPUT)
     monkeypatch.setattr(build, "RAW_HARVESTS", ())
+    monkeypatch.setattr(build, "EXTERNAL_CACHES", ())
     build_catalog_tables(root)
     out = root / "releases" / f"{EPOCH}.json"
     return ["--data", str(root / "data"), "--release", EPOCH, "--out", str(out), "--no-git"]
@@ -280,6 +282,18 @@ def test_cli_writes_once_and_refuses_to_replace_a_different_release(
     _write(catalog_tree / "data", "store/INVENTORY.json", b'{"changed": true}')
     assert build.main(arguments) == 1
     assert out.read_bytes() == written
+
+
+def test_cli_refuses_a_tree_without_the_served_caches_before_writing(
+    catalog_tree: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``main`` publishes the caches the Atlas serves (step 1.8): a tree without them writes no release."""
+    assert build.EXTERNAL_CACHES is rh.EXTERNAL_CACHES
+    arguments = _cli(catalog_tree, monkeypatch)
+    monkeypatch.setattr(build, "EXTERNAL_CACHES", rh.EXTERNAL_CACHES)
+    assert build.main(arguments) == 1
+    assert "the Atlas serves this cache, but the release lacks it" in capsys.readouterr().err
+    assert not (catalog_tree / "releases" / f"{EPOCH}.json").exists()
 
 
 def test_cli_reuses_keys_from_earlier_committed_releases(
@@ -384,9 +398,11 @@ def test_harvests_and_caches_carry_their_sources(tree: Path) -> None:
         _harvest(tree, "afnd", "2026-08", {"afnd_frequencies.tsv": b"population\tallele\n"}),
         _harvest(tree, "worldpop", "2020", {"ppp_2020_1km_Aggregated.tif": b"II*\x00 stand-in"}),
     ]
-    for path, source in CACHES.items():
-        _write(tree, path, json.dumps({"source": source, "record": {}}).encode())
-    objects = _paths(_build(tree, raw_harvests=harvests))
+    documents = {path: {"source": source, "record": {}} for path, source in CACHES.items()}
+    for path, document in documents.items():
+        _write(tree, path, json.dumps(document).encode())
+    caches = tuple(sorted((path, rh.cache_sha256(document)) for path, document in documents.items()))
+    objects = _paths(_build(tree, raw_harvests=harvests, external_caches=caches))
     assert objects["raw/afnd/2026-08/afnd_frequencies.tsv"]["sources"] == ["afnd"]
     raster = objects["raw/worldpop/2020/ppp_2020_1km_Aggregated.tif"]
     assert (raster["media_type"], raster["sources"]) == ("image/tiff", ["worldpop"])
@@ -396,7 +412,7 @@ def test_harvests_and_caches_carry_their_sources(tree: Path) -> None:
     }
     _write(tree, "store/external/other/x.json", b"{}")
     with pytest.raises(dr.DataReleaseError, match="store/external/other/x.json: no reviewed source rule"):
-        _build(tree, raw_harvests=harvests)
+        _build(tree, raw_harvests=harvests, external_caches=caches)
 
 
 def test_a_raw_file_no_harvest_lists_stays_local_or_is_refused(tree: Path) -> None:
@@ -421,6 +437,28 @@ def test_a_cache_with_a_non_commercial_field_is_refused_by_the_build(tree: Path)
     _write(tree, "store/external/gnomad/x.json", json.dumps({"record": {"spliceai": 0.1}}).encode())
     with pytest.raises(dr.DataReleaseError, match="split out spliceai before publishing"):
         _build(tree)
+
+
+def test_a_release_carries_the_caches_the_atlas_serves_with_their_served_content(tree: Path) -> None:
+    """The caches are the source caches the Atlas web export read (step 1.8), as the fetcher writes them.
+    A missing one, or another fetch of one, fails the build before any release file is written."""
+    served = ROOT / "website/public/data/atlas"
+    with pytest.raises(dr.DataReleaseError, match="the Atlas serves this cache, but the release lacks it"):
+        _build(tree, external_caches=rh.EXTERNAL_CACHES)
+    documents = {
+        path: json.loads((served / path.removeprefix("store/")).read_text(encoding="utf-8"))
+        for path, _ in rh.EXTERNAL_CACHES
+    }
+    for path, document in documents.items():  # as scripts/fetch_external_variant_info.py writes a cache
+        _write(tree, path, (json.dumps(document, indent=2, sort_keys=True) + "\n").encode())
+    objects = _paths(_build(tree, external_caches=rh.EXTERNAL_CACHES))
+    assert {path: objects[path]["sources"] for path in documents} == {
+        path: [path.split("/")[2]] for path in documents
+    }
+    gnomad = "store/external/gnomad/chr11-5227002-t-a.json"
+    _write(tree, gnomad, json.dumps({**documents[gnomad], "schema_version": 1}).encode())
+    with pytest.raises(dr.DataReleaseError, match=f"{gnomad}: its content's sha256 .* the Atlas serves"):
+        _build(tree, external_caches=rh.EXTERNAL_CACHES)
 
 
 def test_the_gnomad_hgdp_1kg_terms_are_recorded() -> None:

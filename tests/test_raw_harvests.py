@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -158,3 +159,93 @@ def test_an_external_cache_outside_the_reviewed_sources_is_refused() -> None:
     assert rh.EXTERNAL_CACHE_SOURCES == ("alphagenome", "dbsnp", "gnomad")
     with pytest.raises(dr.DataReleaseError, match="no reviewed external cache source"):
         rh.check_external_cache("store/external/other/x.json", {})
+
+
+# --- the caches a release carries: the ones the Atlas serves, with the served content (step 1.8) ---
+
+#: The served web data: ``catalog.json`` (the /app/ page inlines it) and the cache copies it names.
+SERVED = ROOT / "website/public/data/atlas"
+GNOMAD_CACHE = "store/external/gnomad/chr11-5227002-t-a.json"
+DBSNP_CACHE = "store/external/dbsnp/rs334.json"
+
+
+def _served(path: str) -> dict:
+    """The served copy of the cache at ``path`` (``store/<cache_url>``)."""
+    return json.loads((SERVED / path.removeprefix("store/")).read_text(encoding="utf-8"))
+
+
+def _as_fetched(document: object) -> bytes:
+    """A cache as ``scripts/fetch_external_variant_info.py`` writes it: two-space indent, sorted keys."""
+    return (json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+
+def test_the_real_cache_pins_are_the_caches_the_atlas_serves() -> None:
+    allowlist = json.loads((ROOT / "website/src/atlas/public-artifacts.json").read_text(encoding="utf-8"))
+    named = {
+        f"store/{resource['cache_file']}"
+        for artifact in allowlist["artifacts"]
+        for resource in artifact.get("external_resources", [])
+    }
+    web = json.loads((SERVED / "catalog.json").read_text(encoding="utf-8"))
+    served = {
+        f"store/{resource['cache_url']}": resource["cache_sha256"]
+        for artifact in web["artifacts"]
+        for resource in artifact.get("external_resources", [])
+    }
+    assert [path for path, _ in rh.EXTERNAL_CACHES] == sorted(served)
+    assert dict(rh.EXTERNAL_CACHES) == served
+    assert set(served) == named
+    assert {path.split("/")[2] for path in served} == set(rh.EXTERNAL_CACHE_SOURCES)
+    for path, sha256 in rh.EXTERNAL_CACHES:
+        served_bytes = (SERVED / path.removeprefix("store/")).read_bytes()
+        assert hashlib.sha256(served_bytes).hexdigest() == sha256, path
+        assert rh.cache_sha256(json.loads(served_bytes)) == sha256, path
+    assert _served(GNOMAD_CACHE)["schema_version"] == 2  # the only gnomAD schema export_atlas_web.py serves
+
+
+def test_the_inventory_dbsnp_cache_is_the_served_one_and_its_gnomad_cache_is_not() -> None:
+    """Why the pins are the served caches, not the Hugging Face copies (step 1.8). The publishing machine's
+    INVENTORY (2026-09-07, the files HF holds at ``hf_revision``) hashed its caches as the fetcher writes
+    them: dbSNP's is the served content, gnomAD's predates the schema-2 payload the Atlas serves, and it
+    held no AlphaGenome cache."""
+    inventory = json.loads((ROOT / "data/store/INVENTORY.json").read_text(encoding="utf-8"))
+    recorded = {item["path"]: (item["bytes"], item["sha256"]) for item in inventory["files"]}
+    dbsnp = _as_fetched(_served(DBSNP_CACHE))
+    assert recorded[f"data/{DBSNP_CACHE}"] == (len(dbsnp), hashlib.sha256(dbsnp).hexdigest())
+    gnomad = _as_fetched(_served(GNOMAD_CACHE))
+    assert recorded[f"data/{GNOMAD_CACHE}"][1] != hashlib.sha256(gnomad).hexdigest()
+    assert "data/store/external/alphagenome/chr11-5227002-t-a.json" not in recorded
+
+
+def test_a_cache_is_pinned_to_its_served_content() -> None:
+    served = _served(GNOMAD_CACHE)
+    pins = ((GNOMAD_CACHE, rh.cache_sha256(served)),)
+    rh.check_external_caches({GNOMAD_CACHE: json.loads(_as_fetched(served))}, pins)
+    refused = f"{GNOMAD_CACHE}: its content's sha256 [0-9a-f]{{64}} is not the {pins[0][1]} the Atlas serves"
+    with pytest.raises(dr.DataReleaseError, match=f"{refused}.*schema_version 1"):
+        rh.check_external_caches({GNOMAD_CACHE: {**served, "schema_version": 1}}, pins)
+
+
+def test_a_served_cache_the_release_lacks_is_refused() -> None:
+    with pytest.raises(
+        dr.DataReleaseError, match=f"{GNOMAD_CACHE}: the Atlas serves this cache, but the release lacks it"
+    ):
+        rh.check_external_caches(
+            {DBSNP_CACHE: {}}, ((DBSNP_CACHE, rh.cache_sha256({})), (GNOMAD_CACHE, SHA_A))
+        )
+
+
+def test_a_cache_the_atlas_does_not_serve_is_refused() -> None:
+    unserved = "store/external/gnomad/x.json"
+    with pytest.raises(dr.DataReleaseError, match=f"{unserved}: the Atlas serves no such cache"):
+        rh.check_external_caches({unserved: {"record": {}}}, ())
+
+
+def test_a_cache_pinned_twice_is_refused() -> None:
+    with pytest.raises(dr.DataReleaseError, match=f"{GNOMAD_CACHE}: pinned twice"):
+        rh.check_external_caches({}, ((GNOMAD_CACHE, SHA_A), (GNOMAD_CACHE, SHA_B)))
+
+
+def test_a_non_commercial_field_is_refused_before_the_served_content_is_compared() -> None:
+    with pytest.raises(dr.DataReleaseError, match="split out spliceai before publishing"):
+        rh.check_external_caches({GNOMAD_CACHE: {"record": {"spliceai": 0.1}}}, ((GNOMAD_CACHE, SHA_A),))

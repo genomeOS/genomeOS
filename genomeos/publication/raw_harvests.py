@@ -9,8 +9,11 @@ so a refetch that gives other bytes is a new ``harvest_version``. ``raw/afnd_pop
 this layout and stays its own include root (``LEGACY_RAW``).
 
 An external cache (``store/external/<source>/``) is a normalized API snapshot the Atlas serves beside a
-variant. A cache carrying a field ``commercial_use.KNOWN_NON_COMMERCIAL_FIELDS`` names for its source is
-refused: the field is split out before publishing (R5, §4.3).
+variant. A release carries exactly the caches the Atlas serves (``EXTERNAL_CACHES``), each with the
+served content: the publishing machine's source caches, which the web export read. Another fetch of a
+cache, or one the Atlas does not serve, is refused. A cache carrying a field
+``commercial_use.KNOWN_NON_COMMERCIAL_FIELDS`` names for its source is refused too: the field is split
+out before publishing (R5, §4.3).
 
 Phase 1 builds no paid door (R5–R7, §4.2), so a harvest file over ``OPEN_OBJECT_MAX_BYTES`` is refused.
 Every violation is a hard error (v1 §12). No I/O and no network.
@@ -18,6 +21,8 @@ Every violation is a hard error (v1 §12). No I/O and no network.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -248,6 +253,68 @@ def check_external_cache(path: str, document: object) -> None:
         raise dr.DataReleaseError(
             f"{path}: {source} publishes {field!r} under a non-commercial licence; split out {field} "
             "before publishing (R5, design §4.3)"
+        )
+
+
+#: The caches a release carries: each ``cache_file`` ``website/src/atlas/public-artifacts.json`` names,
+#: under ``store/``, pinned to the ``cache_sha256`` the served web catalog
+#: (``website/public/data/atlas/catalog.json``) records for it. Sorted by path. The Hugging Face copies at
+#: ``hf_revision`` are not these: HF holds no AlphaGenome cache, and its gnomAD cache (the 2026-09-07
+#: INVENTORY's) predates the schema-2 payload the Atlas serves.
+EXTERNAL_CACHES: tuple[tuple[str, str], ...] = (
+    (
+        "store/external/alphagenome/chr11-5227002-t-a.json",
+        "dda009906a7d6c9835f75858cbb960d81b0ae0b008a874f0fb46f7583d63e497",
+    ),
+    ("store/external/dbsnp/rs334.json", "aa4cc1cfb000edd002c982a570f19658373f7f909e9eec0f7909a00025989bcb"),
+    (
+        "store/external/gnomad/chr11-5227002-t-a.json",
+        "b0a3d16a4cb622b7c768801b71fe223db51742ec890c475836ea3ca17f785fb3",
+    ),
+)
+
+
+def cache_sha256(document: object) -> str:
+    """The digest the web catalog records as a cache's ``cache_sha256``: of its canonical JSON (sorted
+    keys, no whitespace, a trailing newline), as ``scripts/export_atlas_web.py`` serves it. A cache's own
+    indentation does not change it."""
+    text = json.dumps(document, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def check_external_caches(documents: Mapping[str, object], caches: Sequence[tuple[str, str]]) -> None:
+    """The release's caches are exactly ``caches``, each with the content the Atlas serves.
+
+    ``documents`` maps each ``store/external/…`` path in the release to its parsed JSON; ``caches`` holds
+    ``(path, cache_sha256)`` pairs (``EXTERNAL_CACHES``). Each cache is first checked for a non-commercial
+    field (``check_external_cache``).
+    """
+    pinned: dict[str, str] = {}
+    for path, sha256 in caches:
+        if path in pinned:
+            raise dr.DataReleaseError(f"{path}: pinned twice in the external caches; pin each cache once")
+        pinned[path] = sha256
+    for path in sorted(documents):
+        document = documents[path]
+        check_external_cache(path, document)
+        if path not in pinned:
+            raise dr.DataReleaseError(
+                f"{path}: the Atlas serves no such cache; list it in EXTERNAL_CACHES with the cache_sha256 "
+                "the served web catalog records, or keep it outside data/store/external/"
+            )
+        digest = cache_sha256(document)
+        if digest != pinned[path]:
+            schema = document.get("schema_version") if isinstance(document, Mapping) else None
+            raise dr.DataReleaseError(
+                f"{path}: its content's sha256 {digest} is not the {pinned[path]} the Atlas serves "
+                f"(cache_sha256 in website/public/data/atlas/catalog.json); this cache has schema_version "
+                f"{schema!r}. Place the source cache the Atlas web export read, not another fetch"
+            )
+    missing = sorted(set(pinned) - set(documents))
+    if missing:
+        raise dr.DataReleaseError(
+            f"{missing[0]}: the Atlas serves this cache, but the release lacks it ({len(missing)} missing); "
+            f"place the source cache the Atlas web export read at data/{missing[0]} first"
         )
 
 

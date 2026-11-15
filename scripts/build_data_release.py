@@ -13,9 +13,10 @@ rebuild reports "unchanged", a different one is a hard error.
 Nothing outside ``INCLUDE`` and the reviewed raw harvests is published: fits (pickles, design §8) and
 any raw file no harvest lists stay local. A raw harvest (Atlas data platform design 2026-10-18 §2.1,
 step 1.8) is published under ``raw/<source>/<harvest_version>/`` only as a ``RAW_HARVESTS`` entry, every
-file pinned by sha256; an external cache under ``store/external/<source>/`` only without a known
-non-commercial field (R5, §4.3). A pickle or an object-dtype ``.npy`` inside an include root is
-refused, and so is a path no rule claims; nothing is ever given a source by default.
+file pinned by sha256. ``store/external/<source>/`` holds exactly the caches the Atlas serves
+(``EXTERNAL_CACHES``), each with the served content and without a known non-commercial field (R5, §4.3);
+a missing one fails the build. A pickle or an object-dtype ``.npy`` inside an include root is refused,
+and so is a path no rule claims; nothing is ever given a source by default.
 
 Inputs travel with outputs (#45): every artifact carries ``observations.parquet``, the table its fit
 consumed, recorded in its ``manifest.json``. An artifact without it, or whose record does not match the
@@ -85,11 +86,14 @@ INCLUDE = (
 )
 #: Include roots a tree may lack until a release publishes under them (Atlas data platform design
 #: 2026-10-18 §2.3): the v1 tables and their catalog arrive with release 1, the external caches with
-#: step 1.8. Once published, each is required.
+#: step 1.8. Once published, each is required. ``main`` requires every cache in ``EXTERNAL_CACHES``.
 OPTIONAL_ROOTS: tuple[str, ...] = ("catalog", "store/external", "tables")
 #: The reviewed raw harvests ``main`` publishes, each root required (step 1.8). A test of ``main`` on a
 #: tree that holds none sets this to ``()``.
 RAW_HARVESTS: tuple[rh.RawHarvest, ...] = rh.RAW_HARVESTS
+#: The caches the Atlas serves, which ``main`` publishes with their served content (step 1.8). A test of
+#: ``main`` on a tree that holds none sets this to ``()``.
+EXTERNAL_CACHES: tuple[tuple[str, str], ...] = rh.EXTERNAL_CACHES
 
 #: The 994 MAP HbS surveys the 2026-09-16 golden-test-1 run fit, as that run serialized them (#45).
 PARITY_INPUT = "hbs-piel-parity-2026-09-16"
@@ -340,9 +344,10 @@ def collect(
     published: Collection[str] = (),
     roots: Sequence[str] = INCLUDE,
     raw_harvests: Sequence[rh.RawHarvest] = (),
+    external_caches: Sequence[tuple[str, str]] = (),
 ) -> list[dr.FileRecord]:
-    """Every included file, hashed and given its sources; a raw file must be a pinned harvest file and an
-    external cache must hold no known non-commercial field (step 1.8)."""
+    """Every included file, hashed and given its sources; a raw file must be a pinned harvest file, and
+    the external caches must be exactly ``external_caches`` with their served content (step 1.8)."""
     records: list[dr.FileRecord] = []
     for relative in included_files(data_root, published=published, roots=roots, raw_harvests=raw_harvests):
         dr.media_type_for(relative)  # refuses pickles before anything is hashed
@@ -354,10 +359,12 @@ def collect(
             dr.FileRecord(relative, path.stat().st_size, sha256_of(path), relative in tracked, sources)
         )
     rh.check_raw_harvests(records, raw_harvests)
-    for record in records:
-        if record.path.startswith(rh.EXTERNAL_PREFIX):
-            document = json.loads((data_root / record.path).read_text(encoding="utf-8"))
-            rh.check_external_cache(record.path, document)
+    caches = {
+        record.path: json.loads((data_root / record.path).read_text(encoding="utf-8"))
+        for record in records
+        if record.path.startswith(rh.EXTERNAL_PREFIX)
+    }
+    rh.check_external_caches(caches, external_caches)
     return records
 
 
@@ -415,16 +422,25 @@ def build(
     previous: Sequence[Mapping[str, Any]] = (),
     withdrawn: Sequence[dr.Withdrawal] = (),
     raw_harvests: Sequence[rh.RawHarvest] = (),
+    external_caches: Sequence[tuple[str, str]] = (),
     catalog: bool = False,
 ) -> dict[str, Any]:
     """The release manifest of ``data_root``; with ``catalog``, the two passes of the module docstring.
 
     ``withdrawn`` is ``WITHDRAWN.json``'s list, which the release's ``meta.withdrawn`` must restate.
-    ``raw_harvests`` are published beside the include roots, each root required (step 1.8).
+    ``raw_harvests`` are published beside the include roots, each root required, and ``store/external/``
+    holds exactly ``external_caches`` (step 1.8).
     """
     published = {item.path for manifest in previous for item in dr.validate_manifest(manifest)}
     roots = tuple(root for root in INCLUDE if root != CATALOG_ROOT) if catalog else INCLUDE
-    records = collect(data_root, tracked, published=published, roots=roots, raw_harvests=raw_harvests)
+    records = collect(
+        data_root,
+        tracked,
+        published=published,
+        roots=roots,
+        raw_harvests=raw_harvests,
+        external_caches=external_caches,
+    )
     check_inputs(data_root, records, previous, released_without_input)
     manifest = _manifest(data_root, records, release, previous)
     if not catalog:
@@ -573,6 +589,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             previous=previous,
             withdrawn=withdrawn_entries(out.parent),
             raw_harvests=RAW_HARVESTS,
+            external_caches=EXTERNAL_CACHES,
             catalog=True,
         )
     except (dr.DataReleaseError, OSError, KeyError, ValueError, subprocess.CalledProcessError) as error:

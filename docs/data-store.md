@@ -39,7 +39,7 @@ data/
                   cells.parquet         the citable per-cell surface (§5, §6)
                   observations.parquet  the exact observation table its fit consumed (#45)
                   manifest.json         what was published, and under what assumptions; written last
-    external/<source>/                  gnomAD, dbSNP and AlphaGenome snapshots the Atlas serves, no non-commercial field; in the data store
+    external/<source>/                  the gnomAD, dbSNP and AlphaGenome caches the Atlas serves, pinned to their served content (raw_harvests.EXTERNAL_CACHES), no non-commercial field; in the data store
     INVENTORY.json                      checksums of what was on the publishing machine
   tables/v1/                            derived query tables (scripts/build_tables.py); in the data store
   catalog/catalog.sql                   committed: each release's catalog views (see "Query a release")
