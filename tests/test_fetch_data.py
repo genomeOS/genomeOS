@@ -275,6 +275,27 @@ def test_released_artifact_dirs_name_their_first_release(store: dict) -> None:
     assert fd.released_artifact_dirs(store["releases"]) == {"x__v3__map-2026-08": RELEASE}
 
 
+def test_released_dirs_maps_each_directory_to_its_first_release(tmp_path: Path) -> None:
+    """A directory keeps the release that first published it, whichever later release lists it again."""
+    served, releases = tmp_path / "bucket", tmp_path / "releases"
+    releases.mkdir()
+    model = "store/models/a__v4__map-x"
+    first = _publish(served, releases, "2026-12-01", {**FILES, f"{model}/manifest.json": b'{"artifact": 1}'})
+    _publish(
+        served,
+        releases,
+        "2026-12-02",
+        {**FILES, f"{model}/manifest.json": b'{"artifact": 1}', "store/models/README.md": b"not a directory"},
+        [first],
+    )
+
+    assert fd.released_dirs("store/models/", releases) == {"a__v4__map-x": "2026-12-01"}
+    assert fd.released_dirs(dr.ARTIFACT_PREFIX, releases) == {"x__v3__map-2026-08": "2026-12-01"}
+    assert fd.released_dirs(dr.ARTIFACT_PREFIX, releases) == fd.released_artifact_dirs(releases)
+    with pytest.raises(ValueError, match="end with '/'"):
+        fd.released_dirs("store/models", releases)
+
+
 def test_the_withdrawn_list_beside_the_manifests_is_not_a_release(store: dict) -> None:
     """WITHDRAWN.json sits in releases/ but is never read as a manifest (platform design §2.9)."""
     releases = store["releases"]

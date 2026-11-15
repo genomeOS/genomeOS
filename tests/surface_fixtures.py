@@ -3,19 +3,26 @@
 ``tests/test_surface_fit.py``, ``tests/test_surface_model.py``, ``tests/test_surface_mask.py`` and
 ``tests/test_crossval.py`` fit or build from the same frame, so it lives here rather than in a test
 module the others import. ``jittered_point`` is the point at which two surface graphs' log densities
-are compared.
+are compared. ``published_artifact`` publishes a fit as the artifact a model export is bound to
+(``tests/test_model_export.py``).
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import h3
 import numpy as np
 import pandas as pd
 import pymc as pm
 from pymc.initial_point import make_initial_point_fn
 
 from genomeos.observations.schema import OBSERVATIONS_SCHEMA
+from genomeos.surfaces.artifacts import ArtifactManifest, cell_table, publish
 from genomeos.surfaces.config import SEED
-from genomeos.surfaces.fit import FitConfig
+from genomeos.surfaces.fit import FitConfig, SurfaceFit
+from genomeos.surfaces.fit_input import observations_record
+from genomeos.surfaces.prior import PRIOR_DRAWS, PRIOR_NORMALIZATION
 
 # Enough draws to actually converge: fit_surface now refuses a fit that has not mixed (§12),
 # so a too-short chain is a failure rather than a fast approximation. numpyro keeps it quick.
@@ -82,3 +89,57 @@ def jittered_point(model: pm.Model, seed: int = SEED) -> dict[str, np.ndarray]:
     variable moves each one off its support point, and the seed keeps the point deterministic (#471).
     """
     return make_initial_point_fn(model=model, jitter_rvs=set(model.free_RVs), return_transformed=True)(seed)
+
+
+#: `published_artifact`'s key and grid: H3 resolution 3, the coarsest an artifact may be written at.
+MODEL_VERSION = "v9"
+DATA_VERSION = "map-test"
+RESOLUTION = 3
+
+
+def published_artifact(
+    fit: SurfaceFit,
+    root: Path,
+    *,
+    measurement: str = "allele_frequency",
+    observations: pd.DataFrame | None = None,
+) -> Path:
+    """Publish `fit` under `root` as `<variant>__v9__map-test`, through `surfaces.artifacts.publish`.
+
+    The cells are the 91 resolution-3 cells within five rings of (0, 0), predicted at their centres as
+    `scripts/publish_artifacts.py` does. The input is the fit's own unless `observations` names another
+    table, which is how a test publishes an artifact that is not the fit's.
+    """
+    consumed = fit.observations if observations is None else observations
+    cells = sorted(h3.grid_disk(h3.latlng_to_cell(0.0, 0.0, RESOLUTION), 5))
+    centres = np.array([h3.cell_to_latlng(cell) for cell in cells], dtype=float)
+    frame = cell_table(
+        fit,
+        h3_index=cells,
+        lat=centres[:, 0],
+        lon=centres[:, 1],
+        observations=consumed,
+        variant_id=fit.variant_id,
+        model_version=MODEL_VERSION,
+        data_version=DATA_VERSION,
+    )
+    manifest = ArtifactManifest(
+        variant_id=fit.variant_id,
+        model_version=MODEL_VERSION,
+        data_version=DATA_VERSION,
+        resolution=RESOLUTION,
+        n_cells=len(frame),
+        correlation_range_km=float(fit.correlation_range_km),
+        prior_normalization=PRIOR_NORMALIZATION,
+        prior_draws=PRIOR_DRAWS,
+        prior_seed=fit.config.seed,
+        likelihood=fit.config.likelihood,
+        lengthscale_sigma=float(fit.config.lengthscale_sigma),
+        n_observations=len(consumed),
+        support_counts={str(s): int((frame["support"] == s).sum()) for s in sorted(set(frame["support"]))},
+        target_grid_source="test-grid",
+        target_grid_version="test",
+        measurement=measurement,
+        observations=observations_record(consumed, measurement=measurement),
+    )
+    return publish(frame, root, manifest=manifest, observations=consumed)
