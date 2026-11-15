@@ -88,6 +88,16 @@ not padding: §4's defence against a persuasive-but-unfounded cline is that a co
 measured from inferred without going back to the model, and the distance is carried so a stricter
 threshold can be applied without refitting.
 
+`publish()` writes **artifact format 4** (Atlas data platform design 2026-10-18 §2.5, step 1.11).
+Each row also carries `h3_r0`, its cell's resolution-0 ancestor, and `h3_parent_r3`, its
+resolution-3 parent (a resolution-3 cell is its own), the columns `inferred.cells_by_cell` carries
+(§2.4). The file is zstd, in row groups of 8,192 rows that a range read can skip. `publish()`
+recomputes both parents from `h3_index` and, before it creates the directory, refuses parents that
+differ, a cell off the manifest's resolution, and a resolution coarser than 3. `read()` refuses a
+format-4 `cells.parquet` whose parents, compression or row groups are not these. Formats 1 to 3 stay
+readable as they were written, and nothing is rewritten. `inferred.cells_by_cell` v1 holds formats 1
+and 2 only: formats 3 and 4 store `prior_frequency_sd` per cell and wait for its contract 1.1.
+
 ## Inputs travel with outputs
 
 A surface can only be checked against the rows it was fitted to, and an input that lives anywhere
@@ -178,8 +188,28 @@ canonical, citable JSON (surface, observations and manifest per artifact, plus `
 an export directory. When an artifact carries `observations.parquet` (#45), the exporter reads it
 back and refuses rows reloaded from the source export that differ from it on any column the
 observations JSON uses, and the manifest it serves drops `observations.path`, which names a
-data-store file the bucket does not hold. `export_atlas_web.py` output is an intermediate; the
-site build fails until `encode_atlas_web.py` has run on it and the result is published:
+data-store file the bucket does not hold.
+
+Such an artifact serves its observations JSON as a projection of that input (web format 1.1,
+Atlas data platform design 2026-10-18 §2.8, step 1.10): the rows are the input itself, in the fit's
+order, each adding `measurement`, `population_id`, `rsid` and `source`. Pass the registry folder it
+was fitted under, `--registry data/tables/v1/reference/populations/<folder>`. The export stops before
+writing the artifact when there is no registry, when its `registry_version` is not the artifact's,
+when no committed release holds the input under the sha256 its manifest records, when the input
+counts carriers and the web artifact does not (or the reverse), or when a row's `population_id` is
+not in the registry. It prints `projected observations: <n>`. Pass
+`--published-catalog website/public/data/atlas/catalog.json` to every re-export: a surface or
+observations JSON the deployed catalog serves is never regenerated with other bytes, and the export
+stops before writing one.
+
+The web reads artifact formats 1 to 3 (`WEB_ARTIFACT_FORMATS` in
+`genomeos/publication/web_format.py`, the `artifact_format` literals of
+`website/src/atlas/contracts.ts`). A new value of that closed set is a web format MAJOR
+([`web-data-format.md`](web-data-format.md)), so the exporter refuses a format-4 artifact before it
+writes anything.
+
+`export_atlas_web.py` output is an intermediate; the site build fails until `encode_atlas_web.py`
+has run on it and the result is published:
 
 ```bash
 python scripts/encode_atlas_web.py --in <export-dir> --out data/atlas-web --with-downloads

@@ -426,14 +426,60 @@ export const observationSchema = z
     source_url: z.url(),
     study_id: nonEmpty,
     study_label: nonEmpty,
+    // Web format 1.1 (Atlas data platform design 2026-10-18 §2.8, §11 step 1.10): a row projected
+    // from the artifact's fit input and its pinned registry adds these four keys. A row's
+    // measurement is that of its counts; a web phenotype artifact can rest on allele counts.
+    measurement: z.enum(['allele_frequency', 'carrier_frequency']).optional(),
+    population_id: nonEmpty.optional(),
+    rsid: nonEmpty.nullable().optional(),
+    source: nonEmpty.optional(),
   })
   .refine(({ ac, an }) => ac <= an, 'ac must not exceed an');
 
-export const observationArtifactSchema = z.strictObject({
-  artifact: artifactIdentitySchema,
-  observations: z.array(observationSchema),
-  schema_version: z.literal(1),
-});
+const PROJECTION_KEYS = [
+  'measurement',
+  'population_id',
+  'rsid',
+  'source',
+] as const;
+
+export const observationArtifactSchema = z
+  .strictObject({
+    artifact: artifactIdentitySchema,
+    observations: z.array(observationSchema),
+    schema_version: z.literal(1),
+  })
+  .superRefine(({ artifact, observations }, context) => {
+    // An object is either a projection or legacy, never a mix (rsid null counts as present).
+    const carried = (row: Observation): number =>
+      PROJECTION_KEYS.filter((key) => row[key] !== undefined).length;
+    const partial = observations.some((row) => carried(row) > 0)
+      ? observations.findIndex((row) => carried(row) < PROJECTION_KEYS.length)
+      : -1;
+    if (partial >= 0) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'a projected observations object carries population_id, rsid, source and measurement on every row',
+        path: ['observations', partial],
+      });
+    }
+    // Allele and carrier counts are never conflated; legacy rows carry no row measurement.
+    const carrier = artifact.measurement === 'carrier_frequency';
+    const mismatch = observations.findIndex(
+      ({ measurement }) =>
+        measurement !== undefined &&
+        (measurement === 'carrier_frequency') !== carrier,
+    );
+    if (mismatch >= 0) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'observation rows count carrier_frequency exactly when the artifact measurement is carrier_frequency',
+        path: ['observations', mismatch, 'measurement'],
+      });
+    }
+  });
 
 const externalFrequencySchema = z.strictObject({
   ac: z.int().nonnegative(),

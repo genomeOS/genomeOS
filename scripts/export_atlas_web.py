@@ -4,6 +4,8 @@
 This is a publication boundary, not another ingestion path. It reuses the validated MAP source
 adapters, refuses incomplete scientific metadata, and emits only artifact identities named in the
 repository-owned allowlist. The browser receives no fit objects, credentials, or unapproved data.
+An artifact released with its fit input serves its observations as a projection of that input and its
+pinned registry (web format 1.1; ``genomeos.publication.web_observations``).
 """
 
 from __future__ import annotations
@@ -29,7 +31,9 @@ from genomeos.observations.sources import (  # noqa: E402
     map_g6pd,
     map_surveys,
 )
+from genomeos.publication import data_release as dr  # noqa: E402
 from genomeos.publication import web_inputs  # noqa: E402
+from genomeos.publication import web_observations as wo  # noqa: E402
 from genomeos.publication.atlas_discovery import (  # noqa: E402
     validate_artifact_discovery,
     validate_discovery_groups,
@@ -40,13 +44,18 @@ from genomeos.publication.commercial_use import (  # noqa: E402
 from genomeos.publication.commercial_use import (  # noqa: E402
     validate as validate_commercial_use,
 )
-from genomeos.publication.web_format import WEB_FORMAT_VERSION  # noqa: E402
+from genomeos.publication.web_format import (  # noqa: E402
+    WEB_FORMAT_VERSION,
+    require_web_artifact_format,
+)
 from genomeos.registry.sources import afnd as afnd_registry  # noqa: E402
 from genomeos.registry.variants import load as load_variant_registry  # noqa: E402
 from genomeos.registry.variants import normalized_identity  # noqa: E402
 from genomeos.surfaces.artifacts import read as read_surface_artifact  # noqa: E402
 from genomeos.surfaces.artifacts import read_observations  # noqa: E402
+from genomeos.tables import reference  # noqa: E402
 from scripts import encode_natural_earth_borders as natural_earth_borders  # noqa: E402
+from scripts import fetch_data  # noqa: E402
 
 SCHEMA_VERSION = 1
 
@@ -127,6 +136,10 @@ def _canonical_bytes(value: Any) -> bytes:
     return (json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n").encode()
 
 
+def _sha256(value: Any) -> str:
+    return hashlib.sha256(_canonical_bytes(value)).hexdigest()
+
+
 def _write_json(path: Path, value: Any, *, refuse_conflict: bool = False) -> str:
     content = _canonical_bytes(value)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -136,21 +149,15 @@ def _write_json(path: Path, value: Any, *, refuse_conflict: bool = False) -> str
     return hashlib.sha256(content).hexdigest()
 
 
-def _json_value(value: Any) -> Any:
-    if pd.isna(value):
-        return None
-    if hasattr(value, "item"):
-        return value.item()
-    return value
-
-
 def _validated_surface(
     artifact_dir: Path,
     expected_variant_id: str,
 ) -> tuple[dict[str, Any], pd.DataFrame]:
+    # The web's formats first: a format-4 artifact is valid in the data store, but not yet served.
+    require_web_artifact_format(_read_json(artifact_dir / "manifest.json").get("artifact_format"))
     cells, manifest = read_surface_artifact(artifact_dir)
     _require_fields(manifest, MANIFEST_FIELDS, str(artifact_dir / "manifest.json"))
-    if int(manifest["artifact_format"]) in {2, 3}:
+    if int(manifest["artifact_format"]) >= 2:
         _require_fields(
             manifest,
             GRID_MANIFEST_FIELDS,
@@ -322,70 +329,6 @@ def _load_observations(
     return observations, evidence, source_url, prefix
 
 
-def _serialize_observations(
-    observations: pd.DataFrame,
-    evidence: pd.DataFrame,
-    *,
-    source_url: str,
-    dataset: str,
-    revision: str,
-) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for record in observations.to_dict(orient="records"):
-        source_record_id = str(record["source_record_id"])
-        if source_record_id not in evidence.index:
-            raise ValueError(f"observation {source_record_id}: missing source evidence")
-        source = evidence.loc[source_record_id]
-        population_label = source["country"]
-        citation = source["citation"]
-        study_id = record["cohort_id"]
-        study_label = source["study_label"]
-        if not isinstance(population_label, str) or not population_label.strip():
-            raise ValueError(f"observation {source_record_id}: population_label is required")
-        if not isinstance(citation, str) or not citation.strip():
-            raise ValueError(f"observation {source_record_id}: citation_text is required")
-        if not isinstance(study_id, str) or not study_id.strip():
-            raise ValueError(f"observation {source_record_id}: study_id is required")
-        if not isinstance(study_label, str) or not study_label.strip():
-            raise ValueError(f"observation {source_record_id}: study_label is required")
-        radius = _json_value(record["radius_km"])
-        if not isinstance(radius, (int, float)) or not math.isfinite(radius) or radius <= 0:
-            raise ValueError(f"observation {source_record_id}: radius_km must be positive and finite")
-        lat = float(record["lat"])
-        lon = float(record["lon"])
-        if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-            raise ValueError(f"observation {source_record_id}: invalid coordinates")
-        evidence_url = source.get("source_url", "")
-        record_url = (
-            str(evidence_url).strip()
-            if isinstance(evidence_url, str) and evidence_url.strip()
-            else f"https://huggingface.co/datasets/{dataset}/blob/{revision}/{source_url}"
-        )
-        source_locator = source.get("source_locator", f"MAP survey {source_record_id.split(':', 1)[1]}")
-        rows.append(
-            {
-                "ac": int(record["ac"]),
-                "an": int(record["an"]),
-                "assay": str(record["assay"]),
-                "citation_text": citation.strip(),
-                "cohort_id": str(record["cohort_id"]),
-                "disease_ascertainment_excluded": bool(record["disease_ascertainment_excluded"]),
-                "ingest_version": str(record["ingest_version"]),
-                "lat": lat,
-                "lon": lon,
-                "population_label": population_label.strip(),
-                "radius_km": float(radius),
-                "sampling_design": str(record["sampling_design"]),
-                "source_locator": str(source_locator),
-                "source_record_id": source_record_id,
-                "source_url": record_url,
-                "study_id": study_id.strip(),
-                "study_label": study_label.strip(),
-            }
-        )
-    return rows
-
-
 def _surface_payload(
     artifact_id: str,
     variant_metadata: Mapping[str, Any],
@@ -410,7 +353,7 @@ def _surface_payload(
         ]
     ]
     cell_rows = [
-        {key: _json_value(value) for key, value in record.items()}
+        {key: wo.json_value(value) for key, value in record.items()}
         for record in selected.to_dict(orient="records")
     ]
     identity = {
@@ -428,7 +371,7 @@ def _surface_payload(
         "resolution": int(manifest["resolution"]),
         "variant_id": str(manifest["variant_id"]),
     }
-    if int(manifest["artifact_format"]) in {2, 3}:
+    if int(manifest["artifact_format"]) >= 2:
         identity.update(
             {
                 "target_grid_source": str(manifest["target_grid_source"]),
@@ -565,8 +508,18 @@ def export_catalog(
     requested_ids: Iterable[str] | None = None,
     afnd_frequencies_tsv: Path | None = None,
     afnd_populations_tsv: Path | None = None,
+    *,
+    registry: wo.PinnedRegistry | None = None,
+    released_inputs: Mapping[str, str] | None = None,
+    published_catalog: Mapping[str, Any] | None = None,
 ) -> list[Path]:
-    """Export the requested allowlisted artifacts and return every written JSON path."""
+    """Export the requested allowlisted artifacts and return every written JSON path.
+
+    An artifact whose manifest records its fit input serves the projection of that input
+    (``wo.project_rows``) under ``registry``, the registry it was fitted under, and only if
+    ``released_inputs`` (artifact directory -> sha256) holds that input. With ``published_catalog``, a
+    JSON it serves is never written with other bytes.
+    """
     source_root = Path(source_root)
     out_dir = Path(out_dir)
     allowlist = _read_json(Path(allowlist_path))
@@ -618,6 +571,7 @@ def export_catalog(
     written: list[Path] = []
     hf_dataset = str(allowlist["hf_dataset"])
     observation_cache: dict[str, tuple[pd.DataFrame, pd.DataFrame, str, str]] = {}
+    projected = 0
 
     for artifact_id in selected_ids:
         entry = by_id[artifact_id]
@@ -663,7 +617,16 @@ def export_catalog(
             if manifest["measurement"] == "carrier_frequency":
                 consumed = afnd_carriers.as_binomial(consumed)
         observation_source = entry["observation_source"]
-        observation_rows: list[dict[str, Any]] | None = None
+        pinned = None
+        if consumed is not None and observation_source is not None:
+            pinned = wo.require_projectable(
+                artifact_name,
+                manifest,
+                web_measurement=str(variant_metadata["measurement"]),
+                registry_version=registry_version,
+                registry=registry,
+                released_inputs=released_inputs or {},
+            )
         if observation_source is not None:
             source_key = str(observation_source)
             if source_key not in observation_cache:
@@ -696,13 +659,29 @@ def export_catalog(
             hf_dataset=hf_dataset,
             hf_revision=hf_revision,
         )
+        observations_payload: dict[str, Any] | None = None
         if observation_source is not None:
-            observation_rows = _serialize_observations(
-                observations,
-                evidence,
-                source_url=raw_source_url,
-                dataset=hf_dataset,
-                revision=hf_revision,
+            where = {"source_url": raw_source_url, "dataset": hf_dataset, "revision": hf_revision}
+            if consumed is not None and pinned is not None:
+                rows = wo.project_rows(
+                    consumed, evidence, measurement=str(manifest["measurement"]), registry=pinned, **where
+                )
+                projected += 1
+            else:
+                rows = wo.serialize_rows(observations, evidence, **where)
+            observations_payload = {
+                "artifact": surface["artifact"], "observations": rows, "schema_version": SCHEMA_VERSION
+            }
+        if published_catalog is not None:
+            digests = {"surface_sha256": _sha256(surface)}
+            if observations_payload is not None:
+                digests["observations_sha256"] = _sha256(observations_payload)
+            wo.require_published_digests(
+                published_catalog,
+                variant_id=variant_id,
+                model_version=str(manifest["model_version"]),
+                data_version=str(manifest["data_version"]),
+                digests=digests,
             )
 
         surface_path = out_dir / f"{artifact_id}.surface.json"
@@ -711,16 +690,9 @@ def export_catalog(
         manifest_hash = _write_json(manifest_path, web_inputs.web_manifest(manifest))
         observations_path: Path | None = None
         observation_hash: str | None = None
-        if observation_rows is not None:
+        if observations_payload is not None:
             observations_path = out_dir / f"{artifact_id}.observations.json"
-            observation_hash = _write_json(
-                observations_path,
-                {
-                    "artifact": surface["artifact"],
-                    "observations": observation_rows,
-                    "schema_version": SCHEMA_VERSION,
-                },
-            )
+            observation_hash = _write_json(observations_path, observations_payload)
         external_resources, external_paths = _external_resources(
             entry,
             artifact_id=artifact_id,
@@ -766,7 +738,7 @@ def export_catalog(
                 "likelihood": str(manifest["likelihood"]),
                 "n_cells": int(manifest["n_cells"]),
                 "n_observations": int(manifest["n_observations"]),
-                "observations_available": observation_rows is not None,
+                "observations_available": observations_payload is not None,
                 "observations_sha256": observation_hash,
                 "observations_url": (observations_path.name if observations_path is not None else None),
                 "support_counts": {str(key): int(value) for key, value in manifest["support_counts"].items()},
@@ -807,7 +779,14 @@ def export_catalog(
     catalog_path = out_dir / "catalog.json"
     _write_json(catalog_path, catalog)
     written.append(catalog_path)
+    print(f"projected observations: {projected}")
     return sorted(set(written))
+
+
+def _committed_manifests(releases: Path = fetch_data.RELEASES) -> list[dict[str, Any]]:
+    """Every committed release manifest under ``releases``, oldest first, each validated."""
+    names = dr.release_ids(path.name for path in releases.glob("*.json"))
+    return [fetch_data.load_release(name, releases)[0] for name in names]
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -824,6 +803,16 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--afnd-populations", type=Path)
     parser.add_argument("--allowlist", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument(
+        "--registry",
+        type=Path,
+        help="the population registry folder that fit inputs are projected under (web format 1.1)",
+    )
+    parser.add_argument(
+        "--published-catalog",
+        type=Path,
+        help="the deployed catalog.json; a JSON it serves is never regenerated with other bytes",
+    )
     return parser
 
 
@@ -839,6 +828,9 @@ def main() -> int:
         hf_revision=str(allowlist.get("hf_revision", "")),
         afnd_frequencies_tsv=args.afnd_frequencies,
         afnd_populations_tsv=args.afnd_populations,
+        registry=wo.pinned_registry(*reference.read_reference(args.registry)) if args.registry else None,
+        released_inputs=wo.released_inputs(_committed_manifests()),
+        published_catalog=_read_json(args.published_catalog) if args.published_catalog else None,
     )
     print(f"exported {len(paths) - 1} artifact payloads and catalog.json")
     return 0
