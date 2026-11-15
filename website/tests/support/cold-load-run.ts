@@ -25,7 +25,6 @@ import {
   type ChunkFrame,
   type LedgerRow,
   type LoafRecord,
-  type LongFrameReport,
   type LongFrameSummary,
   type MilestoneTimes,
   type NetworkRecord,
@@ -712,7 +711,8 @@ export interface LoadResult {
 export interface GpuWarmup {
   outcome: Outcome;
   maxAtlasFrameMs: number;
-  longestAtlasFrame: LongFrameReport | null;
+  /** Every Atlas long frame the warm-up absorbed, so none goes unnamed in the report. */
+  longFrames: LongFrameSummary;
   webglContexts: WebglContextTiming[];
   errors: string[];
 }
@@ -740,7 +740,7 @@ export function splitWarmup(loads: readonly LoadResult[]): {
     gpuWarmup: {
       outcome: warmup.outcome,
       maxAtlasFrameMs: warmup.longFrames.maxAtlasFrameMs,
-      longestAtlasFrame: warmup.longFrames.frames[0] ?? null,
+      longFrames: warmup.longFrames,
       webglContexts: warmup.webglContexts,
       errors: warmup.errors,
     },

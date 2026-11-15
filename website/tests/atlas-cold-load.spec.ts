@@ -372,6 +372,12 @@ for (const profile of COLD_LOAD_PROFILES) {
       testInfo.project.name !== 'desktop-chromium',
       'The cold-load spec launches its own Chrome once.',
     );
+    // §B.1 defines no headless mode: such a run is a local smoke check, never the gate.
+    if (HEADLESS)
+      testInfo.annotations.push({
+        type: 'headless',
+        description: 'local smoke run, not the §B.1 headed gate',
+      });
     test.setTimeout(
       COLD_LOAD_PLAN.length * (profile.timeoutMs + 30_000) + 60_000,
     );

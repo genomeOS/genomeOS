@@ -221,6 +221,8 @@ function run(
     records?: NetworkRecord[];
     workerThrottle?: WorkerThrottleReport | null;
     index?: number;
+    outcome?: ColdLoadRun['outcome'];
+    pageErrors?: string[];
   } = {},
 ): ColdLoadRun {
   const name = args.name ?? 'mobile-fast-4g';
@@ -236,8 +238,8 @@ function run(
           ? null
           : REFUSED
         : args.workerThrottle,
-    pageErrors: [],
-    outcome: 'settled',
+    pageErrors: args.pageErrors ?? [],
+    outcome: args.outcome ?? 'settled',
   });
 }
 
@@ -486,7 +488,7 @@ describe('medianRun', () => {
 
 describe('warm-up load (§B.1, amended 2026-11-14)', () => {
   /** One Atlas long frame: the React scheduler tick that ran the scene effect. */
-  const frame = (duration: number): LoafRecord => ({
+  const frame = (duration: number, fn = 'ae'): LoafRecord => ({
     startTime: 1_000,
     duration,
     renderStart: 1_000 + duration - 10,
@@ -494,7 +496,7 @@ describe('warm-up load (§B.1, amended 2026-11-14)', () => {
     scripts: [
       {
         sourceURL: `${ORIGIN}/_astro/client.BwA2HVuQ.js`,
-        sourceFunctionName: 'ae',
+        sourceFunctionName: fn,
         sourceCharPosition: 1_358,
         invoker: 'MessagePort.onmessage',
         invokerType: 'event-listener',
@@ -512,8 +514,15 @@ describe('warm-up load (§B.1, amended 2026-11-14)', () => {
     run: run({
       name: 'desktop',
       index: load.index,
+      outcome: position === 0 ? 'timeout' : 'settled',
+      pageErrors: position === 0 ? ['context lost'] : [],
       measured: {
-        loaf: [frame(frames[position])],
+        // The warm-up absorbs two long frames, listed shortest first: the longer one must still
+        // lead the report, and the shorter one must stay named in it.
+        loaf:
+          position === 0
+            ? [frame(300, 'ge'), frame(frames[0])]
+            : [frame(frames[position])],
         webglContexts: [
           {
             contextType: 'webgl2',
@@ -540,9 +549,9 @@ describe('warm-up load (§B.1, amended 2026-11-14)', () => {
       [2, 74.2, [2.7]],
     ]);
     expect(gpuWarmup).toEqual({
-      outcome: 'settled',
+      outcome: 'timeout',
       maxAtlasFrameMs: 808,
-      longestAtlasFrame: loads[0].run.longFrames.frames[0],
+      longFrames: loads[0].run.longFrames,
       webglContexts: [
         {
           contextType: 'webgl2',
@@ -551,9 +560,19 @@ describe('warm-up load (§B.1, amended 2026-11-14)', () => {
           created: true,
         },
       ],
-      errors: [],
+      errors: loads[0].run.errors,
     });
-    expect(gpuWarmup.longestAtlasFrame?.scripts[0]).toMatchObject({
+    expect(gpuWarmup.errors).toContain('pageerror: context lost');
+    expect(gpuWarmup.errors).toHaveLength(2);
+    expect(
+      gpuWarmup.longFrames.frames.map((report) => report.duration),
+    ).toEqual([808, 300]);
+    expect(
+      gpuWarmup.longFrames.frames.map(
+        (report) => report.scripts[0].sourceFunctionName,
+      ),
+    ).toEqual(['ae', 'ge']);
+    expect(gpuWarmup.longFrames.frames[0].scripts[0]).toMatchObject({
       sourceFunctionName: 'ae',
       sourceCharPosition: 1_358,
     });
