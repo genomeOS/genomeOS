@@ -17,6 +17,7 @@ seen misses the cache (``edge_copy``).
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import http.client
 import io
@@ -183,20 +184,27 @@ class Served:
     base: str
 
 
+@contextlib.contextmanager
+def _serving(handler: type[BaseHTTPRequestHandler]) -> Iterator[str]:
+    """``handler`` on a loopback port; yields its base URL."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}/"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 @pytest.fixture()
 def served(tmp_path: Path) -> Iterator[Served]:
     committed = json.loads((provision.ROOT / provision.CORS_FILE).read_text(encoding="utf-8"))
     store = FakeStore(root=tmp_path / "bucket", cors=committed)
     (store.root / KEY).parent.mkdir(parents=True)
     (store.root / KEY).write_bytes(OBJECT)
-    server = ThreadingHTTPServer(("127.0.0.1", 0), _handler(store))
-    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
-    thread.start()
-    try:
-        yield Served(store, f"http://127.0.0.1:{server.server_address[1]}/")
-    finally:
-        server.shutdown()
-        server.server_close()
+    with _serving(_handler(store)) as base:
+        yield Served(store, base)
 
 
 def _without(header: str) -> Callable[[FakeStore], None]:
@@ -320,6 +328,28 @@ def test_repeated_header_lines_merge_as_a_browser_merges() -> None:
         "access-control-expose-headers": "Content-Range, Accept-Ranges, Range",
         "access-control-allow-origin": "*",
     }
+
+
+@pytest.mark.parametrize("status", [206, 403], ids=["answer", "error-status"])
+def test_send_joins_repeated_lines_on_either_path(status: int) -> None:
+    """urllib raises an error status as an HTTPError, which ``_send`` reads apart from a 2xx answer;
+    both readings join a repeated name's lines as Fetch does."""
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A002 - stdlib signature
+            return
+
+        def do_GET(self) -> None:
+            self.send_response(status)
+            for name in cors.EXPOSED:  # one line per name
+                self.send_header("Access-Control-Expose-Headers", name)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+    with _serving(Handler) as base:
+        reply = cors._send(f"{base}{KEY}", "GET", {})
+    assert reply.status == status
+    assert reply.headers.get("access-control-expose-headers") == "Content-Range, Accept-Ranges"
 
 
 def test_a_bucket_closed_to_the_origin_fails_every_request(served: Served) -> None:
