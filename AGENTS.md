@@ -211,8 +211,9 @@ python scripts/http_smoke.py --base-url http://127.0.0.1:8000  # live API + prev
 
 The default `pytest` needs the network once per machine: `tests/test_lookup_gate.py`, the data
 platform's step 2.7 gate, runs `INSTALL httpfs`, which downloads DuckDB's httpfs extension from
-extensions.duckdb.org when `~/.duckdb/extensions/` lacks it. CI runs the gate unskipped. Offline,
-without the extension, it fails with an HTTP or extension error; run it once online first.
+extensions.duckdb.org when `~/.duckdb/extensions/` lacks it. The gate is not marked `network`, so the
+default `-m 'not network'` still runs it, and CI runs it unskipped. Offline, without the extension, it
+fails with an HTTP or extension error; run it once online first.
 
 The fixture-backed diagnostic preview is at `/preview`. It proves the P4 read path only and is
 not the P5 product UI. Demo artifacts are synthetic, mounted read-only in containers, and must
