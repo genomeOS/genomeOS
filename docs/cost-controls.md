@@ -337,6 +337,92 @@ billing-account rights:
 The export and the queries cost cents a month at this project's size, well inside BigQuery's free
 query tier.
 
+## Monthly cost report
+
+Once a month the owner runs `scripts/cost_report.py`, a read-only report that measures what each
+bucket sent and checks it against every trigger in §1.3 of the
+[data platform design](superpowers/specs/2026-10-18-atlas-data-platform-design.md): the triggers
+that decide when to add a free mirror, sponsor mirrors or a cheaper web host (step 1.14, builder's
+call 12). Nothing schedules it. It needs the owner's login, so it is an owner step.
+
+**What it reads.** One Cloud Monitoring metric, Cloud Storage's bytes sent
+(`storage.googleapis.com/network/sent_bytes_count`, sampled every 60 s), for every bucket in the
+project. The Monitoring API (`projects.timeSeries.list`, GET requests only) sums it per bucket and
+UTC day. The window is the last two complete UTC months, plus this month up to yesterday. The account
+needs `roles/monitoring.viewer` on the project, which project owners have. The token comes from
+`python scripts/gcloud_repo.py run auth print-access-token` (the repository-local login) and is never
+printed. The report writes nothing, except that `--open-issue` opens issues with `gh`.
+
+**Roles.** `genomeos-atlas-data` is `data`. `--web-bucket` (or `$ATLAS_DATA_BUCKET`) is `web`.
+`--lookup-bucket` is `lookup`, once step 2.5 creates that bucket. Every other bucket is `other`: it is
+reported, never counted.
+
+```bash
+export GENOMEOS_GCP_PROJECT=<project> ATLAS_DATA_BUCKET=<web bucket>
+python scripts/cost_report.py --dry-run      # prints the token command and the first request; runs neither
+python scripts/cost_report.py                # the report; opens nothing
+python scripts/cost_report.py --open-issue   # the report, and one issue per fired trigger
+```
+
+Add `--lookup-bucket <bucket>` once the lookup bucket exists, and `--today YYYY-MM-DD` to report as of
+another UTC day.
+
+| Exit | Meaning |
+|---|---|
+| 0 | No trigger fired. |
+| 1 | A read failed, or returned data the report cannot account for. These are hard errors; nothing is skipped. |
+| 2 | `--project` (or `GENOMEOS_GCP_PROJECT`) or `--web-bucket` (or `ATLAS_DATA_BUCKET`) is missing. |
+| 3 | At least one trigger fired. With `--open-issue`, each fired trigger has its issue. |
+
+**What it prints.** For each bucket and month: the role, the GiB sent and the dollars at $0.12/GiB.
+Then this month's egress so far from every bucket, against the $300 kill switch. Then every trigger's
+status (`fired`, `not_fired`, `not_measurable` or `by_hand`) with its evidence, and the issue each
+fired trigger gets.
+
+**The triggers.** `genomeos/publication/cost_triggers.py` holds them, each with §1.3's trigger and
+recommendation word for word. Free egress is what the data and lookup buckets send; D3's "data egress"
+and D12's "free egress" are both measured that way. A two-month trigger fires only when the cost is
+strictly over $50 in each of the two complete months.
+
+| Trigger | Decisions | Step | How the report checks it |
+|---|---|---|---|
+| `D3-egress` | D3 | 3.8 | Data and lookup egress over $50 in each of the last two complete UTC months. |
+| `D3-brake` | D3 | 3.8 | A lookup bucket sent 20 GiB or more in one UTC day (D16's brake). `not_measurable` until step 2.5. |
+| `D12-egress` | D12a, D12b | 3.4 | As `D3-egress`. |
+| `D12-guard` | D12a, D12b | 3.4 | By hand: a PR that raises the 2 GiB release guard. |
+| `D11-web` | D11 | 3.5 | Web egress over $50 in each of the last two complete UTC months. |
+| `D2a` | D2a, D2c, D6a | 3.1 | By hand: an issue with a genome-wide use case. |
+| `3.2` | — | 3.2 | By hand: the first bulk request, or the first `at_cost` or R6 object (§11). |
+| `D7` | D7 | 3.3 | By hand: after steps 2.4 and 3.8. |
+| `D13` | D13 | 3.7 | By hand: when P3's burden draws ship. |
+| `D14` | D14, D10 | 3.6 | By hand: the second whole-genome ingest, or step 3.6. |
+| `D2b` | D2b, D15 | — | By hand: the owner confirms. |
+| `D6b` | D6b, D8a–D8e, D9 | 4.1–4.5 | By hand: the first scheduled `at_cost` object. |
+
+A month with no data points prints as "no data points (idle bucket, or outside Monitoring's
+retention)", and it cannot fire a trigger. How long Monitoring keeps this metric is unverified; for an
+older month, read the billing export.
+
+**Issues.** `--open-issue` opens one issue per fired trigger in `genomeOS/genomeOS`, titled
+"Cost trigger <id> fired: …", with the labels `needs-human-decision`, `type:governance`,
+`P1:observations`, `skill:governance` and `priority:high`. It skips any title an issue already has,
+open or closed. Each title names its months, so a rerun in the same month opens nothing new. The body
+gives roles and dollars, never the project id.
+
+**Cross-check with the billing export.** The report prices every byte sent at the list rate, before
+the free tier (100 GB a month of North American egress, shared across the billing account). It also
+counts bytes sent to Google services and within the region, which are not billed as internet egress.
+So it can overstate the bill but never understates it. The BigQuery billing export (see "A weekly
+spend email") holds what was billed. Before acting on a fired trigger, compare its months with:
+
+```sql
+SELECT invoice.month, sku.description, SUM(cost) AS cost
+FROM `<project>.billing_export.gcp_billing_export_v1_<billing account>`
+WHERE service.description = 'Cloud Storage'
+GROUP BY 1, 2
+ORDER BY 1, 2;
+```
+
 ## Who can write to the data store
 
 | Identity | Can | Cannot |

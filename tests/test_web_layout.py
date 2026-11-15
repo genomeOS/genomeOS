@@ -418,10 +418,17 @@ _BUCKET_REFERENCE = re.compile(
 )
 # Assembled at run time so this file names no concrete bucket in its own source.
 CONCRETE = "concrete" + "-bucket"
+STORAGE_HOST = "storage" + ".googleapis.com"  # likewise, for URL cases that put a scheme before it
+# A Cloud Monitoring metric type is its service's host and a path with no scheme, so Cloud Storage's
+# bytes-sent metric (scripts/cost_report.py) reads like a path-style URL of a bucket called "network".
+# Only that scheme-less form is skipped: after "https://" or "//" it is still a bucket URL.
+_STORAGE_METRIC_TYPE = re.compile(r"(?<![\w./:-])storage\.googleapis\.com/network/[a-z_]+(?![\w./-])")
 
 
 def _concrete_bucket_names(text: str) -> list[str]:
-    """Bucket names in ``text``, less ``example-*`` placeholders and third-party public buckets."""
+    """Bucket names in ``text``, less ``example-*`` placeholders, third-party public buckets and Cloud
+    Storage's scheme-less Monitoring metric types."""
+    text = _STORAGE_METRIC_TYPE.sub("", text)
     names = (match["path"] or match["host"] for match in _BUCKET_REFERENCE.finditer(text))
     return [
         name
@@ -465,10 +472,25 @@ def test_bucket_url_hygiene_finds_a_bucket_in_every_url_form(text: str) -> None:
         "gs://gcp-public-data--gnomad/release/3.1.2/vcf/genomes/",
         "gs://user@gcp-public-data--gnomad/release/3.1.2/vcf/genomes/",
         'f"gs://user@{bucket}/{key}"',
+        # Cloud Storage's Monitoring metric type (scripts/cost_report.py), which has no scheme.
+        'SENT_BYTES_METRIC = "storage.googleapis.com/network/sent_bytes_count"',
+        "reads `storage.googleapis.com/network/sent_bytes_count` for every bucket",
     ],
 )
 def test_bucket_url_hygiene_passes_placeholders_and_third_party_data(text: str) -> None:
     assert _concrete_bucket_names(text) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        f"https://{STORAGE_HOST}/network/x",
+        f'"https://{STORAGE_HOST}/network/sent_bytes_count"',
+        f"//{STORAGE_HOST}/network/sent_bytes_count",
+    ],
+)
+def test_a_metric_type_with_a_scheme_is_still_a_bucket_url(text: str) -> None:
+    assert _concrete_bucket_names(_without_committed_public_urls(text)) == ["network"]
 
 
 # Owner decision 2026-10-17 (docs/repo-gcloud-auth.md): a public, read-only bucket's URL may be committed.
