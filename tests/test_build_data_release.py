@@ -515,7 +515,8 @@ def test_meta_files_carry_their_inputs_sources(tree: Path, tmp_path: Path) -> No
 def test_reference_folders_carry_their_sources(tree: Path, tmp_path: Path) -> None:
     """Step 1.7: each registry folder carries its inputs' sources (call 16), and is written once (call 6)."""
     fixtures = ROOT / "tests" / "fixtures"
-    _write(tree, build_tables.AFND_POPULATIONS, (fixtures / "afnd_populations.tsv").read_bytes())
+    # The AFND fixture without the two rows the adapter refuses, each of which stops the build (v1 §12).
+    _write(tree, build_tables.AFND_POPULATIONS, (fixtures / "afnd_registry_populations.tsv").read_bytes())
     names = [path.rsplit("/", 1)[1] for path in build_tables.MAP_SURVEYS]
     harvest = _harvest(tree, "map", "2026-08", {name: (fixtures / name).read_bytes() for name in names})
     fixture = FixtureTree(tmp_path, tree, tmp_path / "releases")

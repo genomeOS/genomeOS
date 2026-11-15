@@ -1,8 +1,12 @@
 """The population registry under ``tables/v1/reference/`` and check 5.
 
 Atlas data platform design 2026-10-18 §2.3, §2.4, §2.7 check 5; builder's calls 5, 6 and 18. A
-``reference_tree`` is a ``data/`` tree with no committed release, holding the AFND population fixture as
+``reference_tree`` is a ``data/`` tree with no committed release, holding ``AFND_REGISTRY_FIXTURE`` as
 ``raw/afnd_populations.tsv`` and the MAP survey fixtures as the MAP harvest's two files.
+
+``AFND_REGISTRY_FIXTURE`` is the AFND population fixture without the two rows the AFND adapter refuses
+(a blank latitude and a blank accession). A refused row stops the registry build (v1 §12), so only
+``test_a_row_afnd_refuses_stops_the_registry_build_before_writing`` reads the full fixture.
 """
 
 from __future__ import annotations
@@ -25,6 +29,10 @@ from tests.observation_fixtures import observation_rows
 from tests.tables_fixtures import EPOCH, GIT_SHA, ROOT, FixtureTree, commit_release
 
 FIXTURES = Path(__file__).parent / "fixtures"
+#: Nine rows, two of which the AFND adapter refuses.
+AFND_FIXTURE = FIXTURES / "afnd_populations.tsv"
+#: ``AFND_FIXTURE``'s seven rows the adapter keeps.
+AFND_REGISTRY_FIXTURE = FIXTURES / "afnd_registry_populations.tsv"
 MAP_FIXTURES = (FIXTURES / "map_hbs_surveys.csv", FIXTURES / "map_g6pd_surveys.csv")
 LATER = "2026-11-21"
 REGISTRY = "tables/v1/reference/populations"
@@ -36,11 +44,11 @@ BUILT = [
 POPULATIONS_KEY = contracts.TABLE_CONTRACTS["reference.populations"].key
 
 
-def _tree(root: Path) -> FixtureTree:
-    """A ``reference_tree`` under ``root``."""
+def _tree(root: Path, *, afnd: Path = AFND_REGISTRY_FIXTURE) -> FixtureTree:
+    """A ``reference_tree`` under ``root``, holding ``afnd`` as the AFND population file."""
     tree = FixtureTree(root, root / "data", root / "releases")
     inputs = {
-        build_tables.AFND_POPULATIONS: FIXTURES / "afnd_populations.tsv",
+        build_tables.AFND_POPULATIONS: afnd,
         **dict(zip(build_tables.MAP_SURVEYS, MAP_FIXTURES, strict=True)),
     }
     for path, fixture in inputs.items():
@@ -81,6 +89,22 @@ def test_afnd_legacy_equals_the_released_registry():
     assert len(populations) == 1821 and set(populations["registry_version"]) == {AFND_LEGACY}
 
 
+def test_a_row_afnd_refuses_stops_the_registry_build_before_writing(tmp_path):
+    """v1 §12: a refused row (a population label with no coordinate, say) fails the build; it is never
+    a population silently missing from the published registry."""
+    _, _, report = afnd_registry.load(AFND_FIXTURE, AFND_LEGACY)
+    assert (report.total, report.refusals) == (9, {"unreadable_latitude": 1, "unusable_pop_id": 1})
+    refused = r"refuses 2 of its 9 rows \(unreadable_latitude 1, unusable_pop_id 1\)"
+    with pytest.raises(TableError, match=rf"registry afnd-2026-08: .*afnd_populations.tsv: .*{refused}"):
+        reference.afnd_legacy(AFND_FIXTURE)
+    tree = _tree(tmp_path, afnd=AFND_FIXTURE)
+    with pytest.raises(TableError, match=refused):
+        build_tables.build_reference(tree.ctx)
+    assert _digests(tree.data) == {}
+    _, _, kept = afnd_registry.load(AFND_REGISTRY_FIXTURE, AFND_LEGACY)
+    assert (kept.total, kept.retained, kept.refusals) == (7, 7, {})
+
+
 def test_map_legacy_rows_are_aliases_only(tmp_path):
     aliases = reference.map_legacy_aliases(*MAP_FIXTURES)
     rows = set(zip(aliases["source"], aliases["label"], aliases["population_id"], strict=True))
@@ -90,7 +114,7 @@ def test_map_legacy_rows_are_aliases_only(tmp_path):
     assert populations is None and set(frame["registry_version"]) == {MAP_LEGACY}
     with pytest.raises(TableError, match="alias rows only"):
         reference.reference_frames(aliases, aliases, registry_version=MAP_LEGACY)
-    afnd_populations, afnd_aliases = reference.afnd_legacy(FIXTURES / "afnd_populations.tsv")
+    afnd_populations, afnd_aliases = reference.afnd_legacy(AFND_REGISTRY_FIXTURE)
     with pytest.raises(TableError, match="places each population"):
         reference.reference_frames(None, afnd_aliases, registry_version=AFND_LEGACY)
     duplicated = tmp_path / "map_hbs_surveys.csv"
@@ -101,7 +125,7 @@ def test_map_legacy_rows_are_aliases_only(tmp_path):
 
 
 def test_require_resolved_names_the_missing_id():
-    populations, aliases = reference.afnd_legacy(FIXTURES / "afnd_populations.tsv")
+    populations, aliases = reference.afnd_legacy(AFND_REGISTRY_FIXTURE)
     known = list(populations["population_id"])
     reference.require_resolved(known, populations, aliases, registry_version=AFND_LEGACY)
     with pytest.raises(TableError, match="afnd-999999"):
@@ -118,7 +142,7 @@ def test_require_resolved_names_the_missing_id():
 
 
 def test_registry_coordinates_must_match():
-    populations, _ = reference.afnd_legacy(FIXTURES / "afnd_populations.tsv")
+    populations, _ = reference.afnd_legacy(AFND_REGISTRY_FIXTURE)
     placed = populations.iloc[:3].reset_index(drop=True)
     observations = observation_rows(3).assign(
         population_id=placed["population_id"],

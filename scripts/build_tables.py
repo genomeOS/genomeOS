@@ -24,8 +24,9 @@ the committed manifests, the web ``catalog.json`` and ``data/releases/WITHDRAWN.
 The ``reference`` stage (§2.3, §2.4; calls 5, 6 and 18) writes the population registry's folders under
 ``tables/v1/reference/populations/``: ``afnd-2026-08`` rebuilt from the released raw file
 ``raw/afnd_populations.tsv``, and ``map-survey-coordinates-v1``, alias rows only, from the MAP harvest
-(``raw/map/2026-08/``). An input an earlier release published is read from a local copy with its
-published sha256; any other is keyed under this release. A folder an earlier release published is never
+(``raw/map/2026-08/``). A row the AFND adapter refuses stops the stage before anything is written (v1
+§12). An input an earlier release published is read from a local copy with its published sha256; any
+other is keyed under this release. A folder an earlier release published is never
 written again: its rows are re-derived and verified against the released files, so a rerun under another
 git sha keeps the first writer's bytes. Any other local file under that root is refused before a folder is
 written. It prints ``<table> <folder>: <n> rows, written`` (or ``verified``) for each file.

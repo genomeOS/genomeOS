@@ -11,7 +11,7 @@ their names as folders (call 18):
 
 - ``AFND_LEGACY`` (``afnd-2026-08``): AFND's populations, rebuilt by ``registry.sources.afnd`` from the
   released raw file ``raw/afnd_populations.tsv`` exactly as the ``afnd-2026-08`` artifacts and ingests
-  read it (``afnd_legacy``).
+  read it (``afnd_legacy``). A row the adapter refuses stops the build rather than leaving the registry.
 - ``MAP_LEGACY`` (``map-survey-coordinates-v1``): alias rows only, one per MAP survey site
   (``map-hbs-<id>``, ``map-g6pd-<id>``), from the MAP harvest (``map_legacy_aliases``). A MAP survey
   carries its own coordinates, which stay authoritative, so this registry places nothing.
@@ -102,8 +102,20 @@ def reference_frames(
 
 
 def afnd_legacy(tsv: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Registry ``afnd-2026-08``: ``registry.sources.afnd`` over the released ``raw/afnd_populations.tsv``."""
-    populations, aliases, _ = afnd_registry.load(tsv, AFND_LEGACY)
+    """Registry ``afnd-2026-08``: ``registry.sources.afnd`` over the released ``raw/afnd_populations.tsv``.
+
+    Every row must be kept. A row the adapter refuses, such as a population label with no coordinate, is a
+    ``TableError`` that names the refusal counts, never a population silently missing from the published
+    registry (v1 §12). The released file has none: it keeps 1,821 of 1,821 rows.
+    """
+    populations, aliases, report = afnd_registry.load(tsv, AFND_LEGACY)
+    if report.refusals:
+        counts = ", ".join(f"{reason} {count}" for reason, count in sorted(report.refusals.items()))
+        raise TableError(
+            f"registry {AFND_LEGACY}: {tsv}: the AFND adapter refuses {report.total - report.retained} of "
+            f"its {report.total} rows ({counts}); the registry would drop those populations, so the build "
+            "stops (v1 §12)"
+        )
     return populations, aliases
 
 
