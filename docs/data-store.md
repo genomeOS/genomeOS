@@ -335,7 +335,8 @@ and the builder refuses a released artifact whose bytes changed.
   `fetch_data.py --verify-remote`. Wait an hour after the CORS change, which is also an hour after any
   such download, before running a live browser check.
 
-**Reading** needs no credentials: run `scripts/fetch_data.py`. Downloads stream into
+**Reading** needs no credentials. [`data-access.md`](data-access.md) is the reader's guide: lookups
+first, then downloads, offline mode and citing. Run `scripts/fetch_data.py`. Downloads stream into
 `data/.fetch-partial/`, are checked against the manifest's byte count and sha256, and only then are
 renamed into place; a local file that differs is a hard error and is never overwritten. Without the
 repository, `manifests/<release>.json` in the bucket is the same manifest.

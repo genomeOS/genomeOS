@@ -68,10 +68,10 @@ owner, made in a PR.
 
 **What private means for readers.** Anonymous requests to the bucket get an HTTP error, so
 `scripts/fetch_data.py` fails. Publishing keeps working, because `data-store-publisher` reads
-through its own role, not the public grant. Objects carry
-`Cache-Control: public, max-age=31536000, immutable`, so copies that Google's network, a proxy or a
-browser has already cached may be served for up to a year (see #473, decision 6). The switch cannot
-recall them. Whether Google bills for responses served from its own caches has not been checked.
+through its own role, not the public grant. Objects carry `Cache-Control: public, max-age=3600`
+(#473, #482), so copies that Google's network, a proxy or a browser has already cached may be served
+for up to an hour after the switch fires. The switch cannot recall them. Whether Google bills for
+responses served from its own caches has not been checked.
 
 ### Identities
 
