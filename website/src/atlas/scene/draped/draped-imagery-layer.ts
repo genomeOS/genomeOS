@@ -17,11 +17,27 @@
  *   last Atlas layer.
  * - Readiness: Cesium loads the tiles of a layer at alpha 0 without drawing them, and frees every
  *   tile of a hidden one (both pinned in tests/atlas-cesium-internals.test.ts). The layer is ready
- *   once `globe.tilesLoaded` holds from the second frame after it was added or last shown (the
- *   first frame's `preRender` still reads the load queues of the frame before), or
- *   `DRAPED_READY_CAP_MS` after that. Each `preRender` requests a frame until then. A hidden layer
- *   is never ready and requests no frame; shown again, its readiness starts over.
+ *   from its own tiles: once the tiles the globe rendered are the ones it chose for the view
+ *   (`renderedTilesSettled`) and have its imagery loaded (`renderedImageryLoaded`), from the
+ *   second frame after it was added or last shown (the first frame's `preRender` still reads the
+ *   tiles of the frame before). So after a terrain change it waits for the tiles the view settles
+ *   on, not the level-0 tiles drawn while finer terrain loads, nor the smooth globe's tiles drawn
+ *   until World Terrain's provider loads, and its fade and pre-warm run over those. Not
+ *   `globe.tilesLoaded`, which also waits for the basemap, the other layers and tiles no frame
+ *   draws. `DRAPED_READY_CAP_MS` after the add or show it is ready whatever its tiles: a
+ *   fallback, which the World Terrain tour fails on a hardware GPU. Each `preRender` requests a
+ *   frame until then. A hidden layer is never ready and requests no frame; shown again, its
+ *   readiness starts over. In the e2e build the frame that reads it ready emits a
+ *   `DRAPED_READY_MEASURE` performance measure from the add or show, naming the layer, the rule
+ *   that fired (`tiles` when both hold), whether the cap had run out by then, whether the globe's
+ *   tiles had settled and the deepest level it rendered ("Performance budget and measurement").
  * - Delivered tiles request a render: worker tiles bypass the RequestScheduler that would.
+ * - Pre-warm ("Failure modes": first-draw shader compile hitch): Cesium keeps a globe shader per
+ *   number of drawn textures and draws no texture of a layer at alpha 0 (both pinned), so a layer
+ *   that fades in from 0 would compile its shader in the fade's first frame. `prewarm()` floors
+ *   the layer's alpha at `PREWARM_ALPHA` for one rendered frame, the first whose `preRender`
+ *   follows the call, and on that frame's `postRender` writes the alpha last asked for. A hidden
+ *   layer, or one asked to draw at `PREWARM_ALPHA` or more, is left alone. Destroy settles it.
  * - Destroy removes the layer and destroys its provider, once; the page's drape stats watch the
  *   layer in between.
  *
@@ -45,17 +61,26 @@ import {
 
 import {
   ATLAS_IMAGERY_LAYER_ORDER,
+  PREWARM_ALPHA,
   RASTER_TILE_SIZE,
   type AtlasImageryLayerName,
 } from '../../geometry/raster/types';
+import { measureDrapedReady } from '../../e2e-hooks';
 import type { AddDrapedImageryLayer, DrapedImageryLayer } from '../types';
 import { drapeStats } from './drape-stats';
 import { emptyTile } from './raster-imagery-provider';
+import {
+  deepestRenderedLevel,
+  renderedImageryLoaded,
+  renderedTilesSettled,
+} from './rendered-imagery';
 
-/** A new layer reads ready this long after its add, whether or not the globe has loaded. */
+/** A new layer reads ready this long after its add or show, whether or not its tiles loaded. */
 export const DRAPED_READY_CAP_MS = 3_000;
 
-/** Frames after the add before `globe.tilesLoaded` counts. */
+export { PREWARM_ALPHA };
+
+/** Frames after the add or show before the rendered tiles count. */
 const READY_FRAMES = 2;
 
 const names = new WeakMap<ImageryLayer, AtlasImageryLayerName>();
@@ -174,12 +199,30 @@ export const addDrapedImageryLayer: AddDrapedImageryLayer = ({
 
   const checkReady = () => {
     frames += 1;
-    if (
-      (frames >= READY_FRAMES && scene.globe.tilesLoaded) ||
-      performance.now() - shownAt >= DRAPED_READY_CAP_MS
-    ) {
+    const now = performance.now();
+    const capElapsed = now - shownAt >= DRAPED_READY_CAP_MS;
+    const branch =
+      frames >= READY_FRAMES &&
+      renderedTilesSettled(scene.globe) &&
+      renderedImageryLoaded(scene.globe, layer)
+        ? 'tiles'
+        : capElapsed
+          ? 'cap'
+          : null;
+    if (branch !== null) {
       ready = true;
       stopChecking();
+      // By the build constant here, so a production build leaves `measureDrapedReady` out of the
+      // smooth globe's chunk, which holds the e2e hooks and would otherwise export it to this one.
+      if (import.meta.env.PUBLIC_ATLAS_E2E_HOOKS === '1')
+        measureDrapedReady(shownAt, now, {
+          branch,
+          capElapsed,
+          frames,
+          layer: name,
+          renderedLevel: deepestRenderedLevel(scene.globe),
+          settled: renderedTilesSettled(scene.globe),
+        });
       return;
     }
     scene.requestRender();
@@ -202,13 +245,53 @@ export const addDrapedImageryLayer: AddDrapedImageryLayer = ({
   );
   scene.requestRender();
 
+  /** The alpha last asked for; the layer draws it, floored while a pre-warm runs. */
+  let requested = alpha;
+  let prewarmed: Promise<void> | null = null;
+  /** The running pre-warm's end: lets go of its frame listeners and resolves it. */
+  let endPrewarm: (() => void) | null = null;
+
+  const writeAlpha = () => {
+    const a = endPrewarm ? Math.max(requested, PREWARM_ALPHA) : requested;
+    if (layer.alpha === a) return;
+    layer.alpha = a;
+    scene.requestRender();
+  };
+
+  const startPrewarm = (): Promise<void> => {
+    if (destroyed || !layer.show || requested >= PREWARM_ALPHA)
+      return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      // A frame already under way when the pre-warm began may have drawn the old alpha.
+      let drawing = false;
+      const removePre = scene.preRender.addEventListener(() => {
+        drawing = true;
+      });
+      const removePost = scene.postRender.addEventListener(() => {
+        // Ended already: destroyed in this raise, which still calls a listener it removed.
+        if (!drawing || !endPrewarm) return;
+        endPrewarm();
+        writeAlpha();
+        scene.requestRender();
+      });
+      endPrewarm = () => {
+        endPrewarm = null;
+        removePre();
+        removePost();
+        resolve();
+      };
+      writeAlpha();
+      scene.requestRender();
+    });
+  };
+
   return {
     layer,
     name,
     setAlpha(a: number): void {
-      if (destroyed || layer.alpha === a) return;
-      layer.alpha = a;
-      scene.requestRender();
+      if (destroyed) return;
+      requested = a;
+      writeAlpha();
     },
     setShown(s: boolean): void {
       if (destroyed || layer.show === s) return;
@@ -221,9 +304,14 @@ export const addDrapedImageryLayer: AddDrapedImageryLayer = ({
       scene.requestRender();
     },
     isReady: () => ready,
+    prewarm(): Promise<void> {
+      prewarmed ??= startPrewarm();
+      return prewarmed;
+    },
     destroy(): void {
       if (destroyed) return;
       destroyed = true;
+      endPrewarm?.();
       stopChecking();
       removeTileLoaded();
       unwatch();

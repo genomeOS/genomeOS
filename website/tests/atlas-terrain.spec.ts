@@ -29,6 +29,7 @@ const FLANK_LAT = SYNTHETIC_CONE.lat - FLANK_KM / 111.195;
 const FLANK_GROUND =
   SYNTHETIC_CONE.peakMetres * (1 - FLANK_KM / SYNTHETIC_CONE.radiusKm);
 const RELIEF = 3;
+/** PR 1's relief warning. Phase 3 retired it: the data drapes onto World Terrain (#483). */
 const HIDDEN_DATA =
   'World Terrain can hide map data on high ground, and raised relief hides more.';
 
@@ -133,11 +134,11 @@ test.describe('physical terrain @desktop-chromium', () => {
     chooser = await openTerrainChooser(page);
     const relief = chooser.getByLabel('Physical relief ×');
     await expect(relief).toBeEnabled();
-    // At true scale too, World Terrain's high ground can hide the data, and the control says so.
-    await expect(chooser.getByRole('status')).toHaveText(HIDDEN_DATA);
+    // The data drapes onto the ground and follows the relief, so no warning, at true scale or raised.
+    await expect(chooser.getByText(HIDDEN_DATA)).toHaveCount(0);
     await relief.fill(String(RELIEF));
     await expect(page).toHaveURL(new RegExp(`relief=${RELIEF}(&|$)`));
-    await expect(chooser.getByRole('status')).toHaveText(HIDDEN_DATA);
+    await expect(chooser.getByText(HIDDEN_DATA)).toHaveCount(0);
     await expect
       .poll(async () => (await probe(page)).verticalExaggeration)
       .toBe(RELIEF);

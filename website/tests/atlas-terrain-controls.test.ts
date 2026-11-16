@@ -194,27 +194,6 @@ describe('relief control (#483)', () => {
     ).toMatch(/2D map/);
   });
 
-  it('warns that World Terrain can hide map data wherever its height is drawn, even at 1×', () => {
-    // #483 point 3: at true scale the terrain already buries the 650 m surface in the Ethiopian
-    // highlands and the Himalaya; raised relief buries more.
-    const warning =
-      'World Terrain can hide map data on high ground, and raised relief hides more.';
-    for (const [relief, view] of [
-      [1, 'globe'],
-      [3, 'globe'],
-      [1, 'perspective'],
-    ] as const)
-      expect(
-        reliefControl({ relief, terrain: 'world-terrain', view }).warning,
-      ).toBe(warning);
-    // The smooth globe has no height, and the 2D map draws none.
-    for (const [relief, terrain, view] of [
-      [2, 'smooth-globe', 'globe'],
-      [2, 'world-terrain', 'map'],
-    ] as const)
-      expect(reliefControl({ relief, terrain, view }).warning).toBeNull();
-  });
-
   function relief(terrain: TerrainId, view: ExplorerSceneMode, value: number) {
     return renderToStaticMarkup(
       createElement(ReliefControl, {
@@ -240,21 +219,23 @@ describe('relief control (#483)', () => {
     expect(slider).toContain('step="0.5"');
     expect(slider).toContain('value="2.5"');
     expect(slider).not.toContain('disabled=""');
-    expect(html).toMatch(/hide map data on high ground/);
   });
 
-  it('announces the warning and describes the slider with it', () => {
-    const html = relief('world-terrain', 'globe', 1);
+  it('does not warn about hidden data: the data drapes onto World Terrain (#483)', () => {
+    for (const [value, view] of [
+      [1, 'globe'],
+      [3, 'globe'],
+      [10, 'perspective'],
+    ] as const)
+      expect(
+        reliefControl({ relief: value, terrain: 'world-terrain', view })
+          .warning,
+      ).toBeNull();
+    const html = relief('world-terrain', 'globe', 3);
     expect(tagWithId(html, 'atlas-relief')).toContain(
-      'aria-describedby="atlas-relief-help atlas-relief-warning"',
+      'aria-describedby="atlas-relief-help"',
     );
-    // A live region that is always present, so the warning is announced when it appears.
-    expect(html).toMatch(
-      /<div role="status"[^>]*><p[^>]*id="atlas-relief-warning"[^>]*>World Terrain can hide map data/,
-    );
-    expect(relief('smooth-globe', 'globe', 1)).toMatch(
-      /<div role="status"[^>]*><\/div>/,
-    );
+    expect(html).toMatch(/<div role="status"[^>]*><\/div>/);
   });
 
   it.each<[TerrainId, ExplorerSceneMode]>([

@@ -2,11 +2,14 @@
  * 2026-10-07 §B.6.3, §B.6.5, §B.6.9, §B.6.13; step timings §B.1).
  *
  * Pure orchestration over the Cesium-free geometry modules: one transferable
- * `chunk` message per chunk in camera order (anchors ride on the first), a
+ * `chunk` message per chunk in camera order (anchors ride on the first), each
+ * naming the grid rows it carries (§B.6.6 as amended 2026-11-14, #483), a
  * yield between chunks so `cancel` can land, and topology plus the chunk plan
  * cached per grid. Recolour reuses the cached topology and vertex means. The
- * draped rasters share that cache through `prepared` (terrain draping design,
- * "How existing features behave": Worker, #483).
+ * draped rasters share that cache through `prepared`, and the borders copy that
+ * `parse-context` keeps through `naturalEarth` (terrain draping design, "How
+ * existing features behave": Worker; "Per layer under World Terrain": borders,
+ * #483).
  */
 
 import type { DecodedGrid, DecodedRender } from '../gosa/types';
@@ -70,8 +73,9 @@ export function transferablesOf(
 }
 
 function chunkTransferables(message: ChunkMessage): ArrayBuffer[] {
-  const { surface, support, anchors } = message;
+  const { anchors, rows, support, surface } = message;
   return transferablesOf(
+    rows,
     surface.positions,
     surface.normals,
     surface.elevationNormals,
@@ -106,6 +110,9 @@ export interface GeometryWorker {
   prepared(gridSha256: string): PreparedGrid | undefined;
   /** Builds and caches topology and the chunk plan as soon as a grid decodes. */
   warmGrid(id: number, gridSha256: string): void;
+  /** The Natural Earth copy `parse-context` keeps (its posted buffers are transferred); null
+   * before the borders are parsed. The raster runtime draws the draped borders from it. */
+  naturalEarth(): NaturalEarthBuffers | null;
 }
 
 export function createGeometryWorker(
@@ -247,6 +254,8 @@ export function createGeometryWorker(
         chunk: chunk.id,
         id,
         index,
+        // A copy, since the message's arrays are transferred and the plan is cached.
+        rows: chunk.rows.slice(),
         seam: chunk.seam,
         support,
         surface,
@@ -387,7 +396,8 @@ export function createGeometryWorker(
 
   return {
     handlers,
-    // Reads no `this`, so the raster context may hold it unbound.
+    // These two read no `this`, so the raster context may hold them unbound.
+    naturalEarth: () => naturalEarth,
     prepared: (gridSha256) => {
       const grid = context.grid(gridSha256);
       if (!grid) return undefined;

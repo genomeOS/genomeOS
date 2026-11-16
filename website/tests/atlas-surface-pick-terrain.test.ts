@@ -64,6 +64,7 @@ const target = (o: Partial<PickTarget> = {}): PickTarget => ({
   draped: false,
   drawn: () => true,
   hidden: [],
+  observations: null,
   surface,
   ...o,
 });

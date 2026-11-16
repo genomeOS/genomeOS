@@ -20,11 +20,18 @@ import type {
 } from '../src/atlas/geometry/raster/types';
 import { SUPPORT_CODES } from '../src/atlas/gosa/decode';
 import type { DecodedGrid, DecodedRender } from '../src/atlas/gosa/types';
+import {
+  COARSE_TILE_BUDGET,
+  COARSE_TILE_MAX_KEYS,
+  createCoarseTiles,
+  rasterKey,
+} from '../src/atlas/worker/coarse-tiles';
 import type {
   RasterResponse,
   WorkerErrorMessage,
 } from '../src/atlas/worker/protocol';
 import {
+  ATLAS_RASTERISERS,
   createRasterRuntime,
   imageDataBitmap,
   type RasterWorkerContext,
@@ -50,12 +57,18 @@ const OUTLINE_SPEC: OutlineRasterSpec = {
   metric: SURFACE_SPEC.metric,
   palette: SURFACE_SPEC.palette,
 };
-/** One 1 km footprint on `SURFACE_SPEC`'s artifact; no rasteriser draws it yet. */
+/** One 1 km footprint on `SURFACE_SPEC`'s artifact. */
 const FOOTPRINT_SPEC: FootprintRasterSpec = {
   artifactKey: SURFACE_SPEC.artifactKey,
   circles: Float64Array.of(36.8, -1.3, 1),
   color: '#ffffff',
   layer: 'footprints',
+};
+/** One small closed border ring off the coast of West Africa. */
+const tinyBorders: NaturalEarthBuffers = {
+  labels: [],
+  lonLat: Float64Array.of(0, 0, 1, 0, 1, 1, 0, 0),
+  ringOffsets: Uint32Array.of(0, 4),
 };
 
 interface Posted {
@@ -65,6 +78,19 @@ interface Posted {
 
 function fakeRaster(_input: SurfaceRasterInput, a: TileAddress) {
   return a.x === EMPTY_X ? null : FAKE_TILE;
+}
+
+function fakeLines(_input: unknown, a: TileAddress) {
+  return a.x === EMPTY_X ? null : FAKE_TILE;
+}
+
+/** The last message of `type` posted. */
+function last<T extends Posted['m']['type']>(posted: Posted[], type: T) {
+  const found = posted
+    .map(({ m }) => m)
+    .findLast((m): m is Extract<Posted['m'], { type: T }> => m.type === type);
+  if (!found) throw new Error(`no ${type} was posted`);
+  return found;
 }
 
 /**
@@ -107,6 +133,8 @@ export function rasterHarness(
   let gate: Promise<void> | null = null;
   let openGate = () => {};
   const rasterisers = o.rasterisers ?? {
+    borders: vi.fn(fakeLines),
+    footprints: vi.fn(fakeLines),
     outlines: vi.fn(fakeRaster),
     surface: vi.fn(fakeRaster),
   };
@@ -163,7 +191,7 @@ export function rasterHarness(
 
 type Harness = ReturnType<typeof rasterHarness>;
 
-function prepare(h: Harness, id: number, spec = SURFACE_SPEC) {
+function prepare(h: Harness, id: number, spec: RasterSpec = SURFACE_SPEC) {
   return h.runtime.handlers['prepare-raster']({
     id,
     spec,
@@ -279,7 +307,7 @@ describe('worker raster runtime (terrain draping design, "How existing features 
     expect(outlineInput.index).toBe(surfaceInput.index); // one index per topology
   });
 
-  it('rasterises queued tiles first in, first out, yielding after each', async () => {
+  it('rasterises queued tiles of one level first in, first out, yielding after each', async () => {
     await prepare(h, 7);
     await Promise.all([11, 12, 13].map((id) => tile(h, id, 7)));
     expect(h.posted.slice(1).map(({ m }) => m.id)).toEqual([11, 12, 13]);
@@ -365,7 +393,13 @@ describe('worker raster runtime (terrain draping design, "How existing features 
       if (a.x === 1) throw new Error('fan out of range');
       return fakeRaster(input, a);
     });
-    h = rasterHarness({ rasterisers: { outlines: failing, surface: failing } });
+    h = rasterHarness({
+      rasterisers: {
+        ...h.rasterisers,
+        outlines: failing,
+        surface: failing,
+      },
+    });
     await prepare(h, 7);
     await Promise.all([tile(h, 11, 7, 1), tile(h, 12, 7, 2)]);
     expect(h.posted.slice(1).map(({ m }) => m)).toEqual([
@@ -380,7 +414,7 @@ describe('worker raster runtime (terrain draping design, "How existing features 
     ]);
   });
 
-  it('reports a missing render tier, an unloaded grid, a grid mismatch, an unprepared grid or a layer it cannot raster yet as internal, each by its own guard', async () => {
+  it('reports a missing render tier, an unloaded grid, a grid mismatch, an unprepared grid or borders before the context is parsed as internal, each by its own guard', async () => {
     const key = SURFACE_SPEC.artifactKey;
     // Each case leaves every other input loaded, so only its own guard can refuse it.
     const cases: [(h: Harness) => void, RasterSpec, string][] = [
@@ -407,8 +441,7 @@ describe('worker raster runtime (terrain draping design, "How existing features 
         SURFACE_SPEC,
         'grid test-grid is not loaded',
       ],
-      [() => {}, BORDER_SPEC, 'the borders layer has no rasteriser yet'],
-      [() => {}, FOOTPRINT_SPEC, 'the footprints layer has no rasteriser yet'],
+      [() => {}, BORDER_SPEC, 'Natural Earth context is not parsed'],
     ];
     for (const [setup, spec, message] of cases) {
       h = rasterHarness();
@@ -448,6 +481,127 @@ describe('worker raster runtime (terrain draping design, "How existing features 
     expect(h.rasterisers.surface).not.toHaveBeenCalled();
   });
 
+  it('hands the border rasteriser the parsed borders and the footprint rasteriser the circles, each in its colour', async () => {
+    h = rasterHarness({ naturalEarth: () => tinyBorders });
+    await h.runtime.handlers['prepare-raster']({
+      id: 7,
+      spec: { ...BORDER_SPEC, color: '#ff8000' },
+      type: 'prepare-raster',
+    });
+    await tile(h, 11, 7, 5);
+    expect(h.rasterisers.borders).toHaveBeenCalledWith(
+      { borders: tinyBorders, color: '#ff8000' },
+      { level: 6, x: 5, y: 0 },
+    );
+    await h.runtime.handlers['prepare-raster']({
+      id: 8,
+      spec: FOOTPRINT_SPEC,
+      type: 'prepare-raster',
+    });
+    await tile(h, 12, 8, 6);
+    expect(h.rasterisers.footprints).toHaveBeenCalledWith(
+      { circles: FOOTPRINT_SPEC.circles, color: '#ffffff' },
+      { level: 6, x: 6, y: 0 },
+    );
+    expect(h.posted.map(({ m }) => [m.id, m.type])).toEqual([
+      [7, 'raster-ready'],
+      [11, 'tile-ready'],
+      [8, 'raster-ready'],
+      [12, 'tile-ready'],
+    ]);
+  });
+
+  it('tiles a footprint raster, an empty tile as null', async () => {
+    const { posted, runtime } = rasterHarness({
+      rasterisers: ATLAS_RASTERISERS,
+    });
+    const spec = {
+      artifactKey: 'k',
+      circles: Float64Array.of(-3.709, 40.419, 50),
+      color: '#ff00ff',
+      layer: 'footprints',
+    } as const;
+    await runtime.handlers['prepare-raster']({
+      id: 5,
+      spec,
+      type: 'prepare-raster',
+    });
+    expect(last(posted, 'raster-ready')).toMatchObject({
+      bounds: { north: expect.closeTo(40.419 + 50 / 111.195 + 1, 3) },
+      rasterId: 5,
+    });
+    await runtime.handlers['raster-tile']({
+      id: 6,
+      level: 3,
+      rasterId: 5,
+      type: 'raster-tile',
+      x: 7,
+      y: 2,
+    });
+    expect(last(posted, 'tile-ready').bitmap).not.toBeNull();
+    await runtime.handlers['raster-tile']({
+      id: 7,
+      level: 3,
+      rasterId: 5,
+      type: 'raster-tile',
+      x: 0,
+      y: 0,
+    });
+    expect(last(posted, 'tile-ready').bitmap).toBeNull();
+  });
+
+  it('refuses malformed footprints, and border tiles above their maximum level, as validation errors', async () => {
+    const { posted, runtime } = rasterHarness({
+      naturalEarth: () => tinyBorders,
+      rasterisers: ATLAS_RASTERISERS,
+    });
+    await runtime.handlers['prepare-raster']({
+      id: 8,
+      spec: {
+        artifactKey: 'k',
+        circles: Float64Array.of(1, 2),
+        color: '#ff00ff',
+        layer: 'footprints',
+      },
+      type: 'prepare-raster',
+    });
+    expect(last(posted, 'error')).toMatchObject({
+      code: 'validation',
+      id: 8,
+      message: expect.stringMatching(/lon, lat, radius_km triples/),
+    });
+    await runtime.handlers['prepare-raster']({
+      id: 9,
+      spec: { color: '#ffffff', layer: 'borders', maximumLevel: 10 },
+      type: 'prepare-raster',
+    });
+    expect(last(posted, 'raster-ready')).toMatchObject({ rasterId: 9 });
+    await runtime.handlers['raster-tile']({
+      id: 10,
+      level: 11,
+      rasterId: 9,
+      type: 'raster-tile',
+      x: 0,
+      y: 0,
+    });
+    expect(last(posted, 'error')).toMatchObject({
+      code: 'validation',
+      id: 10,
+      message: expect.stringMatching(/maximum level 10/),
+    });
+    // At its maximum level the border tile is drawn: the ring's south-west corner is in it.
+    await runtime.handlers['raster-tile']({
+      id: 11,
+      level: 10,
+      rasterId: 9,
+      type: 'raster-tile',
+      x: 1024,
+      y: 511,
+    });
+    expect(last(posted, 'tile-ready')).toMatchObject({ id: 11 });
+    expect(last(posted, 'tile-ready').bitmap).not.toBeNull();
+  });
+
   it('makes bitmaps unflipped and unpremultiplied, and carries the atlas-raster-v1 marker', async () => {
     const created = vi.fn(
       async (_image: ImageData, _options: ImageBitmapOptions) =>
@@ -476,5 +630,335 @@ describe('worker raster runtime (terrain draping design, "How existing features 
     );
     expect(created.mock.calls[0][0].data).toBe(rgba); // the raster's own bytes, rows south-first
     expect(h.runtime.version).toBe('atlas-raster-v1');
+  });
+});
+
+/** Asks for the tile of raster `rasterId` at `a`. */
+function tileAt(h: Harness, id: number, rasterId: number, a: TileAddress) {
+  return h.runtime.handlers['raster-tile']({
+    id,
+    rasterId,
+    type: 'raster-tile',
+    ...a,
+  });
+}
+
+/** Every tile of `level`, row by row. */
+function everyTile(level: number): TileAddress[] {
+  const tiles: TileAddress[] = [];
+  for (let y = 0; y < 2 ** level; y += 1)
+    for (let x = 0; x < 2 ** (level + 1); x += 1) tiles.push({ level, x, y });
+  return tiles;
+}
+
+describe('coarse tiles and the queue (terrain draping design, "Performance budget and measurement")', () => {
+  beforeEach(() => {
+    h = rasterHarness();
+  });
+
+  it('serves the finest queued tile first, and tiles of one level first in, first out', async () => {
+    await prepare(h, 7);
+    h.holdYield(); // the first tile's yield waits until every other tile is queued
+    const tiles = [
+      tileAt(h, 11, 7, { level: 4, x: 0, y: 0 }),
+      tileAt(h, 12, 7, { level: 0, x: 0, y: 0 }),
+      tileAt(h, 13, 7, { level: 7, x: 0, y: 0 }),
+      tileAt(h, 14, 7, { level: 2, x: 0, y: 0 }),
+      tileAt(h, 15, 7, { level: 7, x: 1, y: 0 }),
+    ];
+    h.releaseYield();
+    await Promise.all(tiles);
+    expect(h.posted.slice(1).map(({ m }) => m.id)).toEqual([
+      11, 13, 15, 14, 12,
+    ]);
+  });
+
+  it('serves a level 0–2 tile of a raster prepared again with the same spec without drawing it', async () => {
+    await prepare(h, 7);
+    await tileAt(h, 11, 7, { level: 0, x: 0, y: 0 });
+    await tileAt(h, 12, 7, { level: 2, x: EMPTY_X, y: 0 });
+    await prepare(h, 8);
+    await tileAt(h, 13, 8, { level: 0, x: 0, y: 0 });
+    await tileAt(h, 14, 8, { level: 2, x: EMPTY_X, y: 0 });
+    expect(h.rasterisers.surface).toHaveBeenCalledTimes(2);
+    expect(h.posted.slice(-3).map(({ m }) => m)).toEqual([
+      expect.objectContaining({ type: 'raster-ready', rasterId: 8 }),
+      expect.objectContaining({ bitmap: BITMAP, id: 13, rasterId: 8 }),
+      expect.objectContaining({ bitmap: null, id: 14, rasterId: 8 }),
+    ]);
+    // a fresh bitmap of the kept bytes for every post
+    expect(h.context.toBitmap).toHaveBeenCalledTimes(2);
+    expect(h.context.toBitmap).toHaveBeenLastCalledWith(FAKE_TILE);
+  });
+
+  it('draws again a tile finer than level 2, a restyle, a tier loaded again and a tile that failed', async () => {
+    let fail = true;
+    const surface = vi.fn((input: SurfaceRasterInput, a: TileAddress) => {
+      if (a.x === 1 && fail) {
+        fail = false;
+        throw new Error('fan out of range');
+      }
+      return fakeRaster(input, a);
+    });
+    h = rasterHarness({ rasterisers: { ...h.rasterisers, surface } });
+    const coarse = { level: 0, x: 0, y: 0 };
+    const draws = async (id: number, spec: RasterSpec, a: TileAddress) => {
+      await prepare(h, id, spec);
+      const before = surface.mock.calls.length;
+      await tileAt(h, id + 100, id, a);
+      return surface.mock.calls.length - before;
+    };
+    expect(await draws(1, SURFACE_SPEC, { level: 3, x: 0, y: 0 })).toBe(1);
+    expect(await draws(2, SURFACE_SPEC, { level: 3, x: 0, y: 0 })).toBe(1);
+    expect(await draws(3, SURFACE_SPEC, coarse)).toBe(1);
+    expect(
+      await draws(4, { ...SURFACE_SPEC, palette: 'viridis' }, coarse),
+    ).toBe(1);
+    expect(
+      await draws(
+        5,
+        { ...SURFACE_SPEC, contours: true, geometry: 'honmoon' },
+        coarse,
+      ),
+    ).toBe(1);
+    expect(await draws(6, SURFACE_SPEC, coarse)).toBe(0);
+    const reloaded = { ...h.render };
+    h.context.render = () => reloaded;
+    expect(await draws(7, SURFACE_SPEC, coarse)).toBe(1);
+    expect(await draws(8, SURFACE_SPEC, { level: 0, x: 1, y: 0 })).toBe(1);
+    expect(last(h.posted, 'error')).toMatchObject({
+      id: 108,
+      code: 'internal',
+    });
+    expect(await draws(9, SURFACE_SPEC, { level: 0, x: 1, y: 0 })).toBe(1);
+    expect(last(h.posted, 'tile-ready')).toMatchObject({ id: 109 });
+  });
+
+  it('keeps a layer kind’s drawn coarse tiles up to every level 0–2 tile of one raster, dropping its raster used least recently first', async () => {
+    const coarse = [0, 1, 2].flatMap(everyTile);
+    expect(coarse).toHaveLength(42);
+    expect(COARSE_TILE_BUDGET).toBe(coarse.length);
+    let id = 100;
+    const drawAll = async (rasterId: number) => {
+      for (const a of coarse) await tileAt(h, (id += 1), rasterId, a);
+    };
+    await prepare(h, 1);
+    await drawAll(1);
+    await prepare(h, 2, { ...SURFACE_SPEC, palette: 'viridis' });
+    await drawAll(2); // 84 drawn tiles: the first raster's 42 go
+    const surface = vi.mocked(h.rasterisers.surface);
+    expect(surface).toHaveBeenCalledTimes(84);
+    await prepare(h, 3, { ...SURFACE_SPEC, palette: 'viridis' });
+    await drawAll(3);
+    expect(surface).toHaveBeenCalledTimes(84);
+    await prepare(h, 4);
+    await tileAt(h, (id += 1), 4, { level: 0, x: 0, y: 0 });
+    expect(surface).toHaveBeenCalledTimes(85);
+  });
+
+  // An outline raster draws nothing below level 3, yet Cesium asks for its level 0–2 tiles: a key
+  // of empty tiles only, which the drawn-tile budget alone would never drop.
+  it('keeps at most 16 raster keys of a layer kind, empty tiles’ too, dropping the key used least recently first', () => {
+    expect(COARSE_TILE_MAX_KEYS).toBe(16);
+    const cache = createCoarseTiles();
+    const a = { level: 0, x: 0, y: 0 };
+    for (let k = 0; k <= COARSE_TILE_MAX_KEYS; k += 1)
+      cache.keep(`key ${k}`, a, null);
+    expect(cache.get('key 0', a)).toBeUndefined();
+    expect(cache.get('key 1', a)).toBeNull(); // now the key used most recently
+    cache.keep('key 17', a, null);
+    expect(cache.get('key 1', a)).toBeNull();
+    expect(cache.get('key 2', a)).toBeUndefined();
+    expect(cache.get(`key ${COARSE_TILE_MAX_KEYS}`, a)).toBeNull();
+  });
+});
+
+describe('the coarse tiles’ raster key (terrain draping design, "Performance budget and measurement")', () => {
+  /** One spec of each layer kind, every field set; `layer` picks the kind, so it is not varied. */
+  const OUTLINE_MATCHED_SPEC: OutlineRasterSpec = {
+    ...OUTLINE_SPEC,
+    edgeColor: { mode: 'matched' },
+  };
+  const BASES: readonly RasterSpec[] = [
+    SURFACE_SPEC,
+    OUTLINE_SPEC,
+    OUTLINE_MATCHED_SPEC,
+    BORDER_SPEC,
+    FOOTPRINT_SPEC,
+  ];
+
+  /** Each field of `spec` as a dotted path, a typed array as one field; `layer` aside. */
+  function fieldsOf(spec: object, prefix = ''): string[] {
+    return Object.entries(spec).flatMap(([name, value]) => {
+      const path = `${prefix}${name}`;
+      if (path === 'layer') return [];
+      return value !== null &&
+        typeof value === 'object' &&
+        !ArrayBuffer.isView(value)
+        ? fieldsOf(value as object, `${path}.`)
+        : [path];
+    });
+  }
+
+  /** `base` with one field changed, by the field's path. */
+  function variantsOf(base: RasterSpec): [string, RasterSpec][] {
+    const artifact = {
+      artifactKey: { ...base, artifactKey: 'other-artifact' },
+      geometry: { ...base, geometry: 'hexagons' },
+      gridSha256: { ...base, gridSha256: 'other-grid' },
+      metric: { ...base, metric: 'post_sd' },
+      palette: { ...base, palette: 'viridis' },
+    };
+    switch (base.layer) {
+      case 'surface':
+        return Object.entries({
+          ...artifact,
+          'cells.masked': { ...base, cells: { ...base.cells, masked: false } },
+          'cells.supported': {
+            ...base,
+            cells: { ...base.cells, supported: false },
+          },
+          contours: { ...base, contours: !base.contours },
+        }) as [string, RasterSpec][];
+      case 'outlines':
+        return Object.entries({
+          ...artifact,
+          ...(base.edgeColor.mode === 'fixed'
+            ? {
+                'edgeColor.color': {
+                  ...base,
+                  edgeColor: { color: '#00ff00', mode: 'fixed' },
+                },
+                'edgeColor.mode': { ...base, edgeColor: { mode: 'matched' } },
+              }
+            : {
+                'edgeColor.mode': {
+                  ...base,
+                  edgeColor: { color: '#00ff00', mode: 'fixed' },
+                },
+              }),
+        }) as [string, RasterSpec][];
+      case 'borders':
+        return [
+          ['color', { ...base, color: '#ff8000' }],
+          ['maximumLevel', { ...base, maximumLevel: 10 }],
+        ];
+      case 'footprints':
+        return [
+          ['artifactKey', { ...base, artifactKey: 'other-artifact' }],
+          // one radius of the triples changed, the rest the same
+          [
+            'circles',
+            {
+              ...base,
+              circles: base.circles.map((v, k) => (k === 2 ? v + 1 : v)),
+            },
+          ],
+          ['color', { ...base, color: '#000000' }],
+        ];
+    }
+  }
+
+  it('varies every field of every layer kind’s spec in these tests', () => {
+    for (const base of BASES)
+      expect(
+        variantsOf(base)
+          .map(([field]) => field)
+          .sort(),
+        `${base.layer} fields`,
+      ).toEqual(fieldsOf(base).sort());
+  });
+
+  it('is a new key for a change of any one field, and the same key for an identical spec', () => {
+    const sources = [{}, {}];
+    for (const base of BASES) {
+      const key = rasterKey(base, sources);
+      expect(rasterKey(structuredClone(base), sources), base.layer).toBe(key);
+      for (const [field, changed] of variantsOf(base))
+        expect(rasterKey(changed, sources), `${base.layer} ${field}`).not.toBe(
+          key,
+        );
+      expect(rasterKey(base, [sources[0], {}]), base.layer).not.toBe(key);
+    }
+  });
+
+  it('refuses a spec field it cannot key by value, never leaving it out', () => {
+    const withField = (odd: unknown) =>
+      ({ ...BORDER_SPEC, odd }) as unknown as RasterSpec;
+    for (const [odd, kind] of [
+      [new Map([['a', 1]]), 'Map'],
+      [new Date(0), 'Date'],
+      [() => 0, 'function'],
+      [Symbol('odd'), 'symbol'],
+    ] as const)
+      expect(() => rasterKey(withField({ deep: odd }), [])).toThrow(
+        `raster spec field odd.deep is a ${kind}`,
+      );
+    // Null and undefined are values, each its own key.
+    const keys = [null, undefined, 'null', 0].map((odd) =>
+      rasterKey(withField(odd), []),
+    );
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it('draws a level 0–2 tile again for a change of any field the runtime can change alone, and never for an identical spec', async () => {
+    for (const base of BASES) {
+      h = rasterHarness({ naturalEarth: () => tinyBorders });
+      // Any artifact key reads the same render tier and grid, so the spec alone changes.
+      h.context.render = () => h.render;
+      h.context.gridFor = () => h.grid;
+      const drawer = vi.mocked(h.rasterisers[base.layer]);
+      let id = 0;
+      const draws = async (spec: RasterSpec) => {
+        const before = drawer.mock.calls.length;
+        await prepare(h, (id += 1), spec);
+        await tileAt(h, (id += 1), id - 1, { level: 0, x: 0, y: 0 });
+        expect(last(h.posted, 'tile-ready')).toMatchObject({ id });
+        return drawer.mock.calls.length - before;
+      };
+      expect(await draws(base), base.layer).toBe(1);
+      for (const [field, changed] of variantsOf(base)) {
+        // The grid's sha comes with its grid, another source, so it cannot change alone here.
+        if (field === 'gridSha256') continue;
+        expect(await draws(changed), `${base.layer} ${field}`).toBe(1);
+      }
+      expect(await draws(structuredClone(base)), base.layer).toBe(0);
+    }
+  });
+
+  it('draws again once the support layer is hidden: the surface without its masks', async () => {
+    await prepare(h, 1);
+    await tileAt(h, 2, 1, { level: 1, x: 2, y: 1 });
+    await prepare(h, 3, {
+      ...SURFACE_SPEC,
+      cells: { ...SURFACE_SPEC.cells, masked: false },
+    });
+    await tileAt(h, 4, 3, { level: 1, x: 2, y: 1 });
+    expect(h.rasterisers.surface).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(h.rasterisers.surface).mock.calls[1][0].cells).toEqual({
+      masked: false,
+      supported: true,
+    });
+  });
+
+  it('keeps each layer kind’s coarse tiles apart, so restyles of one never drop another’s', async () => {
+    h = rasterHarness({ naturalEarth: () => tinyBorders });
+    const coarse = [0, 1, 2].flatMap(everyTile);
+    let id = 100;
+    const drawAll = async (rasterId: number, spec: RasterSpec) => {
+      await prepare(h, rasterId, spec);
+      for (const a of coarse) await tileAt(h, (id += 1), rasterId, a);
+    };
+    await drawAll(1, BORDER_SPEC);
+    await drawAll(2, FOOTPRINT_SPEC);
+    await drawAll(3, SURFACE_SPEC);
+    await drawAll(4, { ...SURFACE_SPEC, palette: 'viridis' });
+    await drawAll(5, { ...SURFACE_SPEC, geometry: 'hexagons' });
+    expect(h.rasterisers.surface).toHaveBeenCalledTimes(3 * 42);
+    // World Terrain off and on: the borders and footprints are prepared again, and served kept.
+    await drawAll(6, BORDER_SPEC);
+    await drawAll(7, FOOTPRINT_SPEC);
+    expect(h.rasterisers.borders).toHaveBeenCalledTimes(42);
+    expect(h.rasterisers.footprints).toHaveBeenCalledTimes(42);
   });
 });

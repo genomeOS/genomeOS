@@ -6,6 +6,7 @@ import {
   Ellipsoid,
   Primitive,
   PrimitiveCollection,
+  SceneMode,
   type Color,
   type PointPrimitiveCollection,
   type PolylineCollection,
@@ -22,6 +23,7 @@ import {
 
 import type { ObservationArtifact } from '../src/atlas/contracts';
 import { ShiftedPerspectiveFrustum } from '../src/atlas/scene/globe-offset';
+import { createHoverResolver } from '../src/atlas/scene/hover-pick';
 import { LayerCache } from '../src/atlas/scene/layer-cache';
 import { REVEAL_WAVE_MS } from '../src/atlas/scene/reveal-wave';
 import { createRevealWave } from '../src/atlas/scene/reveal-wave-driver';
@@ -47,16 +49,24 @@ import type {
   BuildChunksBody,
   ChunkMessage,
 } from '../src/atlas/worker/protocol';
-import type { ObservationPrimitiveGroup } from '../src/atlas/scene/observation-layer';
+import {
+  footprintSpec,
+  type ObservationPrimitiveGroup,
+} from '../src/atlas/scene/observation-layer';
 import type { SurfaceChunkGroup } from '../src/atlas/scene/surface-chunk-layer';
 import { chunkMessage } from './helpers/chunk-buffers';
 import { stubCesiumBrowserImageTypes } from './helpers/cesium-stubs';
 import { columnarSurface } from './helpers/columnar-surface';
 import {
+  ArgEvent,
   fakeDrapedRuntime,
+  fakeRasterProvider,
   type FakeDrapedGroup,
+  type FakeRasterProvider,
 } from './helpers/draped-fakes';
 import { FakeEvent, flushTasks } from './helpers/scene-fakes';
+import { nadirView } from './helpers/nadir-view';
+import { fakeTerrain } from './helpers/terrain-fakes';
 
 // Every group the layers build, so a test can read the opacity the swap gives each one. The
 // wrappers pass straight through to the real factories.
@@ -169,6 +179,14 @@ function harness(
   const preRender = new FakeEvent();
   const postRender = new FakeEvent();
   const primitives = new PrimitiveCollection();
+  // The rendered ground everywhere, as World Terrain's loaded tiles give it (#483): setting it
+  // loads new terrain meshes drawing it, as tiles loading do.
+  const terrain = fakeTerrain(() => 0);
+  const ground = {
+    set value(metres: number) {
+      terrain.load(() => metres);
+    },
+  };
   const scene = {
     camera: {
       pickEllipsoid: () => undefined,
@@ -176,8 +194,12 @@ function harness(
       ...camera,
     },
     canvas: { clientHeight: 600, clientWidth: 800 },
-    globe: { tilesLoaded: true },
+    globe: Object.assign(terrain.globe, {
+      tileLoadProgressEvent: new ArgEvent<number>(),
+      tilesLoaded: true,
+    }),
     imageryLayers: {},
+    morphComplete: new FakeEvent(),
     postRender,
     preRender,
     preUpdate,
@@ -273,15 +295,16 @@ function harness(
     buildEdges: vi.fn(async () => {}),
     recolour: vi.fn(recolourStream),
   };
+  // The fake draped runtime a draped style builds from; a smooth style never imports it.
+  const draped = fakeDrapedRuntime();
+  const onDrapeFailure = vi.fn<(error: unknown) => void>();
   const layers = new ScientificLayers({
-    // A smooth harness has no draped runtime: a draped build without one fails like a lost import.
-    draped: () =>
-      Promise.reject(new Error('no draped runtime in this harness')),
+    draped: async () => draped.runtime,
     frameBudgetMs: 8,
     highlight,
     marks,
     onCommit: (key) => commits.push(key),
-    onDrapeFailure: () => {},
+    onDrapeFailure,
     perf: { mark: vi.fn() },
     scene: scene as never,
     style: () => style,
@@ -319,6 +342,14 @@ function harness(
   const show = async (id: string) => {
     const done = layers.setArtifact(load(id));
     await pump();
+    // A draped surface from the harness's runtime waits on its raster and tiles: both arrive here.
+    if (draped.groups.length > 0) {
+      for (const group of draped.groups) {
+        group.prepared.resolve();
+        group.ready = true;
+      }
+      await pump();
+    }
     await done;
     await pump(1);
   };
@@ -333,12 +364,15 @@ function harness(
     clock,
     commits,
     displayedHistory,
+    draped,
     emitted,
     finishWave,
     frame,
+    ground,
     highlight,
     layers,
     load,
+    onDrapeFailure,
     primitives,
     pump,
     realWaveStart,
@@ -600,6 +634,82 @@ describe('pick target under World Terrain (#483)', () => {
     expect(drawn()).toEqual([false, true]);
   });
 
+  it('draws no row of a cold reveal before the chunk carrying it is added, so a hover finds none (#483)', async () => {
+    const h = harness();
+    const [neighbour] = gridDisk(CELL, 1).filter((cell) => cell !== CELL);
+    const surface = columnarSurface(
+      [CELL, neighbour].map((h3) => ({
+        h3,
+        post_mean: 0.5,
+        post_sd: 0.1,
+        support: 'observed' as const,
+      })),
+      { id: 'hbs-rs334' },
+    );
+    const row = rowForH3(surface, CELL)!;
+    const other = rowForH3(surface, neighbour)!;
+    // The worker sends the neighbour's chunk, then the cell's, each when let go.
+    const sends = [deferred<void>(), deferred<void>()];
+    h.worker.buildChunks.mockImplementation(async (request, onChunk) => {
+      for (const [chunk, rows] of [[other], [row]].entries()) {
+        await sends[chunk].promise;
+        onChunk(
+          chunkMessage(request.artifactKey, chunk, {
+            rows: Uint32Array.from(rows),
+            total: 2,
+          }),
+        );
+      }
+    });
+    const done = h.layers.setArtifact(
+      h.load('hbs-rs334', Promise.resolve(surface)),
+    );
+    await h.pump();
+    // The cold reveal's group is shown at opacity 1 from the start, and the wave rests whole.
+    const target = h.layers.pickTarget()!;
+    expect(target.artifactKey).toBe(keyOf('hbs-rs334'));
+    // Straight down on the cell at 1 km per px; the pointer 40 km east of its marker, inside it.
+    const view = nadirView(LAT, LON, 1_000, new Cartesian2(400, 300));
+    const pointer = new Cartesian2(440, 300);
+    const hover = createHoverResolver(
+      {
+        camera: {
+          pickEllipsoid: (position: Cartesian2) => view.groundAt(position),
+        },
+        globe: {},
+        mapProjection: {},
+        mode: SceneMode.SCENE3D,
+      } as never,
+      {
+        draped: () => false,
+        factor: () => 0,
+        geometry: () => 'triangles',
+        metric: () => 'post_mean',
+        reveal: (direction) => h.wave.reveal(direction),
+        target: () => h.layers.pickTarget(),
+      },
+      () => view,
+    );
+    expect([target.drawn(row), target.drawn(other)]).toEqual([false, false]);
+    expect(hover(pointer)).toBeNull();
+
+    sends[0].resolve();
+    await h.pump();
+    expect([target.drawn(row), target.drawn(other)]).toEqual([false, true]);
+    expect(hover(pointer)).toBeNull();
+
+    sends[1].resolve();
+    await h.pump();
+    await done;
+    expect(h.layers.pickTarget()!.drawn(row)).toBe(true);
+    expect(hover(pointer)).toEqual({
+      artifactKey: keyOf('hbs-rs334'),
+      h3Index: CELL,
+      kind: 'surface',
+      row,
+    });
+  });
+
   it('draws nothing while the displayed group is faded out or hidden', async () => {
     const h = harness();
     await h.show('hbs-rs334');
@@ -674,6 +784,36 @@ describe('atomic replacement', () => {
       artifactKey: keyOf('g6pd-deficiency'),
       hidden: [],
     });
+  });
+
+  it('gives the hover the displayed observations only, never an incoming group at alpha 0 (#483)', async () => {
+    const h = harness();
+    const first = h.layers.setArtifact(h.load('hbs-rs334'));
+    for (let index = 0; index < 12 && !h.layers.pickTarget(); index += 1) {
+      await flushTasks();
+      h.frame();
+    }
+    // A cold reveal: its own observations, shown first.
+    const displayed = built.observations.at(-1)!;
+    expect(h.layers.pickTarget()!.observations).toBe(displayed);
+    await h.pump();
+    await first;
+    expect(h.layers.pickTarget()!.observations).toBe(displayed);
+
+    const pending = deferred<SurfaceArtifact>();
+    const second = h.layers.setArtifact(
+      h.load('g6pd-deficiency', pending.promise),
+    );
+    await h.pump(3);
+    const incoming = built.observations.at(-1)!;
+    expect(incoming).not.toBe(displayed);
+    expect(incoming.collection.show).toBe(true);
+    expect(h.layers.pickTarget()!.observations).toBe(displayed);
+
+    pending.resolve(surfaceFor('g6pd-deficiency'));
+    await h.pump();
+    await second;
+    expect(h.layers.pickTarget()!.observations).toBe(incoming);
   });
 
   it('rebuilds a pending replacement, not the displayed artifact, on a style change', async () => {
@@ -1329,6 +1469,26 @@ describe('draped surface (#483)', () => {
     });
   });
 
+  it.each([
+    ['honmoon', true],
+    ['honmoon-fill', true],
+    ['triangles', false],
+    ['hexagons', false],
+  ] as const)(
+    'asks the draped surface for Honmoon contours with %s: %s',
+    (geometry, contours) => {
+      const surface = columnarSurface([
+        { h3: CELL, post_mean: 0.5, post_sd: 0.1, support: 'observed' },
+      ]);
+      expect(
+        drapedSurfaceSpec({ artifactKey: surface.artifactKey }, surface, {
+          ...harness({ draped: true }).style,
+          geometry,
+        }).contours,
+      ).toBe(contours);
+    },
+  );
+
   it('starts the cold fade at the first isReady, from opacity 0', async () => {
     const h = harness(
       { draped: true, reducedMotion: false },
@@ -1928,5 +2088,232 @@ describe('draped surface (#483)', () => {
     expect(groups.map((group) => group.destroy.mock.calls.length)).toEqual([
       1, 1,
     ]);
+  });
+});
+
+describe('observations on World Terrain', () => {
+  /** The displayed observation group: the newest one built that is on the globe and shown. */
+  const observationsOf = (h: Harness) =>
+    built.observations.findLast(
+      (group) =>
+        h.primitives.contains(group.collection) && group.collection.show,
+    )!;
+  const ringsOf = (h: Harness) =>
+    observationsOf(h).collection.get(0) as PolylineCollection;
+  const pointsOf = (h: Harness) =>
+    observationsOf(h).collection.get(2) as PointPrimitiveCollection;
+  const heightOf = (position: Cartesian3) =>
+    Ellipsoid.WGS84.cartesianToCartographic(position).height;
+  const symbolHeight = (h: Harness) => heightOf(pointsOf(h).get(0).position); // displayed group's PointPrimitiveCollection
+  const footprintsOf = (h: Harness) =>
+    h.draped.layers.filter((l) => l.name === 'atlas-footprints');
+
+  it('drapes the sampling footprints and hides the rings once the layer is ready', async () => {
+    const h = harness({ draped: true });
+    await h.show('a');
+    expect(h.draped.providers.at(-1)!.spec).toEqual(
+      footprintSpec(
+        keyOf('a'),
+        observationsFor().observations,
+        h.style.observationStyle.samplingAreaColor,
+      ),
+    );
+    const [footprints] = footprintsOf(h);
+    expect([footprints.alpha, ringsOf(h).show]).toEqual([0, true]);
+    footprints.ready = true;
+    await h.pump(2);
+    expect([footprints.alpha, ringsOf(h).show]).toEqual([
+      h.style.observationStyle.opacity,
+      false,
+    ]);
+  });
+
+  // Cesium loads a shown layer's tiles at α 0; only `show = false` spares them.
+  it('hands footprints nothing shows over at once and hidden, so they load no tiles', async () => {
+    const h = harness({
+      draped: true,
+      observationStyle: {
+        ...DEFAULT_OBSERVATIONS,
+        samplingAreas: false,
+        shape: 'circle',
+      },
+    });
+    await h.show('a');
+    const [footprints] = footprintsOf(h);
+    expect([footprints.ready, footprints.shown, ringsOf(h).show]).toEqual([
+      false,
+      false,
+      false,
+    ]);
+    expect(footprints.alpha).toBe(h.style.observationStyle.opacity);
+    h.layers.setObservationAppearance(
+      { ...h.style.observationStyle, samplingAreas: true },
+      h.style.layers,
+    );
+    expect([footprints.shown, ringsOf(h).show]).toEqual([true, false]);
+  });
+
+  it('lifts draped observations by the ground, and follows it as terrain tiles load', async () => {
+    const h = harness({ draped: true });
+    h.ground.value = 4_000;
+    await h.show('a');
+    expect(symbolHeight(h)).toBeCloseTo(4_000 + 7_650, 3);
+    h.ground.value = 4_500;
+    h.scene.globe.tileLoadProgressEvent.raiseEvent(0);
+    expect(symbolHeight(h)).toBeCloseTo(4_500 + 7_650, 3);
+  });
+
+  it('resamples the ground of every observation group in view', async () => {
+    const h = harness({ draped: true });
+    await h.show('a');
+    h.ground.value = 5_000;
+    h.layers.resampleGround(true);
+    expect(symbolHeight(h)).toBeCloseTo(5_000 + 7_650, 3);
+  });
+
+  it("returns observations to their rings and today's heights on the smooth globe", async () => {
+    const h = harness({ draped: true });
+    h.ground.value = 4_000;
+    await h.show('a');
+    const [footprints] = footprintsOf(h);
+    footprints.ready = true;
+    await h.pump(2);
+    h.style.draped = false;
+    // The smooth rebuild streams chunks, so frames run while it is awaited.
+    await Promise.all([h.layers.rebuild(), h.pump()]);
+    expect([footprints.destroy.mock.calls.length, ringsOf(h).show]).toEqual([
+      1,
+      true,
+    ]);
+    expect(symbolHeight(h)).toBeCloseTo(7_650, 3);
+    expect(h.scene.globe.tileLoadProgressEvent.listeners.size).toBe(0);
+  });
+
+  it('drops footprints still preparing when the terrain goes smooth', async () => {
+    const h = harness({ draped: true });
+    const pending = Promise.withResolvers<FakeRasterProvider>();
+    vi.mocked(h.draped.runtime.providerFromSpec).mockReturnValueOnce(
+      pending.promise as never,
+    );
+    const shown = h.show('a');
+    // The observations are in, and their footprint raster is preparing.
+    await flushTasks();
+    expect(h.draped.runtime.providerFromSpec).toHaveBeenCalledTimes(1);
+    h.style.draped = false;
+    await Promise.all([h.layers.rebuild(), h.pump()]);
+    const provider = fakeRasterProvider();
+    pending.resolve(provider);
+    await shown;
+    await h.pump();
+    expect(provider.destroy).toHaveBeenCalledTimes(1);
+    expect(footprintsOf(h)).toHaveLength(0);
+  });
+
+  it('rebuilds the footprints in a new sampling colour, keeping the old until the new is ready', async () => {
+    const h = harness({ draped: true });
+    await h.show('a');
+    const [old] = footprintsOf(h);
+    old.ready = true;
+    await h.pump(2);
+    h.layers.setObservationAppearance(
+      { ...h.style.observationStyle, samplingAreaColor: '#ff00ff' },
+      h.style.layers,
+    );
+    await flushTasks();
+    expect(h.draped.providers.at(-1)!.spec).toMatchObject({
+      color: '#ff00ff',
+      layer: 'footprints',
+    });
+    const [, next] = footprintsOf(h);
+    expect(old.destroy).not.toHaveBeenCalled();
+    next.ready = true;
+    await h.pump(2);
+    expect(old.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('reverts through onDrapeFailure when the footprints cannot be rastered', async () => {
+    const h = harness({ draped: true });
+    const error = new Error('raster worker failed');
+    vi.mocked(h.draped.runtime.providerFromSpec).mockRejectedValueOnce(error);
+    await h.show('a');
+    expect(h.onDrapeFailure).toHaveBeenCalledWith(error);
+  });
+
+  it('releases the footprints and ground of a pruned observation group', async () => {
+    const h = harness({ draped: true });
+    await h.show('a');
+    const [first] = footprintsOf(h);
+    for (const id of ['b', 'c', 'd']) await h.show(id); // the observation cache holds 3
+    expect(first.destroy).toHaveBeenCalledTimes(1);
+    expect(h.scene.globe.tileLoadProgressEvent.listeners.size).toBe(1); // the displayed group's only
+  });
+
+  it('releases the footprints and ground of an observation group whose surface failed', async () => {
+    const h = harness({ draped: true });
+    await h.show('a');
+    const failing = deferred<SurfaceArtifact>();
+    const outcome = h.layers
+      .setArtifact(h.load('b', failing.promise))
+      .catch((error: Error) => error);
+    await h.pump();
+    const [, preparing] = footprintsOf(h);
+    expect(preparing.destroy).not.toHaveBeenCalled();
+    expect(h.scene.globe.tileLoadProgressEvent.listeners.size).toBe(2);
+    failing.reject(new Error('render tier failed its checksum'));
+    await expect(outcome).resolves.toMatchObject({
+      message: 'render tier failed its checksum',
+    });
+    await h.pump();
+    expect(preparing.destroy).toHaveBeenCalledTimes(1);
+    expect(h.scene.globe.tileLoadProgressEvent.listeners.size).toBe(1); // the displayed group's only
+  });
+
+  it('creates no ground heights and no footprints on the smooth globe', async () => {
+    const h = harness();
+    await h.show('a');
+    expect(h.scene.globe.tileLoadProgressEvent.listeners.size).toBe(0);
+    expect(h.draped.runtime.providerFromSpec).not.toHaveBeenCalled();
+    expect(ringsOf(h).show).toBe(true);
+  });
+
+  it('reports the first error of footprints in use, and none once they are released', async () => {
+    const h = harness({ draped: true });
+    await h.show('a');
+    const [footprints] = footprintsOf(h);
+    const error = new Error('footprint tile failed');
+    footprints.provider.errorEvent.raiseEvent(error);
+    footprints.provider.errorEvent.raiseEvent(error);
+    expect(h.onDrapeFailure.mock.calls).toEqual([[error]]);
+    h.layers.setObservationAppearance(
+      { ...h.style.observationStyle, samplingAreaColor: '#ff00ff' },
+      h.style.layers,
+    );
+    await flushTasks();
+    const [, recoloured] = footprintsOf(h);
+    h.style.draped = false;
+    await Promise.all([h.layers.rebuild(), h.pump()]);
+    expect(recoloured.destroy).toHaveBeenCalledTimes(1);
+    recoloured.provider.errorEvent.raiseEvent(error);
+    expect(h.onDrapeFailure).toHaveBeenCalledTimes(1);
+  });
+
+  it('destroys the footprints with the layers, so their rasters are released', async () => {
+    const h = harness({ draped: true });
+    await h.show('a');
+    const [shown] = footprintsOf(h);
+    shown.ready = true;
+    await h.pump(2);
+    h.layers.setObservationAppearance(
+      { ...h.style.observationStyle, samplingAreaColor: '#ff00ff' },
+      h.style.layers,
+    );
+    await flushTasks();
+    const [, preparing] = footprintsOf(h);
+    h.layers.destroy();
+    expect([
+      shown.destroy.mock.calls.length,
+      preparing.destroy.mock.calls.length,
+    ]).toEqual([1, 1]);
+    expect(h.scene.globe.tileLoadProgressEvent.listeners.size).toBe(0);
   });
 });

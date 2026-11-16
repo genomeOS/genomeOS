@@ -299,11 +299,20 @@ export interface DrapedImageryLayer {
   setAlpha(a: number): void;
   setShown(s: boolean): void;
   /**
-   * True once the globe has loaded its tiles with the layer in place, or `DRAPED_READY_CAP_MS`
-   * after it was added or last shown. Never while hidden: Cesium frees a hidden layer's tiles, so
-   * a layer shown again is ready only once they have loaded anew.
+   * True once the tiles the globe rendered are the ones it chose for the view, not coarser ones
+   * drawn while finer terrain loads, and have this layer's imagery loaded, or
+   * `DRAPED_READY_CAP_MS` after it was added or last shown; until then the shown layer asks for a
+   * frame each frame. Never while hidden, and a hidden layer asks for no frame: Cesium frees a
+   * hidden layer's tiles, so a layer shown again is ready only once they have loaded anew.
    */
   isReady(): boolean;
+  /**
+   * Draws the layer for one rendered frame at no less than `PREWARM_ALPHA`, so Cesium compiles
+   * the globe shader for the textures a fade from alpha 0 will draw before that fade begins
+   * (terrain draping design, "Failure modes"). It resolves once that frame is drawn, at once for
+   * a hidden layer or one already drawn, and on destroy; repeated calls return the same promise.
+   */
+  prewarm(): Promise<void>;
   destroy(): void;
 }
 
@@ -356,8 +365,20 @@ export interface DrapeStats {
   delivered: number;
   empty: number;
   queueDepth: number;
-  /** Raster time per tile at level ≥ 3; `upperMs` 0.5, 1, 2, 4, 8, 16, Infinity. */
+  /** Raster time per tile at level ≥ 3, the budget's; `upperMs` 0.5, 1, 2, 4, 8, 16, Infinity. */
   rasterMs: { upperMs: readonly number[]; counts: number[] };
+  /** Raster time per tile at levels 0–2, in `rasterMs`'s bins, which leave them out. */
+  coarseRasterMs: { upperMs: readonly number[]; counts: number[] };
+  /**
+   * Request to delivery per tile: `byLevel[level][bin]` for levels 0–11, over `upperMs` 8, 16, …,
+   * 4,096 ms, Infinity.
+   */
+  deliveryMs: { upperMs: readonly number[]; byLevel: number[][] };
+  /**
+   * The worker's raster time summed over the delivered tiles, per level 0–11, which the terrain tour
+   * scales for the phone (a page's CPU throttle does not reach the worker).
+   */
+  rasterMsByLevel: number[];
   /** Non-empty cached tiles × `RESIDENT_TILE_BYTES`. */
   residentBytes: number;
 }

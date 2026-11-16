@@ -8,20 +8,22 @@
  *   (spec 2026-10-07 §B.6.8), and outlined by a sliced worker edge build (§B.6.9).
  * - A draped group reads a surface raster spec. Extruded drapes as hexagons, since data elevation
  *   is off under World Terrain, and the cell layers that are on choose the cells baked into its
- *   texture, so a toggle that changes them rebuilds it. Honmoon contours are not drawn yet.
+ *   texture, so a toggle that changes them rebuilds it. The Honmoon geometries draw their contour
+ *   lines into it ("honmoon contours from an analytic gradient", "Build phases" item 4).
  * - A draped group's outlines are waited on only while it is in view. A group drawing no supported
  *   cell has none, so they are ready at once, and a stalled wait warns but never reverts the globe:
  *   only a raster failure does.
  * - In a restyle swap the outgoing draped layer stays opaque until it is retired, so the incoming
  *   one cross-fades over it rather than both letting the ground show through.
- * - The caches' keys and a dataset switch's same-frame swap, shared by both kinds, live here too, so
- *   that ScientificLayers stays within its line cap.
+ * - The surface cache's key and a dataset switch's same-frame swap, shared by both kinds, live here
+ *   too, so that ScientificLayers stays within its line cap.
  */
 
 import { Ellipsoid, Math as CesiumMath } from 'cesium';
 
-import type { ObservationArtifact } from '../contracts';
+import type { Observation, ObservationArtifact } from '../contracts';
 import type { EdgeColorSpec } from '../geometry/edge-buffers';
+import { honmoonModeForGeometry } from '../geometry/surface-buffers';
 import type {
   DrapedGeometry,
   SurfaceRasterSpec,
@@ -53,8 +55,8 @@ import type {
   ArtifactLoad,
   DrapedRuntime,
   DrapedSurfaceGroup,
-  ObservationPresentation,
   RasterTileSource,
+  RasterWorkerClient,
   SceneProgressListener,
   SurfaceGroup,
 } from './types';
@@ -72,6 +74,8 @@ export interface SurfaceGroupHost {
   readonly frameBudgetMs: number;
   /** Marker heights per surface group, from its stream's anchors; draped groups have none. */
   readonly heights: WeakMap<SurfaceGroup, ObservationSurfaceHeights>;
+  /** The one raster source over the worker that every draped layer of these layers reads. */
+  rasterSource(runtime: DrapedRuntime): RasterTileSource;
   style(): ScientificStyle;
   lookAt(): LookAt;
 }
@@ -117,6 +121,14 @@ export class DrapeFailure extends Error {
   }
 }
 
+/** A raster source over `worker`, made by the first runtime that asks and shared from then on. */
+export function sharedRasterSource(
+  worker: RasterWorkerClient,
+): (runtime: DrapedRuntime) => RasterTileSource {
+  let source: RasterTileSource | null = null;
+  return (runtime) => (source ??= runtime.rasterSource(worker));
+}
+
 export function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
@@ -149,21 +161,6 @@ export function surfaceKeyFor(
   );
 }
 
-/** An observation group's cache key: what its primitives bake in. */
-export function observationKeyFor(
-  artifactKey: string,
-  style: ObservationPresentation,
-): string {
-  return [
-    artifactKey,
-    style.shape,
-    style.colorVariable,
-    style.solidColor,
-    ...style.gradient,
-    style.sizeVariable,
-  ].join(':');
-}
-
 export function edgeStyleKey(
   style: Pick<ScientificStyle, 'edgeColorMode' | 'edgeFixedColor'>,
 ): string {
@@ -187,7 +184,7 @@ export function drapedSurfaceSpec(
   return {
     artifactKey: load.artifactKey,
     cells: drapedCells(style.layers),
-    contours: false,
+    contours: honmoonModeForGeometry(geometry) !== 0,
     geometry,
     gridSha256: surface.grid.gridSha256,
     layer: 'surface',
@@ -298,7 +295,6 @@ export function createDrapedGroup(
     load: ArtifactLoad;
     surface: SurfaceArtifact;
     style: ScientificStyle;
-    source: RasterTileSource;
     inView(group: DrapedSurfaceGroup): boolean;
     onFailure(error: unknown): void;
   },
@@ -315,7 +311,7 @@ export function createDrapedGroup(
       input.onFailure(error);
     },
     scene: host.scene,
-    source: input.source,
+    source: host.rasterSource(runtime),
     surface: drapedSurfaceSpec(load, input.surface, style),
     surfaceOpacity: style.surfaceOpacity,
     wave: host.wave,
@@ -326,8 +322,9 @@ export function createDrapedGroup(
   return group;
 }
 
+/** Interleaved lon, lat (degrees) of each observation, in order; null with no observations. */
 export function observationPoints(
-  observations: ObservationArtifact | null,
+  observations: { readonly observations: readonly Observation[] } | null,
 ): Float64Array | null {
   return observations
     ? Float64Array.from(

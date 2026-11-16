@@ -10,6 +10,7 @@
  */
 
 import type { EdgeColorSpec } from '../edge-buffers';
+import type { NaturalEarthBuffers } from '../natural-earth';
 import type { MeshInput } from '../surface-buffers';
 import type { SurfaceGeometry } from '../../url-state';
 import type { Metric, PaletteId } from '../../visual-encoding';
@@ -107,6 +108,22 @@ export const OUTLINE_WIDTH_TEXELS = [1.5, 2] as const;
 /** The `atlas-surface` layer's own α factor. The layer scales its whole texture by it, so the mask
  * texels, which the chunk path draws unscaled, store their material α divided by it. */
 export const DRAPED_SURFACE_ALPHA = 0.9;
+/** The alpha a pre-warm draws a layer at for one frame: drawn, so its texture counts, yet unseen
+ * (`DrapedImageryLayer.prewarm`). */
+export const PREWARM_ALPHA = 0.001;
+
+/** Each row's box in degrees, as `rowBox` gives it; `west`/`east` may pass ±180° by less than a
+ * turn. */
+export interface RowBoxes {
+  west: Float64Array;
+  south: Float64Array;
+  east: Float64Array;
+  north: Float64Array;
+  /** 1 for a row that holds a pole: its unwrapped corners span more than 180° of longitude. */
+  polar: Uint8Array;
+  /** 1 for a row that holds a pole or whose box passes ±180°. */
+  wraps: Uint8Array;
+}
 
 /** Grid rows by rectangle, with ±360° copies of rows that cross the antimeridian. */
 export interface GridIndex {
@@ -114,6 +131,8 @@ export interface GridIndex {
   rowsIn(r: DegreeRectangle, out?: number[]): number[];
   /** The union of the drawn rows' extents; null when no row is drawn. */
   bounds(drawn: (row: number) => boolean): DegreeRectangle | null;
+  /** Every row's box, built once with the index; read only. */
+  readonly boxes: RowBoxes;
 }
 
 /** What the surface and outline rasterisers read for one artifact. */
@@ -132,6 +151,16 @@ export interface Rasterisers {
   surface(i: SurfaceRasterInput, a: TileAddress): TileRaster | null;
   outlines(
     i: SurfaceRasterInput & { edgeColor: EdgeColorSpec },
+    a: TileAddress,
+  ): TileRaster | null;
+  /** The country borders: the worker's parsed Natural Earth copy, in a `#rrggbb` colour. */
+  borders(
+    i: { borders: NaturalEarthBuffers; color: string },
+    a: TileAddress,
+  ): TileRaster | null;
+  /** The sampling footprints: interleaved lon, lat, radius_km triples, in a `#rrggbb` colour. */
+  footprints(
+    i: { circles: Float64Array; color: string },
     a: TileAddress,
   ): TileRaster | null;
 }
