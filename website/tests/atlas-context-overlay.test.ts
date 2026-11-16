@@ -76,6 +76,8 @@ function setup(
     _clampedPosition?: Cartesian3;
   };
   const added: AddedLabel[] = [];
+  let labelsDestroyed = false;
+  let labelsReady = false;
   const labels = {
     add({
       heightReference,
@@ -103,9 +105,20 @@ function setup(
       added.push(label);
       return label;
     },
-    destroy() {},
-    // LabelCollection.ready: false until every glyph is in the texture atlas.
-    ready: false,
+    destroy() {
+      labelsDestroyed = true;
+    },
+    // LabelCollection.ready: false until every glyph is in the texture atlas. A destroyed Cesium
+    // LabelCollection throws from it (destroyObject), and CesiumWidget.destroy() destroys it with
+    // the primitives, so a listener that reads it before the destroyed check would throw.
+    get ready() {
+      if (labelsDestroyed || primitives.isDestroyed())
+        throw new DeveloperError('This object was destroyed');
+      return labelsReady;
+    },
+    set ready(value: boolean) {
+      labelsReady = value;
+    },
     show: true,
   };
   let contextParsed = false;

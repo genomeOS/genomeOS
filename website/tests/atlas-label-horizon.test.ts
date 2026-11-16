@@ -9,6 +9,7 @@ import { Cartesian3, Color, NearFarScalar, SceneMode } from 'cesium';
 import { describe, expect, it } from 'vitest';
 
 import {
+  cullLabels,
   horizonHides,
   horizonOccluder,
   labelAboveHorizon,
@@ -137,5 +138,46 @@ describe('horizonHides', () => {
         ) as never,
       ),
     ).toBe(false);
+  });
+});
+
+describe('cullLabels', () => {
+  // The overlay asks for glyph frames only when a pass reveals a label (context-overlay.ts): a
+  // label hidden before its glyphs loaded is not counted by LabelCollection.ready.
+  it('reports a reveal only when it shows a label it found hidden', () => {
+    const occluder = horizonOccluder(Cartesian3.fromDegrees(-7.5, 31, 3_000));
+    const near = { position: label(-7.5, 32), show: true };
+    const portugal = { position: label(-8, 39.6), show: true };
+    const labels = [near, portugal];
+
+    // Hides Portugal and shows nothing it had hidden.
+    expect(cullLabels(labels, occluder)).toEqual({
+      hidden: true,
+      revealed: false,
+    });
+    expect([near.show, portugal.show]).toEqual([true, false]);
+
+    // Nothing changes.
+    expect(cullLabels(labels, occluder)).toEqual({
+      hidden: true,
+      revealed: false,
+    });
+
+    // Risen 5,000 km, the camera sees Portugal again.
+    occluder.cameraPosition = Cartesian3.fromDegrees(-7.5, 31, 5_000_000);
+    expect(cullLabels(labels, occluder)).toEqual({
+      hidden: false,
+      revealed: true,
+    });
+    expect(portugal.show).toBe(true);
+
+    // No occluder (see-through Earth, 2D, Columbus view) shows every label: a reveal only if one
+    // was hidden.
+    portugal.show = false;
+    expect(cullLabels(labels, null)).toEqual({ hidden: false, revealed: true });
+    expect(cullLabels(labels, null)).toEqual({
+      hidden: false,
+      revealed: false,
+    });
   });
 });
