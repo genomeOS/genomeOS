@@ -19,7 +19,9 @@
  *
  * The context and observations on the peak ("Per layer under World Terrain", "Exaggeration"): at
  * Physical relief 6 and then 10, a sphere standing on the ground above the summit is picked and
- * Spain's country label stays 2,500 m above the peak's flank; the sampling footprints and the
+ * Spain's country label stays 2,500 m above the peak's flank; looking straight down, where the
+ * context labels put Cesium's near plane tens of kilometres from the camera, a sphere above the
+ * summit is drawn and picked ("Goals": never buried); the sampling footprints and the
  * borders drape as their own imagery layers, in the draping design's order, a footprint ring
  * shows on the summit's ground, and every Atlas layer leaves with World Terrain. Desktop only:
  * the phone runs the same scene.
@@ -30,6 +32,7 @@ import { latLngToCell } from 'h3-js';
 
 import { SYNTHETIC_PEAK } from '../src/atlas/e2e-hooks';
 import {
+  afterNextPaint,
   apexOnPage,
   cameraSettled,
   changedShare,
@@ -431,6 +434,65 @@ test.describe('context and observations on World Terrain @desktop-chromium', () 
     await pickSummitSphere(page); // the 60 km summit: the spheres followed it
     await spainLabelClamped(page);
   });
+
+  // Straight down, Cesium's frustum near plane is the nearest command's bounding plane, and with
+  // the context on that is the globe-sized label collection's: 42 to 242 km from the camera under
+  // World Terrain, past the 31.65 km from a sphere's top to the ground under it (7,650 m clearance
+  // and a 24 km diameter). Cesium 1.145's ray-cast ellipsoid wrote its depth that far behind itself,
+  // so it lost the depth test to the terrain in the draw and in the GPU drill pick alike
+  // (integrations/cesium-ellipsoid-log-depth.mjs). The oblique views above have a 0.1 m near plane.
+  for (const { height, relief } of [
+    { height: 120_000, relief: 1 },
+    { height: 300_000, relief: 3 },
+  ])
+    test(`a sphere above the summit is drawn and clickable looking straight down (relief ${relief}, ${height / 1_000} km)`, async ({
+      page,
+    }) => {
+      await openDrape(
+        page,
+        drapeQuery('nadir', relief, {
+          ...NO_FOOTPRINTS,
+          height: String(height),
+          layers: ALL_LAYERS,
+          obsShape: 'sphere',
+          obsSize: 'fixed',
+          pointMax: '12',
+          pointMin: '12',
+        }),
+      );
+      await expect.poll(async () => (await probe(page)).draped).toBe(true);
+      await summitOnGround(page);
+      await drapeSettled(page);
+      // Straight down, the spheres within 5 km of the apex cover the point above it at their centres'
+      // height, so the measured points layer changes those pixels when it is drawn.
+      const centre = await windowOf(
+        page,
+        SYNTHETIC_PEAK.lon,
+        SYNTHETIC_PEAK.lat,
+        SYMBOL_CLEARANCE + SPHERE_RADIUS,
+      );
+      expect(centre, 'the sphere above the summit is on screen').not.toBeNull();
+      const shown = await summitPatch(page, centre!);
+      const points = page.getByRole('checkbox', {
+        exact: true,
+        name: 'Measured points',
+      });
+      await points.uncheck();
+      await expect
+        .poll(() => new URL(page.url()).searchParams.get('layers'))
+        .not.toContain('observations');
+      await afterNextPaint(page);
+      const hidden = await summitPatch(page, centre!);
+      // Soft, so a sphere that is not drawn still reports whether it is picked.
+      expect
+        .soft(
+          await changedShare(page, shown, hidden),
+          'the sphere is drawn over the summit',
+        )
+        .toBeGreaterThan(0.8);
+      await points.check();
+      await pickSummitSphere(page);
+    });
 
   test('sampling footprints and borders drape onto the summit, and leave with World Terrain', async ({
     page,
