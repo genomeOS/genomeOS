@@ -1,6 +1,6 @@
 # Draping Atlas data onto World Terrain (#483): design
 
-Proposed. Cesium 1.145. Paths relative to `website/src/atlas/`.
+Implemented (#483). Cesium 1.145. Paths relative to `website/src/atlas/`.
 
 ## Intent
 
@@ -11,7 +11,7 @@ With Cesium World Terrain on, the data layers sit at fixed heights (surface 650 
 Goals:
 - Under World Terrain, surface, masks, edges, borders and footprints follow the ground at every zoom, mode and exaggeration, with the hillshade on the data.
 - Symbols and labels are never buried; picks are correct on slopes and in oblique views.
-- The smooth globe is unchanged in look, bytes and timings.
+- The smooth globe is unchanged in look and timings, and in bytes but for the accepted growth recorded under "Decided by the owner (2026-11-16)".
 
 Non-goals:
 - No change to the GOSA tiers, the server or the smooth-globe pipeline.
@@ -93,7 +93,7 @@ Imagery drapes natively in every mode and during morphs; Columbus view shows exa
 
 **Smooth globe (asserted, unchanged):** surface visible ≤ 2.5 s desktop, ≤ 6 s mobile Fast 4G, ≤ 17.5 s slow profile; reveal ≤ 1.1 s; long frames ≤ 200 / 800 ms; warm switch < 2 s; ≥ 45 fps; Cesium gzip pin. New: atlas-bundle asserts the draped modules are absent from the /app/ initial chunks and the worker's first load.
 
-**World Terrain** (new `atlas-terrain-performance.spec.ts`; report-only until phase 4, then asserted on hardware GPUs and skipped on SwiftShader):
+**World Terrain** (new `atlas-terrain-performance.spec.ts`; report-only until phase 4, then asserted: the timing budgets on hardware GPUs only, skipped on SwiftShader; the resident-memory budget on every renderer, CI's SwiftShader included, because it counts tiles rather than measuring time):
 - Data visible ≤ 2 s after the terrain switch, and restyles ≤ 2 s to `tilesLoaded`.
 - ≥ 45 fps while orbiting; long frames ≤ 200 ms desktop and ≤ 800 ms mobile ×4.
 - Raster p95 ≤ 2 ms per tile at level 3 and finer.
@@ -168,6 +168,12 @@ The fixture has no vertex normals, so hillshade gets unit tests plus a manual io
 - **Mobile:** if phones still miss the memory budget after the fallbacks, World Terrain may be desktop-only ("Yes, desktop-only if needed"), with a note explaining why it is off.
 
 A further builder's call, settled after the review: **a cold load whose URL already says `terrain=world-terrain` drapes on the URL's word.** The draped pipeline is built directly; the smooth one is not built first and then swapped. If ion fails, the terrain reverts to the smooth globe with a warning and the smooth pipeline builds then (see Failure modes).
+
+## Decided by the owner (2026-11-16)
+
+- **Memory is asserted on every renderer** (phase 4 decision 4, "Keep it on every renderer"). Only the timing budgets skip a software renderer.
+- **The smooth globe's initial JavaScript may grow by about 0.66%** ("Accept the 0.66% growth"): gzip −9 of the scripts `/app/` loads went from 1,159,933 B on `main` (e1706b4) to 1,167,606 B, plus one 730 B `preload-helper` request. That is the World Terrain-only code phases 1–3 placed in the initial chunk (ground heights, the observation drapes, the draped pick branch); it stays there rather than behind the draped runtime's `import()`. The Cesium chunk stays inside its gzip pin.
+- **Production density meets every World Terrain budget** (accepted in a visible-browser session on an Apple M3 Pro, 2026-11-15, three tour runs over the published HbS grid, 77,844 cells; results on #503): desktop data visible 668–720 ms and longest frame 0–52 ms; phone data visible 1,704–1,758 ms and longest frame 518–595 ms; orbit ≥ 108 fps; resident 53–56 MiB.
 
 ## Open questions for the owner
 
