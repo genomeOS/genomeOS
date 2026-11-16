@@ -7,14 +7,19 @@
  * (To measure the bucket, build with its base and drop ATLAS_DATA_DIR; a
  * same-origin build is refused; see the Local development docs page.)
  *
- * Headed Chrome on a hardware GPU; three fresh contexts per profile. The
+ * Headed Chrome on a hardware GPU (ATLAS_COLD_LOAD_HEADLESS=1 launches it
+ * headless, for runs outside a session announced to the owner; the report says
+ * which). Each profile's browser first runs one warm-up load and discards it,
+ * then three measured loads, each a fresh context with a cold HTTP cache (§B.1,
+ * amended 2026-11-14): the warm-up takes Chrome's first-use GPU pipeline
+ * compiles, and the report keeps its cost as `gpuWarmup`, unasserted. The
  * observations-visible, surface-visible and reveal budgets are asserted on the
- * median of the three runs; the Atlas long-frame cap, the transport checks and
- * "no request timeout or error" hold for every run. Budgets are skipped on
- * software renderers. Baseline mode (ATLAS_COLD_LOAD_BASELINE=1 with
- * ATLAS_COLD_LOAD_BASE_URL) measures a pre-change build to `data-atlas-ready`
- * and asserts nothing. The browser side lives here; the run analysis is in
- * `support/cold-load-run.ts`.
+ * median of the three measured runs; the Atlas long-frame cap, the transport
+ * checks and "no request timeout or error" hold for every measured run.
+ * Budgets are skipped on software renderers. Baseline mode
+ * (ATLAS_COLD_LOAD_BASELINE=1 with ATLAS_COLD_LOAD_BASE_URL) measures a
+ * pre-change build to `data-atlas-ready` and asserts nothing. The browser side
+ * lives here; the run analysis is in `support/cold-load-run.ts`.
  */
 import { writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -31,21 +36,25 @@ import {
 
 import { ledgerMarkdown, type LoafRecord } from './support/cold-load-analysis';
 import {
+  COLD_LOAD_PLAN,
   COLD_LOAD_PROFILES,
-  COLD_LOAD_RUNS,
   QUIET_PERIOD_MS,
   type ColdLoadProfile,
 } from './support/cold-load-profiles';
 import {
   analyseRun,
+  longFrameCapChecks,
   medianRun,
+  splitWarmup,
   summarise,
   throttleWorkers,
   trackNetwork,
   type ColdLoadMode,
   type ColdLoadRun,
+  type LoadResult,
   type Outcome,
   type PageMeasurements,
+  type WebglContextTiming,
 } from './support/cold-load-run';
 import {
   CdpConnection,
@@ -58,6 +67,7 @@ import { assertProductionBuild } from './support/production-build';
 const MODE: ColdLoadMode =
   process.env.ATLAS_COLD_LOAD_BASELINE === '1' ? 'baseline' : 'current';
 const CDP_PORT = Number(process.env.ATLAS_COLD_LOAD_CDP_PORT ?? '9333');
+const HEADLESS = process.env.ATLAS_COLD_LOAD_HEADLESS === '1';
 const SOFTWARE_RENDERER = /swiftshader|software|llvmpipe/i;
 const BLOCKED_TILES = '*tile.openstreetmap.org*';
 const SETTLED_ATTRIBUTES =
@@ -67,15 +77,44 @@ const SETTLED_ATTRIBUTES =
 
 interface ColdLoadProbe {
   loaf: LoafRecord[];
+  webglContexts: WebglContextTiming[];
   attributes: Record<string, number>;
   errors: string[];
 }
 
 function installColdLoadProbes(): void {
-  const probe: ColdLoadProbe = { loaf: [], attributes: {}, errors: [] };
+  const probe: ColdLoadProbe = {
+    loaf: [],
+    webglContexts: [],
+    attributes: {},
+    errors: [],
+  };
   (window as unknown as { __atlasColdLoad: ColdLoadProbe }).__atlasColdLoad =
     probe;
   performance.setResourceTimingBufferSize(2_000);
+  // Each WebGL context the page asks for, timed: creating one is a synchronous
+  // round trip to the GPU process, which on a new browser's first load waits
+  // behind Chrome's own first-use pipeline compiles.
+  const getContext = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (
+    this: HTMLCanvasElement,
+    contextType: string,
+    ...rest: unknown[]
+  ): unknown {
+    const startTime = performance.now();
+    const context: unknown = Reflect.apply(getContext, this, [
+      contextType,
+      ...rest,
+    ]);
+    if (/webgl/.test(contextType))
+      probe.webglContexts.push({
+        contextType,
+        startTime,
+        durationMs: performance.now() - startTime,
+        created: context !== null,
+      });
+    return context;
+  } as unknown as typeof getContext;
   try {
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
@@ -87,6 +126,8 @@ function installColdLoadProbes(): void {
           blockingDuration: frame.blockingDuration,
           scripts: frame.scripts.map((script) => ({
             sourceURL: script.sourceURL,
+            sourceFunctionName: script.sourceFunctionName,
+            sourceCharPosition: script.sourceCharPosition,
             invoker: script.invoker,
             invokerType: script.invokerType,
             startTime: script.startTime,
@@ -133,6 +174,8 @@ function collectPageMeasurements(): PageMeasurements {
         duration: entry.duration,
         detail: (entry as PerformanceMark).detail ?? null,
       }));
+  // Copied before the renderer probe below, whose context is not the page's.
+  const webglContexts = [...probe.webglContexts];
   const canvas = document.createElement('canvas');
   const gl = canvas.getContext('webgl');
   const debug = gl?.getExtension('WEBGL_debug_renderer_info');
@@ -147,6 +190,7 @@ function collectPageMeasurements(): PageMeasurements {
     })),
     navigationResponseEnd: navigation?.responseEnd ?? 0,
     loaf: probe.loaf,
+    webglContexts,
     attributes: probe.attributes,
     probeErrors: probe.errors,
     renderer:
@@ -326,9 +370,17 @@ for (const profile of COLD_LOAD_PROFILES) {
   test(`cold load (${MODE}): ${profile.name}`, async ({}, testInfo) => {
     test.skip(
       testInfo.project.name !== 'desktop-chromium',
-      'The cold-load spec launches its own headed Chrome once.',
+      'The cold-load spec launches its own Chrome once.',
     );
-    test.setTimeout(COLD_LOAD_RUNS * (profile.timeoutMs + 30_000) + 60_000);
+    // §B.1 defines no headless mode: such a run is a local smoke check, never the gate.
+    if (HEADLESS)
+      testInfo.annotations.push({
+        type: 'headless',
+        description: 'local smoke run, not the §B.1 headed gate',
+      });
+    test.setTimeout(
+      COLD_LOAD_PLAN.length * (profile.timeoutMs + 30_000) + 60_000,
+    );
     const baseUrl =
       process.env.ATLAS_COLD_LOAD_BASE_URL ??
       String(testInfo.project.use.baseURL);
@@ -336,16 +388,21 @@ for (const profile of COLD_LOAD_PROFILES) {
     await assertDevToolsPortFree(CDP_PORT);
     const browser = await chromium.launch({
       channel: 'chrome',
-      headless: false,
+      headless: HEADLESS,
       args: [`--remote-debugging-port=${CDP_PORT}`],
     });
     let cdp: CdpConnection | null = null;
     try {
       cdp = await CdpConnection.open(await browserWebSocketUrl(CDP_PORT));
       await assertLaunchedBrowser(browser, cdp);
-      const runs: ColdLoadRun[] = [];
-      for (let index = 0; index < COLD_LOAD_RUNS; index += 1)
-        runs.push(await runColdLoad(browser, cdp, profile, baseUrl, index));
+      // §B.1, amended 2026-11-14: a discarded warm-up load, then the measured runs.
+      const loads: LoadResult[] = [];
+      for (const load of COLD_LOAD_PLAN)
+        loads.push({
+          load,
+          run: await runColdLoad(browser, cdp, profile, baseUrl, load.index),
+        });
+      const { gpuWarmup, runs } = splitWarmup(loads);
       const summary = summarise(runs);
       const renderer = runs[0]?.renderer ?? 'unknown';
       const software = SOFTWARE_RENDERER.test(renderer);
@@ -354,8 +411,10 @@ for (const profile of COLD_LOAD_PROFILES) {
           mode: MODE,
           profile,
           machine: machine(browser),
+          headless: HEADLESS,
           renderer,
           softwareRenderer: software,
+          gpuWarmup,
           summary,
           runs,
         },
@@ -384,6 +443,18 @@ for (const profile of COLD_LOAD_PROFILES) {
       });
       console.info(
         `Atlas cold load ${MODE} ${profile.name}: ${JSON.stringify(summary)}`,
+      );
+      const ms = (value: number): string => `${value.toFixed(1)} ms`;
+      const contexts = gpuWarmup.webglContexts.map(
+        (context) => `${context.contextType} ${ms(context.durationMs)}`,
+      );
+      const measuredFrames = runs.map((run) =>
+        ms(run.longFrames.maxAtlasFrameMs),
+      );
+      console.info(
+        `Atlas cold load ${MODE} ${profile.name}: discarded warm-up (${gpuWarmup.outcome}, not ` +
+          `asserted): longest Atlas frame ${ms(gpuWarmup.maxAtlasFrameMs)}, WebGL contexts ` +
+          `[${contexts.join(', ')}]; measured runs' longest Atlas frames [${measuredFrames.join(', ')}]`,
       );
       if (MODE === 'baseline') return;
 
@@ -437,15 +508,12 @@ for (const profile of COLD_LOAD_PROFILES) {
         .soft(at(summary.surfaceVisibleMs), 'surface-visible (median)')
         .toBeLessThanOrEqual(budgets.surfaceVisibleMs);
       // §B.1 "Additionally": no Atlas main-thread long animation frame above the cap within the
-      // window — a per-run limit, so one bad run fails even when the other two are fast. The
-      // median stays in the summary as a reported number only.
-      for (const run of runs)
+      // window — a per-run limit, so one bad run fails even when the other two are fast; the
+      // warm-up gets no check. The median stays in the summary as a reported number only.
+      for (const check of longFrameCapChecks(loads, budgets.atlasLongFrameMs))
         expect
-          .soft(
-            run.longFrames.maxAtlasFrameMs,
-            `run ${run.index}: longest Atlas animation frame`,
-          )
-          .toBeLessThanOrEqual(budgets.atlasLongFrameMs);
+          .soft(check.frameMs, check.label)
+          .toBeLessThanOrEqual(check.capMs);
       if (budgets.revealMs !== null)
         expect
           .soft(

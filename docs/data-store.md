@@ -160,7 +160,10 @@ reported coordinate. A separately retained, immutable and versioned curated CSV 
 four fields defined in [the MAP spatial-support contract](map-spatial-support.md). There is no
 automatic raw-to-curated conversion, and this repository does not currently contain or claim a
 qualified real curated MAP source. For a runnable synthetic demonstration, use
-`tests/fixtures/map_hbs_curated_synthetic.csv`.
+`tests/fixtures/map_hbs_curated_synthetic.csv`. The exact 994 observations of the 2026-09-16 HbS
+parity run predate that contract (their radii come from MAP's area class). They are in the data
+store under `validation/hbs-piel-parity-2026-09-16/`, with their rebuild recipe in
+`docs/research/hbs-piel-parity-2026-09-16.md`.
 
 Fitting is ~20 min per variant on a laptop. **Do not run it on a pod expecting the output back**:
 nothing copies `/workspace` off a pod, and that is how three runs' fits were lost. A pod can render
@@ -292,6 +295,10 @@ python scripts/publish_data_store.py                               # gcloud warn
 unset CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT
 python scripts/fetch_data.py --verify-remote                       # anonymous, every object
 ```
+
+Merge the release manifest only after publishing and the anonymous `--verify-remote` pass:
+`fetch_data.py` reads the newest committed manifest, so a merged manifest whose objects are not yet
+uploaded breaks every fetch on `main`.
 
 Publishing checks every local file against the manifest, describes every key before uploading
 anything, uploads absent objects with `--if-generation-match=0`, skips identical ones, treats any

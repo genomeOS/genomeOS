@@ -16,6 +16,13 @@ export interface TimingEntry {
 
 export interface LoafScriptRecord {
   sourceURL: string;
+  /**
+   * The entry point's function name and its character offset in `sourceURL`: with a source map of
+   * the same build they name the code a long frame ran, which the URL and invoker alone do not.
+   * Chrome reports '' and -1 when it does not know them.
+   */
+  sourceFunctionName: string;
+  sourceCharPosition: number;
   invoker: string;
   invokerType: string;
   startTime: number;
@@ -262,6 +269,8 @@ export interface LongFrameReport {
   chunkFrame: boolean;
   scripts: {
     sourceURL: string;
+    sourceFunctionName: string;
+    sourceCharPosition: number;
     invoker: string;
     invokerType: string;
     attribution: ScriptAttribution;
@@ -293,6 +302,8 @@ export function atlasLongFrames(
     const chunkFrame = chunkFrames.some((frame) => overlaps(loaf, frame));
     const scripts = loaf.scripts.map((script) => ({
       sourceURL: script.sourceURL,
+      sourceFunctionName: script.sourceFunctionName,
+      sourceCharPosition: script.sourceCharPosition,
       invoker: script.invoker,
       invokerType: script.invokerType,
       attribution: attributeScript(script, context, chunkFrame),

@@ -4254,6 +4254,14 @@ test('explorer reports unavailable WebGL with a retry action', async ({
   await expect(
     page.getByRole('link', { name: 'Browser requirements' }),
   ).toBeVisible();
+  // The start-up failure leaves no Cesium widget, raw error panel or viewer behind.
+  await expect(page.locator('.cesium-widget-errorPanel')).toHaveCount(0);
+  await expect(page.locator('.cesium-viewer')).toHaveCount(0);
+  // Retry cannot create a context either, so the same panel comes back.
+  await page.getByRole('button', { name: 'Retry globe' }).click();
+  await expect(page.getByText('This globe needs WebGL')).toBeVisible();
+  await expect(page.locator('.cesium-widget-errorPanel')).toHaveCount(0);
+  await expect(page.locator('.cesium-viewer')).toHaveCount(0);
 });
 
 test('explorer recovers from a render-loop error through Retry globe', async ({

@@ -1,0 +1,2895 @@
+{
+  "local_root": "data",
+  "objects": [
+    {
+      "bytes": 436400,
+      "in_git": true,
+      "key": "releases/2026-10-17/raw/afnd_populations.tsv",
+      "media_type": "text/tab-separated-values",
+      "path": "raw/afnd_populations.tsv",
+      "sha256": "5da54cda65e99ba7435d268c6da8645b299bdf4ad88da453421477efb7709dfc",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 1885,
+      "in_git": true,
+      "key": "releases/2026-10-17/registry/curated-v1-candidate.1/MANIFEST.json",
+      "media_type": "application/json",
+      "path": "registry/curated-v1-candidate.1/MANIFEST.json",
+      "sha256": "a3c781c4ede39cad04177a5e1264889adb340fea777bfb799feefd5329504e66",
+      "sources": [
+        "clinvar",
+        "cpic",
+        "genereviews"
+      ]
+    },
+    {
+      "bytes": 2505,
+      "in_git": true,
+      "key": "releases/2026-10-17/registry/curated-v1-candidate.1/cpic_coverage.tsv",
+      "media_type": "text/tab-separated-values",
+      "path": "registry/curated-v1-candidate.1/cpic_coverage.tsv",
+      "sha256": "395e83a548b403634fad0fb4b10d38d4900e9bb39c27ce8ecf26eacbef5493c9",
+      "sources": [
+        "clinvar",
+        "cpic",
+        "genereviews"
+      ]
+    },
+    {
+      "bytes": 22031,
+      "in_git": true,
+      "key": "releases/2026-10-17/registry/curated-v1-candidate.1/cpic_pair_targets.tsv",
+      "media_type": "text/tab-separated-values",
+      "path": "registry/curated-v1-candidate.1/cpic_pair_targets.tsv",
+      "sha256": "26c9211f6a2533d914297f86c79ff32a4508afe9a017beef58626e93efb9988f",
+      "sources": [
+        "clinvar",
+        "cpic",
+        "genereviews"
+      ]
+    },
+    {
+      "bytes": 283232,
+      "in_git": true,
+      "key": "releases/2026-10-17/registry/curated-v1-candidate.1/curated_variants.tsv",
+      "media_type": "text/tab-separated-values",
+      "path": "registry/curated-v1-candidate.1/curated_variants.tsv",
+      "sha256": "f0201964c51c4e6e58a1aead841db35a6af3f99e0c99e2a7eecac7fbcbbe8220",
+      "sources": [
+        "clinvar",
+        "cpic",
+        "genereviews"
+      ]
+    },
+    {
+      "bytes": 9976,
+      "in_git": true,
+      "key": "releases/2026-10-17/registry/variant_normalization.tsv",
+      "media_type": "text/tab-separated-values",
+      "path": "registry/variant_normalization.tsv",
+      "sha256": "6e20cf9ebb842c918967738c6761e5ca7b29b4d2098e93b273e1199b54a09b2d",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 3230,
+      "in_git": true,
+      "key": "releases/2026-10-17/sources/cpic/v1.60.0/LICENSE.md",
+      "media_type": "text/markdown",
+      "path": "sources/cpic/v1.60.0/LICENSE.md",
+      "sha256": "0bbd0b4ffcce8dfcbe6e77a803807b5eed2bb808f581b872060048c50cf40ce7",
+      "sources": [
+        "cpic"
+      ]
+    },
+    {
+      "bytes": 1492,
+      "in_git": true,
+      "key": "releases/2026-10-17/sources/cpic/v1.60.0/SOURCE.json",
+      "media_type": "application/json",
+      "path": "sources/cpic/v1.60.0/SOURCE.json",
+      "sha256": "e4d733751a2ceb8f7275b702c2979972d7747c9f1d4ff14b17f227c951baee39",
+      "sources": [
+        "cpic"
+      ]
+    },
+    {
+      "bytes": 135532,
+      "in_git": true,
+      "key": "releases/2026-10-17/sources/cpic/v1.60.0/alleles.csv",
+      "media_type": "text/csv",
+      "path": "sources/cpic/v1.60.0/alleles.csv",
+      "sha256": "4819a8cfb744893d39607c477f6cc8557b5ea50ecec554d84491e3168408a361",
+      "sources": [
+        "cpic"
+      ]
+    },
+    {
+      "bytes": 12983,
+      "in_git": true,
+      "key": "releases/2026-10-17/sources/cpic/v1.60.0/drugs.csv",
+      "media_type": "text/csv",
+      "path": "sources/cpic/v1.60.0/drugs.csv",
+      "sha256": "3d19ecd31cf3ef8fa908d612d321b574f897d54c226ca8dbd8a674d28f483743",
+      "sources": [
+        "cpic"
+      ]
+    },
+    {
+      "bytes": 3302,
+      "in_git": true,
+      "key": "releases/2026-10-17/sources/cpic/v1.60.0/guidelines.csv",
+      "media_type": "text/csv",
+      "path": "sources/cpic/v1.60.0/guidelines.csv",
+      "sha256": "252e614289dd2d9381c408297fa8d32598c51629040296daf516d4753746b2e9",
+      "sources": [
+        "cpic"
+      ]
+    },
+    {
+      "bytes": 3839,
+      "in_git": true,
+      "key": "releases/2026-10-17/sources/cpic/v1.60.0/pairs_a_b.csv",
+      "media_type": "text/csv",
+      "path": "sources/cpic/v1.60.0/pairs_a_b.csv",
+      "sha256": "a79b2da2939f394a811e8e80ce7ee5df2bb58c07cb18f99e5695bf83eedf717d",
+      "sources": [
+        "cpic"
+      ]
+    },
+    {
+      "bytes": 1029,
+      "in_git": true,
+      "key": "releases/2026-10-17/sources/curated/SOURCE.json",
+      "media_type": "application/json",
+      "path": "sources/curated/SOURCE.json",
+      "sha256": "dd623503069c72b8cb1e8fab0f905f0e4479bd9d36a0143287cc3f57a8a84e67",
+      "sources": [
+        "clinvar",
+        "genereviews"
+      ]
+    },
+    {
+      "bytes": 4996,
+      "in_git": true,
+      "key": "releases/2026-10-17/sources/curated/manual_candidates.tsv",
+      "media_type": "text/tab-separated-values",
+      "path": "sources/curated/manual_candidates.tsv",
+      "sha256": "737d1bfa1fcb2263704ec9a2efcc9413520521a0e172ec701a294e87da969994",
+      "sources": [
+        "clinvar",
+        "genereviews"
+      ]
+    },
+    {
+      "bytes": 42989,
+      "in_git": true,
+      "key": "releases/2026-10-17/store/INVENTORY.json",
+      "media_type": "application/json",
+      "path": "store/INVENTORY.json",
+      "sha256": "2c938dfa746b26b59cfd5689f41f5f63e9007026a20939db082edb8747161e67",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 1115304,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/chr11-5227002-T-A__v1__map-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/chr11-5227002-T-A__v1__map-2026-08/cells.parquet",
+      "sha256": "48926282819bc0d805490d217eb6edef0875db3f37e8efc978c5cbcd50dc7f67",
+      "sources": [
+        "map"
+      ]
+    },
+    {
+      "bytes": 408,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/chr11-5227002-T-A__v1__map-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/chr11-5227002-T-A__v1__map-2026-08/manifest.json",
+      "sha256": "ff11e9fdbf503768a7bba3c3e16a676e2dafea850a99cff331d1d5f6be3ff617",
+      "sources": [
+        "map"
+      ]
+    },
+    {
+      "bytes": 7517799,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/chr11-5227002-T-A__v2__map-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/chr11-5227002-T-A__v2__map-2026-08/cells.parquet",
+      "sha256": "f3df252471d5980cf0455b59b5fd61bc7124d1cdbe90177064d9d349f37be76e",
+      "sources": [
+        "map",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 592,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/chr11-5227002-T-A__v2__map-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/chr11-5227002-T-A__v2__map-2026-08/manifest.json",
+      "sha256": "0022e390aea61f736f395f373da99e949f8276133c6cf5e1ce7866d5d109d9ef",
+      "sources": [
+        "map",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 7517799,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/chr11-5227002-T-A__v3__map-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/chr11-5227002-T-A__v3__map-2026-08/cells.parquet",
+      "sha256": "19b1eae4f900862adf0df03ea618e772e15a96adad37e2a37dbdcd579f0cec15",
+      "sources": [
+        "map",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 641,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/chr11-5227002-T-A__v3__map-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/chr11-5227002-T-A__v3__map-2026-08/manifest.json",
+      "sha256": "28dbc0477b93b4d28bff4c51ad9c54aa2ca3fb18076f0bd0877cfbe6da453efc",
+      "sources": [
+        "map",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115178,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/cyt__il-10-1082-g__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/cyt__il-10-1082-g__v2__afnd-2026-08/cells.parquet",
+      "sha256": "722fb2a2ab3afb562e4502448f297114895cb034fec547da7f6f0ab0f8b5b630",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 444,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/cyt__il-10-1082-g__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/cyt__il-10-1082-g__v2__afnd-2026-08/manifest.json",
+      "sha256": "1c937300b4dab82666cb5ddf40797f98ff5993ef0251dc09c11c8acdbcacb878",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7514328,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/cyt__il-10-1082-g__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/cyt__il-10-1082-g__v3__afnd-2026-08/cells.parquet",
+      "sha256": "62dac437103c84389e53e7a3014bf2d000f1b6bd59e513689ff528ff35210ea9",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 638,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/cyt__il-10-1082-g__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/cyt__il-10-1082-g__v3__afnd-2026-08/manifest.json",
+      "sha256": "d4e6ec63c846ad8ac83cbb12653186313ad6b955635c0626aa756a8ff8de9900",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115172,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/cyt__il-10-819-t__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/cyt__il-10-819-t__v2__afnd-2026-08/cells.parquet",
+      "sha256": "3640b6fd1f77c04fede3546b6e452fee1046bd3dc7d74e9ea4de7a3cf4acfd1d",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 443,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/cyt__il-10-819-t__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/cyt__il-10-819-t__v2__afnd-2026-08/manifest.json",
+      "sha256": "551845b4fe25985c4c7eb3096263750f38957ef530b4e244d2e92e1838c3edc4",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7514153,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/cyt__il-10-819-t__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/cyt__il-10-819-t__v3__afnd-2026-08/cells.parquet",
+      "sha256": "ac18b166f92b12ae5c0ff3fbf7cc86218301ecdc03fe2afda79fa55f9a665e17",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 637,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/cyt__il-10-819-t__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/cyt__il-10-819-t__v3__afnd-2026-08/manifest.json",
+      "sha256": "5f469bf9c968250ba73c21558b43e150fc89cfbda2f0d14db28503a1fb759a88",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115528,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/cyt__il-6-174-c__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/cyt__il-6-174-c__v2__afnd-2026-08/cells.parquet",
+      "sha256": "2228d6a4beb8e0e269a76815b4a07873a401565820b8b7851722ca9a76d2eb6f",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 469,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/cyt__il-6-174-c__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/cyt__il-6-174-c__v2__afnd-2026-08/manifest.json",
+      "sha256": "60da6765671febb997c187f604c3b508f759885f0a6e281c68fd5f691b27d48b",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7515243,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/cyt__il-6-174-c__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/cyt__il-6-174-c__v3__afnd-2026-08/cells.parquet",
+      "sha256": "d91d0f588d123148c25e68862ad99068fccc59738d0c4fc1e1f19c90b43422ee",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 665,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/cyt__il-6-174-c__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/cyt__il-6-174-c__v3__afnd-2026-08/manifest.json",
+      "sha256": "57136a8910b3cff7f1c1c890148fbe7140597ae4657126b37e875785a6229a59",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1114995,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/cyt__tnfalpha-308-a__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/cyt__tnfalpha-308-a__v2__afnd-2026-08/cells.parquet",
+      "sha256": "18c1789324af9a96efefa239ca625952cd4ea0be728eebba1a8d5bbab6eea6ff",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 445,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/cyt__tnfalpha-308-a__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/cyt__tnfalpha-308-a__v2__afnd-2026-08/manifest.json",
+      "sha256": "e9d036723c6c3b73258fda78023c81bdd16dae98a3eee5a09fbbaa3ba9ff3952",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7514586,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/cyt__tnfalpha-308-a__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/cyt__tnfalpha-308-a__v3__afnd-2026-08/cells.parquet",
+      "sha256": "890c287426a0e1684271efb8207e99101f444eadc44c0c55ecd2e2bed97f80b3",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 641,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/cyt__tnfalpha-308-a__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/cyt__tnfalpha-308-a__v3__afnd-2026-08/manifest.json",
+      "sha256": "046182e63f63c750315f2682170ef30b576c8b079fd501a0e334290d49153a0c",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115379,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__a-02-01__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__a-02-01__v2__afnd-2026-08/cells.parquet",
+      "sha256": "2904d79cddbb3ba97130e8ee78294fbb656f1a7c9d57512a475ab3d3cc244742",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 440,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__a-02-01__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__a-02-01__v2__afnd-2026-08/manifest.json",
+      "sha256": "53c4cd0b48c0f8891c2df204edf990f3613cc1be9cb932532f015c87aebad560",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7515115,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__a-02-01__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__a-02-01__v3__afnd-2026-08/cells.parquet",
+      "sha256": "9f125592fe06d9511dfab6ef1dd8f07dbc88184e3c4cf552b336644108a72384",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 633,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__a-02-01__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__a-02-01__v3__afnd-2026-08/manifest.json",
+      "sha256": "5ca17d4c64b1a77342daa4b8f130904d6b158b6a217e4b5e3f3efb4d243c7908",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115317,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__a-26-01__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__a-26-01__v2__afnd-2026-08/cells.parquet",
+      "sha256": "bf22c329aad839cd029addaa8dad7f12d2502df7d8a69c47510afcb20ed31434",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 439,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__a-26-01__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__a-26-01__v2__afnd-2026-08/manifest.json",
+      "sha256": "137a5659833f3bf38d7aef51448ca6846207381c19ab9de1770f81e0df893c0b",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7514723,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__a-26-01__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__a-26-01__v3__afnd-2026-08/cells.parquet",
+      "sha256": "9412263d1ce2e397d7a39c55c5527655d891c53910cfaef02b0c6924db5f50fd",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 631,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__a-26-01__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__a-26-01__v3__afnd-2026-08/manifest.json",
+      "sha256": "e772344daea9165367ebdbfaf7b5c0876c380938cded212afb4bb5b526e28c65",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115261,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__a-32-01__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__a-32-01__v2__afnd-2026-08/cells.parquet",
+      "sha256": "563518d5be419fdf31eccd339f9d0a80b5098e6dd11b44dec1b4ca726feebea8",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 438,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__a-32-01__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__a-32-01__v2__afnd-2026-08/manifest.json",
+      "sha256": "c9280f21804c8f86b6ed6e5dd260c135ee18b2a6a63ef967bd57d3b4fc019d32",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7514840,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__a-32-01__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__a-32-01__v3__afnd-2026-08/cells.parquet",
+      "sha256": "ce02bb1f3c211f8bfe1e7f3bc1656d08dc40daa89d54e0fd45a99c073c6a52a9",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 632,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__a-32-01__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__a-32-01__v3__afnd-2026-08/manifest.json",
+      "sha256": "85d4ec07d8a3cd862acebae73de4d728fbb666e94d6329697aac71e67e9850d3",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115355,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__b-40-01__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__b-40-01__v2__afnd-2026-08/cells.parquet",
+      "sha256": "1ae8816e45f039ff4995fc1d1aa6e5209ab641179a24797c9e9fda4914a171f6",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 439,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__b-40-01__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__b-40-01__v2__afnd-2026-08/manifest.json",
+      "sha256": "c1c78b51fc241e6ad71bfbef90be9372b3430750e01704eec3f722065c7e6549",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7514596,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__b-40-01__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__b-40-01__v3__afnd-2026-08/cells.parquet",
+      "sha256": "786f102aa48bbc9024c618c305fe60d59b0f57e42b599b9823916046e0d2496b",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 613,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__b-40-01__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__b-40-01__v3__afnd-2026-08/manifest.json",
+      "sha256": "c3eaa6a78bf10f2406e777ce985e2be43c0b87cf0f21ca7ffb4dbe3e90e6fa4e",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115282,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__b-40-02__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__b-40-02__v2__afnd-2026-08/cells.parquet",
+      "sha256": "0374c45b7ca3bc8e1c9f20bc55c8e24459df7dff91e5ee8dc624e96cee6ff5ca",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 439,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__b-40-02__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__b-40-02__v2__afnd-2026-08/manifest.json",
+      "sha256": "78bd20f1cb84ca451e11715c3c9e4f612c756981b9afb383d1fb470fb8296190",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7514803,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__b-40-02__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__b-40-02__v3__afnd-2026-08/cells.parquet",
+      "sha256": "118b1812871852291dfa47761e79949b7c50604b9cebbf40f6fc4a85f12ff105",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 633,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__b-40-02__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__b-40-02__v3__afnd-2026-08/manifest.json",
+      "sha256": "0811872e8bc98e4d5ed013c30a31c2ad943bfb2abf83dc49cb2cf305f46f6673",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115289,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__b-58-01__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__b-58-01__v2__afnd-2026-08/cells.parquet",
+      "sha256": "c209f3c2518b5eb9ad14d8a207047d062a5b13a22fc89dbc78d5ef9e2061a304",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 439,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__b-58-01__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__b-58-01__v2__afnd-2026-08/manifest.json",
+      "sha256": "b5059c806f45d218311933c19700f203ec4771be5fd748c07d31571e41f49ea9",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7514735,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__b-58-01__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__b-58-01__v3__afnd-2026-08/cells.parquet",
+      "sha256": "7260d39bfd1ff57ef988f4420cfab5635b1c52f5f3284910378949d0c3750f66",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 633,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__b-58-01__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__b-58-01__v3__afnd-2026-08/manifest.json",
+      "sha256": "0e11562b0d95c737250583bed6d0ca08b99edd2360ff3d9d6914826199060838",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115143,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__c-03-03__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__c-03-03__v2__afnd-2026-08/cells.parquet",
+      "sha256": "97a322da3dfff20c3280915c1b9e9e7f368c7c51bd251ac0bc7ebc6ed6f2d912",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 419,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__c-03-03__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__c-03-03__v2__afnd-2026-08/manifest.json",
+      "sha256": "63bd91275f819fd9067b44b8ce4e3b79e5e11053a882d445bd1c4f41c5279be4",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7514456,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__c-03-03__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__c-03-03__v3__afnd-2026-08/cells.parquet",
+      "sha256": "3dc7533914612aa3638879fd1cdbe0fc24d220328dc3bf36ae1d75bc58a3a5d0",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 613,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__c-03-03__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__c-03-03__v3__afnd-2026-08/manifest.json",
+      "sha256": "c95ed742fe25def6eda6014fdf690267afebdd7386f8e650c07cda0a64b2e050",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115250,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__c-06-02__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__c-06-02__v2__afnd-2026-08/cells.parquet",
+      "sha256": "f2ded5d28ad16041f956879c57d3f86e61571a110edf15858714ecfc6fac297d",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 440,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__c-06-02__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__c-06-02__v2__afnd-2026-08/manifest.json",
+      "sha256": "e37157b65aa3d63958210305c0f17686e71b50fdc77a2efa02b284b10587178a",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7514872,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__c-06-02__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__c-06-02__v3__afnd-2026-08/cells.parquet",
+      "sha256": "58ac69c9ada637b3381f6d4ddf05b30fcbed604e25b4073c12fd10cada562177",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 633,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__c-06-02__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__c-06-02__v3__afnd-2026-08/manifest.json",
+      "sha256": "6658fcdc726984d7f0e69b339735eb609a99cdbbaed26f2385ca1346b453a618",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115321,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__c-07-02__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__c-07-02__v2__afnd-2026-08/cells.parquet",
+      "sha256": "5aa00417fcde2efc641a36ce8762e0c202b73cb25a3a45547ae967f104dc820c",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 465,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__c-07-02__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__c-07-02__v2__afnd-2026-08/manifest.json",
+      "sha256": "73bef7a0a832b7515177cf2c8063c01ae6f5431b62f49ea29c95b7528337a9b9",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7515597,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__c-07-02__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__c-07-02__v3__afnd-2026-08/cells.parquet",
+      "sha256": "d6c26ed9519db7c6a8e34652b725c2718ea5f0da6df49130aa73f9d6efa8cf03",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 661,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__c-07-02__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__c-07-02__v3__afnd-2026-08/manifest.json",
+      "sha256": "5dc183488b7fd5d52b35033be5ea24bfac5ee4f120240105595ea5594559ddce",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115522,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__dpb1-04-01__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__dpb1-04-01__v2__afnd-2026-08/cells.parquet",
+      "sha256": "d723c2e6c1f76cf595abee5f6a76a07355ae19220814a3984bbc6aa97bb83ae8",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 470,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__dpb1-04-01__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__dpb1-04-01__v2__afnd-2026-08/manifest.json",
+      "sha256": "a8606fb01b1170b5bdf1ccaf226bef6f983b0c694c197fd0c015965cf451bd14",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7515166,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__dpb1-04-01__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__dpb1-04-01__v3__afnd-2026-08/cells.parquet",
+      "sha256": "8b5d89c9613e318aa08fcd28370f4ea1760c81c2350f314ae67db035b0fee471",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 645,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__dpb1-04-01__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__dpb1-04-01__v3__afnd-2026-08/manifest.json",
+      "sha256": "b3e786b32eb02b6db959612c87dff4df15bca80fb424ff33a5d58c0b3471b49b",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115410,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__dpb1-04-02__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__dpb1-04-02__v2__afnd-2026-08/cells.parquet",
+      "sha256": "c9ad4b1e5e577c720ce8a66c4c5e03e56f81a27c80f25e53e1da61d34d13ce49",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 470,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__dpb1-04-02__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__dpb1-04-02__v2__afnd-2026-08/manifest.json",
+      "sha256": "fd43a05ada7808ae475347ab6523c4d90393aaf466df8f4af8cea3463ad40674",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7515065,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__dpb1-04-02__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__dpb1-04-02__v3__afnd-2026-08/cells.parquet",
+      "sha256": "36958d60315f5fc13cd4a2b2a9e63fd88162dbd0ee46f2fea1e00ec001bf1df6",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 664,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__dpb1-04-02__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__dpb1-04-02__v3__afnd-2026-08/manifest.json",
+      "sha256": "652f75d658f13112fc79e008d80cbe2176cb634736bd89744cf5f1eab3c9cd19",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115224,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__dpb1-13-01__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__dpb1-13-01__v2__afnd-2026-08/cells.parquet",
+      "sha256": "fdfcf3bc1440c65e439764496660ce13b7e00a5a3e1239c43e8ccf2d3443203d",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 442,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__dpb1-13-01__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__dpb1-13-01__v2__afnd-2026-08/manifest.json",
+      "sha256": "bd3e037b560d6ff3365e32e68ec92ab685b5bd265f72cc317347498efe4fd759",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7514649,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__dpb1-13-01__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__dpb1-13-01__v3__afnd-2026-08/cells.parquet",
+      "sha256": "950909e6271c44583c0d69ae6b36ebd1b3f3c47d21e01405d3e3471bec99ba52",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 634,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__dpb1-13-01__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__dpb1-13-01__v3__afnd-2026-08/manifest.json",
+      "sha256": "5a6164d5c9785fde6bb63bfc9ef4b175a38ff79da4574215b310b1dd370c896a",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115423,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__dqb1-03-01__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__dqb1-03-01__v2__afnd-2026-08/cells.parquet",
+      "sha256": "ed0d224accd1ce9dd87f9abf8e7206baf07289465bdf68c63828f67227263327",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 443,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__dqb1-03-01__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__dqb1-03-01__v2__afnd-2026-08/manifest.json",
+      "sha256": "ebdfa1be20929b35ae420a43740ebce2a865a9f142c294636d9a9ae7b84cece1",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7515648,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__dqb1-03-01__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__dqb1-03-01__v3__afnd-2026-08/cells.parquet",
+      "sha256": "e628c6e350130d6cb9e66c09147f75df68e61a460831235642eaf004f869eab6",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 636,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__dqb1-03-01__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__dqb1-03-01__v3__afnd-2026-08/manifest.json",
+      "sha256": "56fa0f496c64415c04e79c2f31429a4fbe35185364806e27d99eab105a4b8fa5",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115496,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__dqb1-06-02__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__dqb1-06-02__v2__afnd-2026-08/cells.parquet",
+      "sha256": "50ff5d7d8f900b6b1b80b42ca21923c2f40a76257c434a2c4fa53f3dc71369db",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 443,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__dqb1-06-02__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__dqb1-06-02__v2__afnd-2026-08/manifest.json",
+      "sha256": "d210572c69e0cbfbc39b516803c76315f85ce88bfc1bec15e8e926c1b3e63429",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7515158,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__dqb1-06-02__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__dqb1-06-02__v3__afnd-2026-08/cells.parquet",
+      "sha256": "d4fa06258c02910378a4d011a941e15dbe711e5e8453afcdb566e2067efdced5",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 617,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__dqb1-06-02__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__dqb1-06-02__v3__afnd-2026-08/manifest.json",
+      "sha256": "00d9eea068b9cff99bb065b3308e96bf51925ceb853776ffacf6b48afb553ad4",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115433,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-01-01__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__drb1-01-01__v2__afnd-2026-08/cells.parquet",
+      "sha256": "45cc91d254c0ffa46c8a7de21617f478ccd0f865b9150957e5ba6cf2bae775e2",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 443,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-01-01__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__drb1-01-01__v2__afnd-2026-08/manifest.json",
+      "sha256": "6d31ad92f0588cbc8866ca96ff9332f7b617e92a4b235338fc5445465f5c767b",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7515418,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-01-01__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__drb1-01-01__v3__afnd-2026-08/cells.parquet",
+      "sha256": "4ca940ebe41946fee0c55e78f22bfa18894581c95619270e72075d6c3d7b62fc",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 636,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-01-01__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__drb1-01-01__v3__afnd-2026-08/manifest.json",
+      "sha256": "4aba3ecbb09ead3224983796b58cd73a4b018922cb5f8d6e299e607acee1485d",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115468,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-04-03__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__drb1-04-03__v2__afnd-2026-08/cells.parquet",
+      "sha256": "ed9ec02a2c06864d89be4fd373e1dd15b7a60b89f6d6a964594266720cc46e95",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 443,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-04-03__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__drb1-04-03__v2__afnd-2026-08/manifest.json",
+      "sha256": "5e61e95c227fee904dd43297c9383ae6cad9655342b1038d273358c15983be9c",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7515220,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-04-03__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__drb1-04-03__v3__afnd-2026-08/cells.parquet",
+      "sha256": "40eb1f5dd93c233563b55642c65a94b9aa88ee2c1bf9dc4fd979a6e8dd896cdd",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 617,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-04-03__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__drb1-04-03__v3__afnd-2026-08/manifest.json",
+      "sha256": "a52e554d77c8fb7884bc02f55b95f7d3c8546fe958dc8602a2ee992cd1db2cd3",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115422,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-07-01__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__drb1-07-01__v2__afnd-2026-08/cells.parquet",
+      "sha256": "1c8d8ca87eb489aeffe1087c1f5aecb6989262f58cd91a72db7a51cc79ceccde",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 443,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-07-01__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__drb1-07-01__v2__afnd-2026-08/manifest.json",
+      "sha256": "fa65cec4aad7aae0eb69fe2f16224dd151033256916e50f29df9af659cc8e994",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7515523,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-07-01__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__drb1-07-01__v3__afnd-2026-08/cells.parquet",
+      "sha256": "2b50fd251b17b2b13a9130c3783657e3de6fd568aedb35f62779126e619a3c4f",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 636,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-07-01__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__drb1-07-01__v3__afnd-2026-08/manifest.json",
+      "sha256": "cb5e164f6b0f590f6f9cc999cf61a130643aa9481e38b242287d727f8639dba9",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115412,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-11-01__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__drb1-11-01__v2__afnd-2026-08/cells.parquet",
+      "sha256": "b508f66d0a3807d101386a7f7aed851be72942742edcc89b7daf80d4d2d6fe2f",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 443,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-11-01__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__drb1-11-01__v2__afnd-2026-08/manifest.json",
+      "sha256": "64e7888c9c6ba2a7bfdbabba8ad48e436dec79886d82e8326fa670e3656cddb9",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7515636,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-11-01__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__drb1-11-01__v3__afnd-2026-08/cells.parquet",
+      "sha256": "85296a73af30629d1dffff95ceeb2c063291994d94f1c2cbffceb9ac8d84c4ab",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 636,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-11-01__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__drb1-11-01__v3__afnd-2026-08/manifest.json",
+      "sha256": "27ae0168333166ff65d0b435f3ebc40b485aa08dbd375790e4dbab686e770482",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115464,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-14-01__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__drb1-14-01__v2__afnd-2026-08/cells.parquet",
+      "sha256": "4ddb49ecb02deb0a04e8e65e36376b20356dd340b14f7622cc80338957728edd",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 444,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-14-01__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__drb1-14-01__v2__afnd-2026-08/manifest.json",
+      "sha256": "86cd564f3359669381adaf6f43233f63d74ca1d57a5cf7594790f7196396dce5",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7515602,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-14-01__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__drb1-14-01__v3__afnd-2026-08/cells.parquet",
+      "sha256": "94529d95d09c0ad3275dc16c637aebc591c6be4062b6b5a1ae3dc72b03fa69c9",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 637,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-14-01__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__drb1-14-01__v3__afnd-2026-08/manifest.json",
+      "sha256": "d5d7e1a0eb9d7cbf9c05cffbf2e49883aff739b58f7b599f4bae6ed69f0f19c6",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115570,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-15-01__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__drb1-15-01__v2__afnd-2026-08/cells.parquet",
+      "sha256": "32aa9c282d20a3f8d106dfcaee24cd5c80a99b6a2f7f106008d0d6a88a3dcac3",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 442,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-15-01__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__drb1-15-01__v2__afnd-2026-08/manifest.json",
+      "sha256": "75889f29352508717ce189029741475a9fcc47231c826b63f27ac1e358f18815",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7515992,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-15-01__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/hla__drb1-15-01__v3__afnd-2026-08/cells.parquet",
+      "sha256": "b46ec564cd7e37d44c20a45abf93b955ead33bf44d28ca9e5cd3a101a2caca2a",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 637,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/hla__drb1-15-01__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/hla__drb1-15-01__v3__afnd-2026-08/manifest.json",
+      "sha256": "902807e59e3a0f6a4130900d68fdb4ec025e2e89bbf2ce6fcb575644eff34ecd",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115409,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/kir__2dl1__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/kir__2dl1__v2__afnd-2026-08/cells.parquet",
+      "sha256": "11a9b37bd1bbb1298331119e0f56917a82e87674266e9ba8b94c72d45abfa37e",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 438,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/kir__2dl1__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/kir__2dl1__v2__afnd-2026-08/manifest.json",
+      "sha256": "2bd58ab8ed40d5f9cbf875541d8f0a2e04b8b056e8e4fd93ecb27e57bcce9132",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7515408,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/kir__2dl1__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/kir__2dl1__v3__afnd-2026-08/cells.parquet",
+      "sha256": "d8a79c2b306bb25e17f3333ea249e443a1130d0e5b237042e69b7aba9c66bb95",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 632,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/kir__2dl1__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/kir__2dl1__v3__afnd-2026-08/manifest.json",
+      "sha256": "68fe87f6ba4513f27f7938f1d08a9f761c21450f028ac2e999b5e27d0d7a2a11",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115247,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/kir__2dl2__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/kir__2dl2__v2__afnd-2026-08/cells.parquet",
+      "sha256": "10bfaac5af6ef1026d0ed3edc187f3dc939e63e3e3cdc467f09db4b5f3e79623",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 437,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/kir__2dl2__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/kir__2dl2__v2__afnd-2026-08/manifest.json",
+      "sha256": "2a547d7545e2cecb684e11fefa700f063d447b27b3dceea5379aaa611064344b",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7514934,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/kir__2dl2__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/kir__2dl2__v3__afnd-2026-08/cells.parquet",
+      "sha256": "a6447d1fab3dff2e3139044ff1b248817af82b6c878941359a8095f94f5dc7bb",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 629,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/kir__2dl2__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/kir__2dl2__v3__afnd-2026-08/manifest.json",
+      "sha256": "c00bf72475d2e0ba7d22b2d8cb28d714cc9a6ed360db5b04665b95a59a473b95",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115360,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/kir__2ds1__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/kir__2ds1__v2__afnd-2026-08/cells.parquet",
+      "sha256": "0e8c27a53f505d8c31ccd86d60a96726bb68ac95196b19f843c76b4242f824a9",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 464,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/kir__2ds1__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/kir__2ds1__v2__afnd-2026-08/manifest.json",
+      "sha256": "a89c6c11a76580d8374df0f9507f82ea1800d44402de21bb0ce0bec6f7404686",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7514878,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/kir__2ds1__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/kir__2ds1__v3__afnd-2026-08/cells.parquet",
+      "sha256": "5759cef8c31dc1f7bc98953306e17a7b9a09fac2c641a4038e18e8612ccd7895",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 639,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/kir__2ds1__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/kir__2ds1__v3__afnd-2026-08/manifest.json",
+      "sha256": "19678d521c12df76958f33525fdacdafc90d9983879ebf4e885f28fba93d27ff",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1115370,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/kir__3ds1__v2__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/kir__3ds1__v2__afnd-2026-08/cells.parquet",
+      "sha256": "845752a5cc07068818904b5481ca4437944dba9588acab6dacb650a4e0ca40e9",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 465,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/kir__3ds1__v2__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/kir__3ds1__v2__afnd-2026-08/manifest.json",
+      "sha256": "a098e43980dd759bb45d8f983713b5480b9ea0ff124483750df06abe1f4fb5f8",
+      "sources": [
+        "afnd"
+      ]
+    },
+    {
+      "bytes": 7515081,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/kir__3ds1__v3__afnd-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/kir__3ds1__v3__afnd-2026-08/cells.parquet",
+      "sha256": "52118ae3c026a4da3a9f78a21ad016b3c720ec45fde4a2ffec2f8daa7b446f38",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 640,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/kir__3ds1__v3__afnd-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/kir__3ds1__v3__afnd-2026-08/manifest.json",
+      "sha256": "dc54c1fce512f791ffeba9368b4dad315ae866ad597d678712a0f5c85dc7f7d8",
+      "sources": [
+        "afnd",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 1114502,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/phenotype__g6pd-deficiency__v1__map-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/phenotype__g6pd-deficiency__v1__map-2026-08/cells.parquet",
+      "sha256": "fc204c0136918581c483a0c0e2263971227bd61906c80de5652cc38477454b11",
+      "sources": [
+        "map"
+      ]
+    },
+    {
+      "bytes": 415,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/phenotype__g6pd-deficiency__v1__map-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/phenotype__g6pd-deficiency__v1__map-2026-08/manifest.json",
+      "sha256": "76e61383a5ec7fd647b41d74667197f9d2b719ef7ddfcd1766d42d73fd8c988a",
+      "sources": [
+        "map"
+      ]
+    },
+    {
+      "bytes": 7499424,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/phenotype__g6pd-deficiency__v3__map-2026-08/cells.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "store/artifacts/phenotype__g6pd-deficiency__v3__map-2026-08/cells.parquet",
+      "sha256": "dd521e502c5c02d0e78d0629fb267b2880271ef699bed0c84e723bd9054d0873",
+      "sources": [
+        "map",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 648,
+      "in_git": false,
+      "key": "releases/2026-10-17/store/artifacts/phenotype__g6pd-deficiency__v3__map-2026-08/manifest.json",
+      "media_type": "application/json",
+      "path": "store/artifacts/phenotype__g6pd-deficiency__v3__map-2026-08/manifest.json",
+      "sha256": "c3fa8a0c7063fc9b41c51a503e5acf5f671b0f2aa00309a4e119973916662186",
+      "sources": [
+        "map",
+        "worldpop"
+      ]
+    },
+    {
+      "bytes": 44710,
+      "in_git": true,
+      "key": "releases/2026-10-17/store/catalog-metadata.json",
+      "media_type": "application/json",
+      "path": "store/catalog-metadata.json",
+      "sha256": "bf32fde339ef70d45f5a4cc12c8641ab48a8e23714ca10a337fdd8899d2e3805",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 1787,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01-environment.txt",
+      "media_type": "text/plain",
+      "path": "validation/b0h-timing-20260910-01-environment.txt",
+      "sha256": "ff9d75fc78f80052639ed2823b8d748a6466e40673da9cb300d3f9fd1a3781c1",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 96355,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01-inspection.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01-inspection.json",
+      "sha256": "081174570c02b64a28953e68e326260ec20aff18570c2623c4f028a9ab5a239a",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-00-fit-0000.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-00-fit-0000.npy",
+      "sha256": "c945a0e5c5918f99a53a259eadee95acc411ab0a0319ee6329e80591481550ab",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-00-fit-0001.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-00-fit-0001.npy",
+      "sha256": "c34bf7746e3c43bac11f3fbc59a935da16142bd8e1f9c6151502fa05ec184ef4",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-00-summary-cupy-0004.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-00-summary-cupy-0004.npy",
+      "sha256": "6b14ab0d889508cbd32662beb0caf03d630f0836e52cbc41091b50ae3e2dbc0b",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-00-summary-cupy-0005.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-00-summary-cupy-0005.npy",
+      "sha256": "8938bfcfa36ad72bd805974e4f11e6bdefd9a213f1b3c3e5dda2f3657b08d396",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-00-summary-scipy-0002.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-00-summary-scipy-0002.npy",
+      "sha256": "6b14ab0d889508cbd32662beb0caf03d630f0836e52cbc41091b50ae3e2dbc0b",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-00-summary-scipy-0003.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-00-summary-scipy-0003.npy",
+      "sha256": "8938bfcfa36ad72bd805974e4f11e6bdefd9a213f1b3c3e5dda2f3657b08d396",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-01-fit-0006.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-01-fit-0006.npy",
+      "sha256": "49de87813118cceb7024fcdb2b303b3d86ced4b062857ca4f0e735b4c41e2a70",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-01-fit-0007.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-01-fit-0007.npy",
+      "sha256": "c3b33d3cc933dae6fc60401a6f0644451c054a252254d63d3bf09de5f924795a",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-01-summary-cupy-0010.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-01-summary-cupy-0010.npy",
+      "sha256": "3ca6e6ebecdab034276073eeaea09eed2c42baee86866bba53a9e8639b33bc49",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-01-summary-cupy-0011.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-01-summary-cupy-0011.npy",
+      "sha256": "f2a7ca859638396ff6df755d5816d4bbc05b3cf7b270e1b154af01e0c596b830",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-01-summary-scipy-0008.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-01-summary-scipy-0008.npy",
+      "sha256": "3ca6e6ebecdab034276073eeaea09eed2c42baee86866bba53a9e8639b33bc49",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-01-summary-scipy-0009.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-01-summary-scipy-0009.npy",
+      "sha256": "f2a7ca859638396ff6df755d5816d4bbc05b3cf7b270e1b154af01e0c596b830",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-02-fit-0012.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-02-fit-0012.npy",
+      "sha256": "cc779a02b24dedadeab4bf155071f295b5d07b022cb1980880f9a51639902cdd",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-02-fit-0013.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-02-fit-0013.npy",
+      "sha256": "eb5db0fb1272be2a9897048a1f7fcfb49de0a828b8d086112e424c8a92a5600a",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-02-summary-cupy-0016.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-02-summary-cupy-0016.npy",
+      "sha256": "0af7c915672a367fa9ce6acd27afd1336fc614cbe2e2bfe14ec250abcd6b1935",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-02-summary-cupy-0017.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-02-summary-cupy-0017.npy",
+      "sha256": "7822b4b1c4a221be422c824fdd04a7443100c87b498854fac3399539d6037292",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-02-summary-scipy-0014.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-02-summary-scipy-0014.npy",
+      "sha256": "0af7c915672a367fa9ce6acd27afd1336fc614cbe2e2bfe14ec250abcd6b1935",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-02-summary-scipy-0015.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-02-summary-scipy-0015.npy",
+      "sha256": "7822b4b1c4a221be422c824fdd04a7443100c87b498854fac3399539d6037292",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-03-fit-0018.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-03-fit-0018.npy",
+      "sha256": "9d6443792a49bfae5b792e1dbe0d602bdc452f14f69732d88efd7f95934132a3",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-03-fit-0019.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-03-fit-0019.npy",
+      "sha256": "245120d2c35b61fc4f748cf7afb92ed83c81e1cc5173813a965929be22a8b92a",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-03-summary-cupy-0022.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-03-summary-cupy-0022.npy",
+      "sha256": "8be174a2b48b090d48228386fa33457cb533e99f9b3fe9e69e177a5f7c5b7e86",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-03-summary-cupy-0023.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-03-summary-cupy-0023.npy",
+      "sha256": "efcb317aa9e58ebc16b24058a6d1abe6d652133237b36fe378fcf08503287d68",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-03-summary-scipy-0020.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-03-summary-scipy-0020.npy",
+      "sha256": "8be174a2b48b090d48228386fa33457cb533e99f9b3fe9e69e177a5f7c5b7e86",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-03-summary-scipy-0021.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-03-summary-scipy-0021.npy",
+      "sha256": "efcb317aa9e58ebc16b24058a6d1abe6d652133237b36fe378fcf08503287d68",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-04-fit-0024.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-04-fit-0024.npy",
+      "sha256": "f33a9121f460c0b1885136abd8a39d1d412210ddd1f94d8ca1b7601c8f67815b",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-04-fit-0025.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-04-fit-0025.npy",
+      "sha256": "e80da7dfdce98934d9b596216d9d18a002ab2a168ad6e6c9bd729e9261f7d537",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-04-summary-cupy-0028.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-04-summary-cupy-0028.npy",
+      "sha256": "94c3283e10107977776466cc4532e96c35f619e47c9962d1b6543d765561d275",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-04-summary-cupy-0029.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-04-summary-cupy-0029.npy",
+      "sha256": "bcf62224d5d9b60f197a057b807f4c1d33694dd25aeca29e50d43f722b50913b",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-04-summary-scipy-0026.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-04-summary-scipy-0026.npy",
+      "sha256": "94c3283e10107977776466cc4532e96c35f619e47c9962d1b6543d765561d275",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-04-summary-scipy-0027.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-04-summary-scipy-0027.npy",
+      "sha256": "bcf62224d5d9b60f197a057b807f4c1d33694dd25aeca29e50d43f722b50913b",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-05-fit-0030.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-05-fit-0030.npy",
+      "sha256": "fdd3fa584c2c4d96620f0c2364445fcc2ecf7f82987514056d5dad777e57c2f2",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-05-fit-0031.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-05-fit-0031.npy",
+      "sha256": "0645ed1071ed7c3a52b4a03da98addf26c49806df05402bbb5ce78fc7bcf86d5",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-05-summary-cupy-0034.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-05-summary-cupy-0034.npy",
+      "sha256": "cee8b1a2dae18c21f4bf7a69a191b69577194328fb8ba7abbb22e2a99b7409f6",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-05-summary-cupy-0035.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-05-summary-cupy-0035.npy",
+      "sha256": "2f93b4cfe945b032d1259a1ca924b835ac4a6983d37fa37d9d25a76e2ce86069",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-05-summary-scipy-0032.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-05-summary-scipy-0032.npy",
+      "sha256": "cee8b1a2dae18c21f4bf7a69a191b69577194328fb8ba7abbb22e2a99b7409f6",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-05-summary-scipy-0033.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-05-summary-scipy-0033.npy",
+      "sha256": "2f93b4cfe945b032d1259a1ca924b835ac4a6983d37fa37d9d25a76e2ce86069",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-06-fit-0036.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-06-fit-0036.npy",
+      "sha256": "05df4b6d9c04fd00c2e7880a308fee7f0e7c4fcb20c8f16b306aad373c1b742d",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-06-fit-0037.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-06-fit-0037.npy",
+      "sha256": "7d6619be9a298786c13d1cc05165ab2253370e362767e66a4dff294984ea8138",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-06-summary-cupy-0040.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-06-summary-cupy-0040.npy",
+      "sha256": "d86867382154badd92dfa8ff6d9539566ea48cb3076bb9c89d013e88c3f582bf",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-06-summary-cupy-0041.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-06-summary-cupy-0041.npy",
+      "sha256": "06b7687d1efcabb8d0480414ea71a0fcaedd3bd037d5f0e1a389dbb053dcd9a8",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-06-summary-scipy-0038.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-06-summary-scipy-0038.npy",
+      "sha256": "d86867382154badd92dfa8ff6d9539566ea48cb3076bb9c89d013e88c3f582bf",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-06-summary-scipy-0039.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-06-summary-scipy-0039.npy",
+      "sha256": "06b7687d1efcabb8d0480414ea71a0fcaedd3bd037d5f0e1a389dbb053dcd9a8",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-07-fit-0042.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-07-fit-0042.npy",
+      "sha256": "cd2e9f4ff4f80da248621e6345c2dc862f836b36501d0768b0646bbd647feba5",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-07-fit-0043.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-07-fit-0043.npy",
+      "sha256": "9c7bc14fbd464145422f4bba5b4ec55cba543054cbba618e184d00cb77c28fb3",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-07-summary-cupy-0046.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-07-summary-cupy-0046.npy",
+      "sha256": "76c34c26f0769324ebb5e88f5373373be76546c6f5c926cff338ed3ace4faac8",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-07-summary-cupy-0047.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-07-summary-cupy-0047.npy",
+      "sha256": "c0a649fa779bff61270fb30bc3a7dc986781a2a7eee774f2d3652432b763b570",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-07-summary-scipy-0044.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-07-summary-scipy-0044.npy",
+      "sha256": "76c34c26f0769324ebb5e88f5373373be76546c6f5c926cff338ed3ace4faac8",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 16128,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/arrays/case-07-summary-scipy-0045.npy",
+      "media_type": "application/octet-stream",
+      "path": "validation/b0h-timing-20260910-01/arrays/case-07-summary-scipy-0045.npy",
+      "sha256": "c0a649fa779bff61270fb30bc3a7dc986781a2a7eee774f2d3652432b763b570",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 21432,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-00-fit.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-00-fit.json",
+      "sha256": "2f81dd50ad5e21d1b2b6349efa8502dd36b97308caa9c9c576f833fab5560e21",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 49866,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-00-generation.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-00-generation.json",
+      "sha256": "0102ba4f124e04d66fae6293c87b3edf487b61b004a2ff95a9748146ec4f924c",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 4938,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-00-plan.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-00-plan.json",
+      "sha256": "eed6b303911dec04f9b94c2895f21149103481da613a097b7f121f0fcc71d29b",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 222537,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-00-selected_quantities.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-00-selected_quantities.json",
+      "sha256": "1a0186294615876a9590ebda27325270f26c2f804166a1252380405ee86c8230",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 31261,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-00-summary-cupy.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-00-summary-cupy.json",
+      "sha256": "37e9e5cc403204d5b410c6299716d6088b348feeaf7abedefaec545c59f801c1",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 31267,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-00-summary-scipy.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-00-summary-scipy.json",
+      "sha256": "d81b0220660869b104b4346598f5432acb0a65663e3a4d31236b2d142e539a0d",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 21431,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-01-fit.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-01-fit.json",
+      "sha256": "05586fce876d071779f3dd29955ba3ddfebb45778a948e182c6c02c432c5fa18",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 49862,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-01-generation.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-01-generation.json",
+      "sha256": "01c8ccc60387e62c684160f79f72e1fbf999adecf0091c80b065bfbaeab4d1f3",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 4938,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-01-plan.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-01-plan.json",
+      "sha256": "0e5198e9fbb3a9366e0e2c42c4f8f89c6afbd57c8c71e4b6c4a82d7c7908c251",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 222530,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-01-selected_quantities.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-01-selected_quantities.json",
+      "sha256": "ab8059bc7d207ecf5d6e2ab2fc4eae9a493bd2b56c8c030d8aa72e4f54060e9b",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 31261,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-01-summary-cupy.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-01-summary-cupy.json",
+      "sha256": "6880998a77bebb24b3eed4afd92018f74adba86f2e4d0a557db2cc96ba92b647",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 31267,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-01-summary-scipy.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-01-summary-scipy.json",
+      "sha256": "6378402f749224b3a95bd3a8593d167d3211f2a3c0c3067fbaa2e3af887e86ab",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 21432,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-02-fit.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-02-fit.json",
+      "sha256": "898994089c29e21016780982798799336f0c1969daaabb3deb6983977ce95e15",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 49863,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-02-generation.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-02-generation.json",
+      "sha256": "bc615a922dca8ce7d01f512c4fa91fca8f82ca6f095e2aa3ebd121a6784d6c1a",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 4938,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-02-plan.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-02-plan.json",
+      "sha256": "ab5005680afd06312694c422782b4883629f964570a9411a6f569e7163d72a7b",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 222553,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-02-selected_quantities.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-02-selected_quantities.json",
+      "sha256": "3cf920d2941d450efa3c937256773715e72e8791b5caa7a6bcd16c20b019150b",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 31260,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-02-summary-cupy.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-02-summary-cupy.json",
+      "sha256": "4a28939e4e7c92fc1d30885780c9e71bc792f15fe22e9d48331cecd417b8fe36",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 31266,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-02-summary-scipy.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-02-summary-scipy.json",
+      "sha256": "462cab1aa0ffd695915a022142f5d00f9ca75c16a82b20dc189a5276160082b0",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 21431,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-03-fit.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-03-fit.json",
+      "sha256": "453901c3d108c550326b8e71f879ca70e7082b93e23ebac51510769e44881989",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 49862,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-03-generation.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-03-generation.json",
+      "sha256": "65c68b8fa817097b7f6d82de8fdc7860be9afad6bdd26c35e7b6f6e431d13b91",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 4938,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-03-plan.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-03-plan.json",
+      "sha256": "b37d0143a9f53d8b60557f98193d6a5fcbaf3bc99fca0965cffc3dea45387dc9",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 222542,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-03-selected_quantities.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-03-selected_quantities.json",
+      "sha256": "24e1d0474dfd43b63882c150a2801149b518a88e57d0c5afc5c5e57fe283f9b5",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 31260,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-03-summary-cupy.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-03-summary-cupy.json",
+      "sha256": "5c9bc26d102024d1ba61de78a835449c7d41dcf9e7fb6cdfa74046855f40e203",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 31266,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-03-summary-scipy.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-03-summary-scipy.json",
+      "sha256": "406f8d572e174c29a9901e2955d152f606058b1fe23cd038a14a29ffffa34ef2",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 21432,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-04-fit.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-04-fit.json",
+      "sha256": "65c5f50476fb8a22a042549f6a445c7ded13616c2214290d460f7615c9abdeb2",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 49865,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-04-generation.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-04-generation.json",
+      "sha256": "b8cf93ca6a74eae37fea7ee9c467dd297b5bb3e0c7f5e8e4ed7d09e1b3136b23",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 4938,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-04-plan.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-04-plan.json",
+      "sha256": "3a9fe5e4361f92190f500d5a86f342af0a7f334dd5c59dfa01580c93171dbd73",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 222550,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-04-selected_quantities.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-04-selected_quantities.json",
+      "sha256": "633c09cb000c38904bd4b06b3d90cc704dc790b46443cdbac0f5b1d0a7b0e578",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 31262,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-04-summary-cupy.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-04-summary-cupy.json",
+      "sha256": "99b607bcf8da048736841d0f938d114901fbf0e32a4ceb3d837cb398cfe27d9c",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 31268,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-04-summary-scipy.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-04-summary-scipy.json",
+      "sha256": "4244a84ba7a12022960c56a2fece43fa7d0f87c581e69ccfecc070d752890c21",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 21432,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-05-fit.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-05-fit.json",
+      "sha256": "60586adb7b74838b504fa47269f1a7c730ba83ea0f87ff60091670d12abef483",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 49862,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-05-generation.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-05-generation.json",
+      "sha256": "fc4fd18cd9c4548fd4ded057ade7cad05b53acc4971ae9bacf367eb232723485",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 4938,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-05-plan.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-05-plan.json",
+      "sha256": "c1f06c4e9558acba7aeafb7c4279505801da22039f4509dfd4aeff8cc358ab4e",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 222520,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-05-selected_quantities.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-05-selected_quantities.json",
+      "sha256": "13a6e722ee6928421011f31036d04f7cfc0504cb69424899ef4fc91506acc3ed",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 31263,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-05-summary-cupy.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-05-summary-cupy.json",
+      "sha256": "a86b8a3190f2e952094b6af012adc23a1e3c31e02be600a9d8132d6527f16bb4",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 31269,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-05-summary-scipy.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-05-summary-scipy.json",
+      "sha256": "df7093626fff33b944fc15ea1f6fc09f4438ee3dea442b138575bc2628bb31ef",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 21432,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-06-fit.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-06-fit.json",
+      "sha256": "1181a5b55be2ed140d67e7680ad9127ef40e379c3bd2c4e2194fde372d54c7af",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 49864,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-06-generation.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-06-generation.json",
+      "sha256": "193dbef4a4cf80c9bf91faad54f66768bccb50baf5cbbc4076717fddc2ce1b63",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 4938,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-06-plan.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-06-plan.json",
+      "sha256": "62fc4528f0edfa316d6612f0a42f4bbaf40d1e8dc13a4044e4c12ec86bfe5a8c",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 222546,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-06-selected_quantities.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-06-selected_quantities.json",
+      "sha256": "49c241a13bbf4d35b3c40101b7c2275d98c1ebe9d94783f6702d1b4c69f95bd3",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 31261,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-06-summary-cupy.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-06-summary-cupy.json",
+      "sha256": "b54d5c78eb3a92de5ad7bde0b419663ab47c40921c3acf7e622a931c0ab15cde",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 31267,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-06-summary-scipy.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-06-summary-scipy.json",
+      "sha256": "1b8ff954db98e39df188275e4b907de9320da71cbc3b7ac961203c9c948b1936",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 21432,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-07-fit.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-07-fit.json",
+      "sha256": "e579ca92d2d3e385bc2795012374eb945e61681a399105edaec85d30d7a739fd",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 49866,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-07-generation.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-07-generation.json",
+      "sha256": "bac89ddae2aac336024501a49b90002428dec6c177dbcdb3e78786003e6e5a8e",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 4938,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-07-plan.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-07-plan.json",
+      "sha256": "dd755f0a3b2113945df558bc87fe04809e92534994e80f534f4542277e74651a",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 222526,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-07-selected_quantities.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-07-selected_quantities.json",
+      "sha256": "82f20c6cfe016524e806f733b9bd66bbebf01837a4ba862413e3b0734abfc60b",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 31260,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-07-summary-cupy.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-07-summary-cupy.json",
+      "sha256": "5936c22ea002e3dfcddf14a3674a5309d3d05871d13ec6dd369b354480c286a6",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 31266,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/debug/case-07-summary-scipy.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/debug/case-07-summary-scipy.json",
+      "sha256": "88a3fc59aefb95fc14f618713fb79d88480017dbca3cc5d5b4d3496cc9d4f257",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 2632,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/progress.log",
+      "media_type": "text/plain",
+      "path": "validation/b0h-timing-20260910-01/progress.log",
+      "sha256": "f9fa11dc843fd429970544da0d4689cc84d9d1924210d6828a82d8dfdd6fa2e4",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 44578,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/b0h-timing-20260910-01/report.json",
+      "media_type": "application/json",
+      "path": "validation/b0h-timing-20260910-01/report.json",
+      "sha256": "91abea1b1f41a3fa58b0be7cdfa1ca31139dcc17805592f5d66366ab450e9666",
+      "sources": [
+        "genomeos"
+      ]
+    },
+    {
+      "bytes": 1088,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/crossval_grouped.csv",
+      "media_type": "text/csv",
+      "path": "validation/crossval_grouped.csv",
+      "sha256": "9f1daaf6ac50ca7b8af65eee015768c6b589b4747a0c86349ddf8b5d9a23169c",
+      "sources": [
+        "map"
+      ]
+    },
+    {
+      "bytes": 462,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/crossval_grouped.txt",
+      "media_type": "text/plain",
+      "path": "validation/crossval_grouped.txt",
+      "sha256": "625d68b5817e96edc42564fcf0604cba699a2f2e911266466c50442d3478c2fe",
+      "sources": [
+        "map"
+      ]
+    },
+    {
+      "bytes": 897,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/crossval_random.csv",
+      "media_type": "text/csv",
+      "path": "validation/crossval_random.csv",
+      "sha256": "df084bd78c73f9f7a7d7d64224c9717d2192e83db2483a777a65312a45c44185",
+      "sources": [
+        "map"
+      ]
+    },
+    {
+      "bytes": 535,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/crossval_random.txt",
+      "media_type": "text/plain",
+      "path": "validation/crossval_random.txt",
+      "sha256": "4905919189a66d71b345f4bd4bfb9f27c5614f863179a4bc75ac20489f93d9bf",
+      "sources": [
+        "map"
+      ]
+    },
+    {
+      "bytes": 910,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/crossval_spatial.csv",
+      "media_type": "text/csv",
+      "path": "validation/crossval_spatial.csv",
+      "sha256": "7127bac97ebc163a3bae782a9b4ecdb0abf08dcd759fe74834fa9c264d5f5284",
+      "sources": [
+        "map"
+      ]
+    },
+    {
+      "bytes": 485,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/crossval_spatial.txt",
+      "media_type": "text/plain",
+      "path": "validation/crossval_spatial.txt",
+      "sha256": "9304707b37193dcc0f74506a552cb7dbbfbb7a36a073244057378a8b5279de9f",
+      "sources": [
+        "map"
+      ]
+    },
+    {
+      "bytes": 1965,
+      "in_git": false,
+      "key": "releases/2026-10-17/validation/crossval_summary.json",
+      "media_type": "application/json",
+      "path": "validation/crossval_summary.json",
+      "sha256": "929967ac2b065e79c8c038343a9998e4ac9ec58fcdd9ebf34aeba46e0c94ab6f",
+      "sources": [
+        "map"
+      ]
+    },
+    {
+      "bytes": 2580,
+      "in_git": false,
+      "key": "releases/2026-10-18/validation/hbs-piel-parity-2026-09-16/README.md",
+      "media_type": "text/markdown",
+      "path": "validation/hbs-piel-parity-2026-09-16/README.md",
+      "sha256": "a97815ed8fb7f6a30a91e72e50874e45e71706b4e3752836494c676ecb741bf0",
+      "sources": [
+        "map"
+      ]
+    },
+    {
+      "bytes": 45704,
+      "in_git": false,
+      "key": "releases/2026-10-18/validation/hbs-piel-parity-2026-09-16/piel-comparable-observations.parquet",
+      "media_type": "application/vnd.apache.parquet",
+      "path": "validation/hbs-piel-parity-2026-09-16/piel-comparable-observations.parquet",
+      "sha256": "466034e22015ce5f4e0b90067adb2232491b625591d50c8ac83d955565345b4b",
+      "sources": [
+        "map"
+      ]
+    },
+    {
+      "bytes": 170914,
+      "in_git": false,
+      "key": "releases/2026-10-18/validation/hbs-piel-parity-2026-09-16/piel-comparable-observations.tsv",
+      "media_type": "text/tab-separated-values",
+      "path": "validation/hbs-piel-parity-2026-09-16/piel-comparable-observations.tsv",
+      "sha256": "820d725fae9859a6cebca98296676e8c525b103f7033aa5237b9aaa00f79b331",
+      "sources": [
+        "map"
+      ]
+    }
+  ],
+  "release": "2026-10-18",
+  "schema": "genomeos-data-release",
+  "schema_version": 1,
+  "sources": {
+    "afnd": {
+      "citation": "Gonzalez-Galarza et al., Allele frequency net database (AFND) 2020 update, Nucleic Acids Research 48:D783, doi:10.1093/nar/gkz1029",
+      "name": "Allele Frequency Net Database (AFND)",
+      "non_commercial": false,
+      "terms": {
+        "checked_at": "2026-08-25",
+        "note": "AFND publishes no standalone licence; under the owner-approved policy (#149) a completed check that finds no explicit restriction is no_restriction_found.",
+        "recorded_in": "https://github.com/genomeOS/genomeOS/issues/117",
+        "status": "no_restriction_found",
+        "terms_url": "https://www.allelefrequencies.net/contact.asp"
+      },
+      "url": "https://www.allelefrequencies.net/"
+    },
+    "clinvar": {
+      "name": "ClinVar, National Center for Biotechnology Information",
+      "non_commercial": false,
+      "terms": {
+        "note": "ClinVar asks downstream users to attribute copied or distributed data to ClinVar.",
+        "recorded_in": "data/sources/curated/SOURCE.json",
+        "status": "no_restriction_found",
+        "terms_url": "https://www.ncbi.nlm.nih.gov/clinvar/docs/maintenance_use/"
+      },
+      "url": "https://www.ncbi.nlm.nih.gov/clinvar/"
+    },
+    "cpic": {
+      "name": "CPIC Database and API",
+      "non_commercial": false,
+      "terms": {
+        "checked_at": "2026-09-14",
+        "licence": "CC0-1.0",
+        "recorded_in": "data/sources/cpic/v1.60.0/SOURCE.json",
+        "status": "no_restriction_found",
+        "terms_url": "https://github.com/cpicpgx/cpic-data/blob/v1.60.0/LICENSE.md"
+      },
+      "url": "https://api.cpicpgx.org/v1/"
+    },
+    "genereviews": {
+      "name": "GeneReviews, University of Washington",
+      "non_commercial": true,
+      "terms": {
+        "note": "GeneReviews content has noncommercial reproduction terms. This source file stores links as evidence locators and does not reproduce chapter content.",
+        "recorded_in": "data/sources/curated/SOURCE.json",
+        "status": "restriction_found",
+        "terms_url": "https://www.ncbi.nlm.nih.gov/books/NBK138602/"
+      },
+      "url": "https://www.ncbi.nlm.nih.gov/books/NBK1116/"
+    },
+    "genomeos": {
+      "name": "genomeOS project-authored data and outputs",
+      "non_commercial": false,
+      "terms": {
+        "note": "Project-authored, with no third-party input. The README's Apache-2.0 notice covers source code and documentation only; no data licence is recorded.",
+        "status": "not_checked"
+      },
+      "url": "https://github.com/genomeOS/genomeOS"
+    },
+    "map": {
+      "citation": "Piel et al., Global epidemiology of sickle haemoglobin in neonates, The Lancet 381:142 (2013); Howes et al., G6PD deficiency prevalence and estimates of affected populations in malaria endemic countries, PLoS Medicine 9:e1001339 (2012)",
+      "name": "Malaria Atlas Project (MAP) HbS and G6PD survey databases",
+      "non_commercial": false,
+      "terms": {
+        "checked_at": "2026-10-18",
+        "note": "MAP's open-access policy covers all its survey data, HbS and G6PD layers alike: the data are not owned by MAP, public survey data have no restrictions to access or use, and users are asked to cite the original sources. The owner approved open redistribution of the HbS survey rows on 2026-10-18 (the 2026-09-16 parity input).",
+        "recorded_in": "docs/research/hbs-piel-parity-2026-09-16.md",
+        "status": "no_restriction_found",
+        "terms_url": "https://malariaatlas.org/open-access-policy/"
+      },
+      "url": "https://data.malariaatlas.org/"
+    },
+    "worldpop": {
+      "citation": "WorldPop, University of Southampton. doi:10.5258/SOTON/WP00647",
+      "name": "WorldPop gridded population (the surface target grid)",
+      "non_commercial": false,
+      "terms": {
+        "note": "Selects the population-positive H3 cells a format-2 surface is predicted on; no terms check is recorded in this repository.",
+        "status": "not_checked"
+      },
+      "url": "https://hub.worldpop.org/"
+    }
+  },
+  "totals": {
+    "bytes": 271494507,
+    "in_git_bytes": 1010131,
+    "in_git_objects": 16,
+    "objects": 248
+  }
+}
