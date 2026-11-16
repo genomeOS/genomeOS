@@ -117,11 +117,20 @@ export function maskedSupport(chunk: number): SupportChunkBuffers {
   };
 }
 
+/**
+ * The grid rows a fixture chunk carries: the row its own number names, so fixture chunks 0, 1, …
+ * carry a fixture surface's rows 0, 1, ….
+ */
+export function chunkRows(chunk: number): Uint32Array {
+  return Uint32Array.of(chunk);
+}
+
 export function chunkMessage(
   artifactKey: string,
   chunk: number,
   options: {
     anchors?: ObservationAnchorBuffers | null;
+    rows?: Uint32Array;
     seam?: boolean;
     support?: SupportChunkBuffers;
     total?: number;
@@ -133,6 +142,7 @@ export function chunkMessage(
     chunk,
     id: 1,
     index: chunk,
+    rows: options.rows ?? chunkRows(chunk),
     seam: options.seam ?? false,
     support: options.support ?? emptySupport(chunk),
     surface: triangleSurfaceBuffers(chunk),

@@ -264,7 +264,7 @@ export function scheduleChunks(
       do {
         const { message } = pending.shift()!;
         options.onBeforeAdd?.(message);
-        group.addChunk(message.surface, message.support);
+        group.addChunk(message.surface, message.support, message.rows);
         options.onAdded?.(message);
         batch.artifactKey = message.artifactKey;
         batch.chunks.push(message.chunk);

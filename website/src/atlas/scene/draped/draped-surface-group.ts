@@ -13,24 +13,34 @@
  *   rasters kept, so the toggle back is instant. Every setter and every `preRender` recomputes
  *   both and writes only a changed one, so the 1 s fade follows the wave frame by frame and a
  *   frame at rest requests nothing.
- * - `prepare` prepares the surface raster and adds its layer, then the outlines' when edges are
- *   on. A raster with nothing to draw adds no layer and is ready at once. The outlines are
- *   prepared the first time edges turn on and toggled by alpha after that.
+ * - `prepare` prepares the surface raster and, when edges are on, the outlines' beside it, not
+ *   after it: the fade waits for both, so both load their tiles at once. Each adds its layer as
+ *   its raster lands. A raster with nothing to draw adds no layer and is ready at once. The
+ *   outlines are prepared the first time edges turn on and toggled by alpha after that.
  * - A new outline style is prepared at alpha 0 above the old outlines, which keep drawing until
  *   the new layer is ready and are then destroyed in the frame that shows the new one, as a
  *   restyle keeps the outgoing surface opaque until it is retired. A style moved past before it
  *   was ready is dropped; a restyle with edges off drops the outlines, and the new style is
  *   prepared when they return.
- * - Readiness: `isReady` once the surface layer is ready (Cesium has loaded its tiles at alpha 0);
- *   `readyChunkCount` is 1 from the first drawn surface tile, so a cold reveal with nothing in
- *   view runs no wave; `outlinesReady` once the outlines are prepared and their layer is ready.
- *   Hiding the group frees its layers' tiles, so shown again it counts all three from scratch.
+ * - Readiness: `isReady` once the layers the fade will draw have loaded (Cesium has loaded their
+ *   tiles at alpha 0) and drawn their pre-warm frame ("Failure modes": first-draw shader compile
+ *   hitch). Those are the surface layer while a cell set is on at a surface opacity above 0, and
+ *   the outlines while cell edges are on over supported cells, beside whatever the fade draws
+ *   over; the surface layer must load either way. The first `isReady` that finds them loaded
+ *   pre-warms them together, in one frame, and the group asks for the frame that reads it ready.
+ *   A group pre-warms once: a later edge or cell toggle is instant, so its compile is latency,
+ *   not a jump in a fade. `readyChunkCount` is 1 from the first drawn surface tile, so a cold
+ *   reveal with nothing in view runs no wave; `outlinesReady` once the outlines are prepared and
+ *   their layer is ready. Hiding the group frees its layers' tiles, so shown again it counts all
+ *   three from scratch, and a hidden layer is never loaded: a group hidden before its first
+ *   pre-warm keeps it for when it is shown. Shown again after it, the group is ready once the
+ *   surface has its tiles back, with no second pre-warm (the compiled shader stays cached).
  * - No silent gaps: a raster that fails while `prepare` runs rejects it, a later one and every
  *   provider `errorEvent` go to `onError`, and the scene reverts to the smooth globe. `destroy`
  *   aborts every prepare in flight (a raster arriving after it is released at once), removes the
  *   layers and releases their rasters. A `prepare` whose own signal aborts rejects at once and
- *   stops the outline prepare it started; a surface layer it already added waits for `destroy`.
- *   Every setter is a no-op after `destroy`.
+ *   stops the outline prepare it started, as does one whose surface raster fails; a layer it
+ *   already added waits for `destroy`. Every setter is a no-op after `destroy`.
  * - Data elevation is off under World Terrain and Cesium drapes imagery in every scene mode, so
  *   the elevation, scene-mode and edge-hold setters do nothing.
  *
@@ -291,22 +301,30 @@ export function createDrapedSurfaceGroup(
   const run = async (signal: AbortSignal): Promise<void> => {
     prepareState = 'pending';
     const link = eitherSignal(signal, lifetime.signal);
+    // Stops the outline prepare begun here once this one fails.
+    const failed = new AbortController();
+    const outlineLink = eitherSignal(link.signal, failed.signal);
+    const surfaceLayer = drape(surfaceSpec, 'atlas-surface', link.signal);
+    const outlines =
+      cellEdges && cells.supported ? outlinesUntil(outlineLink.signal) : null;
     try {
-      const layer = await drape(surfaceSpec, 'atlas-surface', link.signal);
+      const layer = await surfaceLayer;
       if (destroyed) {
         layer?.destroy();
         throw abortError();
       }
       surface = { layer };
       apply();
-      if (cellEdges && cells.supported) await outlinesUntil(link.signal);
+      await outlines;
       if (destroyed || signal.aborted) throw abortError();
       if (pendingFailure) throw pendingFailure.error;
       prepareState = 'settled';
     } catch (error) {
       prepareState = 'failed';
+      failed.abort();
       throw error;
     } finally {
+      outlineLink.detach();
       link.detach();
     }
   };
@@ -316,10 +334,56 @@ export function createDrapedSurfaceGroup(
       (layer): layer is HeldLayer => layer != null,
     );
 
-  const isReady = () =>
-    !destroyed &&
+  /** The pre-warm of the layers the fade will draw: not begun, running, or done. */
+  let warmth: 'cold' | 'warming' | 'warm' = 'cold';
+
+  /** The layers the fade will draw once every layer it waits on has loaded; else null. */
+  const loadedFadeLayers = (): DrapedImageryLayer[] | null => {
+    if (surface === null) return null;
+    const drawn: DrapedImageryLayer[] = [];
+    if (surface.layer) {
+      if (!surface.layer.draped.isReady()) return null;
+      if (!hidden && DRAPED_SURFACE_ALPHA * surfaceOpacity > 0)
+        drawn.push(surface.layer.draped);
+    }
+    if (!hidden && cellEdges && cells.supported) {
+      // A style swap still in flight draws the old outlines; wait for the ones that stay.
+      if (!outline?.prepared || retiring) return null;
+      if (outline.layer) {
+        if (!outline.layer.draped.isReady()) return null;
+        drawn.push(outline.layer.draped);
+      }
+    }
+    return drawn;
+  };
+
+  /** Pre-warms the fade's layers the first time they are all loaded. */
+  const warmWhenLoaded = () => {
+    if (destroyed || warmth !== 'cold') return;
+    const drawn = loadedFadeLayers();
+    if (drawn === null) return;
+    if (drawn.length === 0) {
+      warmth = 'warm';
+      return;
+    }
+    warmth = 'warming';
+    void Promise.all(drawn.map((layer) => layer.prewarm())).then(() => {
+      if (destroyed) return;
+      warmth = 'warm';
+      // Readiness is read after a frame, and a layer left alone asked for none.
+      scene.requestRender();
+    });
+  };
+
+  /** The surface layer has its tiles; a hidden one has none, so shown again it loads anew. */
+  const surfaceLoaded = () =>
     surface !== null &&
     (surface.layer === null || surface.layer.draped.isReady());
+
+  const isReady = () => {
+    warmWhenLoaded();
+    return !destroyed && warmth === 'warm' && surfaceLoaded();
+  };
 
   return {
     artifactKey: o.artifactKey,

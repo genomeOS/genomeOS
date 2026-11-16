@@ -69,6 +69,7 @@ import {
 import { ContextOverlay } from './context-overlay';
 import { installGlobeOffset, type GlobeOffset } from './globe-offset';
 import { createGlobeWidget, type GlobeWidget } from './globe-widget';
+import { createAtlasPickResolvers } from './hover-pick';
 import {
   createReliefResampler,
   onTileLoads,
@@ -100,7 +101,6 @@ import {
 import { animateValue } from './scene-transition';
 import { ScientificLayers, type ScientificStyle } from './scientific-layers';
 import { SURFACE_CLEARANCE_METRES } from './surface-appearance';
-import { createSurfacePickResolver } from './surface-pick';
 import { TerrainShading } from './terrain-shading';
 import type {
   ArtifactLoad,
@@ -301,7 +301,7 @@ class CesiumAtlasScene implements AtlasSceneController {
       if (mark === 'surface-visible') this.#startContext();
     });
     this.#unbindKeyboard = bindKeyboardCamera(this.#widget, container);
-    this.#cameraMotion = cameraMotionTestHook(this.#widget.camera);
+    this.#cameraMotion = cameraMotionTestHook(this.#widget.scene);
     this.#removeMoveEnd = this.#widget.camera.moveEnd.addEventListener(() => {
       const state = cameraState(this.#widget);
       if (!state) return;
@@ -317,9 +317,9 @@ class CesiumAtlasScene implements AtlasSceneController {
         this.#highlightLayer.setHover(value?.pick ?? null, this.#reducedMotion);
         for (const listener of this.#hoverListeners) listener(value);
       },
-      createSurfacePickResolver(this.#widget.scene, {
+      createAtlasPickResolvers(this.#widget.scene, {
         // The applied terrain, not the requested one: until World Terrain is on the globe, the
-        // ground under the pointer is the ellipsoid. Lifted data keeps the depth pick.
+        // ground under the pointer is the ellipsoid. Lifted data keeps a click's depth pick.
         draped: () =>
           hasPhysicalRelief(this.#appliedTerrain) &&
           this.#elevationFactor === 0,

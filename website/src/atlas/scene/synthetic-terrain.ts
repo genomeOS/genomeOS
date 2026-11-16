@@ -223,6 +223,20 @@ function shownImageryLayers(layers: ImageryLayerCollection): string[] {
   return shown;
 }
 
+/**
+ * The largest alpha among the shown `atlas-surface` layers, 0 with none: `PREWARM_ALPHA` in a
+ * layer's pre-warm frame, more once its fade has begun.
+ */
+function surfaceAlpha(layers: ImageryLayerCollection): number {
+  let alpha = 0;
+  for (let index = 0; index < layers.length; index += 1) {
+    const layer = layers.get(index);
+    if (layer.show && drapedLayerName(layer) === 'atlas-surface')
+      alpha = Math.max(alpha, layer.alpha);
+  }
+  return alpha;
+}
+
 /** Every imagery layer on the collection, bottom to top, whatever its show and alpha. */
 function imageryLayerStack(layers: ImageryLayerCollection): string[] {
   return Array.from({ length: layers.length }, (_, index) => {
@@ -250,6 +264,8 @@ export function publishTerrainProbe(widget: CesiumWidget): () => void {
       apexGround,
       apexWindow: apexWindow(scene, apexGround),
       cameraHeight: position.height,
+      cameraLat: CesiumMath.toDegrees(position.latitude),
+      cameraLon: CesiumMath.toDegrees(position.longitude),
       draped: imageryLayers.includes('atlas-surface'),
       enableLighting: globe.enableLighting,
       groundHeight: globe.getHeight(position) ?? null,
@@ -265,6 +281,7 @@ export function publishTerrainProbe(widget: CesiumWidget): () => void {
       showGroundAtmosphere: globe.showGroundAtmosphere,
       showWaterEffect: globe.showWaterEffect,
       sunLight: scene.light instanceof SunLight,
+      surfaceAlpha: surfaceAlpha(scene.imageryLayers),
       tilesLoaded: globe.tilesLoaded,
       verticalExaggeration: scene.verticalExaggeration,
       verticalExaggerationRelativeHeight:

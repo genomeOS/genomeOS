@@ -18,6 +18,13 @@
  * and closed across ±180°, so it meets its neighbours' straight edges; its attributes come from the
  * fan triangle holding it in the azimuthal frame (x, y) = (90° − |lat|)(cos lon, sin lon).
  *
+ * A level-0 tile at production density holds about 39,000 rows, so the scan allocates nothing per
+ * mesh or per texel: `drawMesh` reads a mesh's first vertices and indices from any indexable store,
+ * the surface raster's reused fan among them (`fill-raster.ts`), and its per-vertex frame lives in
+ * scratch kept between calls. A row whose box, or a fan whose vertices, hold no texel centre of the
+ * tile is skipped before any triangle is set up; neither skip changes a byte, since no triangle of
+ * it could cover a texel centre.
+ *
  * Cesium-free and deterministic: the data worker runs it.
  */
 
@@ -25,6 +32,7 @@ import { tileRectangle, turnsNear } from './tiling';
 import {
   RASTER_TILE_SIZE,
   type DegreeRectangle,
+  type RowBoxes,
   type TileAddress,
 } from './types';
 
@@ -33,20 +41,21 @@ const DEGREES = Math.PI / 180;
 /** The most attributes a mesh vertex may carry. */
 export const MAX_MESH_DIMS = 4;
 
-/** Triangles over shared vertices in degrees, each vertex carrying `dims` attributes. */
+/** Triangles over shared vertices in degrees, each vertex carrying `dims` attributes. Any
+ * indexable store holds them: arrays, or typed arrays reused from mesh to mesh. */
 export interface Mesh {
-  lon: number[];
-  lat: number[];
+  lon: ArrayLike<number>;
+  lat: ArrayLike<number>;
   /** `dims` values per vertex: sRGB bytes (3) for fills, st (2) for masks, and room for one more,
    * such as the normalised value a contour reads. */
-  attrs: number[];
+  attrs: ArrayLike<number>;
   /** 1 to `MAX_MESH_DIMS`. */
   dims: number;
   /** The writer reads `dColumn` and `dRow`. A fan triangle has them at no cost; a pole-holding row
    * computes them only when this is set, and hands zeros otherwise. */
   derivatives: boolean;
   /** Vertex indices, three per triangle. */
-  triangles: number[];
+  triangles: ArrayLike<number>;
 }
 
 /** Writes one texel from the interpolated attributes `v`. `dColumn[d]` and `dRow[d]` are attribute
@@ -263,30 +272,81 @@ function scanTriangle(
   }
 }
 
-/** Draws a mesh that holds no pole, for each ±360° copy whose box meets the tile. Vertex 0 is the
- * cell centre, which every other vertex is unwrapped towards. */
-export function drawMesh(t: Target, m: Mesh, write: TexelWriter): void {
+/** `drawMesh`'s per-vertex frame: whole turns and texel-centre coordinates, kept between calls and
+ * grown to the largest mesh drawn. */
+let frame = {
+  turns: new Float64Array(16),
+  xs: new Float64Array(16),
+  ys: new Float64Array(16),
+};
+
+/** True when the closed range [lo, hi] of texel-centre coordinates holds an integer of the tile. */
+function holdsTexelCentre(lo: number, hi: number): boolean {
+  return Math.max(0, Math.ceil(lo)) <= Math.min(SIZE - 1, Math.floor(hi));
+}
+
+/** Draws a mesh that holds no pole, for each ±360° copy whose box meets the tile: its first
+ * `vertices` vertices and first `indices` triangle indices, all of them by default. Vertex 0 is the
+ * cell centre, which every other vertex is unwrapped towards. `beforeScan`, when given, runs once
+ * before the first triangle is scanned, so a caller may write `attrs` there and only for a mesh
+ * whose vertices hold a texel centre of the tile. */
+export function drawMesh(
+  t: Target,
+  m: Mesh,
+  write: TexelWriter,
+  vertices = m.lon.length,
+  indices = m.triangles.length,
+  beforeScan?: () => void,
+): void {
   checkDims(m);
-  const n = m.lon.length;
-  const turns = m.lon.map((lon) => turnsNear(lon, m.lon[0]));
-  const unwrapped = m.lon.map((lon, v) => lon + 360 * turns[v]);
-  const west = Math.min(...unwrapped);
-  const east = Math.max(...unwrapped);
-  if (Math.min(...m.lat) > t.rect.north || Math.max(...m.lat) < t.rect.south)
-    return;
-  const xs = new Float64Array(n);
-  const ys = new Float64Array(n);
-  for (let v = 0; v < n; v += 1)
+  if (frame.xs.length < vertices)
+    frame = {
+      turns: new Float64Array(2 * vertices),
+      xs: new Float64Array(2 * vertices),
+      ys: new Float64Array(2 * vertices),
+    };
+  const { turns, xs, ys } = frame;
+  const near = m.lon[0];
+  let west = Infinity;
+  let east = -Infinity;
+  let south = Infinity;
+  let north = -Infinity;
+  for (let v = 0; v < vertices; v += 1) {
+    const turn = turnsNear(m.lon[v], near);
+    const unwrapped = m.lon[v] + 360 * turn;
+    turns[v] = turn;
+    if (unwrapped < west) west = unwrapped;
+    if (unwrapped > east) east = unwrapped;
+    if (m.lat[v] < south) south = m.lat[v];
+    if (m.lat[v] > north) north = m.lat[v];
+  }
+  if (south > t.rect.north || north < t.rect.south) return;
+  let low = Infinity;
+  let high = -Infinity;
+  for (let v = 0; v < vertices; v += 1) {
     ys[v] = ((m.lat[v] - t.rect.south) * SIZE) / t.span - 0.5;
-  for (const shift of [-1, 0, 1]) {
+    if (ys[v] < low) low = ys[v];
+    if (ys[v] > high) high = ys[v];
+  }
+  if (!holdsTexelCentre(low, high)) return;
+  for (let shift = -1; shift <= 1; shift += 1) {
     if (west + 360 * shift > t.rect.east || east + 360 * shift < t.rect.west)
       continue;
-    for (let v = 0; v < n; v += 1)
+    low = Infinity;
+    high = -Infinity;
+    for (let v = 0; v < vertices; v += 1) {
       xs[v] =
         ((m.lon[v] + 360 * (turns[v] + shift) - t.rect.west) * SIZE) / t.span -
         0.5;
-    for (let k = 0; k < m.triangles.length; k += 3)
-      scanTriangle(t, m, k, xs, ys, write);
+      if (xs[v] < low) low = xs[v];
+      if (xs[v] > high) high = xs[v];
+    }
+    if (!holdsTexelCentre(low, high)) continue;
+    if (beforeScan) {
+      beforeScan();
+      beforeScan = undefined;
+    }
+    for (let k = 0; k < indices; k += 3) scanTriangle(t, m, k, xs, ys, write);
   }
 }
 
@@ -384,9 +444,13 @@ export function drawPolar(
     ...order.map((k) => ring.lat[k]),
     ring.lat[first],
   ];
-  const corners = m.lon.map((lon, v) => azimuthal(lon, m.lat[v]));
-  const ax = corners.map(([x]) => x);
-  const ay = corners.map(([, y]) => y);
+  const ax: number[] = [];
+  const ay: number[] = [];
+  for (let v = 0; v < m.lon.length; v += 1) {
+    const [x, y] = azimuthal(m.lon[v], m.lat[v]);
+    ax.push(x);
+    ay.push(y);
+  }
   const half = t.span / SIZE / 2;
   const around = new Float64Array(4 * MAX_MESH_DIMS);
   for (let column = 0; column < SIZE; column += 1) {
@@ -433,19 +497,24 @@ export function drawPolar(
   }
 }
 
-/** True when some texel centre of the tile lies in `box` or one of its ±360° copies. */
-export function touchesTexel(t: Target, box: DegreeRectangle): boolean {
-  const toY = (lat: number) => ((lat - t.rect.south) * SIZE) / t.span - 0.5;
-  const rows =
-    Math.max(0, Math.ceil(toY(box.south))) <=
-    Math.min(SIZE - 1, Math.floor(toY(box.north)));
-  if (!rows) return false;
-  return [-1, 0, 1].some((shift) => {
-    const toX = (lon: number) =>
-      ((lon + 360 * shift - t.rect.west) * SIZE) / t.span - 0.5;
-    return (
-      Math.max(0, Math.ceil(toX(box.west))) <=
-      Math.min(SIZE - 1, Math.floor(toX(box.east)))
-    );
-  });
+/** True when some texel centre of the tile lies in row `row`'s box in `boxes`, or in one of its
+ * ±360° copies. */
+export function touchesTexel(t: Target, boxes: RowBoxes, row: number): boolean {
+  const { rect, span } = t;
+  if (
+    !holdsTexelCentre(
+      ((boxes.south[row] - rect.south) * SIZE) / span - 0.5,
+      ((boxes.north[row] - rect.south) * SIZE) / span - 0.5,
+    )
+  )
+    return false;
+  for (let shift = -1; shift <= 1; shift += 1)
+    if (
+      holdsTexelCentre(
+        ((boxes.west[row] + 360 * shift - rect.west) * SIZE) / span - 0.5,
+        ((boxes.east[row] + 360 * shift - rect.west) * SIZE) / span - 0.5,
+      )
+    )
+      return true;
+  return false;
 }

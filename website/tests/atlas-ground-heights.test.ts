@@ -1,19 +1,28 @@
-/** Ground heights under World Terrain: sampling, throttling and the triggers that re-sample them
+/** Ground heights under World Terrain: sampling, throttling, the triggers that re-sample them
  * (terrain draping design, "Per layer under World Terrain", "Exaggeration", "2D and Columbus" and
- * "Failure modes"; #483). */
-import { Math as CesiumMath, type Cartographic } from 'cesium';
-import { describe, expect, it, vi } from 'vitest';
+ * "Failure modes"; #483), and the e2e build's measure of each pass ("Performance budget and
+ * measurement"). */
+import { Cartographic } from 'cesium';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { GROUND_PASS_MEASURE } from '../src/atlas/e2e-hooks';
 
 import {
   afterNextRender,
+  createFramePickBudget,
   createGroundHeights,
   createReliefResampler,
+  GROUND_PICK_BUDGET_MS,
   GROUND_RESAMPLE_MS,
   onTileLoads,
-  sampleGroundHeights,
   throttleResample,
 } from '../src/atlas/scene/ground-heights';
 import { FakeEvent } from './helpers/scene-fakes';
+import {
+  fakeTerrain,
+  type FakeTerrain,
+  type GroundAt,
+} from './helpers/terrain-fakes';
 
 class ProgressEvent {
   // Cesium raises tileLoadProgressEvent with the tile queue's length
@@ -31,46 +40,60 @@ class ProgressEvent {
 /** The Spain survey on the synthetic peak (map-surveys:1135), then the Gabon survey (map-surveys:996). */
 const POINTS = Float64Array.of(-3.709, 40.419, 12.686, -1.844);
 
-function setup(initial: (lon: number) => number | undefined) {
-  const clock = { now: 0 };
-  let ground = initial;
-  const globe = {
-    getHeight: vi.fn((c: Cartographic) =>
-      ground(CesiumMath.toDegrees(c.longitude)),
-    ),
-    tileLoadProgressEvent: new ProgressEvent(),
+/**
+ * The scene ground heights read, over a fake terrain that counts its picks
+ * (tests/helpers/terrain-fakes.ts), with the camera 20,000 km over (0°, 0°). `frame()` renders
+ * one frame: `preRender`, then `postRender`.
+ */
+function groundScene(terrain: FakeTerrain) {
+  const preRender = new FakeEvent();
+  const postRender = new FakeEvent();
+  return {
+    camera: { positionCartographic: Cartographic.fromDegrees(0, 0, 2e7) },
+    frame() {
+      preRender.raiseEvent();
+      postRender.raiseEvent();
+    },
+    globe: Object.assign(terrain.globe, {
+      tileLoadProgressEvent: new ProgressEvent(),
+    }),
+    morphComplete: new FakeEvent(),
+    postRender,
+    preRender,
+    requestRender: vi.fn(),
   };
-  const morphComplete = new FakeEvent();
-  const heights = createGroundHeights(
-    { globe, morphComplete } as never,
-    POINTS,
-    () => clock.now,
-  );
+}
+
+/** Each pick of `terrain` takes 1 ms on `clock`. */
+function timePicks(terrain: FakeTerrain, clock: { now: number }): void {
+  const pick = terrain.globe.getHeight.getMockImplementation()!;
+  terrain.globe.getHeight.mockImplementation((c) => {
+    clock.now += 1;
+    return pick(c);
+  });
+}
+
+/**
+ * Ground heights over a fake terrain: `setGround` loads new terrain meshes under both points,
+ * drawing `next`, as tiles loading do.
+ */
+function setup(initial: GroundAt) {
+  const clock = { now: 0 };
+  const terrain = fakeTerrain(initial);
+  const scene = groundScene(terrain);
+  const heights = createGroundHeights(scene as never, POINTS, () => clock.now);
   return {
     clock,
-    globe,
+    globe: scene.globe,
     heights,
-    morphComplete,
-    setGround: (next: typeof initial) => {
-      ground = next;
-    },
+    morphComplete: scene.morphComplete,
+    scene,
+    terrain,
+    setGround: (next: GroundAt) => terrain.load(next),
   };
 }
 
 describe('ground heights under World Terrain', () => {
-  it('samples the rendered ground under each point, NaN where no tile has loaded', () => {
-    const globe = {
-      getHeight: (c: Cartographic) =>
-        CesiumMath.toDegrees(c.longitude) < 0 ? 6_000 : undefined,
-    };
-    expect(Array.from(sampleGroundHeights(globe as never, POINTS))).toEqual([
-      6_000,
-      Number.NaN,
-    ]);
-    const out = new Float64Array(2);
-    expect(sampleGroundHeights(globe as never, POINTS, out)).toBe(out);
-  });
-
   it('samples at creation and tells listeners only when a height changed', () => {
     const { heights, setGround } = setup((lon) =>
       lon < 0 ? 6_000 : undefined,
@@ -128,8 +151,26 @@ describe('ground heights under World Terrain', () => {
     expect(heights.heights()[0]).toBe(2_000);
   });
 
+  it('follows a relief change without a pick, and picks again only under meshes that changed', () => {
+    const { globe, heights, terrain } = setup(() => 1_000);
+    expect(globe.getHeight).toHaveBeenCalledTimes(2);
+    globe.getHeight.mockClear();
+    terrain.setRelief(3); // the frame after a relief change re-exaggerates every mesh
+    heights.resample(true);
+    expect(globe.getHeight).not.toHaveBeenCalled();
+    expect(Array.from(heights.heights())).toEqual([3_000, 3_000]);
+    heights.resample(true); // a pass over unchanged tiles
+    expect(globe.getHeight).not.toHaveBeenCalled();
+    terrain.load(() => 1_200, 'east'); // a tile loads under the Gabon survey only
+    heights.resample(true);
+    expect(globe.getHeight).toHaveBeenCalledTimes(1);
+    expect(Array.from(heights.heights())).toEqual([3_000, 3_600]);
+  });
+
   it('stops listening once destroyed, and tells no unsubscribed listener', () => {
-    const { globe, heights, morphComplete, setGround } = setup(() => 1_000);
+    const { globe, heights, morphComplete, scene, setGround } = setup(
+      () => 1_000,
+    );
     const kept = vi.fn(),
       dropped = vi.fn();
     heights.onChange(kept);
@@ -140,6 +181,8 @@ describe('ground heights under World Terrain', () => {
     heights.destroy();
     expect(globe.tileLoadProgressEvent.listeners.size).toBe(0);
     expect(morphComplete.numberOfListeners).toBe(0);
+    expect(scene.preRender.numberOfListeners).toBe(0);
+    expect(scene.postRender.numberOfListeners).toBe(0);
     setGround(() => 3_000);
     heights.resample(true);
     expect(kept).toHaveBeenCalledTimes(1);
@@ -155,7 +198,7 @@ describe('ground heights under World Terrain', () => {
     ).toThrow(/lon, lat pairs/);
   });
 
-  it('refuses a coordinate that is not finite, and an out array of the wrong length', () => {
+  it('refuses a coordinate that is not finite', () => {
     const scene = {
       globe: { getHeight: () => 0, tileLoadProgressEvent: new ProgressEvent() },
       morphComplete: new FakeEvent(),
@@ -163,21 +206,245 @@ describe('ground heights under World Terrain', () => {
     expect(() =>
       createGroundHeights(scene as never, Float64Array.of(1, 2, 3, Number.NaN)),
     ).toThrow(/finite lon, lat pairs: pair 1 is \(3, NaN\)/);
-    expect(() =>
-      sampleGroundHeights(scene.globe, POINTS, new Float64Array(3)),
-    ).toThrow(/2 points need 2 slots: got 3/);
+  });
+});
+
+describe('ground pass measures (e2e build)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    performance.clearMeasures();
   });
 
-  it('wraps a longitude past 180° into the range where getHeight finds its tiles', () => {
-    // Globe.getHeight finds no level-zero tile for a longitude outside [-180°, 180°].
-    const globe = {
-      getHeight: (c: Cartographic) =>
-        Math.abs(c.longitude) <= Math.PI ? 6_000 : undefined,
+  /** Each pick takes 1 ms on the clock the ground heights read. */
+  function timedSetup(options: { applied?: boolean } = {}) {
+    const clock = { now: 100 };
+    const terrain = fakeTerrain(() => 1_000, options);
+    timePicks(terrain, clock);
+    const scene = groundScene(terrain);
+    const heights = createGroundHeights(
+      scene as never,
+      POINTS,
+      () => clock.now,
+    );
+    return {
+      clock,
+      globe: scene.globe,
+      heights,
+      morphComplete: scene.morphComplete,
+      scene,
+      terrain,
     };
-    const shifted = Float64Array.of(-3.709 + 360, 40.419, 12.686 - 360, -1.844);
-    expect(Array.from(sampleGroundHeights(globe as never, shifted))).toEqual([
-      6_000, 6_000,
+  }
+
+  const passes = () =>
+    performance.getEntriesByName(GROUND_PASS_MEASURE, 'measure').map((e) => ({
+      detail: (e as PerformanceMeasure).detail as unknown,
+      duration: e.duration,
+      startTime: e.startTime,
+    }));
+
+  it('measures each pass that reads the ground: the points it picked, its kind and its ms', () => {
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const { clock, globe, heights, morphComplete, scene, terrain } =
+      timedSetup();
+    clock.now = 110;
+    heights.resample(); // within 50 ms of the creation sample: no pass
+    clock.now = 200;
+    scene.preRender.raiseEvent(); // a frame, with its own budget of picks
+    terrain.load(() => 1_500); // tiles loaded under both points
+    globe.tileLoadProgressEvent.raiseEvent(3);
+    clock.now = 300;
+    terrain.setRelief(2);
+    heights.resample(true); // the relief at rest: followed without a pick
+    clock.now = 400;
+    globe.tileLoadProgressEvent.raiseEvent(0); // the load queue empty, no tile changed
+    clock.now = 410;
+    morphComplete.raiseEvent(); // a morph between views complete
+    expect(heights.heights()).toEqual(new Float64Array([3_000, 3_000]));
+    expect(passes()).toEqual([
+      { detail: { kind: 'create', points: 2 }, duration: 2, startTime: 100 },
+      { detail: { kind: 'resample', points: 2 }, duration: 2, startTime: 200 },
+      { detail: { kind: 'final', points: 0 }, duration: 0, startTime: 300 },
+      { detail: { kind: 'final', points: 0 }, duration: 0, startTime: 400 },
+      { detail: { kind: 'final', points: 0 }, duration: 0, startTime: 410 },
     ]);
+  });
+
+  it('measures no pass while the tiles are still the smooth globe’s', () => {
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const { clock, globe, terrain } = timedSetup({ applied: false });
+    clock.now = 200;
+    globe.tileLoadProgressEvent.raiseEvent(3);
+    expect(passes()).toEqual([]);
+    terrain.apply();
+    clock.now = 300;
+    globe.tileLoadProgressEvent.raiseEvent(2);
+    expect(passes()).toEqual([
+      { detail: { kind: 'resample', points: 2 }, duration: 2, startTime: 300 },
+    ]);
+  });
+
+  it('measures the passes that carry picks to the next frame as continue', () => {
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const clock = { now: 100 };
+    const terrain = fakeTerrain(() => 1_000);
+    timePicks(terrain, clock);
+    const scene = groundScene(terrain);
+    const five = Float64Array.of(-10, 0, -5, 0, 0, 0, 5, 0, 10, 0);
+    createGroundHeights(scene as never, five, () => clock.now);
+    scene.frame();
+    scene.frame();
+    expect(passes()).toEqual([
+      { detail: { kind: 'create', points: 3 }, duration: 3, startTime: 100 },
+      { detail: { kind: 'continue', points: 2 }, duration: 2, startTime: 103 },
+    ]);
+  });
+
+  it('carries its picks past a frame whose earlier passes spent the budget, without a pass', () => {
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const clock = { now: 100 };
+    const terrain = fakeTerrain(() => 1_000);
+    timePicks(terrain, clock);
+    const scene = groundScene(terrain);
+    const five = Float64Array.of(-10, 0, -5, 0, 0, 0, 5, 0, 10, 0);
+    createGroundHeights(scene as never, five, () => clock.now);
+    scene.preRender.raiseEvent();
+    terrain.load(() => 2_000); // new tiles under every point, in this frame
+    clock.now += GROUND_RESAMPLE_MS;
+    scene.globe.tileLoadProgressEvent.raiseEvent(3);
+    scene.postRender.raiseEvent(); // the carried pass finds no budget left: it waits
+    scene.frame();
+    expect(
+      passes().map(({ detail }) => detail as { kind: string; points: number }),
+    ).toEqual([
+      { kind: 'create', points: 3 },
+      { kind: 'resample', points: 3 },
+      { kind: 'continue', points: 2 },
+    ]);
+  });
+
+  it('measures nothing outside the e2e build', () => {
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '');
+    const { clock, heights } = timedSetup();
+    clock.now = 300;
+    heights.resample(true);
+    expect(passes()).toEqual([]);
+  });
+});
+
+describe('a frame’s budget of ground picks', () => {
+  /** Four points around Madrid (odd indices), and four on the far side of the globe. */
+  const NEAR_AND_FAR = Float64Array.of(
+    176,
+    -40,
+    -3.7,
+    40.4,
+    150,
+    10,
+    2,
+    45,
+    -170,
+    -20,
+    -1,
+    38,
+    160,
+    -60,
+    5,
+    42,
+  );
+  const OVER_MADRID = Cartographic.fromDegrees(-3.7, 40.4, 2_000_000);
+
+  it('spends at most GROUND_PICK_BUDGET_MS of picks a frame, in view first, carrying the rest to the next', () => {
+    expect(GROUND_PICK_BUDGET_MS).toBe(3);
+    const clock = { now: 0 };
+    const terrain = fakeTerrain(() => 1_000);
+    timePicks(terrain, clock);
+    const scene = groundScene(terrain);
+    scene.camera.positionCartographic = OVER_MADRID;
+    const heights = createGroundHeights(
+      scene as never,
+      NEAR_AND_FAR,
+      () => clock.now,
+    );
+    const picked = () => terrain.globe.getHeight.mock.calls.length;
+    const grounded = () => Array.from(heights.heights(), Number.isFinite);
+    expect(picked()).toBe(3);
+    // Three of the four points in view; the rest wait for the frame the pass asked for.
+    expect(grounded().filter((g, i) => g && i % 2 === 1)).toHaveLength(3);
+    expect(scene.requestRender).toHaveBeenCalled();
+    scene.frame();
+    expect(picked()).toBe(6);
+    expect(grounded().filter((g, i) => g && i % 2 === 1)).toHaveLength(4);
+    scene.frame();
+    expect(picked()).toBe(8);
+    expect(grounded().every(Boolean)).toBe(true);
+    // Nothing left to carry: no frame is asked for, and none reads the ground again.
+    expect(scene.postRender.numberOfListeners).toBe(0);
+    scene.frame();
+    expect(picked()).toBe(8);
+  });
+
+  it('shares a frame’s budget between the passes in it, and between ground heights given one budget', () => {
+    const clock = { now: 0 };
+    const terrain = fakeTerrain(() => 1_000);
+    timePicks(terrain, clock);
+    const scene = groundScene(terrain);
+    const budget = createFramePickBudget(scene);
+    const picked = () => terrain.globe.getHeight.mock.calls.length;
+    const half = NEAR_AND_FAR.subarray(0, 8);
+    createGroundHeights(scene as never, half, () => clock.now, budget);
+    createGroundHeights(scene as never, half, () => clock.now, budget);
+    expect(picked()).toBe(3);
+    scene.frame();
+    expect(picked()).toBe(6);
+    // A frame whose tile loads spend its budget leaves nothing for the carried picks after it.
+    scene.preRender.raiseEvent();
+    terrain.load(() => 2_000);
+    clock.now += GROUND_RESAMPLE_MS;
+    scene.globe.tileLoadProgressEvent.raiseEvent(3);
+    expect(picked()).toBe(9);
+    scene.postRender.raiseEvent();
+    expect(picked()).toBe(9);
+    budget.destroy();
+    expect(scene.preRender.numberOfListeners).toBe(0);
+  });
+
+  it('cancels the picks it carries once destroyed, and stops counting frames', () => {
+    const clock = { now: 0 };
+    const terrain = fakeTerrain(() => 1_000);
+    timePicks(terrain, clock);
+    const scene = groundScene(terrain);
+    const heights = createGroundHeights(
+      scene as never,
+      NEAR_AND_FAR,
+      () => clock.now,
+    );
+    expect(scene.postRender.numberOfListeners).toBe(1);
+    heights.destroy();
+    expect(scene.postRender.numberOfListeners).toBe(0);
+    expect(scene.preRender.numberOfListeners).toBe(0);
+    scene.frame();
+    expect(terrain.globe.getHeight).toHaveBeenCalledTimes(3);
+  });
+
+  it('picks nothing before World Terrain reaches the tiles, keeping NaN, and starts once it has', () => {
+    const clock = { now: 0 };
+    const terrain = fakeTerrain(() => 1_000, { applied: false });
+    const scene = groundScene(terrain);
+    const heights = createGroundHeights(
+      scene as never,
+      POINTS,
+      () => clock.now,
+    );
+    clock.now = 60;
+    scene.globe.tileLoadProgressEvent.raiseEvent(3);
+    scene.frame();
+    expect(terrain.globe.getHeight).not.toHaveBeenCalled();
+    expect(Array.from(heights.heights())).toEqual([Number.NaN, Number.NaN]);
+    terrain.apply();
+    clock.now = 120;
+    scene.globe.tileLoadProgressEvent.raiseEvent(2);
+    expect(Array.from(heights.heights())).toEqual([1_000, 1_000]);
   });
 });
 

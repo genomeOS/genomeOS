@@ -12,16 +12,19 @@
  *
  * `rowsIn` tests every candidate's box against the rectangle and its ±360° copies, so a rectangle
  * grown past ±180° finds the rows on the far side. Nothing here is stochastic, and no row is
- * dropped: a row without finite corners throws. The surface raster reads the same boxes
- * (`rowBox`) to skip a row with no texel centre in a tile.
+ * dropped: a row without finite corners throws. The surface raster reads the same boxes, built
+ * once with the index (`boxes`), to skip a row with no texel centre in a tile.
  */
 
 import type { GridTopology } from '../topology';
 import { turnsNear } from './tiling';
-import type { DegreeRectangle, GridIndex } from './types';
+import type { DegreeRectangle, GridIndex, RowBoxes } from './types';
 
 /** Fraction of a box's own extent added on every side. */
 const BOX_PAD = 0.1;
+/** `rowsIn` lists its rows by one pass over every row, instead of sorting them, once they number
+ * more than 1 / `SCAN_OVER_SORT` of the grid. */
+const SCAN_OVER_SORT = 16;
 /** 1° buckets over the globe. */
 const BUCKET_COLUMNS = 360;
 const BUCKET_ROWS = 180;
@@ -89,31 +92,23 @@ export function rowBox(topology: GridTopology, row: number): RowBox {
   };
 }
 
-/** Per-row boxes in degrees; `west`/`east` may pass ±180° by less than a turn. */
-interface RowBoxes {
-  west: Float64Array;
-  south: Float64Array;
-  east: Float64Array;
-  north: Float64Array;
-  /** 1 for a row that holds a pole or whose box passes ±180°. */
-  wraps: Uint8Array;
-}
-
 function rowBoxes(topology: GridTopology): RowBoxes {
   const { n } = topology;
   const boxes: RowBoxes = {
     east: new Float64Array(n),
     north: new Float64Array(n),
+    polar: new Uint8Array(n),
     south: new Float64Array(n),
     west: new Float64Array(n),
     wraps: new Uint8Array(n),
   };
   for (let row = 0; row < n; row += 1) {
-    const { east, north, south, west } = rowBox(topology, row);
+    const { east, north, polar, south, west } = rowBox(topology, row);
     boxes.west[row] = west;
     boxes.east[row] = east;
     boxes.south[row] = south;
     boxes.north[row] = north;
+    boxes.polar[row] = polar ? 1 : 0;
     boxes.wraps[row] = east - west >= 360 || west < -180 || east > 180 ? 1 : 0;
   }
   return boxes;
@@ -169,10 +164,14 @@ export function buildGridIndex(topology: GridTopology): GridIndex {
       cursor[bucket] += 1;
     });
 
+  // Per query: the rows visited, and the rows found to overlap.
   const stamps = new Uint32Array(topology.n);
+  const hits = new Uint32Array(topology.n);
   let stamp = 0;
 
   return {
+    boxes,
+
     bounds(drawn) {
       let any = false;
       let wraps = false;
@@ -207,6 +206,7 @@ export function buildGridIndex(topology: GridTopology): GridIndex {
       stamp += 1;
       if (stamp === 0xffffffff) {
         stamps.fill(0);
+        hits.fill(0);
         stamp = 1;
       }
       const first = bucketRow(r.south);
@@ -227,10 +227,19 @@ export function buildGridIndex(topology: GridTopology): GridIndex {
             const row = entries[k];
             if (stamps[row] === stamp) continue;
             stamps[row] = stamp;
-            if (overlaps(boxes, row, r)) out.push(row);
+            if (overlaps(boxes, row, r)) {
+              hits[row] = stamp;
+              out.push(row);
+            }
           }
         }
-      return out.sort((a, b) => a - b);
+      if (out.length * SCAN_OVER_SORT < topology.n)
+        return out.sort((a, b) => a - b);
+      // A coarse tile's tens of thousands of rows: one pass in row order beats sorting them.
+      out.length = 0;
+      for (let row = 0; row < topology.n; row += 1)
+        if (hits[row] === stamp) out.push(row);
+      return out;
     },
   };
 }

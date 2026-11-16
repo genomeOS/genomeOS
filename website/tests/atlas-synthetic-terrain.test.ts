@@ -36,6 +36,7 @@ import { isSupportedCode } from '../src/atlas/geometry/support-codes';
 import { gridRowOf } from '../src/atlas/geometry/topology';
 import { decodeGrid, decodeRender } from '../src/atlas/gosa/decode';
 import { ContextController } from '../src/atlas/scene/context-controller';
+import { PREWARM_ALPHA } from '../src/atlas/geometry/raster/types';
 import { addDrapedImageryLayer } from '../src/atlas/scene/draped/draped-imagery-layer';
 import {
   SYNTHETIC_CONE,
@@ -228,6 +229,8 @@ describe('publishTerrainProbe', () => {
       apexGround: 5_000,
       apexWindow: { x: 412, y: 288 },
       cameraHeight: expect.closeTo(20_000, 6),
+      cameraLat: expect.closeTo(SYNTHETIC_CONE.lat, 9),
+      cameraLon: expect.closeTo(SYNTHETIC_CONE.lon, 9),
       draped: false,
       enableLighting: true,
       groundHeight: 5_000,
@@ -238,6 +241,7 @@ describe('publishTerrainProbe', () => {
       showGroundAtmosphere: false,
       showWaterEffect: false,
       sunLight: true,
+      surfaceAlpha: 0,
       tilesLoaded: true,
       verticalExaggeration: 2,
       verticalExaggerationRelativeHeight: 0,
@@ -335,7 +339,7 @@ describe('publishTerrainProbe', () => {
     expect(page.__atlasLabelClearance!('Kenya')).toBeNull();
   });
 
-  it('lists the shown imagery layers and every layer bottom to top, and says whether the surface is draped', () => {
+  it('lists the shown imagery layers and every layer bottom to top, and says whether and how strongly the surface is draped', () => {
     const page = {} as Window;
     vi.stubGlobal('window', page);
     vi.spyOn(SceneTransforms, 'worldToWindowCoordinates').mockReturnValue(
@@ -363,7 +367,24 @@ describe('publishTerrainProbe', () => {
       imageryLayers: ['basemap', 'atlas-surface'],
       // Every layer on the collection, the base guard and the layer at alpha 0 included.
       layerStack: ['basemap', 'guard', 'atlas-surface', 'atlas-outlines'],
+      surfaceAlpha: 0.5,
     });
+    // A pre-warm frame drapes the surface too, at its alpha; a newer surface fading in over an
+    // older one reads the stronger of the two.
+    surface.setAlpha(PREWARM_ALPHA);
+    expect(page.__atlasTerrainProbe!()).toMatchObject({
+      draped: true,
+      surfaceAlpha: PREWARM_ALPHA,
+    });
+    const incoming = addDrapedImageryLayer({
+      alpha: 0.2,
+      name: 'atlas-surface',
+      provider: fakeProvider(),
+      scene,
+    });
+    expect(page.__atlasTerrainProbe!().surfaceAlpha).toBe(0.2);
+    incoming.destroy();
+    surface.setAlpha(0.5);
 
     // Bottom to top, each shown layer at alpha > 0; a hidden or transparent surface is not draped.
     outlines.setAlpha(0.92);
@@ -378,12 +399,14 @@ describe('publishTerrainProbe', () => {
       draped: false,
       imageryLayers: ['atlas-outlines'],
       layerStack: ['basemap', 'guard', 'atlas-surface', 'atlas-outlines'],
+      surfaceAlpha: 0,
     });
     surface.setShown(true);
     surface.setAlpha(0);
     expect(page.__atlasTerrainProbe!()).toMatchObject({
       draped: false,
       imageryLayers: ['atlas-outlines'],
+      surfaceAlpha: 0,
     });
     outlines.destroy();
     surface.destroy();

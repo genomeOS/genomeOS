@@ -10,7 +10,7 @@ import { expect, test, type Page, type Request } from '@playwright/test';
 
 import { resolveDataUrl } from '../src/lib/data-url';
 import { installAtlasBrowserFixture } from './atlas-browser-fixture';
-import { globeViewCentre } from './atlas-globe-helpers';
+import { globeViewCentre, shownSoon } from './atlas-globe-helpers';
 
 const DATA_BASE = 'http://127.0.0.1:4323/';
 const OFFSETS = [
@@ -231,7 +231,7 @@ test.describe('cross-origin Atlas data', { tag: '@desktop-chromium' }, () => {
     const target = await globeViewCentre(page);
     for (const [x, y] of OFFSETS) {
       await page.mouse.move(target.x + x, target.y + y);
-      if (await hoverPreview.isVisible()) break;
+      if (await shownSoon(hoverPreview)) break;
     }
     await expect(hoverPreview).toBeVisible();
     const placesFetched = await placesResponse;

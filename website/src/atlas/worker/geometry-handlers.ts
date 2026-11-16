@@ -2,7 +2,8 @@
  * 2026-10-07 §B.6.3, §B.6.5, §B.6.9, §B.6.13; step timings §B.1).
  *
  * Pure orchestration over the Cesium-free geometry modules: one transferable
- * `chunk` message per chunk in camera order (anchors ride on the first), a
+ * `chunk` message per chunk in camera order (anchors ride on the first), each
+ * naming the grid rows it carries (§B.6.6 as amended 2026-11-14, #483), a
  * yield between chunks so `cancel` can land, and topology plus the chunk plan
  * cached per grid. Recolour reuses the cached topology and vertex means. The
  * draped rasters share that cache through `prepared`, and the borders copy that
@@ -72,8 +73,9 @@ export function transferablesOf(
 }
 
 function chunkTransferables(message: ChunkMessage): ArrayBuffer[] {
-  const { surface, support, anchors } = message;
+  const { anchors, rows, support, surface } = message;
   return transferablesOf(
+    rows,
     surface.positions,
     surface.normals,
     surface.elevationNormals,
@@ -252,6 +254,8 @@ export function createGeometryWorker(
         chunk: chunk.id,
         id,
         index,
+        // A copy, since the message's arrays are transferred and the plan is cached.
+        rows: chunk.rows.slice(),
         seam: chunk.seam,
         support,
         surface,
