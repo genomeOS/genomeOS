@@ -25,6 +25,16 @@
  * for no further frame; in requestRenderMode the labels would then stay
  * undrawn. Once the labels are added, the overlay requests frames until the
  * LabelCollection reports every glyph ready (at most LABEL_READY_MAX_FRAMES).
+ *
+ * Under World Terrain (terrain draping design, "Per layer under World Terrain": borders, labels;
+ * #483) `setDraped` hands the borders to the draped runtime as the `atlas-borders` imagery layer
+ * (`border-drape.ts`) once the worker has parsed the context, and neither line renderer is built or
+ * shown; the data elevation is ignored. The labels take `HeightReference.RELATIVE_TO_GROUND`
+ * 2,500 m above the ground, which a LabelCollection built with the scene re-clamps as terrain tiles
+ * load and as Physical relief changes; on the smooth globe their reference is `NONE`, where the
+ * scene changes nothing. Per "Failure modes", the first failure of each draped layer goes to
+ * `onDrapeFailure`, and the scene reverts to the smooth globe. The scene's teardown calls
+ * `destroy()` before the globe's, which releases the border layers and their worker raster.
  */
 
 import {
@@ -38,6 +48,7 @@ import {
   Credit,
   DistanceDisplayCondition,
   Ellipsoid,
+  HeightReference,
   HorizontalOrigin,
   LabelCollection,
   LabelStyle,
@@ -45,6 +56,7 @@ import {
   PolylineCollection,
   PrimitiveCollection,
   type Polyline,
+  type Scene,
   VerticalOrigin,
 } from 'cesium';
 
@@ -52,6 +64,7 @@ import type { ExplorerSceneMode } from '../url-state';
 import type { Metric } from '../visual-encoding';
 import type { AtlasWorkerClient } from '../worker/client';
 import type { ContextHeights, NaturalEarthBuffers } from '../worker/protocol';
+import { BorderDrape } from './border-drape';
 import {
   countryLabelDepthTestDistance,
   countryLabelDistanceForScale,
@@ -66,6 +79,9 @@ import {
   yieldToEventLoop,
   type SliceOptions,
 } from './sliced-lines';
+import type { DrapedRuntime, DrapedScene, RasterWorkerClient } from './types';
+
+export { BORDER_MAXIMUM_LEVEL } from './border-drape';
 
 export const BORDER_CLEARANCE_METRES = 1_800;
 export const BORDER_WIDTH_PIXELS = 1.65;
@@ -91,6 +107,7 @@ type LabelSink = Pick<LabelCollection, 'add' | 'show'> & {
   readonly ready: boolean;
 };
 type SurfaceRef = { artifactKey: string; metric: Metric };
+type PlacedLabel = { position: Cartesian3; heightReference: HeightReference };
 
 /** Surface heights and the factor they are drawn at; `heights: null` is the flat clearance. */
 interface Elevation {
@@ -106,13 +123,15 @@ const sameElevation = (a: Elevation, b: Elevation): boolean =>
 const surfaceKey = ({ artifactKey, metric }: SurfaceRef): string =>
   `${artifactKey}:${metric}`;
 
+/** The scene members the overlay and its draped borders use; atlas-scene hands it the real Scene. */
+export type ContextOverlayScene = DrapedScene & Pick<Scene, 'primitives'>;
+
 export interface ContextOverlayOptions {
-  worker: Pick<AtlasWorkerClient, 'contextHeights' | 'parseContext'>;
-  scene: {
-    postRender: { addEventListener(listener: () => void): () => void };
-    primitives: PrimitiveCollection;
-    requestRender(): void;
-  };
+  worker: Pick<AtlasWorkerClient, 'contextHeights' | 'parseContext'> &
+    RasterWorkerClient;
+  scene: ContextOverlayScene;
+  /** The first failure of each draped border layer; the scene reverts to the smooth globe. */
+  onDrapeFailure?: (error: unknown) => void;
   addCredit: (credit: Credit) => void;
   removeCredit: (credit: Credit) => void;
   /** Fetches the borders, calling `onProgress` once per body chunk. */
@@ -172,7 +191,7 @@ export class ContextOverlay {
   #ground = new Float64Array(0);
   #up = new Float64Array(0);
   #scratch = new Float64Array(0);
-  #labels: { position: Cartesian3 }[] = [];
+  #labels: PlacedLabel[] = [];
   #buffer: BufferPolylineCollection | null = null;
   #projected: PolylineCollection | null = null;
   #projectedLines: Polyline[] = [];
@@ -194,10 +213,27 @@ export class ContextOverlay {
   #loading: Promise<ContextLoadStatus> | null = null;
   #ready = false;
   #lastElevationUpdate = Number.NEGATIVE_INFINITY;
+  // Under World Terrain: the draped runtime, and the border style its rasters are drawn in.
+  #draped: DrapedRuntime | null = null;
+  #borderCss = '#ffffff';
+  #borderOpacity = 0.5;
+  readonly #borders: BorderDrape;
+  #destroyed = false;
 
   constructor(options: ContextOverlayOptions) {
     this.#options = options;
     this.#now = options.now ?? (() => performance.now());
+    this.#borders = new BorderDrape({
+      isDestroyed: () => this.#isDestroyed(),
+      onFailure: (error) => this.#reportDrapeFailure(error),
+      scene: options.scene,
+      style: () => ({
+        color: this.#borderCss,
+        opacity: this.#borderOpacity,
+        shown: this.collection.show,
+      }),
+      worker: options.worker,
+    });
     options.scene.primitives.add(this.collection);
     options.addCredit(this.#credit);
   }
@@ -253,14 +289,47 @@ export class ContextOverlay {
   setVisible(visible: boolean): void {
     if (this.#isDestroyed()) return;
     this.collection.show = visible;
+    // A hidden imagery layer frees its tiles; one at α 0 would still load them.
+    this.#borders.setShown(visible);
     this.#options.scene.requestRender();
+  }
+
+  /**
+   * Drapes the borders as `runtime`'s `atlas-borders` layer and clamps the labels 2,500 m above the
+   * ground, or with null returns to the lines and the labels' own heights. Resolves once the borders
+   * layer is added, or at once when there is nothing to add (no parsed context yet: the load drapes
+   * them); never rejects. A newer call drops a layer still preparing.
+   */
+  async setDraped(runtime: DrapedRuntime | null): Promise<void> {
+    if (this.#isDestroyed()) return;
+    if (runtime !== this.#draped) {
+      this.#draped = runtime;
+      this.#borders.retire();
+      if (runtime) this.#hideLines();
+      this.#applyLabelReference();
+      this.#requestHeights();
+      this.#applyElevation(true);
+      if (runtime && this.#parsed) this.#borders.drape(runtime);
+      // Until the load is ready, its own renderer passes pick up the latest state.
+      if (this.#ready)
+        try {
+          await this.#ensureRenderer();
+        } catch (error) {
+          if (!this.#isDestroyed())
+            console.warn('Country borders could not be redrawn.', error);
+        }
+    }
+    await this.#borders.settled();
   }
 
   setBorderStyle(cssColor: string, opacity: number): void {
     if (this.#isDestroyed()) return;
+    this.#borderOpacity = Math.min(1, Math.max(0, opacity));
     this.#borderColor = Color.fromCssColorString(cssColor).withAlpha(
-      Math.min(1, Math.max(0, opacity)),
+      this.#borderOpacity,
     );
+    // The border raster takes `#rrggbb`; the draped layer's alpha carries the opacity.
+    this.#borderCss = this.#borderColor.withAlpha(1).toCssHexString();
     this.#bufferMaterial = new BufferPolylineMaterial({
       color: this.#borderColor,
       width: BUFFER_BORDER_WIDTH_PIXELS,
@@ -274,7 +343,37 @@ export class ContextOverlay {
     }
     if (this.#projectedMaterial)
       this.#projectedMaterial.uniforms.color = this.#borderColor.clone();
+    // An opacity change is instant; a colour, baked into the raster, needs a new layer.
+    this.#borders.restyle();
     this.#options.scene.requestRender();
+  }
+
+  /** The first failure of each draped border layer still in use. */
+  #reportDrapeFailure(error: unknown): void {
+    if (this.#options.onDrapeFailure) this.#options.onDrapeFailure(error);
+    else
+      console.warn(
+        'Country borders could not be draped on the terrain.',
+        error,
+      );
+  }
+
+  /** Draped, the borders are an imagery layer: neither line renderer shows. */
+  #hideLines(): void {
+    if (this.#buffer) this.#buffer.show = false;
+    if (this.#projected) this.#projected.show = false;
+  }
+
+  #labelReference(): HeightReference {
+    return this.#draped
+      ? HeightReference.RELATIVE_TO_GROUND
+      : HeightReference.NONE;
+  }
+
+  /** Every label added so far takes the current height reference; later ones are added with it. */
+  #applyLabelReference(): void {
+    const reference = this.#labelReference();
+    for (const label of this.#labels) label.heightReference = reference;
   }
 
   async #load(
@@ -295,6 +394,8 @@ export class ContextOverlay {
       // The worker computes heights from the context it has just parsed, so a factor set before
       // this point is served now.
       this.#requestHeights();
+      // Draped first: the worker rasterises the borders from the context it has just parsed.
+      if (this.#draped) this.#borders.drape(this.#draped);
       const vertices = parsed.lonLat.length / 2;
       this.#ground = new Float64Array(vertices * 3);
       this.#up = new Float64Array(vertices * 3);
@@ -305,7 +406,9 @@ export class ContextOverlay {
       );
       await this.#ensureRenderer();
       await this.#addLabels(parsed);
-      // A view switch that landed while the labels were added; nothing awaits between here and ready.
+      await this.#borders.settled();
+      // A view switch or a drape that landed while the labels or the borders layer were added;
+      // nothing awaits between here and ready.
       await this.#ensureRenderer();
       this.#ready = true;
       this.#applyElevation(true);
@@ -325,9 +428,21 @@ export class ContextOverlay {
     }
   }
 
+  /**
+   * Releases the draped borders while the globe's imagery layers are still live (unmount, "Retry
+   * globe"): Cesium's teardown destroys no imagery provider, and the data worker outlives the
+   * scene, so their raster would stay in it. A layer still preparing is dropped when it resolves.
+   * Nothing is built, shown or reported after; the primitives go with the CesiumWidget.
+   */
+  destroy(): void {
+    if (this.#destroyed) return;
+    this.#destroyed = true;
+    this.#borders.retire();
+  }
+
   /** CesiumWidget.destroy() destroys the scene's primitives, this collection among them. */
   #isDestroyed(): boolean {
-    return this.collection.isDestroyed();
+    return this.#destroyed || this.collection.isDestroyed();
   }
 
   #throwIfDestroyed(): void {
@@ -362,10 +477,13 @@ export class ContextOverlay {
     this.#up.set([up.x, up.y, up.z], index * 3);
   }
 
-  /** Where rings and labels belong now: flat until the current surface's heights have arrived. */
+  /**
+   * Where rings and labels belong now: flat until the current surface's heights have arrived, and
+   * flat while draped, where the labels follow the ground and the lines are hidden.
+   */
   #elevation(): Elevation {
     const surface = this.#surface;
-    if (!surface || this.#factor === 0) return FLAT;
+    if (this.#draped || !surface || this.#factor === 0) return FLAT;
     const heights = this.#heights.get(surfaceKey(surface));
     return heights ? { factor: this.#factor, heights } : FLAT;
   }
@@ -397,11 +515,12 @@ export class ContextOverlay {
   }
 
   // Re-reads the mode after every await: a view switch that lands while a renderer is being built is
-  // honoured when that build ends, and the last switch decides which renderer is shown.
+  // honoured when that build ends, and the last switch decides which renderer is shown. Draped, the
+  // borders are an imagery layer, so neither renderer is built or shown.
   async #ensureRenderer(): Promise<void> {
     for (;;) {
       this.#throwIfDestroyed();
-      const renderer = edgeRendererForMode(this.#mode);
+      const renderer = this.#draped ? null : edgeRendererForMode(this.#mode);
       if (renderer === 'buffer' && !this.#buffer) await this.#addBuffer();
       else if (renderer === 'projected' && !this.#projected)
         await this.#addProjected();
@@ -473,9 +592,14 @@ export class ContextOverlay {
   }
 
   async #addLabels(parsed: NaturalEarthBuffers): Promise<void> {
+    // Built with the scene, so a label clamped to the ground follows the terrain; with
+    // HeightReference.NONE the scene changes nothing (Billboard.js:1121-1150, BillboardCollection.js:324).
     const labels = (
       this.#options.createLabels ??
-      (() => new LabelCollection() as LabelCollection & LabelSink)
+      (() =>
+        new LabelCollection({
+          scene: this.#options.scene as Scene,
+        }) as LabelCollection & LabelSink)
     )();
     this.collection.add(labels);
     this.#labels = [];
@@ -494,6 +618,7 @@ export class ContextOverlay {
             ),
             fillColor: Color.WHITE,
             font: '600 17px Inter, system-ui, sans-serif',
+            heightReference: this.#labelReference(),
             // Label defaults to LEFT/BASELINE; the legacy entity labels (LabelVisualizer) were centred.
             horizontalOrigin: HorizontalOrigin.CENTER,
             outlineColor,
@@ -541,8 +666,9 @@ export class ContextOverlay {
 
   #requestHeights(): void {
     const surface = this.#surface;
-    // The worker computes heights from the parsed context; #load asks once it has parsed.
-    if (!surface || this.#factor === 0 || !this.#parsed) return;
+    // The worker computes heights from the parsed context; #load asks once it has parsed. Draped,
+    // nothing reads them; undraping asks again.
+    if (this.#draped || !surface || this.#factor === 0 || !this.#parsed) return;
     const key = surfaceKey(surface);
     if (this.#heights.has(key) || this.#pendingHeights.has(key)) return;
     this.#pendingHeights.add(key);

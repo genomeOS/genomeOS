@@ -250,9 +250,49 @@ the smooth globe and its sun in charge. A **Physical relief ×** control (the `r
 parameter, 1–10 in steps of 0.5, default 1) sets Cesium's vertical exaggeration of the terrain
 from sea level (`verticalExaggerationRelativeHeight` is 0 and has no control). It is physical
 terrain, separate from scientific elevation's exaggeration, and does not apply to the smooth globe
-or the 2D map. Until the scientific layers are draped onto the terrain, World Terrain can hide
-them on high ground even at true scale, and raised relief hides more; the control says so whenever
-World Terrain's height is drawn.
+or the 2D map.
+
+_Amended 2026-10-18 (#483, draping implemented)._ Under World Terrain the scientific layers are
+draped onto the ground. The data worker rasterises the surface with its support masks, the cell
+outlines, the country borders and the sampling footprints into geographic image tiles, which
+Cesium drapes over the terrain as four imagery layers; the observation symbols, the labels and the
+selection highlight stand on the rendered ground and follow it as tiles load and as Physical
+relief changes. High ground therefore no longer hides map data at any relief, and the relief
+control no longer warns that it can. Honmoon draws its contour lines into the draped surface,
+ported from the smooth globe's shader with each fan triangle's analytic value gradient in place of
+the screen-space derivative; line-only Honmoon shows the basemap between its lines, as on the
+smooth globe. A 1 s fade replaces the radial reveal wave, and each new draped surface first draws
+one unseen frame at α 0.001, so Cesium compiles the globe shader before the fade rather than
+during it. Resident Atlas imagery is budgeted at 160 MiB on desktops and 96 MiB on touch screens
+(coarse pointers). No fallback was needed: at production density (the e2e build's stand-in
+terrain under the published HbS grid, one headed run on an Apple M3 Pro, the phone a Pixel 7
+emulation with its page CPU slowed ×4), the peak was 53.3 MiB on the desktop and 56.3 MiB on the
+phone, so phones keep Cesium's default tile cache, outlines in their own layer, borders to level
+11, and World Terrain itself. The World Terrain budgets are asserted on hardware GPUs; on a
+software renderer only the memory budget is, pending the owner's sign-off, since the draping
+design skips every terrain budget there. That asserted tour runs on the e2e fixture's
+256-cell grid. The production-density run met both memory budgets but missed three timing
+budgets: a desktop long frame of 346 ms against 200 ms, and on the phone data visible after 3.8 s
+against 2 s and a long frame of 927 ms against 800 ms. So the timing budgets are met at the
+fixture's density and not yet at production's. `website/scripts/terrain-tour-production-density.sh`
+repeats the production-density run, by hand and never in CI: with `PUBLIC_ATLAS_DATA_BASE_URL` set
+to the bucket base, it builds the e2e bundle over the bucket with the production catalog in the
+fixture catalog's place, restores that file on every exit, and runs the tour. The tour also says
+where the time went, step by step, with the World Terrain click to data visible and each restyle's
+change to its swap as steps of their own: each long frame with the time spent picking the ground
+under the observations or the highlight ring inside it, each step's ground passes by kind and one
+by one, which rule read each draped layer ready (its own rendered tiles or the 3 s cap, whether
+the cap had run out too, whether the globe's tiles had settled and the deepest level it drew) and
+how long after its add, and the raster time of the coarse tiles (levels 0–2) and each level's
+request-to-delivery time. A draped layer is ready once the tiles the globe draws are the ones it
+chose for the view and carry the layer's imagery, not once the whole globe has loaded. Right after
+the switch the globe draws its two level-0 tiles while finer terrain loads; those carry the
+layer's coarsest imagery early, but the layer waits for the tiles the view settles on, so the
+fade and the shader pre-warm run over the tiles the view keeps rather than coarse ones about to be
+replaced. Nor is it ready on the smooth globe's tiles, which the globe still draws until World
+Terrain's provider has loaded and which the swap then throws away. A surface prepares its outlines
+beside it. The 3 s cap is a fallback, and a layer it
+reads ready fails the tour on a hardware GPU.
 
 The GitHub Actions secret `CESIUM_TOKEN` is exposed to Astro as a public build variable only for
 the Pages build. A browser token is necessarily readable by the browser, so it is treated as a
@@ -363,8 +403,17 @@ locator remain available in the inspector.
 ## 8. Hover, selection, and inspection
 
 Pointer movement is sampled at most once per animation frame. Cesium `drillPick` retains the rule
-that an observation wins when it overlaps a surface cell. The highlight controller owns two small
-overlay objects rather than rebuilding the scientific primitives:
+that an observation wins when it overlaps a surface cell.
+
+_Amended 2026-11-14 (#483, owner decision)._ Only a click drill picks. A hover makes no GPU pick,
+which on a cold shader cache held the page's first hover for about 650 ms and made every later
+hover wait on a read-back. It resolves on the CPU what a click at the same point would, under the
+same rule that an observation wins over a cell. The fast-load design's §B.6.6, amended the same
+day, gives the rules: the markers tested as drawn at the click's pick window, what the globe hides,
+and the drawn and reveal checks on the cell.
+
+The highlight controller owns two small overlay objects rather than rebuilding the scientific
+primitives:
 
 - **hover** — cyan-white glow, eased on/off over 160 ms and moved to the item under the cursor;
 - **selection** — persistent signal-gold outline/halo that remains until another item is selected,

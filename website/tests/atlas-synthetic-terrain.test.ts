@@ -6,10 +6,15 @@ import path from 'node:path';
 
 import {
   Cartesian2,
+  Cartesian3,
   Cartographic,
   CustomHeightmapTerrainProvider,
+  Ellipsoid,
   EllipsoidTerrainProvider,
+  ImageryLayerCollection,
+  LabelCollection,
   Math as CesiumMath,
+  PrimitiveCollection,
   SceneTransforms,
   SunLight,
   type CesiumWidget,
@@ -31,6 +36,8 @@ import { isSupportedCode } from '../src/atlas/geometry/support-codes';
 import { gridRowOf } from '../src/atlas/geometry/topology';
 import { decodeGrid, decodeRender } from '../src/atlas/gosa/decode';
 import { ContextController } from '../src/atlas/scene/context-controller';
+import { PREWARM_ALPHA } from '../src/atlas/geometry/raster/types';
+import { addDrapedImageryLayer } from '../src/atlas/scene/draped/draped-imagery-layer';
 import {
   SYNTHETIC_CONE,
   SYNTHETIC_PEAK,
@@ -39,6 +46,8 @@ import {
   syntheticConeHeight,
   syntheticTerrainHeight,
 } from '../src/atlas/scene/synthetic-terrain';
+import { fakeProvider } from './helpers/imagery-fakes';
+import { FakeEvent } from './helpers/scene-fakes';
 import { fixtureBytes, onlyGrid, toBuffer } from './support/gosa-builder';
 
 afterEach(() => {
@@ -162,7 +171,11 @@ describe('SYNTHETIC_PEAK on the e2e fixture', () => {
   });
 });
 
-function fakeWidget(terrainProvider: unknown) {
+/**
+ * A widget over the cone, with a real ImageryLayerCollection under `scene.imageryLayers` and a real
+ * PrimitiveCollection under `scene.primitives`.
+ */
+function fakeWidget(terrainProvider: unknown = new EllipsoidTerrainProvider()) {
   return {
     camera: {
       positionCartographic: Cartographic.fromDegrees(
@@ -182,12 +195,25 @@ function fakeWidget(terrainProvider: unknown) {
         tilesLoaded: true,
         vertexShadowDarkness: 0.45,
       },
+      imageryLayers: new ImageryLayerCollection(),
       light: new SunLight() as unknown,
+      preRender: new FakeEvent(),
+      primitives: new PrimitiveCollection(),
+      requestRender: vi.fn(),
       verticalExaggeration: 2,
       verticalExaggerationRelativeHeight: 0,
     },
     terrainProvider,
   };
+}
+
+/** The DOM Cesium's Label reads in Node to parse its font (Label.js:46-86). */
+function stubLabelFontDom(): void {
+  vi.stubGlobal('document', {
+    body: { appendChild: () => {}, removeChild: () => {} },
+    createElement: () => ({ style: {} }),
+    defaultView: { getComputedStyle: () => ({ getPropertyValue: () => '' }) },
+  });
 }
 
 describe('publishTerrainProbe', () => {
@@ -203,13 +229,19 @@ describe('publishTerrainProbe', () => {
       apexGround: 5_000,
       apexWindow: { x: 412, y: 288 },
       cameraHeight: expect.closeTo(20_000, 6),
+      cameraLat: expect.closeTo(SYNTHETIC_CONE.lat, 9),
+      cameraLon: expect.closeTo(SYNTHETIC_CONE.lon, 9),
+      draped: false,
       enableLighting: true,
       groundHeight: 5_000,
+      imageryLayers: [],
       lambertDiffuseMultiplier: 0.9,
+      layerStack: [],
       provider: 'ellipsoid',
       showGroundAtmosphere: false,
       showWaterEffect: false,
       sunLight: true,
+      surfaceAlpha: 0,
       tilesLoaded: true,
       verticalExaggeration: 2,
       verticalExaggerationRelativeHeight: 0,
@@ -265,6 +297,126 @@ describe('publishTerrainProbe', () => {
     });
     unpublish();
     expect(page.__atlasTerrainProbe).toBeUndefined();
+  });
+
+  it('projects a point above the rendered ground for the browser test, and unpublishes it', () => {
+    const page = {} as Window;
+    vi.stubGlobal('window', page);
+    const widget = fakeWidget(createSyntheticTerrain());
+    widget.scene.globe.getHeight.mockReturnValue(6_000);
+    const toWindow = vi
+      .spyOn(SceneTransforms, 'worldToWindowCoordinates')
+      .mockReturnValue(new Cartesian2(12, 34));
+    const unpublish = publishTerrainProbe(widget as unknown as CesiumWidget);
+    expect(page.__atlasWindowOf!(-3.709, 40.419, 7_650)).toEqual({
+      x: 12,
+      y: 34,
+    });
+    expect(
+      Ellipsoid.WGS84.cartesianToCartographic(toWindow.mock.calls[0][1]).height,
+    ).toBeCloseTo(13_650, 3);
+    widget.scene.globe.getHeight.mockReturnValue(undefined);
+    expect(page.__atlasWindowOf!(-3.709, 40.419, 7_650)).toBeNull();
+    unpublish();
+    expect(page.__atlasWindowOf).toBeUndefined();
+    expect(page.__atlasLabelClearance).toBeUndefined();
+  });
+
+  it('reports how far a label stands above the rendered ground', () => {
+    stubLabelFontDom();
+    const page = {} as Window;
+    vi.stubGlobal('window', page);
+    const widget = fakeWidget(createSyntheticTerrain());
+    const labels = new LabelCollection();
+    labels.add({
+      position: Cartesian3.fromDegrees(-3.464718, 40.090953, 24_000),
+      text: 'Spain',
+    });
+    widget.scene.primitives.add(new PrimitiveCollection()).add(labels);
+    widget.scene.globe.getHeight.mockReturnValue(21_500);
+    publishTerrainProbe(widget as unknown as CesiumWidget);
+    expect(page.__atlasLabelClearance!('Spain')).toBeCloseTo(2_500, 3);
+    expect(page.__atlasLabelClearance!('Kenya')).toBeNull();
+  });
+
+  it('lists the shown imagery layers and every layer bottom to top, and says whether and how strongly the surface is draped', () => {
+    const page = {} as Window;
+    vi.stubGlobal('window', page);
+    vi.spyOn(SceneTransforms, 'worldToWindowCoordinates').mockReturnValue(
+      new Cartesian2(412, 288),
+    );
+    const widget = fakeWidget(); // a real ImageryLayerCollection under scene.imageryLayers
+    const { scene } = widget as unknown as CesiumWidget;
+    const basemap =
+      widget.scene.imageryLayers.addImageryProvider(fakeProvider());
+    const surface = addDrapedImageryLayer({
+      alpha: 0.5,
+      name: 'atlas-surface',
+      provider: fakeProvider(),
+      scene,
+    });
+    const outlines = addDrapedImageryLayer({
+      alpha: 0,
+      name: 'atlas-outlines',
+      provider: fakeProvider(),
+      scene,
+    });
+    const unpublish = publishTerrainProbe(widget as never);
+    expect(window.__atlasTerrainProbe!()).toMatchObject({
+      draped: true,
+      imageryLayers: ['basemap', 'atlas-surface'],
+      // Every layer on the collection, the base guard and the layer at alpha 0 included.
+      layerStack: ['basemap', 'guard', 'atlas-surface', 'atlas-outlines'],
+      surfaceAlpha: 0.5,
+    });
+    // A pre-warm frame drapes the surface too, at its alpha; a newer surface fading in over an
+    // older one reads the stronger of the two.
+    surface.setAlpha(PREWARM_ALPHA);
+    expect(page.__atlasTerrainProbe!()).toMatchObject({
+      draped: true,
+      surfaceAlpha: PREWARM_ALPHA,
+    });
+    const incoming = addDrapedImageryLayer({
+      alpha: 0.2,
+      name: 'atlas-surface',
+      provider: fakeProvider(),
+      scene,
+    });
+    expect(page.__atlasTerrainProbe!().surfaceAlpha).toBe(0.2);
+    incoming.destroy();
+    surface.setAlpha(0.5);
+
+    // Bottom to top, each shown layer at alpha > 0; a hidden or transparent surface is not draped.
+    outlines.setAlpha(0.92);
+    expect(page.__atlasTerrainProbe!().imageryLayers).toEqual([
+      'basemap',
+      'atlas-surface',
+      'atlas-outlines',
+    ]);
+    surface.setShown(false);
+    basemap.show = false;
+    expect(page.__atlasTerrainProbe!()).toMatchObject({
+      draped: false,
+      imageryLayers: ['atlas-outlines'],
+      layerStack: ['basemap', 'guard', 'atlas-surface', 'atlas-outlines'],
+      surfaceAlpha: 0,
+    });
+    surface.setShown(true);
+    surface.setAlpha(0);
+    expect(page.__atlasTerrainProbe!()).toMatchObject({
+      draped: false,
+      imageryLayers: ['atlas-outlines'],
+      surfaceAlpha: 0,
+    });
+    outlines.destroy();
+    surface.destroy();
+    basemap.show = true;
+    expect(page.__atlasTerrainProbe!()).toMatchObject({
+      draped: false,
+      imageryLayers: ['basemap'],
+      layerStack: ['basemap'],
+    });
+    unpublish();
   });
 });
 

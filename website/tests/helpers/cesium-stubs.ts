@@ -18,6 +18,15 @@ export function stubCesiumBrowserImageTypes(): void {
         ellipse: vi.fn(),
         fill: vi.fn(),
         fillStyle: '',
+        // Every pixel opaque: an image reads as its whole rectangle.
+        getImageData: (
+          _x: number,
+          _y: number,
+          width: number,
+          height: number,
+        ) => ({
+          data: new Uint8ClampedArray(width * height * 4).fill(255),
+        }),
         lineWidth: 0,
         moveTo: vi.fn(),
         stroke: vi.fn(),

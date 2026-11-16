@@ -98,8 +98,8 @@ export async function waveFrame(page: Page): Promise<string> {
 }
 
 /**
- * Any camera flight has ended: no flight the scene started is under way, and Cesium reports the
- * camera unchanged for half a second (`window.__atlasCameraMotion`, e2e build only). It reads the
+ * Any camera flight has ended: no flight the scene started is under way, and no drawn frame has
+ * moved the camera for half a second (`window.__atlasCameraMotion`, e2e build only). It reads the
  * camera, not the canvas, so it waits for nothing else still loading, and each read is one quick
  * call. A screenshot waits for several frames, and under CI's software WebGL the page drew a
  * frame only every 1–1.5 s here, so not one pair of screenshots fit in a 5 s poll.

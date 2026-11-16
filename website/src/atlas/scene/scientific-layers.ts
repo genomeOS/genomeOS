@@ -16,17 +16,23 @@
  * legend, inspector and readiness attributes change with the pixels. Cell
  * outlines are built only once a wave has passed and are held hidden while
  * one runs.
+ *
+ * Under World Terrain (terrain draping design, "Per layer under World Terrain" and "How existing
+ * features behave", #483) the surface is a draped imagery group, driven through the same epochs,
+ * cache and swaps: a cold one fades in on the wave's timeline once its tiles are loaded, a restyle
+ * cross-fades over an outgoing layer held opaque, a toggle that changes the cells baked into its
+ * texture rebuilds it, and a raster failure reverts the globe through `onDrapeFailure`. A draped
+ * group is cached only while displayed or incoming (Cesium frees a hidden layer's tiles), and never
+ * once its raster failed. Per-kind operations are in `surface-groups.ts`; through
+ * `observation-drapes.ts` the observation groups in view stand on the ground and drape footprints.
+ * What a pick may resolve against, the hover's observations included, is built in
+ * `pick-target.ts`.
  */
 
-import {
-  Ellipsoid,
-  Math as CesiumMath,
-  type PrimitiveCollection,
-  type Scene,
-} from 'cesium';
+import type { PrimitiveCollection, Scene } from 'cesium';
 
 import type { ObservationArtifact } from '../contracts';
-import { isSupportedCode } from '../geometry/support-codes';
+import type { SurfaceRasterSpec } from '../geometry/raster/types';
 import type { SurfaceArtifact } from '../surface-columns';
 import type {
   EdgeColorMode,
@@ -36,23 +42,42 @@ import type {
 } from '../url-state';
 import type { Metric, PaletteId } from '../visual-encoding';
 import type { AtlasWorkerClient } from '../worker/client';
-import type { BuildChunksBody, ChunkMessage } from '../worker/protocol';
-import { createMessageQueue, scheduleChunks } from './chunk-scheduler';
-import { viewCentre } from './globe-offset';
 import { LayerCache } from './layer-cache';
+import { ObservationDrapes } from './observation-drapes';
 import {
   buildObservationLayer,
-  observationHeightsFromBuffers,
+  observationKeyFor,
   type ObservationPrimitiveGroup,
   type ObservationSurfaceHeights,
 } from './observation-layer';
+import { pickTargetOf } from './pick-target';
 import type { RevealWave } from './reveal-wave-driver';
-import { REVEAL_ATTRIBUTE, type MarkTracker } from './scene-marks';
+import type { MarkTracker } from './scene-marks';
 import { animateSwap, fadeTogether, waitForReady } from './scene-transition';
+import type { SurfaceChunkGroup } from './surface-chunk-layer';
 import {
-  createSurfaceChunkGroup,
-  type SurfaceChunkGroup,
-} from './surface-chunk-layer';
+  buildChunkEdges,
+  createChunkGroup,
+  createDrapedGroup,
+  disposeSurfaceGroup,
+  DrapeFailure,
+  drapedCells,
+  drapedOutlinesReady,
+  edgeColorOf,
+  edgeStyleKey,
+  isAbortError,
+  isDrapedGroup,
+  opaqueUntilRetired,
+  sharedRasterSource,
+  streamChunks,
+  surfaceKeyFor,
+  switchAtOnce,
+  viewLookAt,
+  waitForDrapedOutlines,
+  type AnySurfaceGroup,
+  type DisplayedSurface,
+  type SurfaceGroupHost,
+} from './surface-groups';
 import {
   columnarHeightSource,
   type SurfaceHeightSource,
@@ -62,8 +87,12 @@ import type {
   ArtifactLoad,
   AtlasMark,
   DisplayedLayer,
+  DrapedRuntime,
+  DrapedSurfaceGroup,
   ObservationPresentation,
+  RasterWorkerClient,
   SceneProgressListener,
+  SurfaceGroup,
 } from './types';
 
 export interface ScientificStyle {
@@ -80,6 +109,8 @@ export interface ScientificStyle {
   elevationFactor: number;
   earthOpacity: number;
   reducedMotion: boolean;
+  /** The scene's draped rule (#483): World Terrain is requested, so the surface drapes. */
+  draped: boolean;
 }
 
 export interface ScientificHighlight {
@@ -97,7 +128,11 @@ export type ScientificScene = Pick<
   Scene,
   | 'camera'
   | 'canvas'
+  | 'globe'
+  | 'imageryLayers'
+  | 'morphComplete'
   | 'postRender'
+  | 'preRender'
   | 'preUpdate'
   | 'primitives'
   | 'requestRender'
@@ -105,7 +140,8 @@ export type ScientificScene = Pick<
 
 export interface ScientificLayersOptions {
   scene: ScientificScene;
-  worker: Pick<AtlasWorkerClient, 'buildChunks' | 'buildEdges' | 'recolour'>;
+  worker: Pick<AtlasWorkerClient, 'buildChunks' | 'buildEdges' | 'recolour'> &
+    RasterWorkerClient;
   highlight: ScientificHighlight;
   marks: MarkTracker;
   style: () => ScientificStyle;
@@ -114,28 +150,27 @@ export interface ScientificLayersOptions {
   /** The scene's reveal wave (#453): its uniforms are every chunk's, its runs our triggers'. */
   wave: Pick<
     RevealWave,
-    'finish' | 'onChange' | 'running' | 'start' | 'uniforms'
+    'finish' | 'onChange' | 'progress' | 'running' | 'start' | 'uniforms'
   >;
   perf?: { mark(name: string, options?: PerformanceMarkOptions): unknown };
+  /** The lazily imported draped runtime, for a draped style (#483). */
+  draped: () => Promise<DrapedRuntime>;
+  /** A draped raster failed for the surface in view; the scene reverts to the smooth globe. */
+  onDrapeFailure: (error: unknown) => void;
 }
 
-interface Displayed {
-  artifactKey: string;
+interface Displayed extends DisplayedSurface {
   artifactId: string;
-  surface: SurfaceArtifact;
   observations: ObservationArtifact | null;
-  group: SurfaceChunkGroup | null;
-  observationGroup: ObservationPrimitiveGroup | null;
-  metric: Metric;
-  palette: PaletteId;
-  geometry: SurfaceGeometry;
 }
 
 interface Epoch {
   artifactKey: string;
-  group: SurfaceChunkGroup | null;
+  group: AnySurfaceGroup | null;
   observationGroup: ObservationPrimitiveGroup | null;
   streamDone: boolean;
+  /** The cells a draped build draws, once its style is read; null for chunks. */
+  cells?: SurfaceRasterSpec['cells'] | null;
 }
 
 interface LiveGroup {
@@ -160,56 +195,22 @@ export function raiseScientificOverlays(
   if (!highlightLayer.isDestroyed()) primitives.raiseToTop(highlightLayer);
 }
 
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError';
-}
-
 function shown(group: LiveGroup): boolean {
   return group.collection.show && group.opacity() > 0;
-}
-
-function surfaceKeyFor(artifactKey: string, style: ScientificStyle): string {
-  return [artifactKey, style.metric, style.palette, style.geometry].join(':');
-}
-
-function observationKeyFor(
-  artifactKey: string,
-  style: ObservationPresentation,
-): string {
-  return [
-    artifactKey,
-    style.shape,
-    style.colorVariable,
-    style.solidColor,
-    ...style.gradient,
-    style.sizeVariable,
-  ].join(':');
-}
-
-function edgeStyleKey(style: ScientificStyle): string {
-  return `${style.edgeColorMode}:${style.edgeFixedColor}`;
-}
-
-function observationPoints(
-  observations: ObservationArtifact | null,
-): Float64Array | null {
-  return observations
-    ? Float64Array.from(
-        observations.observations.flatMap(({ lat, lon }) => [lon, lat]),
-      )
-    : null;
 }
 
 export class ScientificLayers {
   readonly #options: ScientificLayersOptions;
   readonly #perf: NonNullable<ScientificLayersOptions['perf']>;
-  readonly #surfaces = new LayerCache<SurfaceChunkGroup>(4);
+  readonly #host: SurfaceGroupHost;
+  readonly #surfaces = new LayerCache<AnySurfaceGroup>(4);
   readonly #observations = new LayerCache<ObservationPrimitiveGroup>(3);
-  readonly #heights = new WeakMap<
-    SurfaceChunkGroup,
-    ObservationSurfaceHeights
-  >();
-  readonly #edgeStyles = new WeakMap<SurfaceChunkGroup, string>();
+  readonly #heights = new WeakMap<SurfaceGroup, ObservationSurfaceHeights>();
+  readonly #edgeStyles = new WeakMap<SurfaceGroup, string>();
+  /** Every draped group not yet disposed: their worker rasters outlive the scene otherwise. */
+  readonly #draped = new Set<DrapedSurfaceGroup>();
+  /** The footprints and ground heights of the observation groups in view, while draped. */
+  readonly #drapes: ObservationDrapes;
   readonly #ids = new Map<LiveGroup, string>();
   readonly #valuesReady = new Set<string>();
   readonly #removeMarkListener: () => void;
@@ -238,6 +239,22 @@ export class ScientificLayers {
   constructor(options: ScientificLayersOptions) {
     this.#options = options;
     this.#perf = options.perf ?? performance;
+    this.#host = {
+      frameBudgetMs: options.frameBudgetMs,
+      heights: this.#heights,
+      lookAt: () => viewLookAt(options.scene),
+      marks: options.marks,
+      perf: this.#perf,
+      rasterSource: sharedRasterSource(options.worker),
+      scene: options.scene,
+      style: () => options.style(),
+      wave: options.wave,
+      worker: options.worker,
+    };
+    this.#drapes = new ObservationDrapes({
+      ...options,
+      rasterSource: this.#host.rasterSource,
+    });
     options.marks.setProbe(() => this.#probe());
     options.marks.setDisplayed(() =>
       [...this.#ids].filter(([group]) => shown(group)).map(([, id]) => id),
@@ -264,51 +281,16 @@ export class ScientificLayers {
       : null;
   }
 
+  /** What a pick may resolve against, the hover's observations included (`pick-target.ts`). */
   pickTarget(): PickTarget | null {
-    const displayed = this.#displayed;
-    if (displayed) {
-      // The incoming groups sit at opacity 0, but a translucent depth pick writes depth
-      // whatever the alpha, so both are hidden for that pass (§B.6.6).
-      const hidden: PrimitiveCollection[] = [];
-      const incoming = this.#epoch?.group;
-      if (incoming && incoming !== displayed.group)
-        hidden.push(incoming.collection);
-      const incomingObservations = this.#epoch?.observationGroup;
-      if (
-        incomingObservations &&
-        incomingObservations !== displayed.observationGroup
-      )
-        hidden.push(incomingObservations.collection);
-      return {
-        artifactKey: displayed.artifactKey,
-        draped: false,
-        drawn: this.#drawn(() => displayed.group, displayed.surface),
-        hidden,
-        surface: displayed.surface,
-      };
-    }
-    const revealing = this.#revealing;
-    return revealing?.surface
-      ? {
-          artifactKey: revealing.epoch.artifactKey,
-          draped: false,
-          drawn: this.#drawn(() => revealing.epoch.group, revealing.surface),
-          hidden: [],
-          surface: revealing.surface,
-        }
-      : null;
-  }
-
-  /** Whether the layers draw `row` at call time: its cell layer is on and the group shown. */
-  #drawn(group: () => LiveGroup | null, surface: SurfaceArtifact) {
-    return (row: number): boolean => {
-      const live = group();
-      if (!live || !shown(live)) return false;
-      const { layers } = this.#options.style();
-      return isSupportedCode(surface.support[row])
-        ? layers.surface
-        : layers.support;
-    };
+    return pickTargetOf({
+      displayed: this.#displayed,
+      epoch: this.#epoch,
+      layers: () => this.#options.style().layers,
+      revealing: this.#revealing,
+      shown,
+      waveProgress: () => this.#options.wave.progress(),
+    });
   }
 
   /**
@@ -360,7 +342,7 @@ export class ScientificLayers {
       surface: load.surface,
     };
     this.#options.marks.beginEpoch();
-    let partial: SurfaceChunkGroup | null = null;
+    let partial: AnySurfaceGroup | null = null;
     const assertCurrent = () => {
       if (this.#destroyed || sequence !== this.#sequence)
         throw new SupersededBuild();
@@ -396,14 +378,17 @@ export class ScientificLayers {
       if (cold) this.#revealing = { epoch, surface };
       const style = this.#options.style();
       const key = surfaceKeyFor(load.artifactKey, style);
+      epoch.cells = style.draped ? drapedCells(style.layers) : null;
       let group = this.#surfaces.get(key) ?? null;
       if (group) {
         epoch.group = group;
         if (group !== this.#displayed?.group) {
+          // Every chunk is already there, so the cold reveal's wave starts now; a draped group
+          // fades in once its tiles are loaded (below).
+          const reveal = cold && !isDrapedGroup(group);
           group.collection.show = true;
-          group.setOpacity(cold ? 1 : 0);
-          // Every chunk is already there, so the cold reveal's wave starts now.
-          if (cold) this.#options.wave.start(style.reducedMotion);
+          group.setOpacity(reveal ? 1 : 0);
+          if (reveal) this.#options.wave.start(style.reducedMotion);
         }
         const heights = this.#heights.get(group);
         if (
@@ -412,11 +397,26 @@ export class ScientificLayers {
           observationGroup !== this.#displayed?.observationGroup
         )
           observationGroup.setSurfaceHeights(heights);
+      } else if (style.draped) {
+        const draped =
+          (group =
+          partial =
+            await this.#createDraped(load, surface, style, abort.signal));
+        epoch.group = draped;
+        await draped.prepare(abort.signal).catch((error: unknown) => {
+          throw isAbortError(error) ? error : new DrapeFailure(error);
+        });
+        assertCurrent();
+        this.#surfaces.set(key, group);
+        partial = null;
       } else {
-        group = partial = this.#createGroup(load, style, cold);
+        group = partial = createChunkGroup(this.#host, load, style, cold);
+        this.#ids.set(group, load.artifactId);
+        this.#raiseOverlays(this.#epoch?.observationGroup ?? null);
         epoch.group = group;
-        await this.#stream({
+        await streamChunks(this.#host, {
           cold,
+          displayed: this.#displayed,
           group,
           load,
           observationGroup,
@@ -432,10 +432,19 @@ export class ScientificLayers {
       }
       epoch.streamDone = true;
       this.#options.scene.requestRender();
-      await waitForReady({ scene: this.#options.scene }, group, (value) =>
-        progress?.({ detail: 'Preparing surface geometry', progress: value }),
-      );
+      const report = (value: number) =>
+        progress?.({ detail: 'Preparing surface geometry', progress: value });
+      await waitForReady({ scene: this.#options.scene }, group, report, {
+        signal: abort.signal,
+      });
       assertCurrent();
+      // A cold draped surface fades in from here; with no tile drawn there is nothing to fade.
+      if (cold && isDrapedGroup(group)) {
+        group.setOpacity(1);
+        if (group.readyChunkCount() > 0)
+          this.#options.wave.start(style.reducedMotion);
+        else this.#options.wave.finish();
+      }
       await this.#commit({
         cold,
         group,
@@ -455,6 +464,15 @@ export class ScientificLayers {
         (sequence !== this.#sequence && isAbortError(error))
       )
         return true;
+      if (error instanceof DrapeFailure) {
+        // Nothing reverts once destroyed. Otherwise the scene reverts to the smooth globe, whose
+        // rebuild of this request settles this call.
+        if (this.#destroyed) return true;
+        if (sequence === this.#sequence)
+          this.#options.onDrapeFailure(error.cause);
+        if (sequence !== this.#sequence) return true;
+        error = error.cause;
+      }
       // A rebuild must not replay a request that failed; it restyles what is displayed.
       if (sequence === this.#sequence) this.#current = this.#displayedLoad();
       throw error;
@@ -474,14 +492,25 @@ export class ScientificLayers {
 
   setVisibility(layers: LayerVisibility, samplingAreas: boolean): void {
     const displayed = this.#displayed;
-    const groups = displayed
-      ? { group: displayed.group, observationGroup: displayed.observationGroup }
-      : {
-          group: this.#epoch?.group ?? null,
-          observationGroup: this.#epoch?.observationGroup ?? null,
-        };
-    groups.group?.setVisibility(layers.surface, layers.support);
-    groups.observationGroup?.setVisibility(layers.observations, samplingAreas);
+    const epoch = this.#epoch;
+    for (const group of new Set([displayed?.group, epoch?.group]))
+      group?.setVisibility(layers.surface, layers.support);
+    const observationGroup = displayed
+      ? displayed.observationGroup
+      : epoch?.observationGroup;
+    observationGroup?.setVisibility(layers.observations, samplingAreas);
+    // A draped texture bakes in the cells it draws: a toggle that changes those of the newest
+    // request rebuilds it, unless both are off, which only hides it (#483).
+    const group = displayed?.group;
+    const cells = epoch ? epoch.cells : isDrapedGroup(group) && group.cells;
+    if (
+      cells &&
+      (layers.surface || layers.support) &&
+      (cells.supported !== layers.surface || cells.masked !== layers.support)
+    )
+      void this.rebuild().catch((error: unknown) =>
+        console.warn('The draped surface could not be rebuilt.', error),
+      );
     this.#options.scene.requestRender();
   }
 
@@ -492,6 +521,7 @@ export class ScientificLayers {
     for (const group of this.#observationGroupsInView()) {
       group.setStyleOpacity(style.opacity);
       group.setSamplingAreaColor(style.samplingAreaColor);
+      this.#drapes.restyle(group, style.samplingAreaColor);
       group.setSizeRange(style.sizeRange);
       group.setVisibility(layers.observations, style.samplingAreas);
     }
@@ -530,6 +560,7 @@ export class ScientificLayers {
     const displayed = this.#displayed;
     const group = displayed?.group;
     if (!displayed || !group) return;
+    if (isDrapedGroup(group)) return this.#drapedEdges(group, visible);
     await group.setCellEdges(visible);
     if (visible) await this.#buildEdges(displayed, group);
     else this.#options.marks.clear('edges-ready');
@@ -541,6 +572,7 @@ export class ScientificLayers {
     if (!displayed || !group) return;
     const style = this.#options.style();
     if (this.#edgeStyles.get(group) === edgeStyleKey(style)) return;
+    if (isDrapedGroup(group)) return this.#drapedEdges(group);
     group.edges.reset();
     this.#edgeStyles.delete(group);
     this.#options.marks.clear('edges-ready');
@@ -558,6 +590,8 @@ export class ScientificLayers {
     const group = displayed?.group;
     if (!displayed || displayed.artifactKey !== artifactKey || !group) return;
     displayed.group = null;
+    const epoch = this.#epoch; // a toggle may not reach, or rebuild, the removed group (#483)
+    if (epoch?.group === group) epoch.group = epoch.cells = null;
     this.#surfaces.delete(group);
     this.#dispose(group);
     this.#options.marks.clear('values-ready');
@@ -572,12 +606,21 @@ export class ScientificLayers {
     this.#options.scene.requestRender();
   }
 
+  /** Re-samples the ground under the draped observations in view (#483). */
+  resampleGround(final?: boolean): void {
+    this.#drapes.resample(final);
+  }
+
   destroy(): void {
     this.#destroyed = true;
     this.#build?.abort();
     this.#edgeBuild?.abort();
     this.#removeMarkListener();
     this.#removeWaveListener();
+    this.#drapes.destroy();
+    // Their worker rasters would outlive the scene, which destroys no imagery provider (#483).
+    for (const group of this.#draped) group.destroy();
+    this.#draped.clear();
   }
 
   #probe(): AtlasMark[] {
@@ -625,19 +668,11 @@ export class ScientificLayers {
     let group = this.#observations.get(key);
     if (!group) {
       group = buildObservationLayer(observations, {
+        ...presentation,
         artifactKey: load.artifactKey,
-        colorVariable: presentation.colorVariable,
         elevation: style.elevationFactor > 0,
         exaggeration: style.elevationFactor,
-        gradient: presentation.gradient,
         heights: null,
-        opacity: presentation.opacity,
-        samplingAreaColor: presentation.samplingAreaColor,
-        samplingAreas: presentation.samplingAreas,
-        shape: presentation.shape,
-        sizeRange: presentation.sizeRange,
-        sizeVariable: presentation.sizeVariable,
-        solidColor: presentation.solidColor,
       });
       this.#observations.set(key, group);
       this.#ids.set(group, load.artifactId);
@@ -648,149 +683,43 @@ export class ScientificLayers {
     group.setElevationFactor(style.elevationFactor, true);
     group.setEarthOpacity(style.earthOpacity);
     group.setStyleOpacity(presentation.opacity);
-    return group;
-  }
-
-  #createGroup(
-    load: ArtifactLoad,
-    style: ScientificStyle,
-    cold: boolean,
-  ): SurfaceChunkGroup {
-    const group = createSurfaceChunkGroup({
-      artifactKey: load.artifactKey,
-      cellEdges: style.cellEdges,
-      elevationFactor: 0,
-      geometry: style.geometry,
-      requestRender: () => this.#options.scene.requestRender(),
-      surfaceOpacity: style.surfaceOpacity,
-      wave: this.#options.wave.uniforms,
+    this.#drapes.sync(group, observations.observations, load.artifactKey, {
+      draped: style.draped,
+      samplingAreaColor: presentation.samplingAreaColor,
     });
-    group.setOpacity(cold ? 1 : 0);
-    group.setVisibility(style.layers.surface, style.layers.support);
-    group.collection.show = true;
-    this.#ids.set(group, load.artifactId);
-    this.#options.scene.primitives.add(group.collection);
-    this.#raiseOverlays(this.#epoch?.observationGroup ?? null);
     return group;
   }
 
-  async #stream(input: {
-    cold: boolean;
-    group: SurfaceChunkGroup;
-    load: ArtifactLoad;
-    observationGroup: ObservationPrimitiveGroup | null;
-    observations: ObservationArtifact | null;
-    progress?: SceneProgressListener;
-    signal: AbortSignal;
-    style: ScientificStyle;
-    surface: SurfaceArtifact;
-  }): Promise<void> {
-    const {
-      cold,
-      group,
+  /** The draped runtime and a group for `load` from it, sharing one raster source (#483). */
+  async #createDraped(
+    load: ArtifactLoad,
+    surface: SurfaceArtifact,
+    style: ScientificStyle,
+    signal: AbortSignal,
+  ): Promise<DrapedSurfaceGroup> {
+    let runtime: DrapedRuntime;
+    try {
+      runtime = await this.#options.draped();
+    } catch (error) {
+      throw new DrapeFailure(error);
+    }
+    if (signal.aborted) throw new SupersededBuild();
+    const group = createDrapedGroup(this.#host, runtime, {
+      inView: (candidate) => !this.#destroyed && this.#inView(candidate),
       load,
-      observationGroup,
-      observations,
-      progress,
-      signal,
+      onFailure: (error) => this.#drapeFailed(group, error),
       style,
       surface,
-    } = input;
-    const displayed = this.#displayed;
-    // A recolour streams no anchors (the worker rebuilds each chunk from its cached topology,
-    // chunk plan and vertex means and sends none), so it is taken only when the displayed
-    // group's marker heights exist to copy onto the new group; otherwise (no heights, e.g. after
-    // removeSurface) a full build brings the anchors back. An artifact without observations has
-    // no markers and needs no heights.
-    const sourceHeights = displayed?.group
-      ? this.#heights.get(displayed.group)
-      : undefined;
-    const recolour =
-      (sourceHeights !== undefined || observations === null) &&
-      displayed?.artifactKey === load.artifactKey &&
-      displayed.metric === style.metric &&
-      displayed.geometry === style.geometry &&
-      displayed.palette !== style.palette;
-    if (recolour) {
-      if (sourceHeights) this.#heights.set(group, sourceHeights);
-      group.setElevationFactor(this.#options.style().elevationFactor, true);
-    }
-    const request: BuildChunksBody = {
-      artifactKey: load.artifactKey,
-      geometry: style.geometry,
-      gridSha256: surface.grid.gridSha256,
-      lookAt: load.lookAt ?? this.#lookAt(),
-      metric: style.metric,
-      observationPoints: observationPoints(observations),
-      palette: style.palette,
-    };
-    const queue = createMessageQueue<ChunkMessage>();
-    const worker = this.#options.worker;
-    const onChunk = (message: ChunkMessage) => queue.push(message);
-    const producer = (
-      recolour
-        ? worker.recolour(request, onChunk, signal)
-        : worker.buildChunks(request, onChunk, signal)
-    ).then(
-      () => queue.end(),
-      (error: unknown) => queue.fail(error),
-    );
-    const sharedObservations =
-      observationGroup !== null &&
-      observationGroup === displayed?.observationGroup;
-    let added = 0;
-    progress?.({ detail: 'Building surface geometry', progress: null });
-    const stats = await scheduleChunks(this.#options.scene, group, queue, {
-      frameBudgetMs: this.#options.frameBudgetMs,
-      onAdded: (message) => {
-        added += 1;
-        // The cold reveal's wave starts with its first chunk (#453).
-        if (cold && added === 1) this.#options.wave.start(style.reducedMotion);
-        this.#perf.mark('atlas:chunk-add', {
-          detail: { artifactKey: load.artifactKey, chunk: message.chunk },
-        });
-        progress?.({
-          detail: 'Preparing surface geometry',
-          progress:
-            message.total > 0 ? Math.min(1, added / message.total) : null,
-        });
-      },
-      onBeforeAdd: (message) => {
-        if (!observations) {
-          // No markers to anchor, so nothing waits on anchors: raise the group before its first
-          // chunk is added (§B.6.8) rather than at the commit.
-          if (added === 0)
-            group.setElevationFactor(
-              this.#options.style().elevationFactor,
-              true,
-            );
-          return;
-        }
-        if (!message.anchors) return;
-        const heights = observationHeightsFromBuffers(
-          message.anchors,
-          observations.observations,
-          columnarHeightSource(surface),
-          style.metric,
-        );
-        this.#heights.set(group, heights);
-        if (observationGroup && !sharedObservations)
-          observationGroup.setSurfaceHeights(heights);
-        group.setElevationFactor(this.#options.style().elevationFactor, true);
-      },
-      order: [],
-      signal,
     });
-    await producer;
-    // A cold reveal with no chunk (no supported cell) started no wave; it reads `done` so that
-    // nothing waits on one (#453).
-    if (cold && added === 0 && !signal.aborted) this.#options.wave.finish();
-    this.#options.marks.setAttribute(REVEAL_ATTRIBUTE, JSON.stringify(stats));
+    this.#draped.add(group);
+    this.#ids.set(group, load.artifactId);
+    this.#edgeStyles.set(group, edgeStyleKey(style));
+    return group;
   }
 
   async #commit(input: {
     cold: boolean;
-    group: SurfaceChunkGroup;
+    group: AnySurfaceGroup;
     load: ArtifactLoad;
     observationGroup: ObservationPrimitiveGroup | null;
     observations: ObservationArtifact | null;
@@ -812,7 +741,8 @@ export class ScientificLayers {
     group.setElevationFactor(factor, true);
     group.setSurfaceOpacity(style.surfaceOpacity);
     group.setVisibility(style.layers.surface, style.layers.support);
-    void group.setCellEdges(style.cellEdges);
+    if (isDrapedGroup(group)) void this.#drapedEdges(group);
+    else void group.setCellEdges(style.cellEdges);
     void group.setSceneMode(style.mode);
     if (observationGroup) {
       const presentation = style.observationStyle;
@@ -853,7 +783,7 @@ export class ScientificLayers {
     const switching =
       !cold && outgoing !== null && outgoing.artifactKey !== load.artifactKey;
     if (switching) {
-      this.#switchAtOnce(group, observationGroup, outgoing);
+      switchAtOnce(group, observationGroup, outgoing);
       this.#options.wave.start(style.reducedMotion);
     }
     group.setEdgesHeld(this.#options.wave.running());
@@ -864,8 +794,10 @@ export class ScientificLayers {
           ? observationGroup
           : null,
       );
+      const retired =
+        outgoing?.group && outgoing.group !== group ? outgoing.group : null;
       const leaving = fadeTogether(
-        outgoing?.group && outgoing.group !== group ? outgoing.group : null,
+        isDrapedGroup(retired) ? opaqueUntilRetired(retired) : retired,
         outgoing?.observationGroup &&
           outgoing.observationGroup !== observationGroup
           ? outgoing.observationGroup
@@ -892,33 +824,22 @@ export class ScientificLayers {
       this.#displayed?.observationGroup === observationGroup
     )
       observationGroup.setOpacity(1);
+    const left = outgoing?.group; // hidden by the swap, unless a newer request took it back
+    if (isDrapedGroup(left) && !this.#inView(left)) this.#retire(left);
     this.#prune();
     this.#options.scene.requestRender();
   }
 
-  /** The outgoing dataset goes and the incoming one shows, in the same frame (#453). */
-  #switchAtOnce(
-    group: SurfaceChunkGroup,
-    observationGroup: ObservationPrimitiveGroup | null,
-    outgoing: Displayed,
-  ): void {
-    for (const leaving of [outgoing.group, outgoing.observationGroup])
-      if (leaving && leaving !== group && leaving !== observationGroup) {
-        leaving.setOpacity(0);
-        leaving.collection.show = false;
-      }
-    group.setOpacity(1);
-    observationGroup?.setOpacity(1);
-  }
-
-  #syncDisplayedMarks(group: SurfaceChunkGroup, style: ScientificStyle): void {
+  #syncDisplayedMarks(group: AnySurfaceGroup, style: ScientificStyle): void {
     const marks = this.#options.marks;
     marks.clear('values-ready');
     if (this.#valuesReady.has(group.artifactKey)) marks.queue('values-ready');
     marks.clear('edges-ready');
     if (
       style.cellEdges &&
-      group.edges.isBuilt() &&
+      (isDrapedGroup(group)
+        ? drapedOutlinesReady(group)
+        : group.edges.isBuilt()) &&
       this.#edgeStyles.get(group) === edgeStyleKey(style)
     )
       marks.queue('edges-ready');
@@ -928,7 +849,8 @@ export class ScientificLayers {
     const displayed = this.#displayed;
     const group = displayed?.group;
     if (!displayed || !group || !this.#options.style().cellEdges) return;
-    void this.#buildEdges(displayed, group);
+    if (isDrapedGroup(group)) void this.#drapedEdges(group);
+    else void this.#buildEdges(displayed, group);
   }
 
   /**
@@ -954,31 +876,7 @@ export class ScientificLayers {
     const abort = new AbortController();
     this.#edgeBuild = abort;
     try {
-      await group.edges.build(
-        (onChunk, signal) =>
-          this.#options.worker.buildEdges(
-            {
-              artifactKey: displayed.artifactKey,
-              edgeColor:
-                style.edgeColorMode === 'matched'
-                  ? { mode: 'matched' }
-                  : { color: style.edgeFixedColor, mode: 'fixed' },
-              // positions at exaggeration 1; the edge layer scales them linearly to the factor.
-              factor: 1,
-              geometry: displayed.geometry,
-              gridSha256: displayed.surface.grid.gridSha256,
-              lookAt: this.#lookAt(),
-              metric: displayed.metric,
-              palette: displayed.palette,
-            },
-            onChunk,
-            signal,
-          ),
-        style.edgeFixedColor,
-        style.mode,
-        style.elevationFactor,
-        abort.signal,
-      );
+      await buildChunkEdges(this.#host, displayed, group, abort.signal);
       this.#edgeStyles.set(group, key);
       await group.setCellEdges(this.#options.style().cellEdges);
       if (this.#displayed?.group === group)
@@ -989,7 +887,42 @@ export class ScientificLayers {
     }
   }
 
-  #discard(epoch: Epoch, partial: SurfaceChunkGroup | null): void {
+  /**
+   * A draped group's outlines (#483): their colour follows the style, then they show or hide, and
+   * `edges-ready` follows their layer. No wave holds them: they fade in with the surface. A newer
+   * edge request or `destroy()` ends the wait for their tiles; only a raster failure reverts.
+   */
+  async #drapedEdges(
+    group: DrapedSurfaceGroup,
+    visible = this.#options.style().cellEdges,
+  ): Promise<void> {
+    const style = this.#options.style();
+    const key = edgeStyleKey(style);
+    this.#edgeBuild?.abort();
+    const { signal } = (this.#edgeBuild = new AbortController());
+    const inView = () => !this.#destroyed && this.#displayed?.group === group;
+    try {
+      if (this.#edgeStyles.get(group) !== key) {
+        this.#edgeStyles.set(group, key);
+        this.#options.marks.clear('edges-ready');
+        await group.setOutlineStyle(edgeColorOf(style));
+      }
+      await group.setCellEdges(visible);
+    } catch (error) {
+      if (isAbortError(error)) return;
+      console.warn('Cell outlines could not be built.', error);
+      // An outline raster is a raster: its failure reverts the globe too.
+      if (inView()) this.#drapeFailed(group, error);
+      return;
+    }
+    // A newer request owns the marks now.
+    if (signal.aborted) return;
+    if (!visible) return this.#options.marks.clear('edges-ready');
+    if (await waitForDrapedOutlines(this.#host, group, { inView, signal }))
+      this.#options.marks.queue('edges-ready');
+  }
+
+  #discard(epoch: Epoch, partial: AnySurfaceGroup | null): void {
     const newer = this.#epoch === epoch ? null : this.#epoch;
     const displayed = this.#displayed;
     const keep = (group: object | null) =>
@@ -999,23 +932,47 @@ export class ScientificLayers {
         group === newer?.group ||
         group === newer?.observationGroup);
     if (partial && !keep(partial)) this.#dispose(partial);
-    else if (epoch.group && !keep(epoch.group)) {
-      epoch.group.setOpacity(0);
-      epoch.group.collection.show = false;
-    }
+    else if (epoch.group && !keep(epoch.group)) this.#retire(epoch.group);
     if (epoch.observationGroup && !keep(epoch.observationGroup)) {
       epoch.observationGroup.setOpacity(0);
       epoch.observationGroup.collection.show = false;
     }
     if (this.#epoch === epoch) this.#epoch = null;
+    this.#drapes.retain(this.#observationGroupsInView());
     // Superseded or failed, this epoch's reveal is no longer what picks resolve against.
     if (this.#revealing?.epoch === epoch) this.#revealing = null;
     this.#options.scene.requestRender();
   }
 
-  #dispose(group: SurfaceChunkGroup | ObservationPrimitiveGroup): void {
+  #inView(group: AnySurfaceGroup): boolean {
+    return group === this.#displayed?.group || group === this.#epoch?.group;
+  }
+
+  /** Hides a group that left the view; a draped one goes: Cesium frees a hidden layer's tiles. */
+  #retire(group: AnySurfaceGroup): void {
+    if (isDrapedGroup(group)) {
+      this.#surfaces.delete(group);
+      this.#dispose(group);
+    } else {
+      group.setOpacity(0);
+      group.collection.show = false;
+    }
+  }
+
+  /** A raster of `group` failed: the cache never hands it back, and the globe reverts (#483). */
+  #drapeFailed(group: DrapedSurfaceGroup, error: unknown): void {
+    this.#surfaces.delete(group);
+    this.#options.onDrapeFailure(error);
+  }
+
+  #dispose(group: AnySurfaceGroup | ObservationPrimitiveGroup): void {
     this.#ids.delete(group);
-    this.#options.scene.primitives.remove(group.collection);
+    if (!('kind' in group)) {
+      this.#drapes.release(group); // while its collection, which the removal destroys, is live
+      this.#options.scene.primitives.remove(group.collection);
+    } else if (!isDrapedGroup(group) || this.#draped.delete(group))
+      // destroy() has already destroyed every draped group it held.
+      disposeSurfaceGroup(this.#options.scene, group);
   }
 
   #prune(): void {
@@ -1026,6 +983,7 @@ export class ScientificLayers {
       this.#observations.prune(displayed.observationGroup, (group) =>
         this.#dispose(group),
       );
+    this.#drapes.retain(this.#observationGroupsInView());
   }
 
   #raiseOverlays(observationGroup: ObservationPrimitiveGroup | null): void {
@@ -1035,21 +993,5 @@ export class ScientificLayers {
         null,
       this.#options.highlight.collection,
     );
-  }
-
-  /** The ground point at the centre of the open area, where the desktop globe is drawn (#452). */
-  #lookAt(): { lat: number; lon: number } {
-    const { camera } = this.#options.scene;
-    const hit = camera.pickEllipsoid(
-      viewCentre(this.#options.scene),
-      Ellipsoid.WGS84,
-    );
-    const point =
-      (hit ? Ellipsoid.WGS84.cartesianToCartographic(hit) : undefined) ??
-      camera.positionCartographic;
-    return {
-      lat: CesiumMath.toDegrees(point.latitude),
-      lon: CesiumMath.toDegrees(point.longitude),
-    };
   }
 }

@@ -1,4 +1,6 @@
-/** Basemap and physical-terrain lifecycle for Atlas design §11. */
+/** Basemap and physical-terrain lifecycle for Atlas design §11. Its warnings share one list with
+ * the scene's `'drape'` warning: a draped raster that fails reverts the globe to smooth (terrain
+ * draping design, "Failure modes"; #483). */
 
 import {
   ArcGisBaseMapType,
@@ -37,7 +39,8 @@ export {
 } from '../earth-style-catalog';
 
 export interface ContextWarning {
-  id: 'basemap' | 'terrain';
+  /** `'drape'` is the scene's own: the controller raises only the basemap and terrain ones. */
+  id: 'basemap' | 'terrain' | 'drape';
   message: string;
 }
 

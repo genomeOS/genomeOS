@@ -73,6 +73,7 @@ import * as atlasScene from '../src/atlas/scene/atlas-scene';
 import { styleAtlasScene } from '../src/atlas/scene/scene-policy';
 import * as scenePolicy from '../src/atlas/scene/scene-policy';
 import { stubCesiumBrowserImageTypes } from './helpers/cesium-stubs';
+import { FakeEvent } from './helpers/scene-fakes';
 
 const baseCell: SurfaceCell = {
   dist_nearest_obs_km: 25,
@@ -804,6 +805,97 @@ describe('Cesium scene policy', () => {
       expect(group.collection.show).toBe(false);
     } finally {
       vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
+  // A hidden tab renders no frame, so readiness, read on postRender, cannot arrive there (RF1).
+  it('counts only visible time toward the readiness deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      let hidden = true;
+      const changes = new Set<() => void>();
+      const visibility = {
+        isHidden: () => hidden,
+        onChange(listener: () => void) {
+          changes.add(listener);
+          return () => changes.delete(listener);
+        },
+      };
+      const setHidden = (value: boolean) => {
+        hidden = value;
+        for (const listener of [...changes]) listener();
+      };
+      const group = {
+        collection: { show: true },
+        isReady: () => false,
+        readyCount: () => 0,
+        setOpacity: vi.fn(),
+      };
+      const postRender = new FakeEvent();
+      const viewer = { scene: { postRender, requestRender: vi.fn() } };
+      let settled = false;
+      const outcome = waitForReady(viewer as never, group, undefined, {
+        visibility,
+      })
+        .catch((error: Error) => error)
+        .finally(() => {
+          settled = true;
+        });
+
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(settled).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+      setHidden(false);
+      await vi.advanceTimersByTimeAsync(20_000);
+      // Hiding again stops the window; showing the tab once more starts a whole one.
+      setHidden(true);
+      await vi.advanceTimersByTimeAsync(120_000);
+      setHidden(false);
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(settled).toBe(false);
+      expect(group.collection.show).toBe(true);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(outcome).resolves.toMatchObject({
+        message: 'Cesium geometry build timed out',
+      });
+      expect([changes.size, postRender.numberOfListeners]).toEqual([0, 0]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ends a readiness wait with an AbortError, removing its listeners and deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      const abort = new AbortController();
+      const postRender = new FakeEvent();
+      const viewer = { scene: { postRender, requestRender: vi.fn() } };
+      const group = {
+        collection: { show: true },
+        isReady: () => false,
+        readyCount: () => 0,
+        setOpacity: vi.fn(),
+      };
+      const outcome = waitForReady(viewer as never, group, undefined, {
+        signal: abort.signal,
+      }).catch((error: Error) => error);
+      expect(postRender.numberOfListeners).toBe(1);
+
+      abort.abort();
+
+      await expect(outcome).resolves.toMatchObject({ name: 'AbortError' });
+      expect([postRender.numberOfListeners, vi.getTimerCount()]).toEqual([
+        0, 0,
+      ]);
+      expect(group.collection.show).toBe(true);
+      await expect(
+        waitForReady(viewer as never, group, undefined, {
+          signal: abort.signal,
+        }),
+      ).rejects.toMatchObject({ name: 'AbortError' });
+      expect(postRender.numberOfListeners).toBe(0);
+    } finally {
       vi.useRealTimers();
     }
   });

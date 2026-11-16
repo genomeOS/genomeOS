@@ -1,27 +1,72 @@
-/** The e2e build's camera motion hook (fast-load design §B.8; #453). */
+/** The e2e build's camera motion hook (fast-load design §B.8; #453), drape stats reader and
+ * performance measures (terrain draping design, "Performance budget and measurement"; #483). */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { cameraMotionTestHook } from '../src/atlas/e2e-hooks';
+import {
+  CAMERA_QUIET_MS,
+  CAMERA_STILL_TOLERANCE,
+  cameraMotionTestHook,
+  DRAPED_READY_MEASURE,
+  drapeStatsTestHook,
+  GROUND_PASS_MEASURE,
+  measureDrapedReady,
+  measuredGroundPass,
+  measureGroundPass,
+  pickLogTestHook,
+} from '../src/atlas/e2e-hooks';
+import { observationPickId } from '../src/atlas/scene/observation-layer';
+import type { DrapeStats } from '../src/atlas/scene/types';
 
-/** A Cesium-like camera whose move events the test raises. */
-function camera() {
-  const listeners = {
-    moveEnd: new Set<() => void>(),
-    moveStart: new Set<() => void>(),
+const STATS: DrapeStats = {
+  coarseRasterMs: {
+    counts: [0, 0, 0, 0, 0, 0, 1],
+    upperMs: [0.5, 1, 2, 4, 8, 16, Infinity],
+  },
+  delivered: 3,
+  deliveryMs: {
+    byLevel: [[0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]],
+    upperMs: [8, 16, 32, 64, 128, 256, 512, 1_024, 2_048, 4_096, Infinity],
+  },
+  empty: 1,
+  queueDepth: 0,
+  rasterMs: {
+    counts: [1, 1, 0, 0, 0, 0, 0],
+    upperMs: [0.5, 1, 2, 4, 8, 16, Infinity],
+  },
+  rasterMsByLevel: [20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  requested: 4,
+  residentBytes: 349_525,
+};
+
+/** A Cesium-like scene whose frames the test draws: its camera's pose and its `postRender`. */
+function scene() {
+  const listeners = new Set<() => void>();
+  const camera = {
+    directionWC: { x: -1, y: 0, z: 0 },
+    frustum: { fov: 1 } as {
+      fov?: number;
+      right?: number;
+      top?: number;
+      width?: number;
+    },
+    positionWC: { x: 6_778_137, y: 0, z: 0 },
+    upWC: { x: 0, y: 0, z: 1 },
   };
-  const event = (name: keyof typeof listeners) => ({
-    addEventListener(listener: () => void) {
-      listeners[name].add(listener);
-      return () => {
-        listeners[name].delete(listener);
-      };
+  return {
+    camera,
+    postRender: {
+      addEventListener(listener: () => void) {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
     },
-    raise() {
-      for (const listener of listeners[name]) listener();
+    count: () => listeners.size,
+    draw() {
+      for (const listener of [...listeners]) listener();
     },
-    count: () => listeners[name].size,
-  });
-  return { moveEnd: event('moveEnd'), moveStart: event('moveStart') };
+  };
 }
 
 function published(): Window {
@@ -33,22 +78,23 @@ function published(): Window {
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  performance.clearMeasures();
 });
 
 describe('cameraMotionTestHook', () => {
   it('publishes nothing outside the e2e build', () => {
     const page = published();
     vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '');
-    const moves = camera();
-    expect(cameraMotionTestHook(moves)).toBeUndefined();
+    const frames = scene();
+    expect(cameraMotionTestHook(frames)).toBeUndefined();
     expect(page.__atlasCameraMotion).toBeUndefined();
-    expect(moves.moveStart.count()).toBe(0);
+    expect(frames.count()).toBe(0);
   });
 
   it('reads a flight as flying from the call that starts it until it settles', () => {
     const page = published();
     vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
-    const hook = cameraMotionTestHook(camera())!;
+    const hook = cameraMotionTestHook(scene())!;
     const read = () => page.__atlasCameraMotion!();
     expect(read()).toEqual({ flying: false, moving: false });
     // Before the flight's first frame has moved the camera.
@@ -61,7 +107,7 @@ describe('cameraMotionTestHook', () => {
   it('waits for the newest flight when one cancels another', () => {
     const page = published();
     vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
-    const hook = cameraMotionTestHook(camera())!;
+    const hook = cameraMotionTestHook(scene())!;
     const first = hook.flight();
     const second = hook.flight();
     // Cesium cancels the first flight as the second starts.
@@ -71,35 +117,217 @@ describe('cameraMotionTestHook', () => {
     expect(page.__atlasCameraMotion!().flying).toBe(false);
   });
 
-  it("reads the camera as moving from Cesium's moveStart to its moveEnd", () => {
+  it('reads the camera as moving for half a second after a drawn frame moves it', () => {
     const page = published();
     vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
-    const moves = camera();
-    cameraMotionTestHook(moves);
-    moves.moveStart.raise();
-    expect(page.__atlasCameraMotion!()).toEqual({
-      flying: false,
-      moving: true,
-    });
-    moves.moveEnd.raise();
-    expect(page.__atlasCameraMotion!()).toEqual({
-      flying: false,
-      moving: false,
-    });
+    let now = 1_000;
+    const frames = scene();
+    cameraMotionTestHook(frames, () => now);
+    const moving = () => page.__atlasCameraMotion!().moving;
+    frames.draw();
+    expect(moving()).toBe(false);
+    frames.camera.positionWC = { x: 6_778_137, y: 1_000, z: 0 };
+    now = 1_016;
+    frames.draw();
+    expect(moving()).toBe(true);
+    expect(CAMERA_QUIET_MS).toBe(500);
+    // At rest from then on, with or without another frame.
+    now = 1_515;
+    frames.draw();
+    expect(moving()).toBe(true);
+    now = 1_516;
+    expect(moving()).toBe(false);
   });
 
-  it('removes its listeners and only its own reader when destroyed', () => {
+  it("reads the camera's float drift as still, though it crosses Cesium's moveEnd epsilon", () => {
     const page = published();
     vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
-    const oldMoves = camera();
-    const old = cameraMotionTestHook(oldMoves)!;
-    const newer = cameraMotionTestHook(camera())!;
+    let now = 0;
+    const frames = scene();
+    cameraMotionTestHook(frames, () => now);
+    frames.draw();
+    // About what Cesium's per-frame heading and roll reads leave behind (1e-15 at EPSILON15).
+    for (let frame = 1; frame <= 60; frame += 1) {
+      now = frame * 8;
+      const sign = frame % 2 === 0 ? 1 : -1;
+      frames.camera.directionWC = { x: -1, y: sign * 1.2e-15, z: 0 };
+      frames.camera.positionWC = {
+        x: 6_778_137 * (1 + sign * 2e-15),
+        y: 0,
+        z: 0,
+      };
+      frames.draw();
+      expect(page.__atlasCameraMotion!().moving, `frame ${frame}`).toBe(false);
+    }
+    expect(CAMERA_STILL_TOLERANCE).toBe(1e-12);
+  });
+
+  it('reads a turn, a tilt and a 2D zoom, which moves only the frustum, as moves', () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    let now = 0;
+    const frames = scene();
+    cameraMotionTestHook(frames, () => now);
+    frames.draw();
+    const moves: (() => void)[] = [
+      () => (frames.camera.directionWC = { x: -0.99, y: 0.141, z: 0 }),
+      () => (frames.camera.upWC = { x: 0.01, y: 0, z: 0.99995 }),
+      () => (frames.camera.frustum = { right: 2e6, top: 1e6 }),
+      () => (frames.camera.frustum = { right: 1.9e6, top: 0.95e6 }),
+    ];
+    for (const move of moves) {
+      now += 1_000;
+      move();
+      frames.draw();
+      expect(page.__atlasCameraMotion!().moving).toBe(true);
+    }
+  });
+
+  it('removes its listener and only its own reader when destroyed', () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const oldFrames = scene();
+    const old = cameraMotionTestHook(oldFrames)!;
+    const newer = cameraMotionTestHook(scene())!;
     const reader = page.__atlasCameraMotion;
     old.destroy();
-    expect(oldMoves.moveStart.count()).toBe(0);
-    expect(oldMoves.moveEnd.count()).toBe(0);
+    expect(oldFrames.count()).toBe(0);
     expect(page.__atlasCameraMotion).toBe(reader);
     newer.destroy();
     expect(page.__atlasCameraMotion).toBeUndefined();
+  });
+});
+
+describe('drapeStatsTestHook', () => {
+  it('publishes nothing outside the e2e build', () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '');
+    expect(drapeStatsTestHook(() => STATS)).toBeUndefined();
+    expect(page.__atlasDrapeStats).toBeUndefined();
+  });
+
+  it('publishes the reader and removes only its own', () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const remove = drapeStatsTestHook(() => STATS)!;
+    expect(page.__atlasDrapeStats!()).toBe(STATS);
+    const newer = () => STATS;
+    page.__atlasDrapeStats = newer;
+    remove();
+    expect(page.__atlasDrapeStats).toBe(newer);
+  });
+
+  it('unpublishes its own reader', () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    drapeStatsTestHook(() => STATS)!();
+    expect(page.__atlasDrapeStats).toBeUndefined();
+  });
+});
+
+describe('pickLogTestHook (#483)', () => {
+  it('logs nothing outside the e2e build', () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '');
+    expect(pickLogTestHook()).toBeUndefined();
+    expect(page.__atlasPickLog).toBeUndefined();
+  });
+
+  it('logs each hover and click the scene resolved, on the page’s clock', () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const log = pickLogTestHook()!;
+    const pick = observationPickId('map-surveys:1', 'hbs-rs334:v3:map-2026-08');
+    log('hover', pick);
+    log('click', null);
+    expect(page.__atlasPickLog).toEqual([
+      { at: expect.any(Number), pick, source: 'hover' },
+      { at: expect.any(Number), pick: null, source: 'click' },
+    ]);
+  });
+});
+
+describe('e2e performance measures', () => {
+  const measures = (name: string) =>
+    performance.getEntriesByName(name, 'measure').map((entry) => ({
+      detail: (entry as PerformanceMeasure).detail as unknown,
+      duration: entry.duration,
+      startTime: entry.startTime,
+    }));
+
+  it('emits nothing outside the e2e build', () => {
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '');
+    measureGroundPass(10, 30, { kind: 'create', points: 1_071 });
+    measureDrapedReady(100, 3_100, {
+      branch: 'cap',
+      capElapsed: true,
+      frames: 40,
+      layer: 'atlas-surface',
+      renderedLevel: 0,
+      settled: false,
+    });
+    expect(measures(GROUND_PASS_MEASURE)).toEqual([]);
+    expect(measures(DRAPED_READY_MEASURE)).toEqual([]);
+  });
+
+  it('measures a ground pass from its start to its end, with the points it picked', () => {
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    expect(GROUND_PASS_MEASURE).toBe('atlas-ground-pass');
+    measureGroundPass(10, 30.5, { kind: 'resample', points: 1_071 });
+    expect(measures(GROUND_PASS_MEASURE)).toEqual([
+      {
+        detail: { kind: 'resample', points: 1_071 },
+        duration: 20.5,
+        startTime: 10,
+      },
+    ]);
+  });
+
+  it('times a pass that reads the ground on the clock given, with the points it says it picked', () => {
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const clock = { now: 40 };
+    const picked = measuredGroundPass(
+      'highlight',
+      () => {
+        clock.now += 12.5;
+        return 3;
+      },
+      () => clock.now,
+    );
+    expect(picked).toBe(3);
+    expect(measures(GROUND_PASS_MEASURE)).toEqual([
+      {
+        detail: { kind: 'highlight', points: 3 },
+        duration: 12.5,
+        startTime: 40,
+      },
+    ]);
+  });
+
+  it('measures a draped layer from its add or show to the frame that read it ready, and why', () => {
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    expect(DRAPED_READY_MEASURE).toBe('atlas-draped-ready');
+    measureDrapedReady(100, 3_100, {
+      branch: 'cap',
+      capElapsed: true,
+      frames: 40,
+      layer: 'atlas-outlines',
+      renderedLevel: 2,
+      settled: false,
+    });
+    expect(measures(DRAPED_READY_MEASURE)).toEqual([
+      {
+        detail: {
+          branch: 'cap',
+          capElapsed: true,
+          frames: 40,
+          layer: 'atlas-outlines',
+          renderedLevel: 2,
+          settled: false,
+        },
+        duration: 3_000,
+        startTime: 100,
+      },
+    ]);
   });
 });
