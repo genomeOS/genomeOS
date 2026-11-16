@@ -10,16 +10,17 @@ import { DEFAULT_OBSERVATION_SIZE_RANGE } from '../observation-encoding';
 export { resolveElevationView } from '../earth-style-catalog';
 
 /**
- * The hillshade light that shades physical terrain (#483): from the north-west, as on a shaded-
- * relief map, 35° above the horizon at the view target (higher from far out, and faded out beyond
- * 1,000 km: `hillshadeElevationDegrees`, `hillshadeShading`). Relief is shaded only where the
- * globe is lit, and the real-time sun leaves the night side (or a globe with day/night off)
- * evenly lit and flat, so World Terrain is lit by this fixed light instead, whatever the clock
- * says. Intensity 2 is the value the owner reviewed against the live site's Himalaya and
- * Ethiopian highlands.
+ * The hillshade light that shades physical terrain (#483; terrain draping design, "Per layer
+ * under World Terrain"): from the north-west, as on a shaded-relief map, 45° above the horizon at
+ * the view target (higher from far out, swinging towards a headlight from 500 km, and faded out
+ * beyond 1,000 km: `hillshadeElevationDegrees`, `hillshadeHeadlightWeight`, `hillshadeShading`).
+ * Relief is shaded only where the globe is lit, and the real-time sun leaves the night side (or a
+ * globe with day/night off) evenly lit and flat, so World Terrain is lit by this fixed light
+ * instead, whatever the clock says. Intensity 2 is the value the owner reviewed against the live
+ * site's Himalaya and Ethiopian highlands.
  */
 export const HILLSHADE_AZIMUTH_DEGREES = 315;
-export const HILLSHADE_ELEVATION_DEGREES = 35;
+export const HILLSHADE_ELEVATION_DEGREES = 45;
 export const HILLSHADE_INTENSITY = 2;
 /** How far above the visible disc's edge the light stays when the camera is far out. */
 export const HILLSHADE_HORIZON_MARGIN_DEGREES = 10;
@@ -29,30 +30,51 @@ const DEGREE = Math.PI / 180;
 export interface TerrainLighting {
   enableLighting: boolean;
   light: 'sun' | 'hillshade';
+  /**
+   * Whether the globe's ground atmosphere and water effect may show. They tint the ground they
+   * cover, so under World Terrain they are off while a surface layer shows; the hillshade never
+   * turns on one the globe had off (`TerrainShading`).
+   */
+  groundAtmosphere: boolean;
+  waterEffect: boolean;
 }
 
 /**
- * The owner's lighting rule (#483): World Terrain is always shaded by the fixed hillshade light;
- * the day/night setting applies to the smooth globe, which keeps the real-time sun exactly as
- * before.
+ * The owner's lighting rule (#483; terrain draping design, "Per layer under World Terrain"):
+ * World Terrain is always shaded by the fixed hillshade light, with no ground atmosphere or water
+ * effect over a shown surface (`surfaceShown`: the surface or support layer is on); the day/night
+ * setting applies to the smooth globe, which keeps the real-time sun exactly as before.
  */
 export function terrainLighting({
   dayNight,
+  surfaceShown,
   terrain,
 }: {
   dayNight: boolean;
+  surfaceShown: boolean;
   terrain: TerrainId;
 }): TerrainLighting {
   return hasPhysicalRelief(terrain)
-    ? { enableLighting: true, light: 'hillshade' }
-    : { enableLighting: dayNight, light: 'sun' };
+    ? {
+        enableLighting: true,
+        groundAtmosphere: !surfaceShown,
+        light: 'hillshade',
+        waterEffect: !surfaceShown,
+      }
+    : {
+        enableLighting: dayNight,
+        groundAtmosphere: true,
+        light: 'sun',
+        waterEffect: true,
+      };
 }
 
 /**
- * The light's elevation above the horizon at the view target. 35° wherever relief can be seen.
- * A directional light lights only the hemisphere facing it, so from far out a 35° light would
- * leave a fake night side inside the visible disc; above about 660 km the light rises with the
- * horizon, staying `HILLSHADE_HORIZON_MARGIN_DEGREES` above the disc's edge, to overhead.
+ * The light's elevation above the horizon at the view target. 45° wherever relief can be seen.
+ * A directional light lights only the hemisphere facing it, so from far out a 45° light would
+ * leave a fake night side inside the visible disc; above about 1,410 km, where
+ * `acos(R / (R + h)) + 10° = 45°`, the light rises with the horizon, staying
+ * `HILLSHADE_HORIZON_MARGIN_DEGREES` above the disc's edge, to overhead.
  */
 export function hillshadeElevationDegrees(cameraHeightMetres: number): number {
   const height = Math.max(0, cameraHeightMetres);
@@ -68,8 +90,24 @@ export function hillshadeElevationDegrees(cameraHeightMetres: number): number {
 }
 
 /**
+ * Camera heights over which the light swings from the hillshade to a headlight (terrain draping
+ * design, "Per layer under World Terrain"): the hillshade up to 500 km, the camera's line of sight
+ * from 5,000 km, a linear blend between. From far out a light from one side darkens the limb of
+ * the disc; a light along the line of sight lights the whole visible globe evenly.
+ */
+export const HILLSHADE_HEADLIGHT_METRES = [500_000, 5_000_000] as const;
+
+/** How far the light has swung towards the headlight seen from `heightMetres`, 0 to 1. */
+export function hillshadeHeadlightWeight(heightMetres: number): number {
+  const [start, end] = HILLSHADE_HEADLIGHT_METRES;
+  // A NaN height (a camera mid-morph) counts as far out, like the 2D map's whole-world width.
+  if (!(heightMetres < end)) return 1;
+  return Math.max(0, (heightMetres - start) / (end - start));
+}
+
+/**
  * Heights over which the hillshade fades out (#483 review). A directional light shades the curve
- * of the Earth as well as its relief: ground facing away from it drops to Cesium's shadow
+ * of the Earth as well as its relief: ground facing away from it drops to the shadow
  * darkness, with no fade by distance. From far out that is a night side the user cannot switch
  * off, since day/night does not apply to World Terrain; and relief is too small to see from
  * there. So the shading is full up to 1,000 km, fades out by 3,000 km, and World Terrain is drawn
@@ -77,8 +115,20 @@ export function hillshadeElevationDegrees(cameraHeightMetres: number): number {
  * is the width of the map shown, so the whole-world map is unlit too.
  */
 export const HILLSHADE_FADE_METRES = [1_000_000, 3_000_000] as const;
-/** Cesium's default `Globe.vertexShadowDarkness`: the brightness kept by ground facing away. */
-export const HILLSHADE_SHADOW_DARKNESS = 0.3;
+/**
+ * `Globe.vertexShadowDarkness` under the hillshade, up to 1,000 km: the brightness kept by ground
+ * facing away from the light (Cesium's default is 0.3). With `HILLSHADE_DIFFUSE_MULTIPLIER`, flat
+ * ground facing a 45° light keeps the exact legend colour, since Cesium clamps the diffuse term
+ * at 1 (GlobeFS.glsl:432): sin 45° × 0.9 + 0.45 ≈ 1.09 (terrain draping design, "Per layer under
+ * World Terrain"). Only slopes facing away from the light darken.
+ */
+export const HILLSHADE_SHADOW_DARKNESS = 0.45;
+/**
+ * `Globe.lambertDiffuseMultiplier` under the hillshade. It is Cesium 1.145's default
+ * (Globe.js:176); the hillshade sets it, and restores the globe's own value, to pin the term the
+ * legend-colour rule above relies on.
+ */
+export const HILLSHADE_DIFFUSE_MULTIPLIER = 0.9;
 
 export interface HillshadeShading {
   enableLighting: boolean;

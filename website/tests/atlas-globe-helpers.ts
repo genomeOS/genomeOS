@@ -2,14 +2,17 @@
  * Playwright helpers for where the Atlas draws its globe (fast-load design §A.1.13, amended
  * 2026-10-13; #452). On desktop the camera's view axis is drawn half the width the controls panel
  * covers to the right of the canvas centre; on a phone, or with the panel hidden, at the centre.
- * Also the fixture readouts by which the picking tests tell which cell a hover found.
+ * Also the fixture readouts by which the picking tests tell which cell a hover found, and the
+ * render tier the hover's tests place lifted cells by.
  */
 
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 import { splitLongToH3Index } from 'h3-js';
 
-import { atlasCatalogSchema } from '../src/atlas/contracts';
+import { atlasCatalogSchema, type Support } from '../src/atlas/contracts';
+import { supportName } from '../src/atlas/geometry/support-codes';
 import { decodeGrid, decodeRender } from '../src/atlas/gosa/decode';
+import type { MetricDomain } from '../src/atlas/visual-encoding';
 import { percent } from '../src/components/atlas/surface-cell-view';
 import { readE2eCatalog, readE2eObject } from './atlas-browser-fixture';
 
@@ -82,6 +85,21 @@ export const BESIDE_TARGET_PX = 60;
 export async function besideGlobeCentre(page: Page): Promise<Point> {
   const centre = await globeViewCentre(page);
   return { x: centre.x - BESIDE_TARGET_PX, y: centre.y };
+}
+
+/**
+ * Whether `locator` shows within `timeoutMs`. A hover resolves in the animation frame after the
+ * pointer moves (on the CPU since #483) and its preview in the render after that, so a test that
+ * tries points one by one waits for each rather than reading it at once.
+ */
+export async function shownSoon(
+  locator: Locator,
+  timeoutMs = 2_000,
+): Promise<boolean> {
+  return locator.waitFor({ state: 'visible', timeout: timeoutMs }).then(
+    () => true,
+    () => false,
+  );
 }
 
 /** The canvas centre in CSS px. */
@@ -187,6 +205,33 @@ function arrayBufferOf(bytes: Buffer): ArrayBuffer {
     bytes.byteOffset,
     bytes.byteOffset + bytes.byteLength,
   ) as ArrayBuffer;
+}
+
+/** An e2e fixture artifact's render tier: each cell's posterior mean and support; the domain. */
+export function renderTierOf(id: string): {
+  cells: Map<string, { postMean: number; support: Support }>;
+  domain: MetricDomain;
+} {
+  const catalog = atlasCatalogSchema.parse(readE2eCatalog());
+  const ref = catalog.artifacts.find((artifact) => artifact.id === id);
+  if (!ref) throw new Error(`The e2e catalog has no artifact "${id}".`);
+  const gridSha256 = ref.web.grid_sha256;
+  const entry = catalog.grids[gridSha256]!;
+  const grid = decodeGrid(arrayBufferOf(readE2eObject(entry.url)), {
+    entry,
+    gridSha256,
+  });
+  const render = decodeRender(
+    arrayBufferOf(readE2eObject(ref.web.render.url)),
+    { grid, ref },
+  );
+  const cells = new Map<string, { postMean: number; support: Support }>();
+  for (let row = 0; row < grid.n; row += 1)
+    cells.set(splitLongToH3Index(grid.h3Lo[row]!, grid.h3Hi[row]!), {
+      postMean: render.post_mean[row]!,
+      support: supportName(render.support[row]!),
+    });
+  return { cells, domain: ref.metric_domains.post_mean };
 }
 
 /**

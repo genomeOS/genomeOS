@@ -4,17 +4,41 @@
  * After the surface is visible, the scene runs the post-reveal load order (§B.6.9, `load-order.ts`):
  * the Natural Earth borders' download, then each displayed artifact's detail tier (`queueDetail`),
  * then the starfield, which is also held until `ready`. A failed artifact request starts the same
- * order. */
+ * order.
+ *
+ * Under World Terrain (terrain draping design, "Picking" and "Per layer under World Terrain"; #483)
+ * picks take the rendered ground once that terrain is on the globe and the data lies flat, and the
+ * terrain shading hears whether a surface layer shows, so the ground atmosphere and water effect
+ * stay off over the data.
+ *
+ * The scene drapes the surface ("When it is active", "How existing features behave") from the
+ * moment World Terrain is requested, so a cold load whose URL asks for it builds no chunks first;
+ * once the newest request settles, the terrain it left on the globe decides. While draped, data
+ * elevation is off and extruded draws as hexagons, the URL keeping both. The draped runtime is
+ * imported on the first draped build. A raster failure reverts to the smooth globe with the
+ * `'drape'` warning ("Failure modes"), which the next terrain choice clears.
+ *
+ * The context follows ("Per layer under World Terrain", "Exaggeration"): draped, the overlay drapes
+ * the borders and clamps the labels, and the highlight stands on the ground as tiles load; a border
+ * failure reverts too. A relief change re-samples the ground under the observations and the
+ * highlight after the frame that applies it, every 50 ms in a drag and once more at rest. */
 
 import { SceneMode, type CesiumWidget } from 'cesium';
 
 import {
   cameraMotionTestHook,
+  drapeStatsTestHook,
   revealWaveTestHold,
   syntheticTerrainTestHook,
   type CameraMotionHook,
   type SyntheticTerrainHook,
 } from '../e2e-hooks';
+import {
+  DRAPE_FAILED_WARNING,
+  hasPhysicalRelief,
+  resolveDrapedView,
+  type DrapedView,
+} from '../earth-style-catalog';
 import { createLoadOrder, type LoadOrder, type LoadTask } from '../load-order';
 import type {
   BasemapId,
@@ -45,6 +69,13 @@ import {
 import { ContextOverlay } from './context-overlay';
 import { installGlobeOffset, type GlobeOffset } from './globe-offset';
 import { createGlobeWidget, type GlobeWidget } from './globe-widget';
+import { createAtlasPickResolvers } from './hover-pick';
+import {
+  createReliefResampler,
+  onTileLoads,
+  throttleResample,
+  type ReliefResampler,
+} from './ground-heights';
 import { HighlightLayer } from './highlight-layer';
 import {
   bindAtlasPicking,
@@ -70,7 +101,6 @@ import {
 import { animateValue } from './scene-transition';
 import { ScientificLayers, type ScientificStyle } from './scientific-layers';
 import { SURFACE_CLEARANCE_METRES } from './surface-appearance';
-import { createSurfacePickResolver } from './surface-pick';
 import { TerrainShading } from './terrain-shading';
 import type {
   ArtifactLoad,
@@ -81,6 +111,7 @@ import type {
   AtlasSceneOptions,
   ContextStatus,
   DisplayedLayer,
+  DrapedRuntime,
   ObservationPresentation,
   SceneCapabilities,
   SceneProgressListener,
@@ -166,6 +197,22 @@ class CesiumAtlasScene implements AtlasSceneController {
   #contextStatus: ContextStatus = 'loading';
   /** A new globe is smooth until the context controller puts another terrain on it. */
   #appliedTerrain: TerrainId = 'smooth-globe';
+  /** The scene's draped rule (#483): the requested terrain's relief, then the applied one's. */
+  #drapeTerrain = false;
+  /** The newest terrain request; an older one's settling decides nothing. */
+  #terrainSequence = 0;
+  #drapedRuntime: Promise<DrapedRuntime> | null = null;
+  /** Unpublishes the e2e build's drape stats reader; undefined until the runtime loads. */
+  #removeDrapeStats: (() => void) | undefined;
+  /** The newest draped-context flip; an older one's runtime reaches nothing. */
+  #contextSequence = 0;
+  /** While draped, stops re-grounding the highlight as tiles load. */
+  #removeTileFollow: (() => void) | null = null;
+  readonly #reliefResampler: ReliefResampler;
+  /** Re-grounds a shown highlight, at most every `GROUND_RESAMPLE_MS` unless final. */
+  readonly #groundHighlight = throttleResample(() =>
+    this.#highlightLayer.setGround(this.#widget.scene.globe),
+  );
   #reducedMotion: boolean;
 
   constructor(container: HTMLElement, options: AtlasSceneOptions) {
@@ -188,8 +235,14 @@ class CesiumAtlasScene implements AtlasSceneController {
     );
     this.#terrainShading = new TerrainShading(this.#widget.scene);
     this.#syntheticTerrain = syntheticTerrainTestHook(this.#widget);
+    this.#reliefResampler = createReliefResampler(this.#widget.scene, (final) =>
+      this.#resampleGround(final),
+    );
     this.#reliefFrame = createFrameThrottle(
-      (relief: number) => this.#terrainShading.update({ relief }),
+      (relief: number) => {
+        this.#terrainShading.update({ relief });
+        this.#followRelief();
+      },
       (callback) => requestAnimationFrame(callback),
     );
     this.#contextController = new ContextController(
@@ -209,6 +262,7 @@ class CesiumAtlasScene implements AtlasSceneController {
         this.#widget.creditDisplay.removeStaticCredit(credit),
       scene: this.#widget.scene,
       worker: options.worker,
+      onDrapeFailure: (error) => this.#onDrapeFailure(error),
     });
     this.#naturalEarthUrl = options.naturalEarthUrl;
     styleAtlasScene(this.#widget);
@@ -239,13 +293,15 @@ class CesiumAtlasScene implements AtlasSceneController {
       style: () => this.#scientificStyle(),
       wave: this.#wave,
       worker: options.worker,
+      draped: () => this.#loadDrapedRuntime(),
+      onDrapeFailure: (error) => this.#onDrapeFailure(error),
     });
     this.#removeMarks = this.#marks.onMark((mark) => {
       if (mark === 'ready') this.#queueStarfield();
       if (mark === 'surface-visible') this.#startContext();
     });
     this.#unbindKeyboard = bindKeyboardCamera(this.#widget, container);
-    this.#cameraMotion = cameraMotionTestHook(this.#widget.camera);
+    this.#cameraMotion = cameraMotionTestHook(this.#widget.scene);
     this.#removeMoveEnd = this.#widget.camera.moveEnd.addEventListener(() => {
       const state = cameraState(this.#widget);
       if (!state) return;
@@ -261,7 +317,12 @@ class CesiumAtlasScene implements AtlasSceneController {
         this.#highlightLayer.setHover(value?.pick ?? null, this.#reducedMotion);
         for (const listener of this.#hoverListeners) listener(value);
       },
-      createSurfacePickResolver(this.#widget.scene, {
+      createAtlasPickResolvers(this.#widget.scene, {
+        // The applied terrain, not the requested one: until World Terrain is on the globe, the
+        // ground under the pointer is the ellipsoid. Lifted data keeps a click's depth pick.
+        draped: () =>
+          hasPhysicalRelief(this.#appliedTerrain) &&
+          this.#elevationFactor === 0,
         factor: () => this.#elevationFactor,
         geometry: () =>
           this.#layers.displayedLayer()?.geometry ?? this.#surfaceGeometry,
@@ -278,11 +339,12 @@ class CesiumAtlasScene implements AtlasSceneController {
   #scientificStyle(): ScientificStyle {
     return {
       cellEdges: this.#cellEdges,
+      draped: this.#drapeTerrain,
       earthOpacity: this.#earthOpacity,
       edgeColorMode: this.#edgeColorMode,
       edgeFixedColor: this.#edgeFixedColor,
       elevationFactor: this.#elevationFactor,
-      geometry: this.#surfaceGeometry,
+      geometry: this.#drapedView().geometry,
       layers: this.#layerVisibility,
       metric: this.#metric,
       mode: this.#mode,
@@ -356,7 +418,118 @@ class CesiumAtlasScene implements AtlasSceneController {
   }
 
   #targetElevationFactor(): number {
-    return this.#elevation && this.#mode !== 'map' ? this.#exaggeration : 0;
+    return this.#drapedView().elevationFactor;
+  }
+
+  /** What the scene draws of the user's elevation and geometry under its draped rule (#483). */
+  #drapedView(): DrapedView {
+    return resolveDrapedView({
+      draped: this.#drapeTerrain,
+      elevation: this.#elevation,
+      exaggeration: this.#exaggeration,
+      geometry: this.#surfaceGeometry,
+      view: this.#mode,
+    });
+  }
+
+  /**
+   * Asks the context controller for `terrain` (#483). The scene drapes on the request's word at
+   * once; when the newest request settles, on the terrain on the globe, so a World Terrain load
+   * that fails brings the chunks back.
+   */
+  #requestTerrain(terrain: TerrainId): Promise<boolean> {
+    const request = ++this.#terrainSequence;
+    const result = this.#contextController.setTerrain(terrain);
+    this.#setDrapeTerrain(hasPhysicalRelief(terrain));
+    const settle = () => {
+      if (request === this.#terrainSequence && !this.#destroyed)
+        this.#setDrapeTerrain(hasPhysicalRelief(this.#appliedTerrain));
+    };
+    void result.then(settle, settle);
+    return result;
+  }
+
+  /** A change rebuilds the surface in the other kind, and moves the data height and context. */
+  #setDrapeTerrain(next: boolean): void {
+    if (this.#drapeTerrain === next) return;
+    this.#drapeTerrain = next;
+    void this.#layers
+      .rebuild()
+      .catch((error: unknown) =>
+        console.warn(
+          'The surface could not be rebuilt for the terrain.',
+          error,
+        ),
+      );
+    void this.setElevation(this.#elevation, this.#exaggeration);
+    void this.#drapeContext(next);
+  }
+
+  /**
+   * Draped, the highlight stands on the ground as tiles load and the overlay drapes the borders;
+   * smooth, both get their own heights back. Only the newest flip reaches the overlay, and a
+   * runtime that cannot be imported reverts to the smooth globe. Never rejects.
+   */
+  async #drapeContext(draped: boolean): Promise<void> {
+    const flip = ++this.#contextSequence;
+    const { globe } = this.#widget.scene;
+    this.#removeTileFollow?.();
+    this.#removeTileFollow = draped
+      ? onTileLoads(globe, this.#groundHighlight)
+      : null;
+    if (!draped) this.#reliefResampler.cancel();
+    this.#highlightLayer.setGround(draped ? globe : null);
+    let runtime: DrapedRuntime | null = null;
+    try {
+      if (draped) runtime = await this.#loadDrapedRuntime();
+    } catch (error) {
+      if (flip === this.#contextSequence) this.#onDrapeFailure(error);
+      return;
+    }
+    if (flip === this.#contextSequence && !this.#destroyed)
+      await this.#overlay.setDraped(runtime);
+  }
+
+  /** Draped, a relief frame re-samples the ground after the next render, and once more at rest. */
+  #followRelief(): void {
+    if (this.#drapeTerrain) this.#reliefResampler.changed();
+  }
+
+  /** The ground under the draped observations and the highlight, re-read after a relief frame. */
+  #resampleGround(final: boolean): void {
+    this.#layers.resampleGround(final);
+    this.#groundHighlight(final);
+  }
+
+  /** The draped runtime, imported once (#483); an import that failed is tried again next time. */
+  #loadDrapedRuntime(): Promise<DrapedRuntime> {
+    this.#drapedRuntime ??= import('./draped/runtime').then(
+      ({ drapedRuntime }) => {
+        if (!this.#destroyed)
+          this.#removeDrapeStats = drapeStatsTestHook(() =>
+            drapedRuntime.stats.read(),
+          );
+        return drapedRuntime;
+      },
+      (error: unknown) => {
+        this.#drapedRuntime = null;
+        throw error;
+      },
+    );
+    return this.#drapedRuntime;
+  }
+
+  /**
+   * A draped raster failed (#483): the globe reverts to smooth with the `'drape'` warning, which
+   * stays until the next terrain choice. A failure heard once the scene no longer drapes belongs
+   * to a surface already being replaced, so it is only logged.
+   */
+  #onDrapeFailure(error: unknown): void {
+    if (this.#destroyed) return;
+    console.warn('The map data could not be draped over World Terrain.', error);
+    if (!this.#drapeTerrain) return;
+    this.#setWarning({ id: 'drape', message: DRAPE_FAILED_WARNING });
+    void this.#requestTerrain('smooth-globe');
   }
 
   async setArtifact(
@@ -428,7 +601,10 @@ class CesiumAtlasScene implements AtlasSceneController {
   }
 
   setTerrain(terrain: TerrainId): Promise<boolean> {
-    return this.#contextController.setTerrain(terrain);
+    // A new choice ends a drape failure's revert.
+    if (this.#warnings.has('drape'))
+      this.#setWarning({ id: 'drape', message: null });
+    return this.#requestTerrain(terrain);
   }
 
   capabilities(): SceneCapabilities {
@@ -440,6 +616,9 @@ class CesiumAtlasScene implements AtlasSceneController {
     this.#layers.setVisibility(layers, this.#observationStyle.samplingAreas);
     this.#contextController.setVisible(layers.context);
     this.#overlay.setVisible(layers.countries);
+    this.#terrainShading.update({
+      surfaceShown: layers.surface || layers.support,
+    });
     this.#widget.scene.requestRender();
   }
 
@@ -645,6 +824,8 @@ class CesiumAtlasScene implements AtlasSceneController {
     this.#elevationSequence += 1;
     this.#renderLoop.stop();
     this.#layers.destroy();
+    this.#overlay.destroy(); // the borders' rasters too: Cesium's teardown destroys no provider
+    this.#removeDrapeStats?.();
     this.#wave.destroy();
     this.#removeMarks();
     this.#marks.destroy();
@@ -655,6 +836,8 @@ class CesiumAtlasScene implements AtlasSceneController {
     this.#syntheticTerrain?.destroy();
     this.#removeRenderError();
     this.#reliefFrame.cancel();
+    this.#reliefResampler.cancel();
+    this.#removeTileFollow?.();
     this.#contextController.destroy();
     this.#terrainShading.destroy();
     this.#globeOffset.destroy();

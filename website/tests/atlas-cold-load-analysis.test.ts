@@ -473,31 +473,67 @@ describe('long-animation-frame attribution', () => {
 
   it('names the built chunk that imports Cesium as the root of its evaluation', () => {
     const astro = path.resolve(import.meta.dirname, '../dist/_astro');
-    const importsCesium = readdirSync(astro)
-      .filter((name) => name.endsWith('.js'))
-      .filter((name) =>
-        /["']\.\/cesium\.[\w-]+\.js["']/.test(
-          readFileSync(path.join(astro, name), 'utf8'),
-        ),
+    const sources = new Map(
+      readdirSync(astro)
+        .filter((name) => name.endsWith('.js'))
+        .map((name) => [name, readFileSync(path.join(astro, name), 'utf8')]),
+    );
+    const chunksIn = (name: string, pattern: RegExp) =>
+      [...sources.get(name)!.matchAll(pattern)].map(([, file]) => file!);
+    // Rolldown quotes a static import (`from"./x.js"`, `import"./x.js"`) and writes the
+    // specifier of a dynamic one as a template literal (import(`./x.js`)).
+    const staticImports = (name: string) =>
+      chunksIn(name, /(?:\bfrom|\bimport)\s*["']\.\/([\w.-]+\.js)["']/g);
+    const dynamicImports = (name: string) =>
+      chunksIn(name, /\bimport\(\s*`\.\/([\w.-]+\.js)`\s*\)/g);
+    const isCesium = (name: string) => /^cesium\.[\w-]+\.js$/.test(name);
+    /** Whether evaluating the chunk evaluates Cesium: it reaches the Cesium chunk through
+     * static imports. */
+    const loadsCesium = (name: string, seen = new Set<string>()): boolean => {
+      if (seen.has(name)) return false;
+      seen.add(name);
+      return staticImports(name).some(
+        (dep) => isCesium(dep) || loadsCesium(dep, seen),
       );
+    };
+    const importsCesium = [...sources.keys()].filter((name) =>
+      /["']\.\/cesium\.[\w-]+\.js["']/.test(sources.get(name)!),
+    );
     expect(importsCesium).not.toEqual([]);
-    for (const name of importsCesium) {
+    // A chunk whose every importer has already evaluated Cesium never roots that evaluation:
+    // Chrome's module-script entry for it holds only its own top level, which is Atlas work.
+    // The lazy draped runtime (terrain draping design, "When it is active", #483) is such a
+    // chunk: only the scene chunk loads it. A chunk with no importer is a page's own script.
+    const loadedAfterCesium = (name: string) => {
+      const importers = [...sources.keys()].filter(
+        (other) =>
+          staticImports(other).includes(name) ||
+          dynamicImports(other).includes(name),
+      );
+      return (
+        importers.length > 0 && importers.every((other) => loadsCesium(other))
+      );
+    };
+    const roots = importsCesium.filter((name) => !loadedAfterCesium(name));
+    expect(roots).not.toEqual([]);
+    const attribution = (name: string) => {
       const url = `${ORIGIN}/_astro/${name}`;
-      expect(
-        attributeScript(
-          {
-            sourceURL: url,
-            invoker: url,
-            invokerType: 'module-script',
-            startTime: 0,
-            duration: 10,
-          },
-          CONTEXT,
-          false,
-        ),
-        name,
-      ).toBe('cesium-eval');
-    }
+      return attributeScript(
+        {
+          sourceURL: url,
+          invoker: url,
+          invokerType: 'module-script',
+          startTime: 0,
+          duration: 10,
+        },
+        CONTEXT,
+        false,
+      );
+    };
+    for (const name of roots)
+      expect(attribution(name), name).toBe('cesium-eval');
+    for (const name of importsCesium.filter(loadedAfterCesium))
+      expect(attribution(name), name).toBe('atlas');
   });
 
   it('charges an Atlas frame only with time no Cesium or other script claims', () => {

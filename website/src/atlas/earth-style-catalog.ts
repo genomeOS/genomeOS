@@ -1,6 +1,10 @@
-/** Stable basemap and terrain gallery metadata for Atlas design §11. */
+/**
+ * Stable basemap and terrain gallery metadata for Atlas design §11, and how the data is drawn
+ * while it is draped over World Terrain: terrain draping design, "How existing features behave"
+ * and "Exaggeration" (#483).
+ */
 
-import type { ExplorerSceneMode } from './url-state';
+import type { ExplorerSceneMode, SurfaceGeometry } from './url-state';
 
 export interface EarthStyleOption<T extends string> {
   id: T;
@@ -295,6 +299,63 @@ export function hasPhysicalRelief(terrain: TerrainId): boolean {
   return terrain !== 'smooth-globe';
 }
 
+/** What the elevation controls say while the data is draped (#483). */
+export const DRAPED_ELEVATION_NOTE = 'Not available with World Terrain';
+/** The extruded geometry's label while draped. */
+export const DRAPED_EXTRUDED_LABEL = 'Columns (smooth globe only)';
+/** The extruded geometry's label on the smooth globe. */
+export const EXTRUDED_LABEL = 'Extruded hexagons';
+/** Warning id `'drape'`: a raster or provider failure reverts to the smooth globe (#483). */
+export const DRAPE_FAILED_WARNING =
+  'The map data could not be draped over World Terrain, so the smooth globe is shown instead.';
+
+export interface DrapedView {
+  /** The data height the scene draws: 0 while draped and in the 2D map. */
+  elevationFactor: number;
+  /** The geometry the scene draws: extruded draws as flat hexagons while draped. */
+  geometry: SurfaceGeometry;
+  /** Why data elevation is unavailable, shown beside it; null when it applies. */
+  elevationNote: string | null;
+  /** The extruded option's label. */
+  extrudedLabel: string;
+}
+
+interface DrapedViewInput {
+  /** Whether the data is draped: the scene's or the controls' draped rule. */
+  draped: boolean;
+  elevation: boolean;
+  exaggeration: number;
+  geometry: SurfaceGeometry;
+  view: ExplorerSceneMode;
+}
+
+/**
+ * Draped data lies on the ground: data elevation is off and extruded columns draw as flat
+ * hexagons. The URL keeps the user's elevation, exaggeration and geometry, so returning to the
+ * smooth globe restores them; there, the values are today's.
+ */
+export function resolveDrapedView({
+  draped,
+  elevation,
+  exaggeration,
+  geometry,
+  view,
+}: DrapedViewInput): DrapedView {
+  if (draped)
+    return {
+      elevationFactor: 0,
+      elevationNote: DRAPED_ELEVATION_NOTE,
+      extrudedLabel: DRAPED_EXTRUDED_LABEL,
+      geometry: geometry === 'extruded' ? 'hexagons' : geometry,
+    };
+  return {
+    elevationFactor: elevation && view !== 'map' ? exaggeration : 0,
+    elevationNote: null,
+    extrudedLabel: EXTRUDED_LABEL,
+    geometry,
+  };
+}
+
 export interface TerrainControlState {
   disabled: boolean;
   /** Why the control does not apply, shown beside it; null when it applies. */
@@ -339,16 +400,19 @@ export function effectiveRelief({
 }
 
 export interface ReliefControlState extends TerrainControlState {
-  /** What drawn terrain costs the map data; null when no terrain height is drawn. */
+  /**
+   * What drawn terrain costs the map data, announced beside the slider; null, since the data
+   * drapes onto World Terrain and costs nothing (#483).
+   */
   warning: string | null;
 }
 
 /**
- * Relief exaggerates the ground only. The data layers sit at fixed heights until they are draped
- * onto the terrain (#483's second change), so wherever World Terrain's height is drawn, even at
- * true scale, high ground can rise through them (#483 point 3: the 650 m surface disappears in
- * the Ethiopian highlands and the Himalaya), and raised relief rises through more. The warning
- * says so whenever that can happen, so data cut away by the ground is not read as missing data.
+ * Relief exaggerates the ground only, and the data follows it (terrain draping design,
+ * "Exaggeration"; #483). Under World Terrain the surface, outlines, borders and footprints are
+ * draped onto the relief and raised with it on the GPU, the labels re-clamp to the ground, and
+ * the observation symbols and the highlight re-sample their ground after each change. High ground
+ * no longer hides map data at any relief, so PR 1's warning that it could is retired.
  */
 export function reliefControl(
   input: ReliefInput & {
@@ -370,10 +434,5 @@ export function reliefControl(
       note: 'The 2D map is flat; switch to Globe or Perspective to raise the relief.',
       warning: null,
     };
-  return {
-    disabled: false,
-    note: null,
-    warning:
-      'World Terrain can hide map data on high ground, and raised relief hides more.',
-  };
+  return { disabled: false, note: null, warning: null };
 }

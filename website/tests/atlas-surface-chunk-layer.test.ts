@@ -26,6 +26,7 @@ import {
 import type { ElevatedSurfaceAppearance } from '../src/atlas/scene/surface-appearance';
 import type { SurfaceGeometry } from '../src/atlas/url-state';
 import {
+  chunkRows,
   emptySupport,
   flatTriangleSurfaceBuffers,
   maskedSupport,
@@ -128,10 +129,14 @@ describe('surface chunk group', () => {
     expect(layer.collection.get(1)).toBeInstanceOf(PrimitiveCollection);
   });
 
+  it('reads as the chunks kind of surface group', () => {
+    expect(group().kind).toBe('chunks');
+  });
+
   it('adds a chunk and its masked cells together with chunk pick ids', () => {
     const layer = group();
     const surface = triangleSurfaceBuffers(7);
-    layer.addChunk(surface, maskedSupport(7));
+    layer.addChunk(surface, maskedSupport(7), chunkRows(7));
 
     const surfaces = layer.collection.get(0) as PrimitiveCollection;
     const support = layer.collection.get(1) as PrimitiveCollection;
@@ -183,7 +188,7 @@ describe('surface chunk group', () => {
 
   it('uses the existing hatch and palette-dot support materials', () => {
     const layer = group();
-    layer.addChunk(triangleSurfaceBuffers(0), maskedSupport(0));
+    layer.addChunk(triangleSurfaceBuffers(0), maskedSupport(0), chunkRows(0));
     const support = layer.collection.get(1) as PrimitiveCollection;
     const unknown = (support.get(0) as Primitive).appearance.material;
     const prior = (support.get(1) as Primitive).appearance.material;
@@ -199,9 +204,9 @@ describe('surface chunk group', () => {
 
   it('gamma-corrects vertex colours only for hexagon and extruded chunks', () => {
     const smooth = group('triangles');
-    smooth.addChunk(triangleSurfaceBuffers(0), emptySupport(0));
+    smooth.addChunk(triangleSurfaceBuffers(0), emptySupport(0), chunkRows(0));
     const binned = group('hexagons');
-    binned.addChunk(triangleSurfaceBuffers(0), emptySupport(0));
+    binned.addChunk(triangleSurfaceBuffers(0), emptySupport(0), chunkRows(0));
     const uniformsOf = (layer: ReturnType<typeof group>) =>
       (
         ((layer.collection.get(0) as PrimitiveCollection).get(0) as Primitive)
@@ -214,7 +219,7 @@ describe('surface chunk group', () => {
 
   it('fades materials as the legacy group did and scales the hatch cell alpha', () => {
     const layer = group();
-    layer.addChunk(triangleSurfaceBuffers(0), maskedSupport(0));
+    layer.addChunk(triangleSurfaceBuffers(0), maskedSupport(0), chunkRows(0));
     layer.setOpacity(0.5);
     const surface = (
       (layer.collection.get(0) as PrimitiveCollection).get(0) as Primitive
@@ -235,9 +240,9 @@ describe('surface chunk group', () => {
 
   it('hides layers per primitive so hidden chunks still finish building', () => {
     const layer = group();
-    layer.addChunk(triangleSurfaceBuffers(0), maskedSupport(0));
+    layer.addChunk(triangleSurfaceBuffers(0), maskedSupport(0), chunkRows(0));
     layer.setVisibility(false, true);
-    layer.addChunk(triangleSurfaceBuffers(1), maskedSupport(1));
+    layer.addChunk(triangleSurfaceBuffers(1), maskedSupport(1), chunkRows(1));
 
     const surfaces = layer.collection.get(0) as PrimitiveCollection;
     const support = layer.collection.get(1) as PrimitiveCollection;
@@ -251,8 +256,8 @@ describe('surface chunk group', () => {
 
   it('raises every chunk through its elevation uniform', () => {
     const layer = group();
-    layer.addChunk(triangleSurfaceBuffers(0), emptySupport(0));
-    layer.addChunk(triangleSurfaceBuffers(1), emptySupport(1));
+    layer.addChunk(triangleSurfaceBuffers(0), emptySupport(0), chunkRows(0));
+    layer.addChunk(triangleSurfaceBuffers(1), emptySupport(1), chunkRows(1));
     layer.setElevationFactor(3);
     const surfaces = layer.collection.get(0) as PrimitiveCollection;
 
@@ -271,7 +276,7 @@ describe('surface chunk group', () => {
       ...triangleSurfaceBuffers(2),
       indices: new Uint16Array(0),
     };
-    layer.addChunk(empty, maskedSupport(2));
+    layer.addChunk(empty, maskedSupport(2), chunkRows(2));
     expect((layer.collection.get(0) as PrimitiveCollection).length).toBe(0);
     expect(layer.totalCount()).toBe(2);
   });
@@ -370,7 +375,7 @@ describe('surface chunk group', () => {
   it('starts a chunk added mid-fade at the current fade', () => {
     const layer = group();
     layer.setOpacity(0.25);
-    layer.addChunk(triangleSurfaceBuffers(0), maskedSupport(0));
+    layer.addChunk(triangleSurfaceBuffers(0), maskedSupport(0), chunkRows(0));
     const surface = childAt(layer, 0, 0).appearance.material;
     const hatch = childAt(layer, 1, 0).appearance.material;
     const dots = childAt(layer, 1, 1).appearance.material;
@@ -384,10 +389,11 @@ describe('surface chunk group', () => {
 
   it('counts a chunk ready only once its surface and every mask primitive are', () => {
     const layer = group();
-    layer.addChunk(triangleSurfaceBuffers(0), maskedSupport(0));
+    layer.addChunk(triangleSurfaceBuffers(0), maskedSupport(0), chunkRows(0));
     layer.addChunk(
       { ...triangleSurfaceBuffers(1), indices: new Uint16Array(0) },
       maskedSupport(1),
+      chunkRows(1),
     );
 
     markReady([childAt(layer, 0, 0)]);
@@ -404,7 +410,7 @@ describe('surface chunk group', () => {
   it('builds a chunk added after an elevation change at the current factor', () => {
     const layer = group();
     layer.setElevationFactor(2.5);
-    layer.addChunk(triangleSurfaceBuffers(0), emptySupport(0));
+    layer.addChunk(triangleSurfaceBuffers(0), emptySupport(0), chunkRows(0));
 
     expect(
       (childAt(layer, 0, 0).appearance as ElevatedSurfaceAppearance).uniforms
@@ -414,9 +420,9 @@ describe('surface chunk group', () => {
 
   it('hides the mask per primitive, including chunks added while it is hidden', () => {
     const layer = group();
-    layer.addChunk(triangleSurfaceBuffers(0), maskedSupport(0));
+    layer.addChunk(triangleSurfaceBuffers(0), maskedSupport(0), chunkRows(0));
     layer.setVisibility(true, false);
-    layer.addChunk(triangleSurfaceBuffers(1), maskedSupport(1));
+    layer.addChunk(triangleSurfaceBuffers(1), maskedSupport(1), chunkRows(1));
 
     expect((layer.collection.get(1) as PrimitiveCollection).show).toBe(true);
     expect(childrenOf(layer, 1).map((primitive) => primitive.show)).toEqual([
@@ -443,9 +449,9 @@ describe('surface chunk group', () => {
   it('grows flat chunks from their cell centres and fades smooth ones per vertex (#453)', () => {
     const flat = group('hexagons');
     const buffers = flatTriangleSurfaceBuffers(0);
-    flat.addChunk(buffers, emptySupport(0));
+    flat.addChunk(buffers, emptySupport(0), chunkRows(0));
     const smooth = group('triangles');
-    smooth.addChunk(triangleSurfaceBuffers(0), emptySupport(0));
+    smooth.addChunk(triangleSurfaceBuffers(0), emptySupport(0), chunkRows(0));
 
     expect(attributesOf(childAt(flat, 0, 0)).cellCentre.values).toBe(
       buffers.cellCentres,
@@ -465,8 +471,8 @@ describe('surface chunk group', () => {
     const wave = restingWave();
     const layer = group('hexagons', wave);
     const support = maskedSupport(0);
-    layer.addChunk(flatTriangleSurfaceBuffers(0), support);
-    layer.addChunk(triangleSurfaceBuffers(1), maskedSupport(1));
+    layer.addChunk(flatTriangleSurfaceBuffers(0), support, chunkRows(0));
+    layer.addChunk(triangleSurfaceBuffers(1), maskedSupport(1), chunkRows(1));
     wave.radius = 0.3;
 
     for (const primitive of childrenOf(layer, 0))
@@ -519,7 +525,7 @@ describe('surface chunk group', () => {
 
   it('gamma-corrects and closes extruded chunks', () => {
     const layer = group('extruded');
-    layer.addChunk(triangleSurfaceBuffers(0), emptySupport(0));
+    layer.addChunk(triangleSurfaceBuffers(0), emptySupport(0), chunkRows(0));
     const appearance = childAt(layer, 0, 0)
       .appearance as ElevatedSurfaceAppearance;
 
@@ -531,10 +537,42 @@ describe('surface chunk group', () => {
     const layer = group();
 
     expect(() =>
-      layer.addChunk(triangleSurfaceBuffers(3), maskedSupport(4)),
+      layer.addChunk(triangleSurfaceBuffers(3), maskedSupport(4), chunkRows(4)),
     ).toThrow('surface chunk 3 cannot take the mask of chunk 4');
     expect(layer.chunkCount()).toBe(0);
     expect(layer.totalCount()).toBe(0);
+  });
+
+  it('knows the grid rows its added chunks carry, and no others (#483)', () => {
+    const layer = group();
+    expect(layer.carries(0)).toBe(false);
+    layer.addChunk(
+      triangleSurfaceBuffers(0),
+      emptySupport(0),
+      Uint32Array.of(3, 9),
+    );
+    layer.addChunk(
+      triangleSurfaceBuffers(1),
+      maskedSupport(1),
+      Uint32Array.of(70_000),
+    );
+    expect([0, 3, 4, 9, 70_000, 70_001].map(layer.carries)).toEqual([
+      false,
+      true,
+      false,
+      true,
+      true,
+      false,
+    ]);
+    // A chunk refused for a mismatched mask carries nothing.
+    expect(() =>
+      layer.addChunk(
+        triangleSurfaceBuffers(2),
+        maskedSupport(5),
+        Uint32Array.of(4),
+      ),
+    ).toThrow();
+    expect(layer.carries(4)).toBe(false);
   });
 
   it('keeps raised chunks that Cesium re-bounds at the antimeridian out of culling', () => {
@@ -545,8 +583,8 @@ describe('surface chunk group', () => {
       true,
     );
     const layer = group();
-    layer.addChunk(triangleSurfaceBuffers(0), emptySupport(0));
-    layer.addChunk(seamSurfaceBuffers(1), maskedSupport(1));
+    layer.addChunk(triangleSurfaceBuffers(0), emptySupport(0), chunkRows(0));
+    layer.addChunk(seamSurfaceBuffers(1), maskedSupport(1), chunkRows(1));
     const culled = () =>
       childrenOf(layer, 0).map((primitive) => primitive.cull);
 
@@ -554,7 +592,7 @@ describe('surface chunk group', () => {
     expect(culled()).toEqual([true, true]);
     layer.setElevationFactor(3);
     expect(culled()).toEqual([true, false]);
-    layer.addChunk(seamSurfaceBuffers(2), emptySupport(2));
+    layer.addChunk(seamSurfaceBuffers(2), emptySupport(2), chunkRows(2));
     expect(culled()).toEqual([true, false, false]);
     // Masks are never raised, so they keep culling.
     expect(childrenOf(layer, 1).map((primitive) => primitive.cull)).toEqual([
@@ -570,8 +608,8 @@ describe('surface chunk group', () => {
     // map frame, which the sheared raised surface leaves; the pick and
     // translucent-depth passes then dropped chunks that were on screen.
     const layer = group();
-    layer.addChunk(triangleSurfaceBuffers(0), maskedSupport(0));
-    layer.addChunk(seamSurfaceBuffers(1), emptySupport(1));
+    layer.addChunk(triangleSurfaceBuffers(0), maskedSupport(0), chunkRows(0));
+    layer.addChunk(seamSurfaceBuffers(1), emptySupport(1), chunkRows(1));
     const culled = () =>
       childrenOf(layer, 0).map((primitive) => primitive.cull);
 
@@ -579,7 +617,7 @@ describe('surface chunk group', () => {
     expect(culled(), 'at rest the bounds hold').toEqual([true, true]);
     layer.setElevationFactor(2);
     expect(culled()).toEqual([false, false]);
-    layer.addChunk(triangleSurfaceBuffers(2), emptySupport(2));
+    layer.addChunk(triangleSurfaceBuffers(2), emptySupport(2), chunkRows(2));
     expect(culled()).toEqual([false, false, false]);
     expect(
       childrenOf(layer, 1).every((primitive) => primitive.cull),
@@ -606,7 +644,11 @@ describe('surface chunk group', () => {
       [seamSurfaceBuffers(1), true],
     ] as const) {
       const layer = group();
-      layer.addChunk(buffers, emptySupport(buffers.chunk));
+      layer.addChunk(
+        buffers,
+        emptySupport(buffers.chunk),
+        chunkRows(buffers.chunk),
+      );
       const instance = childAt(layer, 0, 0)
         .geometryInstances as GeometryInstance;
       splitLongitude(instance);

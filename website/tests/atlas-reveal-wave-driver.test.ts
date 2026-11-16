@@ -7,6 +7,7 @@ import {
   cellReveal,
   REVEAL_WAVE_MS,
   WAVE_COMPLETE_RADIUS,
+  waveEase,
   waveFront,
   waveTimeline,
   type Vec3,
@@ -335,6 +336,32 @@ describe('reveal wave driver', () => {
     expect(h.wave.uniforms.radius).toBeCloseTo(
       waveFront(timeline, REVEAL_WAVE_MS / 4 + 16).radius,
     );
+  });
+
+  // Under World Terrain the draped surface fades in on the wave's timeline (#483).
+  it('reads progress 1 at rest, 0 until its first drawn frame, then the eased timeline', () => {
+    const { wave, frame } = harness();
+    expect(wave.progress()).toBe(1);
+    wave.start(false);
+    expect(wave.progress()).toBe(0);
+    frame();
+    frame(REVEAL_WAVE_MS / 4);
+    expect(wave.progress()).toBeCloseTo(waveEase(0.25), 9);
+    for (let i = 0; i < 4; i += 1) frame(REVEAL_WAVE_MS / 4);
+    expect(wave.progress()).toBe(1);
+  });
+
+  it('reads progress 1 under reduced motion and once a hidden tab ends the wave', () => {
+    const h = harness();
+    h.wave.start(true);
+    expect(h.wave.progress()).toBe(1);
+    h.wave.start(false);
+    h.frame();
+    h.frame(100);
+    expect(h.wave.progress()).toBeGreaterThan(0);
+    expect(h.wave.progress()).toBeLessThan(1);
+    h.hide();
+    expect(h.wave.progress()).toBe(1);
   });
 
   it('writes nothing and requests nothing once destroyed', () => {

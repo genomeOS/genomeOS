@@ -2,6 +2,9 @@
  *
  * Marker anchors are presentation-only samples of the active render mesh.
  * They never alter observation coordinates, sampling radii, or artifact data.
+ *
+ * Under World Terrain a symbol also rises by the ground under it, keeping today's clearance above
+ * it (terrain draping design, "Per layer under World Terrain", observation symbols, #483).
  */
 
 import { Cartesian3, Ellipsoid } from 'cesium';
@@ -80,16 +83,22 @@ function triangleNormal(
   return normal;
 }
 
+/**
+ * `groundMetres` is the terrain height under the observation (0 on the smooth globe); the symbol
+ * keeps today's 650 + 7,000 m clearance above it. Terrain never enters the metric.
+ */
 export function observationSurfacePlacement(
   anchor: ObservationSurfaceAnchor,
   point: GeographicPoint,
   elevationFactor: number,
+  groundMetres = 0,
 ): ObservationSurfacePlacement {
   const safeFactor = Math.max(0, elevationFactor);
   const position = Cartesian3.fromDegrees(
     point.lon,
     point.lat,
-    SURFACE_CLEARANCE_METRES +
+    groundMetres +
+      SURFACE_CLEARANCE_METRES +
       anchor.height * safeFactor +
       SYMBOL_CLEARANCE_METRES,
   );

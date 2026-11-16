@@ -1,5 +1,6 @@
 /** Worker-built surface chunks as Cesium primitives for Atlas design §11 (spec 2026-10-07 §B.6.5–§B.6.6,
- * and §B.6.7 as amended 2026-10-13 for the reveal wave, #453).
+ * and §B.6.7 as amended 2026-10-13 for the reveal wave, #453), the `chunks` kind of surface group
+ * (terrain draping design, "Per layer under World Terrain", #483).
  *
  * One primitive per chunk carries its supported cells; its masked cells
  * (`unknown` hatch, `prior_dominated` dots per palette bin) are added in the
@@ -8,7 +9,9 @@
  * Child order of `collection` is surface (0), support (1), edges (2).
  *
  * Surface and mask appearances all read one shared reveal-wave state, so a
- * hexagon shows only once its chunk is added and the wave has reached it.
+ * hexagon shows only once its chunk is added and the wave has reached it. The
+ * group keeps which grid rows its added chunks carry, so a pick that resolves on
+ * the CPU takes a row as drawn only then (#483).
  * Cell outlines cannot follow the wave on the GPU (Cesium's buffer polyline
  * shader is fixed, and following it ring by ring would mean per-cell buffer
  * writes, #451), so they are held hidden while a wave runs.
@@ -47,7 +50,11 @@ import {
   usesVertexColorGamma,
   type ElevatedSurfaceAppearance,
 } from './surface-appearance';
-import type { ScientificPrimitiveGroup, SurfaceChunkPick } from './types';
+import type {
+  ScientificPrimitiveGroup,
+  SurfaceChunkPick,
+  SurfaceGroup,
+} from './types';
 
 const SURFACE_MATERIAL_ALPHA = 0.9;
 const EDGE_FADE_THRESHOLD = 0.05;
@@ -63,15 +70,21 @@ export interface SurfaceChunkGroupOptions {
   wave?: RevealWaveUniforms;
 }
 
-export interface SurfaceChunkGroup extends ScientificPrimitiveGroup {
-  readonly artifactKey: string;
+/** The smooth globe's surface group; `collection` is redeclared, since the two bases differ. */
+export interface SurfaceChunkGroup
+  extends ScientificPrimitiveGroup, SurfaceGroup {
+  readonly kind: 'chunks';
+  collection: PrimitiveCollection;
   readonly edges: EdgeLayer;
-  addChunk(surface: SurfaceChunkBuffers, support: SupportChunkBuffers): void;
+  /** Adds a chunk's surface and mask, which carry the grid `rows`. */
+  addChunk(
+    surface: SurfaceChunkBuffers,
+    support: SupportChunkBuffers,
+    rows: Uint32Array,
+  ): void;
   chunkCount(): number;
-  readyChunkCount(): number;
-  opacity(): number;
-  /** Hides the cell outlines while a reveal wave runs, whatever else would show them. */
-  setEdgesHeld(held: boolean): void;
+  /** Whether a chunk added so far carries grid row `row`, so the group can draw it (#483). */
+  carries(row: number): boolean;
 }
 
 interface OpacityMaterial {
@@ -193,6 +206,18 @@ export function createSurfaceChunkGroup(
   const opacityMaterials: OpacityMaterial[] = [];
   const appearances: ElevatedSurfaceAppearance[] = [];
   const reboundedSurfaces: Primitive[] = [];
+  /** One flag per grid row, set once a chunk carrying the row is added; grown as rows arrive. */
+  let carried = new Uint8Array(0);
+  const carry = (rows: Uint32Array) => {
+    let size = carried.length;
+    for (const row of rows) size = Math.max(size, row + 1);
+    if (size > carried.length) {
+      const grown = new Uint8Array(Math.max(size, 2 * carried.length));
+      grown.set(carried);
+      carried = grown;
+    }
+    for (const row of rows) carried[row] = 1;
+  };
   let fadeOpacity = 1;
   let surfaceOpacity = options.surfaceOpacity;
   let edgesVisible = options.cellEdges;
@@ -311,8 +336,9 @@ export function createSurfaceChunkGroup(
     artifactKey: options.artifactKey,
     collection,
     edges,
+    kind: 'chunks',
     primitives,
-    addChunk(surface, support) {
+    addChunk(surface, support, rows) {
       const chunk = surface.chunk;
       if (support.chunk !== chunk)
         throw new Error(
@@ -339,7 +365,9 @@ export function createSurfaceChunkGroup(
         if (primitive) entry.support.push(primitive);
       }
       chunks.push(entry);
+      carry(rows);
     },
+    carries: (row) => carried[row] === 1,
     chunkCount: () => chunks.length,
     readyChunkCount: () =>
       chunks.filter(

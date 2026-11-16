@@ -2,9 +2,14 @@
  * 2026-10-07 §B.6.3, §B.6.5, §B.6.9, §B.6.13; step timings §B.1).
  *
  * Pure orchestration over the Cesium-free geometry modules: one transferable
- * `chunk` message per chunk in camera order (anchors ride on the first), a
+ * `chunk` message per chunk in camera order (anchors ride on the first), each
+ * naming the grid rows it carries (§B.6.6 as amended 2026-11-14, #483), a
  * yield between chunks so `cancel` can land, and topology plus the chunk plan
- * cached per grid. Recolour reuses the cached topology and vertex means.
+ * cached per grid. Recolour reuses the cached topology and vertex means. The
+ * draped rasters share that cache through `prepared`, and the borders copy that
+ * `parse-context` keeps through `naturalEarth` (terrain draping design, "How
+ * existing features behave": Worker; "Per layer under World Terrain": borders,
+ * #483).
  */
 
 import type { DecodedGrid, DecodedRender } from '../gosa/types';
@@ -68,8 +73,9 @@ export function transferablesOf(
 }
 
 function chunkTransferables(message: ChunkMessage): ArrayBuffer[] {
-  const { surface, support, anchors } = message;
+  const { anchors, rows, support, surface } = message;
   return transferablesOf(
+    rows,
     surface.positions,
     surface.normals,
     surface.elevationNormals,
@@ -99,15 +105,28 @@ class MissingInputError extends Error {}
 
 export interface GeometryWorker {
   handlers: GeometryHandlers;
+  /** The cached topology and chunk plan of a loaded grid, built (untimed) when absent; undefined
+   * when the grid is not loaded. The raster runtime reads it, so both share one topology. */
+  prepared(gridSha256: string): PreparedGrid | undefined;
   /** Builds and caches topology and the chunk plan as soon as a grid decodes. */
   warmGrid(id: number, gridSha256: string): void;
+  /** The Natural Earth copy `parse-context` keeps (its posted buffers are transferred); null
+   * before the borders are parsed. The raster runtime draws the draped borders from it. */
+  naturalEarth(): NaturalEarthBuffers | null;
 }
 
 export function createGeometryWorker(
   context: GeometryWorkerContext,
 ): GeometryWorker {
-  const prepared = new Map<string, PreparedGrid>();
+  const preparedGrids = new Map<string, PreparedGrid>();
   let naturalEarth: NaturalEarthBuffers | null = null;
+
+  function build(gridSha256: string, grid: DecodedGrid): PreparedGrid {
+    const topology = buildGridTopology(grid);
+    const entry = { plan: planChunks(grid, topology), topology };
+    preparedGrids.set(gridSha256, entry);
+    return entry;
+  }
 
   function timing(
     id: number,
@@ -136,12 +155,10 @@ export function createGeometryWorker(
   ): { grid: DecodedGrid } & PreparedGrid {
     const grid = context.grid(gridSha256);
     if (!grid) throw new MissingInputError(`grid ${gridSha256} is not loaded`);
-    let entry = prepared.get(gridSha256);
+    let entry = preparedGrids.get(gridSha256);
     if (!entry) {
       const start = context.now();
-      const topology = buildGridTopology(grid);
-      entry = { plan: planChunks(grid, topology), topology };
-      prepared.set(gridSha256, entry);
+      entry = build(gridSha256, grid);
       timing(id, 'topology', null, null, start);
     }
     return { grid, ...entry };
@@ -237,6 +254,8 @@ export function createGeometryWorker(
         chunk: chunk.id,
         id,
         index,
+        // A copy, since the message's arrays are transferred and the plan is cached.
+        rows: chunk.rows.slice(),
         seam: chunk.seam,
         support,
         surface,
@@ -377,6 +396,13 @@ export function createGeometryWorker(
 
   return {
     handlers,
+    // These two read no `this`, so the raster context may hold them unbound.
+    naturalEarth: () => naturalEarth,
+    prepared: (gridSha256) => {
+      const grid = context.grid(gridSha256);
+      if (!grid) return undefined;
+      return preparedGrids.get(gridSha256) ?? build(gridSha256, grid);
+    },
     warmGrid(id, gridSha256) {
       prepare(id, gridSha256);
     },
