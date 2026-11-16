@@ -17,7 +17,7 @@ Every task's requirements include this section. Paths are under `website/` (`src
 **Base and phases**
 - Base: PR 1, branch `fix/terrain-visibility`, head `d00d3f5` (not the skeleton's `bfb87a3`: `b179e51`, `08597a5` and `d00d3f5` follow it). Line numbers for existing files are at `d00d3f5`; later phases shift them, so locate each edit by the symbol named with it.
 - Four PRs, stacked: `feat/atlas-drape-1` (Tasks 1–5) → `feat/atlas-drape-2` (6–17) → `feat/atlas-drape-3` (18–26) → `feat/atlas-drape-4` (27–36). Each is based on the previous phase's branch, retargeted to `main` when its base merges.
-- Cesium `1.145.0`. Engine source for reference, read only: `/Users/bschilder/Desktop/genomeOS/.claude/worktrees/atlas-fast-load-b/website/node_modules/@cesium/engine/Source`.
+- Cesium `1.145.0`. Engine source for reference, read only: `website/node_modules/@cesium/engine/Source` in any checkout with `npm ci` done.
 
 **Owner decisions and PR 1 (binding; they override the spec where it differs)**
 - Hillshade lighting whenever World Terrain is on the globe. Day/night applies only to the smooth globe. The spec's "with day/night on, the light is SunLight" is void.
