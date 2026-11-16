@@ -132,7 +132,21 @@ describe('React stays in the Atlas app (ruling 44)', () => {
     const react = chunks.filter((file) => read(file).includes('react-dom'));
     expect(react.length).toBeGreaterThan(0);
     for (const file of react)
-      expect(['AtlasExplorer', 'cesium', 'client'], file).toContain(name(file));
+      expect(
+        ['AtlasExplorer', 'atlas-scene', 'cesium', 'client'],
+        file,
+      ).toContain(name(file));
+  });
+
+  // Since the lazy draped runtime imports Cesium too (#483), Rolldown hands the island's
+  // import() of the scene chunk a namespace object, built with a helper from the shared chunk
+  // it names after react-dom. The scene chunk may name that file, and hold nothing else of it.
+  it('the Atlas scene chunk names react-dom only as a chunk file', () => {
+    const scene = chunks.filter((file) => name(file) === 'atlas-scene');
+    expect(scene).toHaveLength(1);
+    expect(
+      read(scene[0]!).replace(/\breact-dom\.[\w-]+\.js\b/g, ''),
+    ).not.toContain('react-dom');
   });
 
   /** Every module a page can load: its module scripts and their static and lazy imports. */

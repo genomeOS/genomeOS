@@ -58,6 +58,7 @@ import { PanelSheet } from './PanelSheet';
 import { useArtifactPipeline } from './useArtifactPipeline';
 import { nextPaint, useAtlasActivity } from './useAtlasActivity';
 import { useAtlasAnalytics } from './useAtlasAnalytics';
+import { useEarthPresentation } from './useEarthPresentation';
 import { EscapeStackProvider } from './useEscapeStack';
 import { ExplorerPanelsProvider } from './useExplorerPanels';
 import { useObservationPlaces } from './useObservationPlaces';
@@ -460,46 +461,15 @@ export default function AtlasExplorer({
     sceneController,
   ]);
 
-  useEffect(() => {
-    if (!state) return;
-    if (!sceneHasArtifact()) {
-      void scene.current?.setBasemap(state.basemap);
-      return;
-    }
-    return runSceneActivity(
-      'Changing basemap',
-      'Waiting for imagery services',
-      (controller) => controller.setBasemap(state.basemap),
-    );
-  }, [state?.basemap, sceneAttempt, sceneController]);
-
-  useEffect(() => {
-    if (state)
-      scene.current?.setMapPresentation(
-        state.basemapOpacity,
-        state.basemapBrightness,
-        state.dayNightLighting,
-      );
-  }, [
-    state?.basemapOpacity,
-    state?.basemapBrightness,
-    state?.dayNightLighting,
+  // Basemap, its appearance and day/night, physical terrain and its relief (#483).
+  const appliedTerrain = useEarthPresentation({
+    runSceneActivity,
+    scene,
     sceneAttempt,
     sceneController,
-  ]);
-
-  useEffect(() => {
-    if (!state) return;
-    if (!sceneHasArtifact()) {
-      void scene.current?.setTerrain(state.terrain);
-      return;
-    }
-    return runSceneActivity(
-      'Changing terrain',
-      'Waiting for terrain services',
-      (controller) => controller.setTerrain(state.terrain),
-    );
-  }, [state?.terrain, sceneAttempt, sceneController]);
+    sceneHasArtifact,
+    state,
+  });
 
   useEffect(() => {
     if (state) scene.current?.setLayerVisibility(state.layers);
@@ -618,6 +588,7 @@ export default function AtlasExplorer({
 
           {catalog && state ? (
             <ExplorerControls
+              appliedTerrain={appliedTerrain}
               capabilities={capabilities}
               catalog={catalog}
               artifactDataBase={artifactDataBase}
@@ -667,6 +638,7 @@ export default function AtlasExplorer({
               onDayNightLighting={(dayNightLighting) =>
                 update({ dayNightLighting })
               }
+              onRelief={(relief) => update({ relief })}
               onTerrain={(terrain) => update({ terrain })}
               onSurfacePalette={(surfacePalette) =>
                 update({ paletteMode: 'custom', surfacePalette })

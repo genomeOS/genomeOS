@@ -26,14 +26,18 @@ function picker(basemap: BasemapId, terrain: TerrainId): string {
       EscapeStackProvider,
       null,
       createElement(EarthStylePicker, {
+        appliedTerrain: terrain,
         basemap,
         capabilities: {
           basemaps: allAvailable(BASEMAP_IDS),
           terrains: allAvailable(TERRAIN_IDS),
         },
         disabled: false,
+        relief: 1,
         terrain,
+        view: 'globe',
         onBasemap: () => {},
+        onRelief: () => {},
         onTerrain: () => {},
       }),
     ),

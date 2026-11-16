@@ -307,8 +307,24 @@ committed as `docs/figures/atlas-mobile-{before,after}.png`.
 
 - **Environment.** Headed Chrome (`channel: 'chrome'`) on a hardware GPU; the spec records the
   `WEBGL_debug_renderer_info` renderer and the machine in its JSON attachment and skips budget
-  assertions on SwiftShader/software renderers. Each run is a fresh browser context with a cold HTTP
+  assertions on SwiftShader/software renderers. A headless run (`ATLAS_COLD_LOAD_HEADLESS=1`) is a
+  local smoke check that never counts as the gate. Each run is a fresh browser context with a cold HTTP
   cache; the spec reports the median of 3 runs and asserts budgets on the median.
+- **Warm-up load** (amended 2026-11-14, owner decision). Each freshly launched browser first runs
+  one cold load in its own throwaway context and discards it, then the 3 measured runs. Why: the
+  first page of a new Chrome also measures Chrome's own GPU warm-up. Chrome's GPU process builds
+  its first-use rendering pipelines on its main thread (Skia Graphite and Dawn, each a Metal
+  compile when the shader cache misses). The page's first WebGL context creation is a synchronous
+  call to that thread, so it waits behind them. The page cannot remove that wait: without the
+  explorer's WebGL probe it moves into Cesium's own context creation. Measured headless on an
+  Apple M3 Pro, with a colour profile its Metal cache had never seen: without the warm-up, load 0
+  failed the 200 ms desktop cap at 267–415 ms headless (1,405 ms in the headed session), on main
+  and on #503; with it, the measured runs'
+  longest Atlas frames were 71.7, 71.3 and 74.2 ms. Unchanged: 3 measured runs per profile, each
+  a fresh browser context with a cold HTTP cache; budgets asserted on their median; the per-load
+  long-frame cap on every measured run; headed Chrome on a hardware GPU; baseline mode. The
+  warm-up's cost stays in the JSON report as `gpuWarmup` (its outcome, every Atlas long frame it absorbed with
+  its scripts' source function names and positions, and WebGL context-creation times) and is not asserted.
 - **Profiles.** Desktop: 1440×900, no throttling. Mobile: 390×844 at DPR 3, `isMobile`, `hasTouch`,
   CDP `Emulation.setCPUThrottlingRate {rate: 4}` on the page **and on every dedicated-worker target**
   (`Target.setAutoAttach {autoAttach: true, flatten: true, waitForDebuggerOnStart: true}`, throttle
@@ -779,6 +795,44 @@ scene (when import resolves) ── observations → chunk scheduler (B.6.7) →
      `{ kind: 'surface', artifactKey, row }` and dropped if `artifactKey` no longer matches; the
      detail gate checks the detail tier for that `artifactKey`. The highlight layer is keyed the same
      way. Only `drillPick` results containing a `surface-chunk` pick trigger cell resolution.
+
+   (Amended 2026-11-14, #483, owner decision: only a click drill picks. A hover made the page's
+   first GPU pick, which links the pick variants of the programs in view inside the hover's frame:
+   about 650 ms on a cold Metal shader cache. Every later hover waited on a `readPixels` read-back,
+   8–26 ms at production density on Metal and 42–224 ms on SwiftShader. A hover now makes no GPU
+   pick and resolves on the CPU what a click at the same point would; the click's pick shaders are
+   not warmed ahead of it.
+   - Nothing answers without a pick target: the displayed artifact, or the cold reveal's.
+   - An observation of that artifact wins, never one of an incoming group. Each marker is tested as
+     Cesium draws it at the nine drawing-buffer pixel centres of the click's 3 × 3 pick window:
+     circles with their outline and anti-aliasing pad, studs and pins by their image's own alpha
+     (a pin turned with its aligned axis), spheres along each pixel's ray, sampling rings along
+     their projected lines. One over the centre pixel beats one the window only grazes, then the
+     nearest to the camera. A marker an opaque globe hides, behind the horizon or behind World
+     Terrain's rendered ground, does not count. A see-through Earth (opacity under 1) hides none,
+     since Cesium then culls nothing behind the horizon and the globe writes no depth.
+   - Otherwise the cell under the pointer, kept only where a layer draws it and the reveal wave
+     has reached it. A chunk group draws a row only once the chunk carrying it is added: each
+     `chunk` message names its grid rows. That is the CPU's counterpart of the click's
+     `surface-chunk` pick, since a cold reveal's group is shown at opacity 1 before its first chunk
+     arrives. The cell lies on World Terrain's rendered ground (`globe.pick` of the pick ray) or on
+     the ellipsoid at elevation 0. With data elevation it is the first drawn cell along the pick
+     ray, from the cells rebuilt as drawn. On the globe a walk along the ray through the lifted
+     shell finds the candidates. In Columbus view and 2D the shear makes neither the lift nor the
+     ray's height a safe parameter, so a trace of where the ray meets each lift's sheared sheet,
+     over a grid in distance along the ray and lift, finds them; mid-morph nothing. The trace runs
+     along the ray in order and stops once no cell it could still reach is drawn before the first
+     hit found, so it gives the first hit the whole trace gives wherever that is the ray's true
+     first hit (#506 review). At the production grid (resolution 4) it costs, per hover, a mean of
+     1.8–2.0 ms, a p95 of 4.7–4.9 ms and a maximum of 9.6–9.9 ms at exaggeration 5 (without the
+     stop 2.5–3.8 ms, 8.3–12.8 ms and 13.5–24 ms), and a mean of 0.4 ms and a maximum of 3.1–4.0 ms
+     at the default exaggeration 1. The slowest are shallow rays that meet no cell, traced to the
+     map's edge. Measured 2026-11-14 on an Apple M3 Pro under Node 23.9 (vitest): synthetic lifted
+     disks of 6,211 and 36,631 extruded cells, 400 random rays (half at 0.5–8.5° pitch) and 64
+     grazing ones (0.2–2°) each, the fastest of three runs per ray.
+
+   The e2e build logs every hover's and click's resolution (`window.__atlasPickLog`), so the browser
+   tests hold each hover to the click at the same point.)
 7. **Chunk scheduler.** Add a batch of k chunk primitives, call `scene.requestRender()`, and time the
    render that follows (`scene.preUpdate` → `scene.postRender`); size the next batch so chunk work
    stays within ~8 ms over the baseline frame on desktop and ~50 ms at 4× CPU; always add at least one
@@ -1347,3 +1401,4 @@ whole, and the catalog is one canonical line, so the two changes conflict on tha
 | Part C operations run on the stacked branch before the owner merges A and B | Merges are the owner's call; content-addressed keys make early publishing safe | Re-run encode/publish if review changes Part B's bytes |
 | Stacked PRs A → B → C, one spec, one plan | AGENTS "one PR per coherent unit"; B and C share the format | Merge order is fixed |
 | Format version in the committed catalog, not in object headers (amended 2026-10-17, #467) | The catalog deploys with the site and names every object by digest; header bytes are hashed into immutable keys | A per-object change still needs a MAJOR bump and new keys |
+| One discarded warm-up load per launched browser before the 3 measured cold-load runs (amended 2026-11-14, owner decision) | Load 0 of a new Chrome measured Chrome's first-use GPU pipeline compiles, not Atlas work: 267–415 ms cold headless (1,405 ms headed), against 71–74 ms after a warm-up | A cost that appears only in a new browser's first load is reported in `gpuWarmup`, not failed |

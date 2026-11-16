@@ -1,6 +1,10 @@
-/** Main-thread client of the Atlas data worker for Atlas design §11 and fast-load design §B.6.3. */
+/**
+ * Main-thread client of the Atlas data worker for Atlas design §11 and fast-load design §B.6.3, with
+ * the draped rasters of the terrain draping design, "How existing features behave" (Worker, #483).
+ */
 
 import type { ArtifactRef } from '../contracts';
+import type { RasterSpec } from '../geometry/raster/types';
 import type { GosaErrorCode } from '../gosa/container';
 import type { DecodedDetail, DecodedGrid, DecodedRender } from '../gosa/types';
 import { artifactKeyFor } from '../surface-columns';
@@ -14,6 +18,9 @@ import {
   type EdgesChunkMessage,
   type GridExpect,
   type NaturalEarthBuffers,
+  type RasterReady,
+  type RasterTileBody,
+  type RasterTileMessage,
   type RecolourBody,
   type StepName,
   type StepTimingMessage,
@@ -293,6 +300,55 @@ export class AtlasWorkerClient {
         signal,
       );
     return { borderHeights, labelHeights };
+  }
+
+  /**
+   * Prepares a draped raster in the worker (terrain draping design, "Per layer under World
+   * Terrain"); the returned `rasterId` names it in `rasterTile` and `releaseRaster`. An abort
+   * that lands after the worker stored the raster drops its answer, so the client releases the
+   * raster's id itself (the request's own; a release of a raster never stored is a no-op).
+   */
+  async prepareRaster(
+    spec: RasterSpec,
+    signal?: AbortSignal,
+  ): Promise<RasterReady> {
+    let sent = 0;
+    try {
+      const { bounds, rasterId } = await this.#request<'raster-ready'>(
+        (id) => ({ id: (sent = id), spec, type: 'prepare-raster' }),
+        [],
+        signal,
+      );
+      return { bounds, rasterId };
+    } catch (error) {
+      if (sent && signal?.aborted)
+        this.releaseRaster(sent).catch((release: unknown) =>
+          console.warn(`Raster ${sent} could not be released.`, release),
+        );
+      throw error;
+    }
+  }
+
+  /** One tile of a prepared raster; the bitmap is transferred, null for an empty tile. */
+  async rasterTile(
+    body: RasterTileBody,
+    signal?: AbortSignal,
+  ): Promise<RasterTileMessage> {
+    const { bitmap, level, rasterId, rasterMs, x, y } =
+      await this.#request<'tile-ready'>(
+        (id) => ({ ...body, id, type: 'raster-tile' }),
+        [],
+        signal,
+      );
+    return { bitmap, level, rasterId, rasterMs, x, y };
+  }
+
+  /** Frees a prepared raster in the worker; resolves once the worker has. */
+  async releaseRaster(rasterId: number): Promise<void> {
+    await this.#request<'raster-released'>(
+      (id) => ({ id, rasterId, type: 'release-raster' }),
+      [],
+    );
   }
 
   onStepTiming(listener: (timing: StepTiming) => void): () => void {

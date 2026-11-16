@@ -22,6 +22,7 @@ function recordingController() {
     setMetric: vi.fn(() => Promise.resolve()),
     setObservationStyle: vi.fn(() => Promise.resolve()),
     setOceanColor: vi.fn(),
+    setRelief: vi.fn(),
     setSurfaceStyle: vi.fn(() => Promise.resolve()),
     setTerrain: vi.fn(resolved),
   };
@@ -45,6 +46,7 @@ describe('applySceneStyle', () => {
     metric: 'post_sd',
     oceanColor: '#112233',
     surfaceGeometry: 'hexagons',
+    relief: 2.5,
     surfacePalette: 'viridis',
     terrain: 'smooth-globe',
   };
@@ -71,6 +73,7 @@ describe('applySceneStyle', () => {
       state.dayNightLighting,
     );
     expect(controller.setTerrain).toHaveBeenCalledWith('smooth-globe');
+    expect(controller.setRelief).toHaveBeenCalledWith(2.5);
     expect(controller.setLayerVisibility).toHaveBeenCalledWith(state.layers);
     expect(controller.setEarthOpacity).toHaveBeenCalledWith(0.8);
     expect(controller.setOceanColor).toHaveBeenCalledWith('#112233');

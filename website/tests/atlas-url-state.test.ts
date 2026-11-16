@@ -66,6 +66,7 @@ describe('explorer URL state', () => {
       observationSolidColor: '#abcdef',
       oceanColor: '#123456',
       paletteMode: 'custom',
+      relief: 3.5,
       samplingAreas: false,
       samplingAreaColor: '#55ddcc',
       surfaceOpacity: 0.72,
@@ -361,5 +362,52 @@ describe('explorer URL state', () => {
       'pointMax',
       'pointMin',
     ]);
+  });
+
+  describe('relief (vertical exaggeration of physical terrain, #483)', () => {
+    it('defaults to true scale, without a correction, when omitted', () => {
+      const parsed = parseExplorerState('?entity=hbs-rs334', catalog);
+      expect(parsed.state.relief).toBe(1);
+      expect(parsed.corrections).toEqual([]);
+    });
+
+    it.each([1, 2.5, 10])('keeps relief=%s', (relief) => {
+      const parsed = parseExplorerState(
+        `?entity=hbs-rs334&relief=${relief}`,
+        catalog,
+      );
+      expect(parsed.state.relief).toBe(relief);
+      expect(parsed.corrections).toEqual([]);
+      expect(
+        parseExplorerState(serializeExplorerState(parsed.state), catalog).state
+          .relief,
+      ).toBe(relief);
+    });
+
+    it.each(['0.5', '20', 'NaN', '', 'steep'])(
+      'corrects relief=%s to 1 and says so',
+      (value) => {
+        const parsed = parseExplorerState(
+          `?entity=hbs-rs334&relief=${value}`,
+          catalog,
+        );
+        expect(parsed.state.relief).toBe(1);
+        expect(parsed.corrections).toEqual([
+          { field: 'relief', reason: 'malformed', value },
+        ]);
+      },
+    );
+
+    it('stays apart from the data-elevation exaggeration parameter', () => {
+      const parsed = parseExplorerState(
+        '?entity=hbs-rs334&exaggeration=2&relief=4',
+        catalog,
+      );
+      expect(parsed.state.exaggeration).toBe(2);
+      expect(parsed.state.relief).toBe(4);
+      const query = new URLSearchParams(serializeExplorerState(parsed.state));
+      expect(query.get('relief')).toBe('4');
+      expect(query.get('exaggeration')).toBe('2');
+    });
   });
 });

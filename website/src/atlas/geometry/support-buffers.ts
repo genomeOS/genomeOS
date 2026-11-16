@@ -20,6 +20,11 @@
  * switches to a stereographic projection for a part spanning π or more (one
  * split triangle of each pole-enclosing cell); that part keeps the tangent
  * plane here.
+ *
+ * The frame is exported (`stFrameOf`, `stAt`) so the draped surface raster
+ * draws its mask texels in the chunk masks' pattern (terrain draping design,
+ * "Per layer under World Terrain": hatch and dots baked into the surface
+ * tiles, #483).
  */
 
 import { cellToLatLng } from 'h3-js';
@@ -81,7 +86,7 @@ function partsForRow(input: MeshInput, row: number): Part[] {
 
 /** `EllipsoidTangentPlane.fromPoints(ring)`, its normal taken at the box
  * centre (module comment). */
-interface TangentPlane {
+export interface TangentPlane {
   origin: Vec3;
   east: Vec3;
   north: Vec3;
@@ -127,6 +132,38 @@ function projectOntoPlane(plane: TangentPlane, point: Vec3): [number, number] {
   return [dot(plane.east, offset), dot(plane.north, offset)];
 }
 
+/** The texture frame of one polygon part: its tangent plane and the ring's
+ * extent on it. */
+export interface StFrame {
+  plane: TangentPlane;
+  minE: number;
+  maxE: number;
+  minN: number;
+  maxN: number;
+}
+
+/** The frame of a part from its ground-level (height 0) ECEF ring. */
+export function stFrameOf(ring: readonly Vec3[]): StFrame {
+  const plane = tangentPlaneOf(ring);
+  const projected = ring.map((point) => projectOntoPlane(plane, point));
+  return {
+    maxE: Math.max(...projected.map(([e]) => e)),
+    maxN: Math.max(...projected.map(([, n]) => n)),
+    minE: Math.min(...projected.map(([e]) => e)),
+    minN: Math.min(...projected.map(([, n]) => n)),
+    plane,
+  };
+}
+
+/** `st` of a ground-level ECEF point in the part's frame, clamped to [0, 1]. */
+export function stAt(frame: StFrame, ground: Vec3): [number, number] {
+  const [e, n] = projectOntoPlane(frame.plane, ground);
+  return [
+    Math.min(1, Math.max(0, (e - frame.minE) / (frame.maxE - frame.minE))),
+    Math.min(1, Math.max(0, (n - frame.minN) / (frame.maxN - frame.minN))),
+  ];
+}
+
 /** Flat buffers for `rows` (all from one grid), in row then part order. */
 export function flatCellBuffers(
   input: MeshInput,
@@ -162,14 +199,7 @@ export function flatCellBuffers(
       geodeticToEcef(lon, lat, 0, point);
       return point;
     });
-    const ring = part.fanCentre ? ground.slice(1) : ground;
-    const tangentPlane = tangentPlaneOf(ring);
-    const plane = ground.map((point) => projectOntoPlane(tangentPlane, point));
-    const ringPlane = part.fanCentre ? plane.slice(1) : plane;
-    const minE = Math.min(...ringPlane.map(([e]) => e));
-    const maxE = Math.max(...ringPlane.map(([e]) => e));
-    const minN = Math.min(...ringPlane.map(([, n]) => n));
-    const maxN = Math.max(...ringPlane.map(([, n]) => n));
+    const frame = stFrameOf(part.fanCentre ? ground.slice(1) : ground);
     const first = vertex;
     corners.forEach(([lon, lat], index) => {
       geodeticToEcef(lon, lat, SURFACE_CLEARANCE_METRES, positions, vertex * 3);
@@ -177,9 +207,7 @@ export function flatCellBuffers(
         geodeticSurfaceNormal(positions.subarray(vertex * 3, vertex * 3 + 3)),
         vertex * 3,
       );
-      const [e, n] = plane[index];
-      st[vertex * 2] = Math.min(1, Math.max(0, (e - minE) / (maxE - minE)));
-      st[vertex * 2 + 1] = Math.min(1, Math.max(0, (n - minN) / (maxN - minN)));
+      st.set(stAt(frame, ground[index]), vertex * 2);
       cellCentres.set(centre, vertex * 3);
       vertex += 1;
     });

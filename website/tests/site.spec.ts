@@ -25,6 +25,7 @@ import {
   globeViewCentre,
   heldReadoutsOf,
   measureGlobeDisc,
+  shownSoon,
   waitForSettledGlobe,
   type Point,
 } from './atlas-globe-helpers';
@@ -3860,7 +3861,7 @@ test('explorer previews and opens separate surface and observation inspectors', 
       [18, 18],
     ]) {
       await page.mouse.move(centre.x + offsetX, centre.y + offsetY);
-      if (await hoverPreview.isVisible()) return;
+      if (await shownSoon(hoverPreview)) return;
     }
   };
   const clickNearCenter = async (inspector: Locator, centre: Point) => {
@@ -3877,7 +3878,7 @@ test('explorer previews and opens separate surface and observation inspectors', 
       [18, 18],
     ]) {
       await page.mouse.click(centre.x + offsetX, centre.y + offsetY);
-      if (await inspector.isVisible()) return;
+      if (await shownSoon(inspector)) return;
     }
   };
 
@@ -4253,6 +4254,14 @@ test('explorer reports unavailable WebGL with a retry action', async ({
   await expect(
     page.getByRole('link', { name: 'Browser requirements' }),
   ).toBeVisible();
+  // The start-up failure leaves no Cesium widget, raw error panel or viewer behind.
+  await expect(page.locator('.cesium-widget-errorPanel')).toHaveCount(0);
+  await expect(page.locator('.cesium-viewer')).toHaveCount(0);
+  // Retry cannot create a context either, so the same panel comes back.
+  await page.getByRole('button', { name: 'Retry globe' }).click();
+  await expect(page.getByText('This globe needs WebGL')).toBeVisible();
+  await expect(page.locator('.cesium-widget-errorPanel')).toHaveCount(0);
+  await expect(page.locator('.cesium-viewer')).toHaveCount(0);
 });
 
 test('explorer recovers from a render-loop error through Retry globe', async ({
@@ -4996,7 +5005,7 @@ async function pointNearGlobeCentre(
     const y = centre.y + offsetY;
     if (action === 'move') await page.mouse.move(x, y);
     else await page.mouse.click(x, y);
-    if (await until.isVisible()) return;
+    if (await shownSoon(until)) return;
   }
 }
 

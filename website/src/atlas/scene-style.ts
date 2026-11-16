@@ -44,6 +44,7 @@ export function applySceneStyle(
     state.dayNightLighting,
   );
   void controller.setTerrain(state.terrain);
+  controller.setRelief(state.relief);
   controller.setLayerVisibility(state.layers);
   controller.setEarthOpacity(state.earthOpacity);
   controller.setOceanColor(state.oceanColor);

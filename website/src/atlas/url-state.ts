@@ -14,6 +14,7 @@ import {
 } from './observation-encoding';
 import {
   BASEMAP_IDS,
+  RELIEF_RANGE,
   TERRAIN_IDS,
   type BasemapId,
   type TerrainId,
@@ -59,6 +60,8 @@ export interface ExplorerState {
   layers: LayerVisibility;
   view: ExplorerSceneMode;
   terrain: TerrainId;
+  /** Vertical exaggeration of physical terrain (`relief`); not the data's `exaggeration`. */
+  relief: number;
   elevation: boolean;
   exaggeration: number;
   observationShape: ObservationShape;
@@ -449,6 +452,7 @@ export function parseExplorerState(
         corrections,
       ),
       paletteMode,
+      relief: parseNumber(params, 'relief', 1, RELIEF_RANGE, corrections),
       samplingAreaColor: parseColor(
         params,
         'samplingColor',
@@ -512,6 +516,7 @@ export function serializeExplorerState(state: ExplorerState): string {
   params.set('layers', LAYERS.filter((layer) => state.layers[layer]).join(','));
   params.set('view', state.view);
   params.set('terrain', state.terrain);
+  params.set('relief', String(state.relief));
   params.set('elevation', String(state.elevation));
   params.set('exaggeration', String(state.exaggeration));
   params.set('obsShape', state.observationShape);

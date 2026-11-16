@@ -864,6 +864,22 @@ html.atlas-page .site-header--compact .site-header__inner {
   font-size: 1rem;
 }
 
+/* In the controls panel the help spans the camera row above it, so the panel's edge never clips
+   it (an 18rem box from the Keys button ran past the panel; #483). */
+.atlas-camera-actions {
+  position: relative;
+}
+
+.atlas-camera-actions .atlas-keyboard-help {
+  position: static;
+}
+
+.atlas-camera-actions .atlas-keyboard-help p {
+  right: 0;
+  left: 0;
+  width: auto;
+}
+
 .atlas-field__title,
 .atlas-check-row,
 .atlas-fieldset legend {
@@ -1029,8 +1045,48 @@ html.atlas-page .site-header--compact .site-header__inner {
 }
 
 .atlas-map-imagery-style > .atlas-field__title,
-.atlas-map-imagery-style > .atlas-check-row {
+.atlas-map-imagery-style > .atlas-check-row,
+.atlas-map-imagery-style > .atlas-control-note {
   grid-column: 1 / -1;
+}
+
+/* Why a control does not apply, or what it costs (#483). */
+.atlas-control-note {
+  margin: -0.3rem 0 0;
+  color: #9eb3c9;
+  font-size: 0.76rem;
+  line-height: 1.3;
+}
+
+.atlas-control-note--warning {
+  color: #f4c86a;
+}
+
+/* Physical relief ×, under the terrain choices of the basemap and terrain chooser (#483). */
+.atlas-relief {
+  margin-top: 0.6rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.atlas-relief__title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.7rem;
+  color: #dce9f7;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.atlas-relief input {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--color-ion);
+}
+
+.atlas-relief .atlas-control-note {
+  margin: 0;
 }
 
 .atlas-country-border-style {

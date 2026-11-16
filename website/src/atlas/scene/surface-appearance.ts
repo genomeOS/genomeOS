@@ -13,11 +13,20 @@
  * towards full size, each vertex pulled towards its cell's axis at its own height, and fade with
  * it; a cell the wave has not reached collapses to that axis, so it draws no fragment in any
  * pass, picking included (Cesium's pick shader reuses this vertex shader and discards alpha 0).
+ *
+ * The Honmoon band count and mode table come from the Cesium-free `geometry/surface-buffers.ts`,
+ * so the contours the worker rasterises for World Terrain (`geometry/raster/contours.ts`) share
+ * them and port this fragment texel by texel, within one byte; the `luminous * 1.35` overshoot
+ * that high dynamic range keeps here saturates at 255 there (terrain draping design, "Per layer
+ * under World Terrain", #483).
  */
 
 import { Material, MaterialAppearance } from 'cesium';
 
-import { SURFACE_CLEARANCE_METRES } from '../geometry/surface-buffers';
+import {
+  HONMOON_CONTOUR_BANDS,
+  SURFACE_CLEARANCE_METRES,
+} from '../geometry/surface-buffers';
 import type { SurfaceGeometry } from '../url-state';
 import {
   restingWave,
@@ -28,8 +37,11 @@ import {
 // One owner: the Cesium-free constant from Task 44 (B3.5), re-exported for the scene modules.
 export { SURFACE_CLEARANCE_METRES };
 
-// Dense enough that a regional viewport still crosses several value isolines.
-export const HONMOON_CONTOUR_BANDS = 36;
+// One owner as well: the Honmoon band count and mode table, shared with the draped contours.
+export {
+  HONMOON_CONTOUR_BANDS,
+  honmoonModeForGeometry,
+} from '../geometry/surface-buffers';
 
 /** Cesium's geographic projection scales radians by the WGS84 semi-major axis. */
 const PROJECTION_SEMI_MAJOR_AXIS_METRES = 6_378_137;
@@ -241,12 +253,6 @@ void main()
     out_FragColor.a *= v_waveReveal;
 }
 `;
-
-export function honmoonModeForGeometry(geometry: SurfaceGeometry): number {
-  if (geometry === 'honmoon') return 1;
-  if (geometry === 'honmoon-fill') return 2;
-  return 0;
-}
 
 export function usesVertexColorGamma(geometry: SurfaceGeometry): boolean {
   return geometry === 'hexagons' || geometry === 'extruded';

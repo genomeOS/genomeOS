@@ -4,6 +4,7 @@ import starlight from '@astrojs/starlight';
 import { defineConfig } from 'astro/config';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import atlasScenePreload from './integrations/atlas-scene-preload.mjs';
+import cesiumEllipsoidLogDepth from './integrations/cesium-ellipsoid-log-depth.mjs';
 import devKit from './integrations/dev-kit.mjs';
 import { gaHead, gaMeasurementId } from './src/lib/ga.mjs';
 
@@ -177,7 +178,14 @@ export default defineConfig({
     },
     // The Atlas data worker is a module worker sharing ES modules with the island (fast-load design §B.6.3).
     worker: { format: 'es' },
+    // Cesium's ray-cast ellipsoid writes its depth from the near plane, so a sphere above World
+    // Terrain is never lost behind the ground (terrain draping design, "Goals"; #483). The dev
+    // server pre-bundles `cesium` apart from the build's plugins, so it gets the correction too.
+    optimizeDeps: {
+      rolldownOptions: { plugins: [cesiumEllipsoidLogDepth()] },
+    },
     plugins: [
+      cesiumEllipsoidLogDepth(),
       viteStaticCopy({
         // The engine reads Assets, ThirdParty and Workers through CESIUM_BASE_URL. Of the
         // widget layer only the Earth style picker's thumbnails are used: the globe is a

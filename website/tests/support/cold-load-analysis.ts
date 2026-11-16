@@ -16,6 +16,13 @@ export interface TimingEntry {
 
 export interface LoafScriptRecord {
   sourceURL: string;
+  /**
+   * The entry point's function name and its character offset in `sourceURL`: with a source map of
+   * the same build they name the code a long frame ran, which the URL and invoker alone do not.
+   * Chrome reports '' and -1 when it does not know them.
+   */
+  sourceFunctionName: string;
+  sourceCharPosition: number;
   invoker: string;
   invokerType: string;
   startTime: number;
@@ -188,8 +195,11 @@ const CESIUM_CHUNK = /\/_astro\/cesium\.[\w-]+\.js(?:[?#]|$)/;
 /**
  * The lazy scene chunk (`src/atlas/scene/atlas-scene.ts`), which
  * `loadAtlasSceneModule()` in `src/atlas/boot.ts` loads with `import()`. It is
- * the only chunk that statically imports the Cesium chunk
- * (tests/atlas-cold-load-analysis.test.ts checks this against the build).
+ * the only chunk whose evaluation evaluates Cesium. The lazy draped runtime
+ * (`src/atlas/scene/draped/runtime.ts`; terrain draping design, "When it is
+ * active", #483) also imports the Cesium chunk, but only this chunk loads it,
+ * so Cesium has already run by then
+ * (tests/atlas-cold-load-analysis.test.ts checks both against the build).
  */
 const SCENE_CHUNK = /\/_astro\/atlas-scene\.[\w-]+\.js(?:[?#]|$)/;
 const ASTRO_SCRIPT = /\/_astro\/[^/]+\.js(?:[?#]|$)/;
@@ -201,7 +211,7 @@ const WORKER_MESSAGE_INVOKER = /Worker|MessagePort/;
  * - Cesium module evaluation is reported separately (`cesium-eval`). Chrome
  *   reports the evaluation of a dynamic import's whole module graph as one
  *   `module-script` entry whose `sourceURL` is the imported root. Cesium is
- *   imported only through the scene chunk, so its evaluation arrives on
+ *   first imported through the scene chunk, so its evaluation arrives on
  *   `atlas-scene.<hash>.js`, never on `cesium.<hash>.js`. That entry also
  *   holds the scene chunk's own top-level evaluation, which is small next to
  *   Cesium's and is counted as Cesium evaluation with it. A `module-script`
@@ -259,6 +269,8 @@ export interface LongFrameReport {
   chunkFrame: boolean;
   scripts: {
     sourceURL: string;
+    sourceFunctionName: string;
+    sourceCharPosition: number;
     invoker: string;
     invokerType: string;
     attribution: ScriptAttribution;
@@ -290,6 +302,8 @@ export function atlasLongFrames(
     const chunkFrame = chunkFrames.some((frame) => overlaps(loaf, frame));
     const scripts = loaf.scripts.map((script) => ({
       sourceURL: script.sourceURL,
+      sourceFunctionName: script.sourceFunctionName,
+      sourceCharPosition: script.sourceCharPosition,
       invoker: script.invoker,
       invokerType: script.invokerType,
       attribution: attributeScript(script, context, chunkFrame),

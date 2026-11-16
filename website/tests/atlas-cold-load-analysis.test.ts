@@ -26,6 +26,7 @@ import {
   type WorkerStep,
 } from './support/cold-load-analysis';
 import {
+  COLD_LOAD_PLAN,
   COLD_LOAD_PROFILES,
   COLD_LOAD_RUNS,
   FAST_4G,
@@ -127,6 +128,19 @@ describe('cold-load profiles', () => {
         },
       ],
     ]);
+  });
+
+  it('opens each launched browser with one discarded warm-up load, then the measured runs', () => {
+    // §B.1, amended 2026-11-14: Chrome's first-use GPU pipeline compiles land in the warm-up.
+    expect(COLD_LOAD_PLAN).toEqual([
+      { role: 'warm-up', index: 0 },
+      { role: 'measured', index: 0 },
+      { role: 'measured', index: 1 },
+      { role: 'measured', index: 2 },
+    ]);
+    expect(
+      COLD_LOAD_PLAN.filter((load) => load.role === 'measured'),
+    ).toHaveLength(COLD_LOAD_RUNS);
   });
 });
 
@@ -264,7 +278,15 @@ describe('long-animation-frame attribution', () => {
       sourceURL: string,
       invoker: string,
       invokerType: string,
-    ) => ({ sourceURL, invoker, invokerType, startTime: 0, duration: 10 });
+    ) => ({
+      sourceURL,
+      sourceFunctionName: '',
+      sourceCharPosition: -1,
+      invoker,
+      invokerType,
+      startTime: 0,
+      duration: 10,
+    });
     expect(
       attributeScript(
         script(CESIUM, 'module', 'module-script'),
@@ -326,6 +348,8 @@ describe('long-animation-frame attribution', () => {
         scripts: [
           {
             sourceURL: CESIUM,
+            sourceFunctionName: '',
+            sourceCharPosition: -1,
             invoker: 'module',
             invokerType: 'module-script',
             startTime: 1_000,
@@ -333,6 +357,8 @@ describe('long-animation-frame attribution', () => {
           },
           {
             sourceURL: ISLAND,
+            sourceFunctionName: '',
+            sourceCharPosition: -1,
             invoker: 'Worker.onmessage',
             invokerType: 'event-listener',
             startTime: 1_255,
@@ -348,6 +374,8 @@ describe('long-animation-frame attribution', () => {
         scripts: [
           {
             sourceURL: CESIUM,
+            sourceFunctionName: '',
+            sourceCharPosition: -1,
             invoker: 'FrameRequestCallback',
             invokerType: 'user-callback',
             startTime: 2_010,
@@ -363,6 +391,8 @@ describe('long-animation-frame attribution', () => {
         scripts: [
           {
             sourceURL: CESIUM,
+            sourceFunctionName: '',
+            sourceCharPosition: -1,
             invoker: 'FrameRequestCallback',
             invokerType: 'user-callback',
             startTime: 3_000,
@@ -378,6 +408,8 @@ describe('long-animation-frame attribution', () => {
         scripts: [
           {
             sourceURL: ISLAND,
+            sourceFunctionName: '',
+            sourceCharPosition: -1,
             invoker: 'TimerHandler:setTimeout',
             invokerType: 'user-callback',
             startTime: 9_000,
@@ -413,6 +445,8 @@ describe('long-animation-frame attribution', () => {
     const SCENE = `${ORIGIN}/_astro/atlas-scene.CVF3dbcv.js`;
     const evaluation = {
       sourceURL: SCENE,
+      sourceFunctionName: '',
+      sourceCharPosition: -1,
       invoker: SCENE,
       invokerType: 'module-script',
       startTime: 1_500,
@@ -448,6 +482,8 @@ describe('long-animation-frame attribution', () => {
             evaluation,
             {
               sourceURL: ISLAND,
+              sourceFunctionName: '',
+              sourceCharPosition: -1,
               invoker: 'Worker.onmessage',
               invokerType: 'event-listener',
               startTime: 1_825,
@@ -473,31 +509,128 @@ describe('long-animation-frame attribution', () => {
 
   it('names the built chunk that imports Cesium as the root of its evaluation', () => {
     const astro = path.resolve(import.meta.dirname, '../dist/_astro');
-    const importsCesium = readdirSync(astro)
-      .filter((name) => name.endsWith('.js'))
-      .filter((name) =>
-        /["']\.\/cesium\.[\w-]+\.js["']/.test(
-          readFileSync(path.join(astro, name), 'utf8'),
-        ),
+    const sources = new Map(
+      readdirSync(astro)
+        .filter((name) => name.endsWith('.js'))
+        .map((name) => [name, readFileSync(path.join(astro, name), 'utf8')]),
+    );
+    const chunksIn = (name: string, pattern: RegExp) =>
+      [...sources.get(name)!.matchAll(pattern)].map(([, file]) => file!);
+    // Rolldown quotes a static import (`from"./x.js"`, `import"./x.js"`) and writes the
+    // specifier of a dynamic one as a template literal (import(`./x.js`)).
+    const staticImports = (name: string) =>
+      chunksIn(name, /(?:\bfrom|\bimport)\s*["']\.\/([\w.-]+\.js)["']/g);
+    const dynamicImports = (name: string) =>
+      chunksIn(name, /\bimport\(\s*`\.\/([\w.-]+\.js)`\s*\)/g);
+    const isCesium = (name: string) => /^cesium\.[\w-]+\.js$/.test(name);
+    /** Whether evaluating the chunk evaluates Cesium: it reaches the Cesium chunk through
+     * static imports. */
+    const loadsCesium = (name: string, seen = new Set<string>()): boolean => {
+      if (seen.has(name)) return false;
+      seen.add(name);
+      return staticImports(name).some(
+        (dep) => isCesium(dep) || loadsCesium(dep, seen),
       );
+    };
+    const importsCesium = [...sources.keys()].filter((name) =>
+      /["']\.\/cesium\.[\w-]+\.js["']/.test(sources.get(name)!),
+    );
     expect(importsCesium).not.toEqual([]);
-    for (const name of importsCesium) {
+    // A chunk whose every importer has already evaluated Cesium never roots that evaluation:
+    // Chrome's module-script entry for it holds only its own top level, which is Atlas work.
+    // The lazy draped runtime (terrain draping design, "When it is active", #483) is such a
+    // chunk: only the scene chunk loads it. A chunk with no importer is a page's own script.
+    const loadedAfterCesium = (name: string) => {
+      const importers = [...sources.keys()].filter(
+        (other) =>
+          staticImports(other).includes(name) ||
+          dynamicImports(other).includes(name),
+      );
+      return (
+        importers.length > 0 && importers.every((other) => loadsCesium(other))
+      );
+    };
+    const roots = importsCesium.filter((name) => !loadedAfterCesium(name));
+    expect(roots).not.toEqual([]);
+    const attribution = (name: string) => {
       const url = `${ORIGIN}/_astro/${name}`;
-      expect(
-        attributeScript(
-          {
-            sourceURL: url,
-            invoker: url,
-            invokerType: 'module-script',
-            startTime: 0,
-            duration: 10,
-          },
-          CONTEXT,
-          false,
-        ),
-        name,
-      ).toBe('cesium-eval');
-    }
+      return attributeScript(
+        {
+          sourceURL: url,
+          sourceFunctionName: '',
+          sourceCharPosition: -1,
+          invoker: url,
+          invokerType: 'module-script',
+          startTime: 0,
+          duration: 10,
+        },
+        CONTEXT,
+        false,
+      );
+    };
+    for (const name of roots)
+      expect(attribution(name), name).toBe('cesium-eval');
+    for (const name of importsCesium.filter(loadedAfterCesium))
+      expect(attribution(name), name).toBe('atlas');
+  });
+
+  it('names the function and position of every script in a long frame', () => {
+    // Without them a report names only the entry point: a headed load-0 frame read as
+    // "MessagePort.onmessage in client.<hash>.js" until a source map was run against a rebuild.
+    const CLIENT = `${ORIGIN}/_astro/client.BwA2HVuQ.js`;
+    const SCENE = `${ORIGIN}/_astro/atlas-scene.8_4BkOsq.js`;
+    const summary = atlasLongFrames(
+      [
+        {
+          startTime: 1_000,
+          duration: 296,
+          renderStart: 1_290,
+          blockingDuration: 246,
+          scripts: [
+            {
+              sourceURL: CLIENT,
+              sourceFunctionName: 'ae',
+              sourceCharPosition: 1_358,
+              invoker: 'MessagePort.onmessage',
+              invokerType: 'event-listener',
+              startTime: 1_001,
+              duration: 292.6,
+            },
+          ],
+        },
+        {
+          startTime: 3_784,
+          duration: 696,
+          renderStart: 4_475,
+          blockingDuration: 641,
+          scripts: [
+            {
+              sourceURL: SCENE,
+              sourceFunctionName: '',
+              sourceCharPosition: 70_571,
+              invoker: 'FrameRequestCallback',
+              invokerType: 'user-callback',
+              startTime: 3_785,
+              duration: 690.4,
+            },
+          ],
+        },
+      ],
+      [],
+      { ...CONTEXT, windowEndMs: 5_000 },
+    );
+    expect(
+      summary.frames.map((frame) =>
+        frame.scripts.map((script) => [
+          script.invoker,
+          script.sourceFunctionName,
+          script.sourceCharPosition,
+        ]),
+      ),
+    ).toEqual([
+      [['FrameRequestCallback', '', 70_571]],
+      [['MessagePort.onmessage', 'ae', 1_358]],
+    ]);
   });
 
   it('charges an Atlas frame only with time no Cesium or other script claims', () => {
@@ -511,6 +644,8 @@ describe('long-animation-frame attribution', () => {
           scripts: [
             {
               sourceURL: CESIUM,
+              sourceFunctionName: '',
+              sourceCharPosition: -1,
               invoker: 'FrameRequestCallback',
               invokerType: 'user-callback',
               startTime: 4_000,
@@ -518,6 +653,8 @@ describe('long-animation-frame attribution', () => {
             },
             {
               sourceURL: ISLAND,
+              sourceFunctionName: '',
+              sourceCharPosition: -1,
               invoker: 'Worker.onmessage',
               invokerType: 'event-listener',
               startTime: 4_300,
@@ -525,6 +662,8 @@ describe('long-animation-frame attribution', () => {
             },
             {
               sourceURL: 'https://tile.openstreetmap.org/a.js',
+              sourceFunctionName: '',
+              sourceCharPosition: -1,
               invoker: 'x',
               invokerType: 'classic-script',
               startTime: 4_340,

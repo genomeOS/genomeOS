@@ -1,8 +1,12 @@
-/** Accessible explorer controls for Atlas design §11. */
+/**
+ * Accessible explorer controls for Atlas design §11. The surface controls follow the terrain on
+ * the globe: terrain draping design, "How existing features behave" (#483).
+ */
 
 import { createPortal } from 'react-dom';
 
 import type { AtlasCatalog, ExternalInfo } from '../../atlas/contracts';
+import { hasPhysicalRelief } from '../../atlas/earth-style-catalog';
 import type {
   ObservationColorVariable,
   ObservationShape,
@@ -21,6 +25,7 @@ import type {
   TerrainId,
 } from '../../atlas/url-state';
 import type { Metric, PaletteId } from '../../atlas/visual-encoding';
+import { CameraHelp } from './CameraHelp';
 import { ControlsSheet } from './ControlsSheet';
 import { InfoTip } from './InfoTip';
 import { ExternalInfoPanel } from './ExternalInfoPanel';
@@ -32,6 +37,8 @@ import { ExplorerHeading } from './ExplorerHeading';
 import { MOBILE_QUERY, useMediaQuery } from './useMediaQuery';
 
 interface ExplorerControlsProps {
+  /** The terrain on the globe, which can lag or differ from `state.terrain` (#483). */
+  appliedTerrain: TerrainId;
   capabilities: SceneCapabilities;
   catalog: AtlasCatalog;
   artifactDataBase: string;
@@ -61,6 +68,7 @@ interface ExplorerControlsProps {
   onMetric: (metric: Metric) => void;
   onLayer: (layer: LayerId, visible: boolean) => void;
   onView: (view: ExplorerSceneMode) => void;
+  onRelief: (value: number) => void;
   onTerrain: (value: TerrainId) => void;
   onSurfacePalette: (value: PaletteId) => void;
   onSurfaceOpacity: (value: number) => void;
@@ -101,6 +109,7 @@ const layerDescriptions: Record<LayerId, string> = {
 };
 
 export function ExplorerControls({
+  appliedTerrain,
   capabilities,
   catalog,
   artifactDataBase,
@@ -126,6 +135,7 @@ export function ExplorerControls({
   onMetric,
   onLayer,
   onView,
+  onRelief,
   onTerrain,
   onSurfacePalette,
   onSurfaceOpacity,
@@ -332,6 +342,7 @@ export function ExplorerControls({
         <summary>Map</summary>
         <div className="atlas-control-sheet__body">
           <MapStyleControls
+            appliedTerrain={appliedTerrain}
             capabilities={capabilities}
             disabled={disabled}
             state={state}
@@ -343,6 +354,7 @@ export function ExplorerControls({
             onDayNightLighting={onDayNightLighting}
             onEarthOpacity={onEarthOpacity}
             onOceanColor={onOceanColor}
+            onRelief={onRelief}
             onTerrain={onTerrain}
             onView={onView}
           />
@@ -354,6 +366,7 @@ export function ExplorerControls({
         <div className="atlas-control-sheet__body">
           <InferredSurfaceControls
             disabled={disabled}
+            draped={hasPhysicalRelief(appliedTerrain)}
             state={state}
             onEdgeColorMode={onEdgeColorMode}
             onEdgeFixedColor={onEdgeFixedColor}
@@ -428,13 +441,7 @@ export function ExplorerControls({
         >
           −
         </button>
-        <details className="atlas-keyboard-help">
-          <summary role="button">Keys</summary>
-          <p>
-            Focus the globe, then use arrows or WASD to pan, +/− to zoom, and
-            Q/E to tilt.
-          </p>
-        </details>
+        <CameraHelp />
       </div>
     </ControlsSheet>
   );

@@ -29,9 +29,18 @@ export function errorMessage(error: unknown): string {
     : 'An unexpected atlas error occurred.';
 }
 
+/**
+ * Whether the browser has the WebGL API. It creates no context: creating one is a synchronous
+ * round trip to the GPU process, which on a freshly launched browser waits behind the browser's
+ * own first GPU pipeline compiles, and the scene lifecycle checks on every scene effect. A browser
+ * that has the API but cannot create a context fails when Cesium starts, which the lifecycle also
+ * reports as `webgl` (useAtlasSceneLifecycle.ts).
+ */
 export function supportsWebGL(): boolean {
-  const canvas = document.createElement('canvas');
-  return Boolean(canvas.getContext('webgl2') ?? canvas.getContext('webgl'));
+  return (
+    typeof WebGL2RenderingContext !== 'undefined' ||
+    typeof WebGLRenderingContext !== 'undefined'
+  );
 }
 
 export const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';

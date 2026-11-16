@@ -17,6 +17,7 @@ function message(chunk: number, seam = false): ChunkMessage {
     chunk,
     id: 1,
     index: chunk,
+    rows: Uint32Array.of(chunk),
     seam,
     support: { chunk, priorDominated: [], unknown: null },
     surface: { chunk } as ChunkMessage['surface'],

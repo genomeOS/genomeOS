@@ -1,6 +1,10 @@
-/** Stable basemap and terrain gallery metadata for Atlas design §11. */
+/**
+ * Stable basemap and terrain gallery metadata for Atlas design §11, and how the data is drawn
+ * while it is draped over World Terrain: terrain draping design, "How existing features behave"
+ * and "Exaggeration" (#483).
+ */
 
-import type { ExplorerSceneMode } from './url-state';
+import type { ExplorerSceneMode, SurfaceGeometry } from './url-state';
 
 export interface EarthStyleOption<T extends string> {
   id: T;
@@ -288,4 +292,147 @@ export function resolveElevationView(
   elevationEnabled: boolean,
 ): ExplorerSceneMode {
   return view === 'map' && elevationEnabled ? 'perspective' : view;
+}
+
+/** Whether a terrain has physical relief; only the smooth globe has none (#483). */
+export function hasPhysicalRelief(terrain: TerrainId): boolean {
+  return terrain !== 'smooth-globe';
+}
+
+/** What the elevation controls say while the data is draped (#483). */
+export const DRAPED_ELEVATION_NOTE = 'Not available with World Terrain';
+/** The extruded geometry's label while draped. */
+export const DRAPED_EXTRUDED_LABEL = 'Columns (smooth globe only)';
+/** The extruded geometry's label on the smooth globe. */
+export const EXTRUDED_LABEL = 'Extruded hexagons';
+/** Warning id `'drape'`: a raster or provider failure reverts to the smooth globe (#483). */
+export const DRAPE_FAILED_WARNING =
+  'The map data could not be draped over World Terrain, so the smooth globe is shown instead.';
+
+export interface DrapedView {
+  /** The data height the scene draws: 0 while draped and in the 2D map. */
+  elevationFactor: number;
+  /** The geometry the scene draws: extruded draws as flat hexagons while draped. */
+  geometry: SurfaceGeometry;
+  /** Why data elevation is unavailable, shown beside it; null when it applies. */
+  elevationNote: string | null;
+  /** The extruded option's label. */
+  extrudedLabel: string;
+}
+
+interface DrapedViewInput {
+  /** Whether the data is draped: the scene's or the controls' draped rule. */
+  draped: boolean;
+  elevation: boolean;
+  exaggeration: number;
+  geometry: SurfaceGeometry;
+  view: ExplorerSceneMode;
+}
+
+/**
+ * Draped data lies on the ground: data elevation is off and extruded columns draw as flat
+ * hexagons. The URL keeps the user's elevation, exaggeration and geometry, so returning to the
+ * smooth globe restores them; there, the values are today's.
+ */
+export function resolveDrapedView({
+  draped,
+  elevation,
+  exaggeration,
+  geometry,
+  view,
+}: DrapedViewInput): DrapedView {
+  if (draped)
+    return {
+      elevationFactor: 0,
+      elevationNote: DRAPED_ELEVATION_NOTE,
+      extrudedLabel: DRAPED_EXTRUDED_LABEL,
+      geometry: geometry === 'extruded' ? 'hexagons' : geometry,
+    };
+  return {
+    elevationFactor: elevation && view !== 'map' ? exaggeration : 0,
+    elevationNote: null,
+    extrudedLabel: EXTRUDED_LABEL,
+    geometry,
+  };
+}
+
+export interface TerrainControlState {
+  disabled: boolean;
+  /** Why the control does not apply, shown beside it; null when it applies. */
+  note: string | null;
+}
+
+/**
+ * The day/night control applies to the smooth globe only: with World Terrain on, a fixed
+ * hillshade light shades the relief instead (#483). The control stays visible, disabled with
+ * the reason, so the setting is still there when the globe is smooth again.
+ */
+export function dayNightControl(terrain: TerrainId): TerrainControlState {
+  return hasPhysicalRelief(terrain)
+    ? {
+        disabled: true,
+        note: 'Not used while World Terrain is on: a fixed light from the north-west shades the relief.',
+      }
+    : { disabled: false, note: null };
+}
+
+/** The relief slider and `relief` URL parameter: true scale to tenfold, in half steps (#483). */
+export const RELIEF_RANGE = [1, 10] as const;
+export const RELIEF_STEP = 0.5;
+
+interface ReliefInput {
+  relief: number;
+  /** The terrain on the globe. */
+  terrain: TerrainId;
+  view: ExplorerSceneMode;
+}
+
+/**
+ * The vertical exaggeration the scene draws: the chosen relief where there is physical relief to
+ * raise, true scale on the smooth globe and in the flat 2D map.
+ */
+export function effectiveRelief({
+  relief,
+  terrain,
+  view,
+}: ReliefInput): number {
+  return hasPhysicalRelief(terrain) && view !== 'map' ? relief : 1;
+}
+
+export interface ReliefControlState extends TerrainControlState {
+  /**
+   * What drawn terrain costs the map data, announced beside the slider; null, since the data
+   * drapes onto World Terrain and costs nothing (#483).
+   */
+  warning: string | null;
+}
+
+/**
+ * Relief exaggerates the ground only, and the data follows it (terrain draping design,
+ * "Exaggeration"; #483). Under World Terrain the surface, outlines, borders and footprints are
+ * draped onto the relief and raised with it on the GPU, the labels re-clamp to the ground, and
+ * the observation symbols and the highlight re-sample their ground after each change. High ground
+ * no longer hides map data at any relief, so PR 1's warning that it could is retired.
+ */
+export function reliefControl(
+  input: ReliefInput & {
+    /** The terrain chosen, which may still be loading or have failed. */
+    requested?: TerrainId;
+  },
+): ReliefControlState {
+  if (!hasPhysicalRelief(input.terrain))
+    return {
+      disabled: true,
+      note: hasPhysicalRelief(input.requested ?? input.terrain)
+        ? 'World Terrain has not loaded, so there is no relief to raise.'
+        : 'Choose World Terrain to raise the relief.',
+      warning: null,
+    };
+  if (input.view === 'map')
+    return {
+      disabled: true,
+      note: 'The 2D map is flat; switch to Globe or Perspective to raise the relief.',
+      warning: null,
+    };
+  return { disabled: false, note: null, warning: null };
 }
