@@ -26,6 +26,13 @@
  * undrawn. Once the labels are added, the overlay requests frames until the
  * LabelCollection reports every glyph ready (at most LABEL_READY_MAX_FRAMES).
  *
+ * A label skips the depth test within thousands of kilometres of the camera, so the ground near
+ * it never buries it (Atlas design §11; terrain draping design, "Goals": symbols and labels are
+ * never buried). Once the glyphs are ready, the overlay hides every label the opaque globe's
+ * horizon hides from the camera, each frame before it draws (horizon.ts): near the ground the
+ * horizon is a few hundred kilometres off, and the far side's labels drew through the Earth
+ * (owner report 2026-11-16).
+ *
  * Under World Terrain (terrain draping design, "Per layer under World Terrain": borders, labels;
  * #483) `setDraped` hands the borders to the draped runtime as the `atlas-borders` imagery layer
  * (`border-drape.ts`) once the worker has parsed the context, and neither line renderer is built or
@@ -50,6 +57,7 @@ import {
   Ellipsoid,
   HeightReference,
   HorizontalOrigin,
+  type Label,
   LabelCollection,
   LabelStyle,
   NearFarScalar,
@@ -60,11 +68,13 @@ import {
   VerticalOrigin,
 } from 'cesium';
 
+import { countryLabelsTestHook } from '../e2e-hooks';
 import type { ExplorerSceneMode } from '../url-state';
 import type { Metric } from '../visual-encoding';
 import type { AtlasWorkerClient } from '../worker/client';
 import type { ContextHeights, NaturalEarthBuffers } from '../worker/protocol';
 import { BorderDrape } from './border-drape';
+import { cullLabels, horizonHides, horizonOccluder } from './horizon';
 import {
   countryLabelDepthTestDistance,
   countryLabelDistanceForScale,
@@ -107,7 +117,6 @@ type LabelSink = Pick<LabelCollection, 'add' | 'show'> & {
   readonly ready: boolean;
 };
 type SurfaceRef = { artifactKey: string; metric: Metric };
-type PlacedLabel = { position: Cartesian3; heightReference: HeightReference };
 
 /** Surface heights and the factor they are drawn at; `heights: null` is the flat clearance. */
 interface Elevation {
@@ -124,7 +133,8 @@ const surfaceKey = ({ artifactKey, metric }: SurfaceRef): string =>
   `${artifactKey}:${metric}`;
 
 /** The scene members the overlay and its draped borders use; atlas-scene hands it the real Scene. */
-export type ContextOverlayScene = DrapedScene & Pick<Scene, 'primitives'>;
+export type ContextOverlayScene = DrapedScene &
+  Pick<Scene, 'camera' | 'mode' | 'primitives'>;
 
 export interface ContextOverlayOptions {
   worker: Pick<AtlasWorkerClient, 'contextHeights' | 'parseContext'> &
@@ -191,7 +201,7 @@ export class ContextOverlay {
   #ground = new Float64Array(0);
   #up = new Float64Array(0);
   #scratch = new Float64Array(0);
-  #labels: PlacedLabel[] = [];
+  #labels: Label[] = [];
   #buffer: BufferPolylineCollection | null = null;
   #projected: PolylineCollection | null = null;
   #projectedLines: Polyline[] = [];
@@ -218,6 +228,11 @@ export class ContextOverlay {
   #borderCss = '#ffffff';
   #borderOpacity = 0.5;
   readonly #borders: BorderDrape;
+  // The labels' horizon cull, once their glyphs are drawn; one occluder, moved each frame.
+  readonly #occluder = horizonOccluder();
+  #labelsHidden = false;
+  #stopCulling: (() => void) | undefined;
+  #unpublishLabels: (() => void) | undefined;
   #destroyed = false;
 
   constructor(options: ContextOverlayOptions) {
@@ -438,6 +453,8 @@ export class ContextOverlay {
     if (this.#destroyed) return;
     this.#destroyed = true;
     this.#borders.retire();
+    this.#stopCulling?.();
+    this.#unpublishLabels?.();
   }
 
   /** CesiumWidget.destroy() destroys the scene's primitives, this collection among them. */
@@ -603,6 +620,15 @@ export class ContextOverlay {
     )();
     this.collection.add(labels);
     this.#labels = [];
+    const scene = this.#options.scene as Scene;
+    this.#unpublishLabels = countryLabelsTestHook(
+      scene,
+      () => this.#labels,
+      (drawn) => {
+        labels.show = drawn;
+        scene.requestRender();
+      },
+    );
     const outlineColor = Color.fromCssColorString('#020712').withAlpha(0.98);
     this.#labelElevation = this.#elevation();
     await runSliced(
@@ -654,6 +680,7 @@ export class ContextOverlay {
         frames >= LABEL_READY_MAX_FRAMES
       ) {
         remove();
+        if (!this.#isDestroyed()) this.#startCulling();
         return;
       }
       // A hidden collection does not update its labels; showing it again requests a frame.
@@ -662,6 +689,39 @@ export class ContextOverlay {
       scene.requestRender();
     });
     scene.requestRender();
+  }
+
+  /**
+   * Hides each label behind the horizon, every frame before it draws (horizon.ts), from the frame
+   * the glyphs are drawn: LabelCollection.ready counts only shown labels' glyphs
+   * (BillboardCollection.js:1603), so a label hidden sooner could be read ready undrawn. The frame
+   * asked for here draws the first cull.
+   */
+  #startCulling(): void {
+    const { scene } = this.#options;
+    this.#stopCulling = scene.preRender.addEventListener(() =>
+      this.#cullLabels(),
+    );
+    scene.requestRender();
+  }
+
+  // preRender comes after the camera's update and before the primitives' (Scene.render), so a
+  // change is drawn in the same frame. Cesium raises it outside its try/catch, where a throw would
+  // stop its render loop: a torn-down scene stops the cull first.
+  #cullLabels(): void {
+    if (this.#isDestroyed()) {
+      this.#stopCulling?.();
+      return;
+    }
+    if (!this.collection.show) return;
+    const { scene } = this.#options;
+    const hides = horizonHides(scene);
+    if (!hides && !this.#labelsHidden) return;
+    if (hides) this.#occluder.cameraPosition = scene.camera.positionWC;
+    this.#labelsHidden = cullLabels(
+      this.#labels,
+      hides ? this.#occluder : null,
+    );
   }
 
   #requestHeights(): void {

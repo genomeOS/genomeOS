@@ -7,12 +7,14 @@
  * the ground under the draped observations or the grounded highlight, and one per draped layer
  * read ready, naming the rule that fired. The pick log lists what each hover frame and each click
  * resolved, so a browser test can hold a hover, resolved on the CPU, to the click's drill pick at
- * the same point (owner decision 2026-11-14 on #483).
+ * the same point (owner decision 2026-11-14 on #483). The country labels' reader tells a browser
+ * test which labels the globe's horizon hides and where each one draws (Atlas design §11; owner
+ * report 2026-11-16).
  * Each is inert unless the build sets `PUBLIC_ATLAS_E2E_HOOKS=1`, which only `npm run build:e2e`
  * may do (`assertE2eHooks`, lib/catalog-build.ts), so no production build carries them.
  */
 
-import type { CesiumWidget, TerrainProvider } from 'cesium';
+import type { CesiumWidget, Label, Scene, TerrainProvider } from 'cesium';
 
 import type { AtlasImageryLayerName } from './geometry/raster/types';
 import type { AtlasPick, DrapeStats } from './scene/types';
@@ -61,7 +63,42 @@ declare global {
     __atlasDrapeStats?: () => DrapeStats;
     /** What each hover frame and each click resolved, in order (`pickLogTestHook`). */
     __atlasPickLog?: AtlasPickLogEntry[];
+    /** Reads the country labels and the camera once they are added (`countryLabelsTestHook`). */
+    __atlasCountryLabels?: () => CountryLabels;
+    /**
+     * Shows or hides the country labels alone, the borders kept, and asks for a frame, so a test
+     * can compare what the labels draw.
+     */
+    __atlasDrawCountryLabels?: (drawn: boolean) => void;
   }
+}
+
+/** One country label, as `window.__atlasCountryLabels` reports it. */
+export interface CountryLabel {
+  text: string;
+  /** `Label.show`: false while the globe's horizon hides the label (scene/horizon.ts). */
+  show: boolean;
+  /**
+   * Where Cesium draws it, ECEF metres: where it clamped it to the ground when it is clamped,
+   * else its own position.
+   */
+  position: [number, number, number];
+  /** The far end of its distance display condition, metres from the camera. */
+  far: number;
+  /**
+   * Its box on the canvas in CSS px, as Cesium estimates it without its scale by distance; null
+   * behind the camera.
+   */
+  box: { x: number; y: number; width: number; height: number } | null;
+}
+
+/** What `window.__atlasCountryLabels` reports (owner report 2026-11-16). */
+export interface CountryLabels {
+  /** The camera, ECEF metres. */
+  camera: [number, number, number];
+  /** The globe has loaded every tile this view needs. */
+  tilesLoaded: boolean;
+  labels: CountryLabel[];
 }
 
 /** One resolution of the pointer, as `window.__atlasPickLog` lists it. */
@@ -220,6 +257,41 @@ export function drapeStatsTestHook(
   window.__atlasDrapeStats = read;
   return () => {
     if (window.__atlasDrapeStats === read) delete window.__atlasDrapeStats;
+  };
+}
+
+/**
+ * Publishes a reader of `scene`'s country labels as `window.__atlasCountryLabels`, and `draw` as
+ * `window.__atlasDrawCountryLabels`, in the e2e build, so a browser test can tell which labels the
+ * globe's horizon hides and what each one draws (owner report 2026-11-16); undefined elsewhere.
+ * The reader's module (scene/country-label-probe.ts) loads only here, and both are published once
+ * it has. The returned callback unpublishes them, unless a newer scene has published its own
+ * since; called before the module loads, it publishes nothing.
+ */
+export function countryLabelsTestHook(
+  scene: Scene,
+  labels: () => readonly Label[],
+  draw: (drawn: boolean) => void,
+): (() => void) | undefined {
+  if (
+    import.meta.env.PUBLIC_ATLAS_E2E_HOOKS !== '1' ||
+    typeof window === 'undefined'
+  )
+    return undefined;
+  let removed = false;
+  let read: (() => CountryLabels) | undefined;
+  void import('./scene/country-label-probe').then(({ readCountryLabels }) => {
+    if (removed) return;
+    read = () => readCountryLabels(scene, labels());
+    window.__atlasCountryLabels = read;
+    window.__atlasDrawCountryLabels = draw;
+  });
+  return () => {
+    removed = true;
+    if (read && window.__atlasCountryLabels === read)
+      delete window.__atlasCountryLabels;
+    if (window.__atlasDrawCountryLabels === draw)
+      delete window.__atlasDrawCountryLabels;
   };
 }
 

@@ -38,6 +38,7 @@ import {
   countryLabelText,
 } from '../src/atlas/scene/geographic-overlay';
 import { highlightStyle } from '../src/atlas/scene/highlight-layer';
+import { horizonOccluder, labelAboveHorizon } from '../src/atlas/scene/horizon';
 import {
   buildObservationLayer,
   observationPickId,
@@ -310,14 +311,24 @@ describe('Cesium scene policy', () => {
     expect(countryLabelHeight(0, 0)).toBe(2_500);
   });
 
-  it('overlays visible front-side labels without exposing the far hemisphere', () => {
+  // A label skips the depth test within this distance, so the ground near it never buries it.
+  // The distance cannot stand in for the front hemisphere (owner report 2026-11-16): 3 km over the
+  // Atlas Mountains the horizon is ~374 km off for a label, and Portugal's, ~955 km off, lies well
+  // inside it. Only the horizon test hides it.
+  it('leaves the far side of the Earth to the horizon test, not the depth-test distance', () => {
     const depthTestDistance = countryLabelDepthTestDistance(1.7);
+    const camera = Cartesian3.fromDegrees(-7.5, 31, 3_000);
+    const portugal = Cartesian3.fromDegrees(-8, 39.6, countryLabelHeight(0, 0));
 
-    expect(depthTestDistance).toBeGreaterThan(0);
-    expect(depthTestDistance).toBeLessThan(Ellipsoid.WGS84.maximumRadius * 2);
     expect(depthTestDistance).toBeLessThanOrEqual(
       countryLabelDistanceForScale(1.7),
     );
+    expect(Cartesian3.distance(camera, portugal)).toBeLessThan(
+      depthTestDistance,
+    );
+    expect(
+      labelAboveHorizon(horizonOccluder(camera), { position: portugal }),
+    ).toBe(false);
   });
 
   it('attaches explicit pick kinds', () => {

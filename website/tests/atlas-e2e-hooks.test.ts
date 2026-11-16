@@ -1,11 +1,15 @@
 /** The e2e build's camera motion hook (fast-load design §B.8; #453), drape stats reader and
- * performance measures (terrain draping design, "Performance budget and measurement"; #483). */
+ * performance measures (terrain draping design, "Performance budget and measurement"; #483), and
+ * the country labels' reader (Atlas design §11; owner report 2026-11-16). */
+import type { Label, Scene } from 'cesium';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   CAMERA_QUIET_MS,
   CAMERA_STILL_TOLERANCE,
   cameraMotionTestHook,
+  countryLabelsTestHook,
+  type CountryLabels,
   DRAPED_READY_MEASURE,
   drapeStatsTestHook,
   GROUND_PASS_MEASURE,
@@ -222,6 +226,91 @@ describe('drapeStatsTestHook', () => {
     vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
     drapeStatsTestHook(() => STATS)!();
     expect(page.__atlasDrapeStats).toBeUndefined();
+  });
+});
+
+describe('countryLabelsTestHook (owner report 2026-11-16)', () => {
+  /** A scene 2,500 km over (0°, 0°), and one label behind its camera, clamped to the ground. */
+  function labelled() {
+    const scene = {
+      camera: { positionWC: { x: 8_878_137, y: 0, z: 0 } },
+      globe: { tilesLoaded: true },
+    };
+    const label = {
+      _clampedPosition: { x: 6_380_637, y: 0, z: 0 },
+      computeScreenSpacePosition: () => undefined,
+      distanceDisplayCondition: { far: 1_000_000 },
+      position: { x: 6_380_000, y: 0, z: 0 },
+      show: true,
+      text: 'Gabon',
+    };
+    return { label, scene: scene as never as Scene };
+  }
+
+  it('publishes nothing outside the e2e build', () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '');
+    const { scene } = labelled();
+    expect(
+      countryLabelsTestHook(
+        scene,
+        () => [],
+        () => {},
+      ),
+    ).toBeUndefined();
+    expect(page.__atlasCountryLabels).toBeUndefined();
+    expect(page.__atlasDrawCountryLabels).toBeUndefined();
+  });
+
+  it('publishes the reader and the switch once the reader loads, and removes only its own', async () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const { label, scene } = labelled();
+    const draw = vi.fn();
+    const remove = countryLabelsTestHook(
+      scene,
+      () => [label as never as Label],
+      draw,
+    )!;
+    await vi.waitFor(() =>
+      expect(page.__atlasCountryLabels).toBeTypeOf('function'),
+    );
+    expect(page.__atlasCountryLabels!()).toEqual({
+      camera: [8_878_137, 0, 0],
+      labels: [
+        {
+          box: null,
+          far: 1_000_000,
+          position: [6_380_637, 0, 0],
+          show: true,
+          text: 'Gabon',
+        },
+      ],
+      tilesLoaded: true,
+    } satisfies CountryLabels);
+    page.__atlasDrawCountryLabels!(false);
+    expect(draw).toHaveBeenCalledWith(false);
+
+    const newer = () => page.__atlasCountryLabels!();
+    page.__atlasCountryLabels = newer;
+    remove();
+    expect(page.__atlasCountryLabels).toBe(newer);
+    expect(page.__atlasDrawCountryLabels).toBeUndefined();
+  });
+
+  it('publishes nothing when removed before the reader loads', async () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const { scene } = labelled();
+    countryLabelsTestHook(
+      scene,
+      () => [],
+      () => {},
+    )!();
+    await import('../src/atlas/scene/country-label-probe');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(page.__atlasCountryLabels).toBeUndefined();
+    expect(page.__atlasDrawCountryLabels).toBeUndefined();
   });
 });
 

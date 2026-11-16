@@ -3,6 +3,7 @@ import {
   BufferPolylineCollection,
   BufferPolylineMaterial,
   Cartesian3,
+  Color,
   DeveloperError,
   Ellipsoid,
   HeightReference,
@@ -59,7 +60,7 @@ function setup(
   config: SetupOptions = {},
 ) {
   const context = config.context ?? parsed;
-  type AddedLabel = Pick<
+  type LabelOptions = Pick<
     Label,
     | 'heightReference'
     | 'horizontalOrigin'
@@ -67,6 +68,13 @@ function setup(
     | 'text'
     | 'verticalOrigin'
   >;
+  /** A label as added, which counts the writes to its `show`; `_clampedPosition` is where Cesium
+   * draws one clamped to the ground (Label.js:1134). */
+  type AddedLabel = LabelOptions & {
+    show: boolean;
+    showWrites: number;
+    _clampedPosition?: Cartesian3;
+  };
   const added: AddedLabel[] = [];
   const labels = {
     add({
@@ -75,13 +83,22 @@ function setup(
       position,
       text,
       verticalOrigin,
-    }: AddedLabel) {
-      const label = {
+    }: LabelOptions) {
+      let shown = true;
+      const label: AddedLabel = {
         heightReference,
         horizontalOrigin,
         position,
         text,
         verticalOrigin,
+        showWrites: 0,
+        get show() {
+          return shown;
+        },
+        set show(value: boolean) {
+          label.showWrites += 1;
+          shown = value;
+        },
       };
       added.push(label);
       return label;
@@ -116,13 +133,20 @@ function setup(
   };
   const primitives = new PrimitiveCollection();
   const scene = {
+    // Far out over Europe, where the horizon hides none of the fixtures' labels.
+    camera: { positionWC: Cartesian3.fromDegrees(0, 20, 20_000_000) },
     // What a Cesium LabelCollection built with the scene reads to clamp a label: the ground is
     // 1,000 m everywhere (Billboard._updateClamping, Billboard.js:1121-1200).
     ellipsoid: Ellipsoid.WGS84,
     frameState: { mode: SceneMode.SCENE3D },
     getHeight: () => 1_000,
-    globe: {},
+    // An opaque globe, as `applyEarthOpacity(globe, 1)` leaves it.
+    globe: {
+      baseColor: Color.fromCssColorString('#071b35'),
+      translucency: { backFaceAlpha: 1, enabled: false, frontFaceAlpha: 1 },
+    },
     imageryLayers: {},
+    mode: SceneMode.SCENE3D as SceneMode,
     postRender: new FakeEvent(),
     preRender: new FakeEvent(),
     primitives,
@@ -462,7 +486,8 @@ describe('Natural Earth country label glyphs', () => {
 
     labels.ready = true;
     scene.postRender.raiseEvent();
-    expect(scene.requestRender).toHaveBeenCalledTimes(2);
+    // One frame more, which draws the labels' first horizon cull.
+    expect(scene.requestRender).toHaveBeenCalledTimes(3);
     expect(scene.postRender.numberOfListeners).toBe(0);
   });
 
@@ -491,7 +516,10 @@ describe('Natural Earth country label glyphs', () => {
     for (let frame = 0; frame < LABEL_READY_MAX_FRAMES + 5; frame += 1)
       scene.postRender.raiseEvent();
 
-    expect(scene.requestRender).toHaveBeenCalledTimes(LABEL_READY_MAX_FRAMES);
+    // And one more, which draws the labels' first horizon cull.
+    expect(scene.requestRender).toHaveBeenCalledTimes(
+      LABEL_READY_MAX_FRAMES + 1,
+    );
     expect(scene.postRender.numberOfListeners).toBe(0);
   });
 
@@ -512,6 +540,155 @@ describe('Natural Earth country label glyphs', () => {
     expect(
       Object.getOwnPropertyDescriptor(LabelCollection.prototype, 'ready')?.get,
     ).toBeTypeOf('function');
+  });
+});
+
+/** Natural Earth label points of the countries the owner saw from the Atlas Mountains. */
+const FAR_LABELS = {
+  ...parsed,
+  labels: [
+    { lat: 31.65, lon: -7.19, minLabel: 2, text: 'Morocco' },
+    { lat: 40.24, lon: -3.65, minLabel: 2, text: 'Spain' },
+    { lat: 64.9, lon: -18.6, minLabel: 2, text: 'Iceland' },
+    { lat: 74, lon: -41, minLabel: 2, text: 'Greenland' },
+  ],
+};
+/** The owner's view (2026-11-16): 6 km over the Atlas Mountains; the horizon is ~450 km off. */
+const ATLAS_MOUNTAINS = Cartesian3.fromDegrees(-7.9, 30.2, 6_000);
+
+/** Loads FAR_LABELS and ends the glyph frames, with every glyph ready. */
+async function loadedFarLabels() {
+  const loaded = setup(undefined, { context: FAR_LABELS });
+  await loaded.overlay.load('/borders.bin');
+  loaded.labels.ready = true;
+  loaded.scene.postRender.raiseEvent();
+  return loaded;
+}
+
+const shownByText = (added: { show: boolean; text: string }[]) =>
+  Object.fromEntries(added.map(({ show, text }) => [text, show]));
+
+describe('Natural Earth country labels behind the horizon (owner report 2026-11-16)', () => {
+  // A label skips the depth test within up to 8,000 km of the camera so that the ground near it
+  // never buries it; near the ground the horizon is a few hundred kilometres off, so without a
+  // horizon test Iceland and Greenland drew over the Atlas Mountains.
+  it('hides each label the Earth hides from a camera near the ground, and keeps the near ones', async () => {
+    const { added, scene } = await loadedFarLabels();
+    scene.camera.positionWC = ATLAS_MOUNTAINS;
+    scene.preRender.raiseEvent();
+    expect(shownByText(added)).toEqual({
+      Greenland: false,
+      Iceland: false,
+      Morocco: true,
+      Spain: false,
+    });
+
+    // From far out over the North Atlantic every one is in front again.
+    scene.camera.positionWC = Cartesian3.fromDegrees(-10, 45, 20_000_000);
+    scene.preRender.raiseEvent();
+    expect(Object.values(shownByText(added))).toEqual([true, true, true, true]);
+  });
+
+  it('writes a label’s show only when it crosses the horizon', async () => {
+    const { added, scene } = await loadedFarLabels();
+    scene.camera.positionWC = ATLAS_MOUNTAINS;
+    scene.preRender.raiseEvent();
+    const writes = added.map(({ showWrites }) => showWrites);
+    expect(writes).toEqual([0, 1, 1, 1]);
+    scene.preRender.raiseEvent();
+    expect(added.map(({ showWrites }) => showWrites)).toEqual(writes);
+  });
+
+  it('asks for a frame when the glyph frames end, so the first cull is drawn at once', async () => {
+    const { labels, overlay, scene } = setup(undefined, {
+      context: FAR_LABELS,
+    });
+    await overlay.load('/borders.bin');
+    labels.ready = true;
+    scene.requestRender.mockClear();
+    scene.postRender.raiseEvent();
+    expect(scene.requestRender).toHaveBeenCalledTimes(1);
+    expect(scene.preRender.numberOfListeners).toBe(1);
+  });
+
+  // LabelCollection.ready counts only the shown labels' glyphs (BillboardCollection.js:1603), so a
+  // label hidden before its glyphs reached the atlas would be read ready and stay undrawn.
+  it('hides nothing until the glyph frames end, then culls, also when they end at their bound', async () => {
+    const { added, overlay, scene } = setup(undefined, {
+      context: FAR_LABELS,
+    });
+    await overlay.load('/borders.bin');
+    scene.camera.positionWC = ATLAS_MOUNTAINS;
+    scene.preRender.raiseEvent();
+    expect(added.every(({ show }) => show)).toBe(true);
+    expect(added.every(({ showWrites }) => showWrites === 0)).toBe(true);
+
+    for (let frame = 0; frame <= LABEL_READY_MAX_FRAMES; frame += 1)
+      scene.postRender.raiseEvent();
+    scene.preRender.raiseEvent();
+    expect(shownByText(added)).toMatchObject({ Morocco: true, Spain: false });
+  });
+
+  it('shows every label through a see-through Earth and in 2D, where nothing hides them', async () => {
+    const { added, scene } = await loadedFarLabels();
+    scene.camera.positionWC = ATLAS_MOUNTAINS;
+    scene.preRender.raiseEvent();
+    expect(shownByText(added)).toMatchObject({ Spain: false });
+
+    // Earth opacity 0.4 (applyEarthOpacity): Cesium culls nothing behind the horizon.
+    Object.assign(scene.globe.translucency, {
+      backFaceAlpha: 0.4,
+      enabled: true,
+      frontFaceAlpha: 0.4,
+    });
+    scene.preRender.raiseEvent();
+    expect(added.every(({ show }) => show)).toBe(true);
+
+    Object.assign(scene.globe.translucency, {
+      backFaceAlpha: 1,
+      enabled: false,
+      frontFaceAlpha: 1,
+    });
+    scene.preRender.raiseEvent();
+    expect(shownByText(added)).toMatchObject({ Spain: false });
+
+    // The 2D map draws every label at its projected place, in front of the map.
+    scene.mode = SceneMode.SCENE2D;
+    scene.preRender.raiseEvent();
+    expect(added.every(({ show }) => show)).toBe(true);
+  });
+
+  it('tests a label clamped to the ground where Cesium draws it', async () => {
+    const { added, scene } = await loadedFarLabels();
+    scene.camera.positionWC = ATLAS_MOUNTAINS;
+    // Morocco's own position is in view; where the scene clamped it is not.
+    added[0]._clampedPosition = Cartesian3.fromDegrees(-3.65, 40.24, 2_500);
+    scene.preRender.raiseEvent();
+    expect(shownByText(added)).toMatchObject({ Morocco: false });
+  });
+
+  it('writes nothing while the countries layer is hidden', async () => {
+    const { added, overlay, scene } = await loadedFarLabels();
+    overlay.setVisible(false);
+    scene.camera.positionWC = ATLAS_MOUNTAINS;
+    scene.preRender.raiseEvent();
+    expect(added.every(({ showWrites }) => showWrites === 0)).toBe(true);
+
+    overlay.setVisible(true);
+    scene.preRender.raiseEvent();
+    expect(shownByText(added)).toMatchObject({ Morocco: true, Spain: false });
+  });
+
+  it('stops culling when destroyed, and quietly when the scene is torn down', async () => {
+    const destroyed = await loadedFarLabels();
+    destroyed.overlay.destroy();
+    expect(destroyed.scene.preRender.numberOfListeners).toBe(0);
+
+    // Cesium raises preRender outside its try/catch: a throw there stops its render loop.
+    const tornDown = await loadedFarLabels();
+    tornDown.scene.primitives.destroy();
+    expect(() => tornDown.scene.preRender.raiseEvent()).not.toThrow();
+    expect(tornDown.scene.preRender.numberOfListeners).toBe(0);
   });
 });
 
