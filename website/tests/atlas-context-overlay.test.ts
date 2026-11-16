@@ -486,8 +486,7 @@ describe('Natural Earth country label glyphs', () => {
 
     labels.ready = true;
     scene.postRender.raiseEvent();
-    // One frame more, which draws the labels' first horizon cull.
-    expect(scene.requestRender).toHaveBeenCalledTimes(3);
+    expect(scene.requestRender).toHaveBeenCalledTimes(2);
     expect(scene.postRender.numberOfListeners).toBe(0);
   });
 
@@ -516,10 +515,7 @@ describe('Natural Earth country label glyphs', () => {
     for (let frame = 0; frame < LABEL_READY_MAX_FRAMES + 5; frame += 1)
       scene.postRender.raiseEvent();
 
-    // And one more, which draws the labels' first horizon cull.
-    expect(scene.requestRender).toHaveBeenCalledTimes(
-      LABEL_READY_MAX_FRAMES + 1,
-    );
+    expect(scene.requestRender).toHaveBeenCalledTimes(LABEL_READY_MAX_FRAMES);
     expect(scene.postRender.numberOfListeners).toBe(0);
   });
 
@@ -568,6 +564,15 @@ async function loadedFarLabels() {
 const shownByText = (added: { show: boolean; text: string }[]) =>
   Object.fromEntries(added.map(({ show, text }) => [text, show]));
 
+/** Far out over the North Atlantic, where every one of FAR_LABELS is in front. */
+const NORTH_ATLANTIC = Cartesian3.fromDegrees(-10, 45, 20_000_000);
+
+/** One drawn frame: Cesium raises preRender, renders, then raises postRender (Scene.render). */
+function frame(scene: { postRender: FakeEvent; preRender: FakeEvent }): void {
+  scene.preRender.raiseEvent();
+  scene.postRender.raiseEvent();
+}
+
 describe('Natural Earth country labels behind the horizon (owner report 2026-11-16)', () => {
   // A label skips the depth test within up to 8,000 km of the camera so that the ground near it
   // never buries it; near the ground the horizon is a few hundred kilometres off, so without a
@@ -584,7 +589,7 @@ describe('Natural Earth country labels behind the horizon (owner report 2026-11-
     });
 
     // From far out over the North Atlantic every one is in front again.
-    scene.camera.positionWC = Cartesian3.fromDegrees(-10, 45, 20_000_000);
+    scene.camera.positionWC = NORTH_ATLANTIC;
     scene.preRender.raiseEvent();
     expect(Object.values(shownByText(added))).toEqual([true, true, true, true]);
   });
@@ -599,34 +604,101 @@ describe('Natural Earth country labels behind the horizon (owner report 2026-11-
     expect(added.map(({ showWrites }) => showWrites)).toEqual(writes);
   });
 
-  it('asks for a frame when the glyph frames end, so the first cull is drawn at once', async () => {
-    const { labels, overlay, scene } = setup(undefined, {
+  // Review of the first fix: opened cold straight into a low view, the far labels drew through the
+  // Earth until the glyph frames ended, for 2-3 frames and up to LABEL_READY_MAX_FRAMES.
+  it('hides a label beyond the horizon from the first frame after it is added, before its glyphs are ready', async () => {
+    const { atYield, slice } = slicedLoad();
+    const { added, labels, overlay, scene } = setup(undefined, {
       context: FAR_LABELS,
+      slice,
     });
+    scene.camera.positionWC = ATLAS_MOUNTAINS;
+    const shownMidLoad: Record<string, boolean>[] = [];
+    // The frame drawn after Spain's slice, with Iceland and Greenland still to add.
+    atYield(
+      () => added.length === 2,
+      () => {
+        scene.preRender.raiseEvent();
+        shownMidLoad.push(shownByText(added));
+      },
+    );
     await overlay.load('/borders.bin');
-    labels.ready = true;
-    scene.requestRender.mockClear();
-    scene.postRender.raiseEvent();
-    expect(scene.requestRender).toHaveBeenCalledTimes(1);
-    expect(scene.preRender.numberOfListeners).toBe(1);
+    expect(shownMidLoad).toEqual([{ Morocco: true, Spain: false }]);
+
+    frame(scene);
+    expect(labels.ready).toBe(false);
+    expect(shownByText(added)).toEqual({
+      Greenland: false,
+      Iceland: false,
+      Morocco: true,
+      Spain: false,
+    });
   });
 
-  // LabelCollection.ready counts only the shown labels' glyphs (BillboardCollection.js:1603), so a
-  // label hidden before its glyphs reached the atlas would be read ready and stay undrawn.
-  it('hides nothing until the glyph frames end, then culls, also when they end at their bound', async () => {
-    const { added, overlay, scene } = setup(undefined, {
+  // LabelCollection.ready counts only the shown labels' glyphs (BillboardCollection.js:1603): a
+  // label hidden before its glyphs reached the atlas is left out, so the glyph frames can end
+  // without it, and nothing would draw it when it comes back.
+  it('asks for frames until the glyphs are ready when a camera move brings back a label hidden before they loaded', async () => {
+    const { added, labels, overlay, scene } = setup(undefined, {
       context: FAR_LABELS,
     });
-    await overlay.load('/borders.bin');
     scene.camera.positionWC = ATLAS_MOUNTAINS;
-    scene.preRender.raiseEvent();
-    expect(added.every(({ show }) => show)).toBe(true);
-    expect(added.every(({ showWrites }) => showWrites === 0)).toBe(true);
-
-    for (let frame = 0; frame <= LABEL_READY_MAX_FRAMES; frame += 1)
-      scene.postRender.raiseEvent();
-    scene.preRender.raiseEvent();
+    await overlay.load('/borders.bin');
+    frame(scene);
+    // Morocco's glyphs reach the atlas; Spain's, hidden, are not counted.
+    labels.ready = true;
+    frame(scene);
+    frame(scene);
     expect(shownByText(added)).toMatchObject({ Morocco: true, Spain: false });
+    expect(scene.postRender.numberOfListeners).toBe(0);
+
+    // Zoomed out over the North Atlantic: Spain and the rest come back, their glyphs not yet drawn.
+    scene.camera.positionWC = NORTH_ATLANTIC;
+    labels.ready = false;
+    scene.requestRender.mockClear();
+    frame(scene);
+    frame(scene);
+    expect(scene.requestRender).toHaveBeenCalledTimes(2);
+    labels.ready = true;
+    frame(scene);
+    frame(scene);
+    expect(scene.requestRender).toHaveBeenCalledTimes(2);
+    expect(scene.postRender.numberOfListeners).toBe(0);
+    expect(Object.values(shownByText(added))).toEqual([true, true, true, true]);
+  });
+
+  it('stops asking after LABEL_READY_MAX_FRAMES when a label brought back has a glyph that never loads', async () => {
+    const { labels, scene } = await loadedFarLabels();
+    scene.camera.positionWC = ATLAS_MOUNTAINS;
+    frame(scene);
+    scene.camera.positionWC = NORTH_ATLANTIC;
+    labels.ready = false;
+    scene.requestRender.mockClear();
+    for (let count = 0; count < LABEL_READY_MAX_FRAMES + 5; count += 1)
+      frame(scene);
+    expect(scene.requestRender).toHaveBeenCalledTimes(LABEL_READY_MAX_FRAMES);
+    expect(scene.postRender.numberOfListeners).toBe(0);
+
+    // Each return is an episode of its own, with its own bound.
+    scene.camera.positionWC = ATLAS_MOUNTAINS;
+    frame(scene);
+    scene.camera.positionWC = NORTH_ATLANTIC;
+    scene.requestRender.mockClear();
+    frame(scene);
+    expect(scene.requestRender).toHaveBeenCalledTimes(1);
+    expect(scene.postRender.numberOfListeners).toBe(1);
+  });
+
+  it('asks for no frame when a label comes back with its glyphs already drawn', async () => {
+    const { added, scene } = await loadedFarLabels();
+    scene.camera.positionWC = ATLAS_MOUNTAINS;
+    frame(scene);
+    scene.camera.positionWC = NORTH_ATLANTIC;
+    scene.requestRender.mockClear();
+    frame(scene);
+    expect(Object.values(shownByText(added))).toEqual([true, true, true, true]);
+    expect(scene.requestRender).not.toHaveBeenCalled();
+    expect(scene.postRender.numberOfListeners).toBe(0);
   });
 
   it('shows every label through a see-through Earth and in 2D, where nothing hides them', async () => {
@@ -683,6 +755,16 @@ describe('Natural Earth country labels behind the horizon (owner report 2026-11-
     const destroyed = await loadedFarLabels();
     destroyed.overlay.destroy();
     expect(destroyed.scene.preRender.numberOfListeners).toBe(0);
+
+    // Destroyed while it still asks for glyph frames.
+    const waiting = setup(undefined, { context: FAR_LABELS });
+    await waiting.overlay.load('/borders.bin');
+    expect(waiting.scene.postRender.numberOfListeners).toBe(1);
+    waiting.overlay.destroy();
+    expect([
+      waiting.scene.preRender.numberOfListeners,
+      waiting.scene.postRender.numberOfListeners,
+    ]).toEqual([0, 0]);
 
     // Cesium raises preRender outside its try/catch: a throw there stops its render loop.
     const tornDown = await loadedFarLabels();

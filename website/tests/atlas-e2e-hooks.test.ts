@@ -8,7 +8,9 @@ import {
   CAMERA_QUIET_MS,
   CAMERA_STILL_TOLERANCE,
   cameraMotionTestHook,
+  COUNTRY_LABEL_FRAMES_MAX,
   countryLabelsTestHook,
+  type CountryLabelFrame,
   type CountryLabels,
   DRAPED_READY_MEASURE,
   drapeStatsTestHook,
@@ -20,6 +22,7 @@ import {
 } from '../src/atlas/e2e-hooks';
 import { observationPickId } from '../src/atlas/scene/observation-layer';
 import type { DrapeStats } from '../src/atlas/scene/types';
+import { FakeEvent } from './helpers/scene-fakes';
 
 const STATS: DrapeStats = {
   coarseRasterMs: {
@@ -232,9 +235,11 @@ describe('drapeStatsTestHook', () => {
 describe('countryLabelsTestHook (owner report 2026-11-16)', () => {
   /** A scene 2,500 km over (0°, 0°), and one label behind its camera, clamped to the ground. */
   function labelled() {
+    const postRender = new FakeEvent();
     const scene = {
       camera: { positionWC: { x: 8_878_137, y: 0, z: 0 } },
       globe: { tilesLoaded: true },
+      postRender,
     };
     const label = {
       _clampedPosition: { x: 6_380_637, y: 0, z: 0 },
@@ -244,7 +249,7 @@ describe('countryLabelsTestHook (owner report 2026-11-16)', () => {
       show: true,
       text: 'Gabon',
     };
-    return { label, scene: scene as never as Scene };
+    return { label, postRender, scene: scene as never as Scene };
   }
 
   it('publishes nothing outside the e2e build', () => {
@@ -296,6 +301,79 @@ describe('countryLabelsTestHook (owner report 2026-11-16)', () => {
     remove();
     expect(page.__atlasCountryLabels).toBe(newer);
     expect(page.__atlasDrawCountryLabels).toBeUndefined();
+  });
+
+  // A cold load straight into a low view: the browser test holds every frame drawn from the first
+  // label added, not only the state it reads once the page settles.
+  it('records each frame drawn once the labels exist, when a test asked before the page loaded', () => {
+    const page = published();
+    page.__atlasCountryLabelFrames = [];
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const { label, postRender, scene } = labelled();
+    const labels: Label[] = [];
+    const remove = countryLabelsTestHook(
+      scene,
+      () => labels,
+      () => {},
+    )!;
+    postRender.raiseEvent();
+    expect(page.__atlasCountryLabelFrames).toEqual([]);
+
+    labels.push(
+      label as never as Label,
+      { ...label, show: false, text: 'Congo' } as never as Label,
+    );
+    postRender.raiseEvent();
+    expect(page.__atlasCountryLabelFrames).toEqual([
+      {
+        camera: [8_878_137, 0, 0],
+        shown: [{ far: 1_000_000, position: [6_380_637, 0, 0], text: 'Gabon' }],
+      },
+    ] satisfies CountryLabelFrame[]);
+
+    remove();
+    postRender.raiseEvent();
+    expect(page.__atlasCountryLabelFrames).toHaveLength(1);
+    expect(postRender.numberOfListeners).toBe(0);
+  });
+
+  it('records no frame unless a test asked, and at most COUNTRY_LABEL_FRAMES_MAX', () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const { label, postRender, scene } = labelled();
+    const removers = [
+      countryLabelsTestHook(
+        scene,
+        () => [label as never as Label],
+        () => {},
+      )!,
+    ];
+    expect(postRender.numberOfListeners).toBe(0);
+
+    page.__atlasCountryLabelFrames = [];
+    removers.push(
+      countryLabelsTestHook(
+        scene,
+        () => [label as never as Label],
+        () => {},
+      )!,
+    );
+    for (let frame = 0; frame < COUNTRY_LABEL_FRAMES_MAX + 3; frame += 1)
+      postRender.raiseEvent();
+    expect(page.__atlasCountryLabelFrames).toHaveLength(
+      COUNTRY_LABEL_FRAMES_MAX,
+    );
+    // Before the reader's module loads, so it publishes nothing on a page already gone.
+    for (const remove of removers) remove();
+
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '');
+    const outside = labelled();
+    countryLabelsTestHook(
+      outside.scene,
+      () => [label as never as Label],
+      () => {},
+    );
+    expect(outside.postRender.numberOfListeners).toBe(0);
   });
 
   it('publishes nothing when removed before the reader loads', async () => {

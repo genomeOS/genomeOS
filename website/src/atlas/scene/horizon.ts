@@ -92,20 +92,30 @@ export function labelAboveHorizon(
   return occluder.isPointVisible(drawnPosition(label));
 }
 
+/** What one pass of `cullLabels` left hidden, and whether it showed a label it found hidden. */
+export interface LabelCull {
+  hidden: boolean;
+  revealed: boolean;
+}
+
 /**
  * Shows each of `labels` that `occluder` sees where Cesium draws it and hides the rest, or with no
  * occluder shows them all. Writes `show` only where it changes: each write rebuilds the
- * collection's glyph buffers. Returns whether any label is hidden.
+ * collection's glyph buffers.
  */
 export function cullLabels(
   labels: readonly Pick<Label, 'position' | 'show'>[],
   occluder: HorizonOccluder | null,
-): boolean {
+): LabelCull {
   let hidden = false;
+  let revealed = false;
   for (const label of labels) {
     const show = !occluder || labelAboveHorizon(occluder, label);
-    if (label.show !== show) label.show = show;
+    if (label.show !== show) {
+      label.show = show;
+      revealed ||= show;
+    }
     hidden ||= !show;
   }
-  return hidden;
+  return { hidden, revealed };
 }

@@ -11,7 +11,10 @@
  * it and how far it is drawn. Which labels lie beyond the horizon is worked out here, from those
  * vectors and the WGS84 axes, not by the scene's own test. What each label draws is the share of
  * the pixels in its box that change when the labels alone are hidden; a box under the panel, the
- * legend or another label's box is not read. Desktop only: the phone runs the same scene.
+ * legend or another label's box is not read. `window.__atlasCountryLabelFrames`, asked for before
+ * the page loads, holds the camera and the shown labels of every frame drawn from the first label
+ * added, so a cold load is checked frame by frame, not only once it settles. Desktop only: the
+ * phone runs the same scene.
  */
 
 import { expect, test, type Page } from '@playwright/test';
@@ -359,6 +362,42 @@ test.describe('country labels beyond the horizon @desktop-chromium', () => {
         .filter(({ text }) => drawn.get(text)!.share > 0)
         .map(({ text }) => text),
     ).toEqual([]);
+  });
+
+  // Review of the first fix: the cull waited for the label glyphs, so a page opened straight into a
+  // low view drew the far labels through the Earth for its first frames, and for up to
+  // LABEL_READY_MAX_FRAMES (context-overlay.ts) when a glyph never loaded. Held on the smooth
+  // globe, where a label's position changes only between frames, so what a frame records is what
+  // it drew; under World Terrain the scene re-clamps labels inside a frame, after the cull, as
+  // tiles load. The cull is the same on both.
+  test('none is shown beyond the horizon on any frame of a cold load into the Atlas Mountains', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      window.__atlasCountryLabelFrames = [];
+    });
+    await openLabels(page, labelQuery(MOROCCO));
+    await expectNoneThroughTheEarth(page);
+    const frames = await page.evaluate(() => window.__atlasCountryLabelFrames!);
+    expect(frames.length).toBeGreaterThan(0);
+    expect(
+      frames.some(({ shown }) => shown.some(({ text }) => text === 'Morocco')),
+    ).toBe(true);
+    const beyond = frames
+      .map(({ camera, shown }, index) => {
+        const names = shown
+          .filter(
+            ({ far, position }) =>
+              distance(camera, position) <= far &&
+              !aboveHorizon(camera, position),
+          )
+          .map(({ text }) => text);
+        return names.length
+          ? `frame ${index}: ${names.length}, ${names.slice(0, 5).join(', ')}…`
+          : '';
+      })
+      .filter(Boolean);
+    expect(beyond).toEqual([]);
   });
 
   test('none draws over the Atlas Mountains from 6 km up; Morocco stays shown', async ({
