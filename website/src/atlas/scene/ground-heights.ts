@@ -10,70 +10,62 @@
  * comes back here as NaN, and the symbol keeps the height it had until a tile loads ("Failure
  * modes": it may pop once). Terrain height only places symbols; it never enters a metric.
  *
- * The heights are re-sampled when the ground they read can have changed: as terrain tiles load
+ * The heights are re-read when the ground they read can have changed: as terrain tiles load
  * (`tileLoadProgressEvent`, at most every `GROUND_RESAMPLE_MS`, and once more, unthrottled, when
  * the load queue empties); once a morph between 3D, 2D and Columbus view completes ("2D and
  * Columbus"); and whenever the owner calls `resample`, which a Physical relief drag does every
- * 50 ms and once more, final, when the slider rests ("Exaggeration"). Listeners hear only real
- * changes, compared value by value, so a re-sample that finds the same ground moves nothing.
+ * 50 ms and once more, final, when the slider rests ("Exaggeration"). A pass picks only the points
+ * whose rendered terrain mesh changed, and follows a relief change from each point's source height
+ * without a pick (`ground-points.ts`), so a pass over unchanged tiles picks nothing. Listeners
+ * hear only real changes, compared value by value, so a pass that finds the same ground moves
+ * nothing.
+ *
+ * Picks are bounded: the passes of one frame spend at most `GROUND_PICK_BUDGET_MS` of picks
+ * between them (`createFramePickBudget`, renewed at each `preRender`, and shared by every draped
+ * group), the points above the camera's horizon first. A pass that leaves points unpicked asks for
+ * the next frame and goes on there (`continue`), until none is left. Nothing is read while the
+ * globe's tiles are still the smooth globe's: a World Terrain request reaches the tiles only in
+ * the next frame, so the heights start at NaN, which keeps today's heights, until a World Terrain
+ * mesh exists.
  *
  * Cesium re-exaggerates the loaded tile meshes inside the frame after `verticalExaggeration`
- * changes, so until that frame renders `getHeight` still returns the old relief. `afterNextRender`
+ * changes, so until that frame renders the meshes still hold the old relief. `afterNextRender`
  * asks for that frame and runs its callback once the frame has rendered, which is when the scene
- * re-samples after a relief change; `createReliefResampler` arms it for each relief frame, and
- * once more, final, when the slider rests. `throttleResample` is the 50 ms rule, which the scene
- * also applies to the highlight it grounds.
+ * re-reads the ground after a relief change; `createReliefResampler` arms it for each relief
+ * frame, and once more, final, when the slider rests. `throttleResample` is the 50 ms rule, which
+ * the scene also applies to the highlight it grounds.
+ *
+ * In the e2e build each pass emits a `GROUND_PASS_MEASURE` performance measure with the points it
+ * picked and why it ran ("Performance budget and measurement"), so the World Terrain tour can
+ * tell a long frame spent picking from one spent elsewhere. The build constant picks the measured
+ * pass at each call site, so a production build keeps the bare pass and carries no measuring code.
  */
 
 import {
-  Cartographic,
-  Math as CesiumMath,
+  Cartesian3,
+  Ellipsoid,
+  type Cartographic,
   type Event,
   type Globe,
 } from 'cesium';
 
+import { measuredGroundPass, type GroundPassDetail } from '../e2e-hooks';
+import {
+  GroundPoints,
+  tilesAreSmooth,
+  type GroundGlobe,
+  type GroundPass,
+  type PickBudget,
+} from './ground-points';
+
 /** The shortest interval between two throttled re-samples (a relief drag, loading tiles). */
 export const GROUND_RESAMPLE_MS = 50;
 
-/** One scratch position, reused for every point: sampling allocates nothing per point. */
-const SCRATCH = new Cartographic();
-
-function assertLonLatPairs(lonLat: Float64Array): void {
-  if (lonLat.length % 2 !== 0) {
-    throw new Error(
-      `ground heights need lon, lat pairs: got ${lonLat.length} numbers`,
-    );
-  }
-}
-
 /**
- * The rendered ground height in metres under each `lon, lat` pair (WGS84 degrees), NaN where no
- * loaded tile covers the point. Longitudes are wrapped into [-180°, 180°], where `getHeight` finds
- * its tiles. Writes into `out` when given (one slot per pair) and returns it.
+ * The pick time ground heights may spend in one frame: the rest of the points to pick wait for
+ * the next frame.
  */
-export function sampleGroundHeights(
-  globe: Pick<Globe, 'getHeight'>,
-  lonLat: Float64Array,
-  out?: Float64Array,
-): Float64Array {
-  assertLonLatPairs(lonLat);
-  const count = lonLat.length / 2;
-  if (out && out.length !== count) {
-    throw new Error(
-      `ground heights for ${count} points need ${count} slots: got ${out.length}`,
-    );
-  }
-  const heights = out ?? new Float64Array(count);
-  for (let i = 0; i < count; i += 1) {
-    SCRATCH.longitude = CesiumMath.negativePiToPi(
-      CesiumMath.toRadians(lonLat[2 * i]),
-    );
-    SCRATCH.latitude = CesiumMath.toRadians(lonLat[2 * i + 1]);
-    SCRATCH.height = 0;
-    heights[i] = globe.getHeight(SCRATCH) ?? Number.NaN;
-  }
-  return heights;
-}
+export const GROUND_PICK_BUDGET_MS = 3;
 
 /** The ground heights under a fixed set of points, kept current as the rendered ground changes. */
 export interface GroundHeights {
@@ -91,48 +83,102 @@ export interface GroundHeights {
   destroy(): void;
 }
 
+/** A per-frame budget of pick time, which several ground heights can share. */
+export interface FramePickBudget extends PickBudget {
+  /** Stops counting frames. */
+  destroy(): void;
+}
+
+/** `ms` of picks a frame, renewed as each frame begins (`preRender`). */
+export function createFramePickBudget(
+  scene: { preRender: Pick<Event, 'addEventListener'> },
+  ms = GROUND_PICK_BUDGET_MS,
+): FramePickBudget {
+  let spent = 0;
+  const removePreRender = scene.preRender.addEventListener(() => {
+    spent = 0;
+  });
+  return {
+    remainingMs: () => ms - spent,
+    spend(picked) {
+      spent += picked;
+    },
+    destroy: removePreRender,
+  };
+}
+
+/** The scene ground heights read: the globe, its frames, its morphs and its camera. */
+export interface GroundScene {
+  globe: GroundGlobe & Pick<Globe, 'tileLoadProgressEvent'>;
+  morphComplete: Event;
+  preRender: Pick<Event, 'addEventListener'>;
+  postRender: Parameters<typeof afterNextRender>[0]['postRender'];
+  requestRender(): void;
+  camera: { readonly positionCartographic: Cartographic };
+}
+
+const SCRATCH_VIEWER = new Cartesian3();
+
 /**
- * Samples the ground under `lonLat` (WGS84 degree pairs) at once, then re-samples as terrain
- * tiles load and after each morph between views. Throws unless `lonLat` holds finite pairs.
+ * Reads the ground under `lonLat` (WGS84 degree pairs) at once, unless the globe's tiles are still
+ * the smooth globe's, then again as terrain tiles load and after each morph between views; the
+ * picks a frame's budget leaves wait for the next frame. Throws unless `lonLat` holds finite
+ * pairs. `now` is the performance timeline's clock: the throttle, the pick budget and the e2e
+ * build's pass measures read it. Picks spend `budget`, shared with other ground heights, or one
+ * of their own.
  */
 export function createGroundHeights(
-  scene: {
-    globe: Pick<Globe, 'getHeight' | 'tileLoadProgressEvent'>;
-    morphComplete: Event;
-  },
+  scene: GroundScene,
   lonLat: Float64Array,
   now: () => number = () => performance.now(),
+  budget?: FramePickBudget,
 ): GroundHeights {
-  assertLonLatPairs(lonLat);
-  const firstBad = lonLat.findIndex((value) => !Number.isFinite(value));
-  if (firstBad !== -1) {
-    const pair = Math.floor(firstBad / 2);
-    throw new Error(
-      `ground heights need finite lon, lat pairs: pair ${pair} is (${lonLat[2 * pair]}, ${lonLat[2 * pair + 1]})`,
-    );
-  }
-  const points = lonLat.slice();
+  const points = new GroundPoints(lonLat);
   const { globe } = scene;
-  const current = sampleGroundHeights(globe, points);
-  const next = new Float64Array(current.length);
+  const frameBudget = budget ?? createFramePickBudget(scene);
   const listeners = new Set<(h: Float64Array) => void>();
   let destroyed = false;
-
-  const sample = (): void => {
-    sampleGroundHeights(globe, points, next);
-    let changed = false;
-    for (let i = 0; i < next.length; i += 1) {
-      if (!Object.is(next[i], current[i])) {
-        changed = true;
-        break;
-      }
-    }
-    if (!changed) return;
-    current.set(next);
-    for (const listener of [...listeners]) listener(current);
+  /** Cancels the pass armed for the next frame, which picks what this frame's budget left. */
+  let cancelCarry: (() => void) | null = null;
+  const carry = (): void => {
+    cancelCarry ??= afterNextRender(scene, () => {
+      cancelCarry = null;
+      // A frame whose earlier passes spent its budget has none to give: wait for the next.
+      if (frameBudget.remainingMs() > 0) sample('continue');
+      else carry();
+    });
   };
+
+  const sample = (kind: GroundPassDetail['kind']): void => {
+    if (tilesAreSmooth(globe)) return;
+    let pass: GroundPass | undefined;
+    const read = () =>
+      (pass = points.update(globe, {
+        budget: frameBudget,
+        now,
+        viewer: Ellipsoid.WGS84.cartographicToCartesian(
+          scene.camera.positionCartographic,
+          SCRATCH_VIEWER,
+        ),
+      })).picked;
+    if (import.meta.env.PUBLIC_ATLAS_E2E_HOOKS === '1')
+      measuredGroundPass(kind, read, now);
+    else read();
+    if (pass!.pending > 0) carry();
+    else {
+      cancelCarry?.();
+      cancelCarry = null;
+    }
+    if (!pass!.changed) return;
+    for (const listener of [...listeners]) listener(points.heights);
+  };
+  sample('create');
   // The sample at creation counts as the last one.
-  const throttled = throttleResample(sample, now, now());
+  const throttled = throttleResample(
+    (final) => sample(final ? 'final' : 'resample'),
+    now,
+    now(),
+  );
   const resample = (final = false): void => {
     if (!destroyed) throttled(final);
   };
@@ -143,7 +189,7 @@ export function createGroundHeights(
   });
 
   return {
-    heights: () => current,
+    heights: () => points.heights,
     onChange(l) {
       if (destroyed) return () => {};
       listeners.add(l);
@@ -157,6 +203,9 @@ export function createGroundHeights(
       destroyed = true;
       removeTileProgress();
       removeMorphComplete();
+      cancelCarry?.();
+      cancelCarry = null;
+      if (!budget) frameBudget.destroy();
       listeners.clear();
     },
   };

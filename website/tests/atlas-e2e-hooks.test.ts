@@ -1,23 +1,39 @@
-/** The e2e build's camera motion hook (fast-load design §B.8; #453) and drape stats reader
- * (terrain draping design, "Performance budget and measurement"; #483). */
+/** The e2e build's camera motion hook (fast-load design §B.8; #453), drape stats reader and
+ * performance measures (terrain draping design, "Performance budget and measurement"; #483). */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   CAMERA_QUIET_MS,
   CAMERA_STILL_TOLERANCE,
   cameraMotionTestHook,
+  DRAPED_READY_MEASURE,
   drapeStatsTestHook,
+  GROUND_PASS_MEASURE,
+  measureDrapedReady,
+  measuredGroundPass,
+  measureGroundPass,
+  pickLogTestHook,
 } from '../src/atlas/e2e-hooks';
+import { observationPickId } from '../src/atlas/scene/observation-layer';
 import type { DrapeStats } from '../src/atlas/scene/types';
 
 const STATS: DrapeStats = {
+  coarseRasterMs: {
+    counts: [0, 0, 0, 0, 0, 0, 1],
+    upperMs: [0.5, 1, 2, 4, 8, 16, Infinity],
+  },
   delivered: 3,
+  deliveryMs: {
+    byLevel: [[0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0]],
+    upperMs: [8, 16, 32, 64, 128, 256, 512, 1_024, 2_048, 4_096, Infinity],
+  },
   empty: 1,
   queueDepth: 0,
   rasterMs: {
     counts: [1, 1, 0, 0, 0, 0, 0],
     upperMs: [0.5, 1, 2, 4, 8, 16, Infinity],
   },
+  rasterMsByLevel: [20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   requested: 4,
   residentBytes: 349_525,
 };
@@ -62,6 +78,7 @@ function published(): Window {
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  performance.clearMeasures();
 });
 
 describe('cameraMotionTestHook', () => {
@@ -205,5 +222,112 @@ describe('drapeStatsTestHook', () => {
     vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
     drapeStatsTestHook(() => STATS)!();
     expect(page.__atlasDrapeStats).toBeUndefined();
+  });
+});
+
+describe('pickLogTestHook (#483)', () => {
+  it('logs nothing outside the e2e build', () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '');
+    expect(pickLogTestHook()).toBeUndefined();
+    expect(page.__atlasPickLog).toBeUndefined();
+  });
+
+  it('logs each hover and click the scene resolved, on the page’s clock', () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const log = pickLogTestHook()!;
+    const pick = observationPickId('map-surveys:1', 'hbs-rs334:v3:map-2026-08');
+    log('hover', pick);
+    log('click', null);
+    expect(page.__atlasPickLog).toEqual([
+      { at: expect.any(Number), pick, source: 'hover' },
+      { at: expect.any(Number), pick: null, source: 'click' },
+    ]);
+  });
+});
+
+describe('e2e performance measures', () => {
+  const measures = (name: string) =>
+    performance.getEntriesByName(name, 'measure').map((entry) => ({
+      detail: (entry as PerformanceMeasure).detail as unknown,
+      duration: entry.duration,
+      startTime: entry.startTime,
+    }));
+
+  it('emits nothing outside the e2e build', () => {
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '');
+    measureGroundPass(10, 30, { kind: 'create', points: 1_071 });
+    measureDrapedReady(100, 3_100, {
+      branch: 'cap',
+      capElapsed: true,
+      frames: 40,
+      layer: 'atlas-surface',
+      renderedLevel: 0,
+      settled: false,
+    });
+    expect(measures(GROUND_PASS_MEASURE)).toEqual([]);
+    expect(measures(DRAPED_READY_MEASURE)).toEqual([]);
+  });
+
+  it('measures a ground pass from its start to its end, with the points it picked', () => {
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    expect(GROUND_PASS_MEASURE).toBe('atlas-ground-pass');
+    measureGroundPass(10, 30.5, { kind: 'resample', points: 1_071 });
+    expect(measures(GROUND_PASS_MEASURE)).toEqual([
+      {
+        detail: { kind: 'resample', points: 1_071 },
+        duration: 20.5,
+        startTime: 10,
+      },
+    ]);
+  });
+
+  it('times a pass that reads the ground on the clock given, with the points it says it picked', () => {
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const clock = { now: 40 };
+    const picked = measuredGroundPass(
+      'highlight',
+      () => {
+        clock.now += 12.5;
+        return 3;
+      },
+      () => clock.now,
+    );
+    expect(picked).toBe(3);
+    expect(measures(GROUND_PASS_MEASURE)).toEqual([
+      {
+        detail: { kind: 'highlight', points: 3 },
+        duration: 12.5,
+        startTime: 40,
+      },
+    ]);
+  });
+
+  it('measures a draped layer from its add or show to the frame that read it ready, and why', () => {
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    expect(DRAPED_READY_MEASURE).toBe('atlas-draped-ready');
+    measureDrapedReady(100, 3_100, {
+      branch: 'cap',
+      capElapsed: true,
+      frames: 40,
+      layer: 'atlas-outlines',
+      renderedLevel: 2,
+      settled: false,
+    });
+    expect(measures(DRAPED_READY_MEASURE)).toEqual([
+      {
+        detail: {
+          branch: 'cap',
+          capElapsed: true,
+          frames: 40,
+          layer: 'atlas-outlines',
+          renderedLevel: 2,
+          settled: false,
+        },
+        duration: 3_000,
+        startTime: 100,
+      },
+    ]);
   });
 });

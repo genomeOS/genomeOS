@@ -125,6 +125,11 @@ export interface WorkerResponseMap {
     index: number;
     /** True for the dedicated ±180° seam chunks, which the scheduler budgets as costly. */
     seam: boolean;
+    /**
+     * The grid rows the chunk carries, supported and masked (its plan's rows, copied): a pick
+     * takes a row as drawn only once its chunk is added (#483).
+     */
+    rows: Uint32Array;
     support: SupportChunkBuffers;
     surface: SurfaceChunkBuffers;
     total: number;

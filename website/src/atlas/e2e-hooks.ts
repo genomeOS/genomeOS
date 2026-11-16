@@ -2,14 +2,20 @@
  * Test-only hooks for the e2e build (fast-load design §B.8; #453), with the synthetic World
  * Terrain's probe and peak, and the placement readers that find a point above the rendered ground
  * and a label's clearance over it (terrain draping design, "Test plan" and "Per layer under World
- * Terrain"; #483), and the drape stats reader ("Performance budget and measurement"). Each is
- * inert unless the build sets `PUBLIC_ATLAS_E2E_HOOKS=1`, which only `npm run build:e2e` may do
- * (`assertE2eHooks`, lib/catalog-build.ts), so no production build carries them.
+ * Terrain"; #483), the drape stats reader, and the performance measures the World Terrain tour
+ * attributes its long frames with ("Performance budget and measurement"): one per pass that picks
+ * the ground under the draped observations or the grounded highlight, and one per draped layer
+ * read ready, naming the rule that fired. The pick log lists what each hover frame and each click
+ * resolved, so a browser test can hold a hover, resolved on the CPU, to the click's drill pick at
+ * the same point (owner decision 2026-11-14 on #483).
+ * Each is inert unless the build sets `PUBLIC_ATLAS_E2E_HOOKS=1`, which only `npm run build:e2e`
+ * may do (`assertE2eHooks`, lib/catalog-build.ts), so no production build carries them.
  */
 
 import type { CesiumWidget, TerrainProvider } from 'cesium';
 
-import type { DrapeStats } from './scene/types';
+import type { AtlasImageryLayerName } from './geometry/raster/types';
+import type { AtlasPick, DrapeStats } from './scene/types';
 
 /** Whether the camera is still moving, as `window.__atlasCameraMotion` reports it. */
 export interface CameraMotion {
@@ -53,7 +59,17 @@ declare global {
     __atlasLabelClearance?: (text: string) => number | null;
     /** Reads the draped tiles' counts, raster times and resident bytes, once draping has loaded. */
     __atlasDrapeStats?: () => DrapeStats;
+    /** What each hover frame and each click resolved, in order (`pickLogTestHook`). */
+    __atlasPickLog?: AtlasPickLogEntry[];
   }
+}
+
+/** One resolution of the pointer, as `window.__atlasPickLog` lists it. */
+export interface AtlasPickLogEntry {
+  source: 'click' | 'hover';
+  pick: AtlasPick | null;
+  /** `performance.now()` as it was resolved. */
+  at: number;
 }
 
 /** What `window.__atlasTerrainProbe` reports (#483). */
@@ -205,6 +221,128 @@ export function drapeStatsTestHook(
   return () => {
     if (window.__atlasDrapeStats === read) delete window.__atlasDrapeStats;
   };
+}
+
+/**
+ * Appends each resolution of the pointer to `window.__atlasPickLog` in the e2e build (#483);
+ * undefined elsewhere.
+ */
+export function pickLogTestHook():
+  | ((source: AtlasPickLogEntry['source'], pick: AtlasPick | null) => void)
+  | undefined {
+  if (
+    import.meta.env.PUBLIC_ATLAS_E2E_HOOKS !== '1' ||
+    typeof window === 'undefined'
+  )
+    return undefined;
+  return (source, pick) => {
+    (window.__atlasPickLog ??= []).push({
+      at: performance.now(),
+      pick,
+      source,
+    });
+  };
+}
+
+/**
+ * The performance measure of one pass that reads the ground: under the draped observations
+ * (`scene/ground-heights.ts`) or under the grounded highlight ring (`scene/highlight-layer.ts`);
+ * e2e build only. A pass picks only the points whose terrain mesh changed, so one over unchanged
+ * tiles, or after a relief change, picks none (`scene/ground-points.ts`).
+ */
+export const GROUND_PASS_MEASURE = 'atlas-ground-pass';
+
+/** What a ground pass measure carries besides its start and duration. */
+export interface GroundPassDetail {
+  /** The points the pass picked the ground under (`globe.getHeight` calls); 0 if none. */
+  points: number;
+  /**
+   * Under the observations: `create`, the sample at creation; `resample`, a throttled re-sample
+   * (a relief frame, a tile load); `final`, an unthrottled one (the relief at rest, the tile load
+   * queue empty, a morph between views complete); `continue`, the next frame's pass that picks
+   * what a frame's budget of picks left. `highlight`: the hover or selection ring grounded under
+   * World Terrain.
+   */
+  kind: 'create' | 'resample' | 'final' | 'continue' | 'highlight';
+}
+
+/**
+ * The performance measure of a draped layer read ready (`scene/draped/draped-imagery-layer.ts`),
+ * from its add or last show to the frame that read it ready; e2e build only.
+ */
+export const DRAPED_READY_MEASURE = 'atlas-draped-ready';
+
+/** What a readiness measure carries besides its start and duration. */
+export interface DrapedReadyDetail {
+  layer: AtlasImageryLayerName;
+  /**
+   * `tiles`: the tiles the globe rendered had the layer's imagery loaded; `cap`: the fallback,
+   * `DRAPED_READY_CAP_MS`, ran out first.
+   */
+  branch: 'tiles' | 'cap';
+  /**
+   * Whether `DRAPED_READY_CAP_MS` had run out by this frame, whatever the branch: a `tiles` read
+   * with the cap run out came on the first frame past it, so either rule would have read the layer
+   * ready.
+   */
+  capElapsed: boolean;
+  /** The frames counted from the add or show, that one included. */
+  frames: number;
+  /**
+   * Whether the tiles the globe rendered in the frame read from were the ones it chose for the
+   * view, not coarser ones drawn while finer terrain loaded: always for `tiles`; a `cap` read
+   * without it waited on the terrain, one with it on the layer's own imagery.
+   */
+  settled: boolean;
+  /** The deepest level of the tiles the globe rendered in the frame read from; −1 with none. */
+  renderedLevel: number;
+}
+
+/** A performance measure from `startMs` to `endMs` (`performance.now()` times), e2e build only. */
+function e2eMeasure(
+  name: string,
+  startMs: number,
+  endMs: number,
+  detail: GroundPassDetail | DrapedReadyDetail,
+): void {
+  if (import.meta.env.PUBLIC_ATLAS_E2E_HOOKS !== '1') return;
+  performance.measure(name, { detail, end: endMs, start: startMs });
+}
+
+/** Emits `GROUND_PASS_MEASURE` from `startMs` to `endMs`; nothing outside the e2e build. */
+export function measureGroundPass(
+  startMs: number,
+  endMs: number,
+  detail: GroundPassDetail,
+): void {
+  e2eMeasure(GROUND_PASS_MEASURE, startMs, endMs, detail);
+}
+
+/**
+ * Runs `pass`, a pass that reads the ground and returns the points it picked, and emits
+ * `GROUND_PASS_MEASURE` for it on `now`, of `kind` and with those points. A caller reaches it only
+ * through the build constant (`import.meta.env.PUBLIC_ATLAS_E2E_HOOKS === '1' ?
+ * measuredGroundPass(…) : pass()`), so a production build keeps the bare pass and carries none of
+ * this.
+ */
+export function measuredGroundPass(
+  kind: GroundPassDetail['kind'],
+  pass: () => number,
+  now: () => number = () => performance.now(),
+): number {
+  const start = now();
+  const points = pass();
+  measureGroundPass(start, now(), { kind, points });
+  return points;
+}
+
+/** Emits `DRAPED_READY_MEASURE` from `startMs` to `endMs`; nothing outside the e2e build. */
+export function measureDrapedReady(
+  startMs: number,
+  endMs: number,
+  detail: DrapedReadyDetail,
+): void {
+  e2eMeasure(DRAPED_READY_MEASURE, startMs, endMs, detail);
 }
 
 interface CameraEvent {

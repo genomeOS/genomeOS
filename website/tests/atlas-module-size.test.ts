@@ -34,10 +34,11 @@ function logicalLines(relative: string): number {
 
 describe('scene module size (terrain draping design, #483)', () => {
   // Already past the 800-line split threshold when the draped surface arrived, so the per-kind
-  // surface-group operations moved to `surface-groups.ts` and the file may not grow again.
-  it('keeps scientific-layers.ts at or below its 986 logical lines (AGENTS.md: split before adding)', () => {
+  // surface-group operations moved to `surface-groups.ts` and the file may not grow again; the
+  // pick target moved to `pick-target.ts` (#483), and the cap followed it down.
+  it('keeps scientific-layers.ts at or below its 948 logical lines (AGENTS.md: split before adding)', () => {
     expect(
       logicalLines('../src/atlas/scene/scientific-layers.ts'),
-    ).toBeLessThanOrEqual(986);
+    ).toBeLessThanOrEqual(948);
   });
 });

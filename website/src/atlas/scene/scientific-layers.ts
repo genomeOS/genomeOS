@@ -25,13 +25,14 @@
  * group is cached only while displayed or incoming (Cesium frees a hidden layer's tiles), and never
  * once its raster failed. Per-kind operations are in `surface-groups.ts`; through
  * `observation-drapes.ts` the observation groups in view stand on the ground and drape footprints.
+ * What a pick may resolve against, the hover's observations included, is built in
+ * `pick-target.ts`.
  */
 
 import type { PrimitiveCollection, Scene } from 'cesium';
 
 import type { ObservationArtifact } from '../contracts';
 import type { SurfaceRasterSpec } from '../geometry/raster/types';
-import { isSupportedCode } from '../geometry/support-codes';
 import type { SurfaceArtifact } from '../surface-columns';
 import type {
   EdgeColorMode,
@@ -49,6 +50,7 @@ import {
   type ObservationPrimitiveGroup,
   type ObservationSurfaceHeights,
 } from './observation-layer';
+import { pickTargetOf } from './pick-target';
 import type { RevealWave } from './reveal-wave-driver';
 import type { MarkTracker } from './scene-marks';
 import { animateSwap, fadeTogether, waitForReady } from './scene-transition';
@@ -279,57 +281,16 @@ export class ScientificLayers {
       : null;
   }
 
+  /** What a pick may resolve against, the hover's observations included (`pick-target.ts`). */
   pickTarget(): PickTarget | null {
-    const displayed = this.#displayed;
-    if (displayed) {
-      // The incoming groups sit at opacity 0, but a translucent depth pick writes depth
-      // whatever the alpha, so both are hidden for that pass (§B.6.6).
-      const hidden: PrimitiveCollection[] = [];
-      const incoming = this.#epoch?.group;
-      // Draped imagery writes no depth of its own.
-      if (incoming && incoming !== displayed.group && !isDrapedGroup(incoming))
-        hidden.push(incoming.collection);
-      const incomingObservations = this.#epoch?.observationGroup;
-      if (
-        incomingObservations &&
-        incomingObservations !== displayed.observationGroup
-      )
-        hidden.push(incomingObservations.collection);
-      return {
-        artifactKey: displayed.artifactKey,
-        draped: isDrapedGroup(displayed.group),
-        drawn: this.#drawn(() => displayed.group, displayed.surface),
-        hidden,
-        surface: displayed.surface,
-      };
-    }
-    const revealing = this.#revealing;
-    return revealing?.surface
-      ? {
-          artifactKey: revealing.epoch.artifactKey,
-          draped: isDrapedGroup(revealing.epoch.group),
-          drawn: this.#drawn(() => revealing.epoch.group, revealing.surface),
-          hidden: [],
-          surface: revealing.surface,
-        }
-      : null;
-  }
-
-  /**
-   * Whether the layers draw `row` at call time: its cell layer is on and the group shown, and a
-   * draped group's fade has drawn a frame.
-   */
-  #drawn(group: () => AnySurfaceGroup | null, surface: SurfaceArtifact) {
-    return (row: number): boolean => {
-      const live = group();
-      if (!live || !shown(live)) return false;
-      if (isDrapedGroup(live) && this.#options.wave.progress() <= 0)
-        return false;
-      const { layers } = this.#options.style();
-      return isSupportedCode(surface.support[row])
-        ? layers.surface
-        : layers.support;
-    };
+    return pickTargetOf({
+      displayed: this.#displayed,
+      epoch: this.#epoch,
+      layers: () => this.#options.style().layers,
+      revealing: this.#revealing,
+      shown,
+      waveProgress: () => this.#options.wave.progress(),
+    });
   }
 
   /**
