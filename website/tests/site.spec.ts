@@ -25,6 +25,7 @@ import {
   globeViewCentre,
   heldReadoutsOf,
   measureGlobeDisc,
+  shownSoon,
   waitForSettledGlobe,
   type Point,
 } from './atlas-globe-helpers';
@@ -3860,7 +3861,7 @@ test('explorer previews and opens separate surface and observation inspectors', 
       [18, 18],
     ]) {
       await page.mouse.move(centre.x + offsetX, centre.y + offsetY);
-      if (await hoverPreview.isVisible()) return;
+      if (await shownSoon(hoverPreview)) return;
     }
   };
   const clickNearCenter = async (inspector: Locator, centre: Point) => {
@@ -3877,7 +3878,7 @@ test('explorer previews and opens separate surface and observation inspectors', 
       [18, 18],
     ]) {
       await page.mouse.click(centre.x + offsetX, centre.y + offsetY);
-      if (await inspector.isVisible()) return;
+      if (await shownSoon(inspector)) return;
     }
   };
 
@@ -4996,7 +4997,7 @@ async function pointNearGlobeCentre(
     const y = centre.y + offsetY;
     if (action === 'move') await page.mouse.move(x, y);
     else await page.mouse.click(x, y);
-    if (await until.isVisible()) return;
+    if (await shownSoon(until)) return;
   }
 }
 

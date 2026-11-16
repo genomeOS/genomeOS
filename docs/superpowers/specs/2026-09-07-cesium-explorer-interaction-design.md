@@ -403,8 +403,17 @@ locator remain available in the inspector.
 ## 8. Hover, selection, and inspection
 
 Pointer movement is sampled at most once per animation frame. Cesium `drillPick` retains the rule
-that an observation wins when it overlaps a surface cell. The highlight controller owns two small
-overlay objects rather than rebuilding the scientific primitives:
+that an observation wins when it overlaps a surface cell.
+
+_Amended 2026-11-14 (#483, owner decision)._ Only a click drill picks. A hover makes no GPU pick,
+which on a cold shader cache held the page's first hover for about 650 ms and made every later
+hover wait on a read-back. It resolves on the CPU what a click at the same point would, under the
+same rule that an observation wins over a cell. The fast-load design's §B.6.6, amended the same
+day, gives the rules: the markers tested as drawn at the click's pick window, what the globe hides,
+and the drawn and reveal checks on the cell.
+
+The highlight controller owns two small overlay objects rather than rebuilding the scientific
+primitives:
 
 - **hover** — cyan-white glow, eased on/off over 160 ms and moved to the item under the cursor;
 - **selection** — persistent signal-gold outline/halo that remains until another item is selected,

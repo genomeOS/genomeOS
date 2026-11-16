@@ -47,6 +47,18 @@
  * level. The console prints each step's longest frames and its sums; the JSON attachment, kept in
  * the test's output directory, also holds every frame, script and ground pass.
  *
+ * The page's first hover (owner decision 2026-11-14 on #483): on the desktop the pointer comes to
+ * rest over the globe as the World Terrain step opens, and every shader the page compiles from
+ * that move to two frames later is cold (`coldShaders`: a constant of the page's own in each), as
+ * on a browser's first run. A hover that picked on the GPU linked its pick shaders there, a frame
+ * of about 1 s on Metal, which the long-frame budget catches on a hardware GPU; a hover resolved
+ * on the CPU links none. Only that window is cold: with every compile of the tour cold, the draped
+ * layers' own first draws held frames of 240–530 ms on Metal, a browser's first-run cost, not the
+ * hover's, which these budgets do not judge. Each step's pointer moves over the globe are
+ * attributed too, with their time, position and `isTrusted`, so a move the tour never made shows
+ * in a headed run's report; and the console names each reported frame's longest script by its
+ * function and its source position.
+ *
  * The cap is a fallback: a draped layer that the 3 s cap read ready, not its rendered tiles, fails
  * the run on a hardware GPU (`terrain-budgets.ts`); under a software renderer, slow enough to
  * reach it, an annotation names each such layer instead.
@@ -94,6 +106,7 @@ import {
   type GroundPassDetail,
 } from '../src/atlas/e2e-hooks';
 import { PREWARM_ALPHA } from '../src/atlas/geometry/raster/types';
+import { coldShaders, setColdShaders } from './atlas-gl-helpers';
 import {
   expandExplorerSheet,
   setSheetState,
@@ -102,6 +115,7 @@ import {
   waitForRevealWave,
 } from './atlas-mobile-helpers';
 import {
+  afterNextPaint,
   cameraSettled,
   drapeQuery,
   drapeSettled,
@@ -126,6 +140,7 @@ import {
   type TourLongFrame,
   type TourMark,
   type TourMeasure,
+  type TourPointerMove,
   type TourRecord,
   type TourStep,
 } from './support/terrain-tour-attribution';
@@ -166,6 +181,7 @@ type TourWindow = Window & {
   __atlasPeakResident: number;
   __atlasGroundPasses: TourMeasure<GroundPassDetail>[];
   __atlasReadiness: TourMeasure<DrapedReadyDetail>[];
+  __atlasPointerMoves: TourPointerMove[];
   /** The page's clock (`at`, or now) and the drape stats' running tile counts as they stand. */
   __atlasTourMark: (at?: number) => TourMark;
 };
@@ -264,12 +280,7 @@ async function orbit(
 ): Promise<{ fps: number; turnedDegrees: number }> {
   await lowerSheet(page);
   const before = await probe(page);
-  const box = (await page.locator('.atlas-scene canvas').boundingBox())!;
-  // On the phone, above the peeking sheet.
-  const from = {
-    x: box.x + box.width * (profile === 'mobile' ? 0.3 : 0.58),
-    y: box.y + box.height * (profile === 'mobile' ? 0.35 : 0.52),
-  };
+  const from = await orbitStart(page, profile);
   const to = { x: from.x + ORBIT.dx, y: from.y + ORBIT.dy };
   const counted = page.evaluate(
     (countMs) =>
@@ -302,6 +313,18 @@ async function orbit(
   return {
     fps: turnedDegrees >= ORBIT.minDegrees ? fps : Number.NaN,
     turnedDegrees,
+  };
+}
+
+/** Where the orbit's drag starts on the globe: on the phone, above the peeking sheet. */
+async function orbitStart(
+  page: Page,
+  profile: TerrainProfile,
+): Promise<{ x: number; y: number }> {
+  const box = (await page.locator('.atlas-scene canvas').boundingBox())!;
+  return {
+    x: box.x + box.width * (profile === 'mobile' ? 0.3 : 0.58),
+    y: box.y + box.height * (profile === 'mobile' ? 0.35 : 0.52),
   };
 }
 
@@ -415,9 +438,9 @@ async function stepMark(page: Page): Promise<TourMark> {
 
 /**
  * The raster histogram and the peak resident imagery for the budgets, and for the attribution
- * every long frame, ground pass and readiness the page recorded, the drape stats' running tile
- * counts with their bins, and the page's clock, all in one read: the clock is the tour's end, and
- * every entry the page holds started before it.
+ * every long frame, ground pass, readiness and pointer move the page recorded, the drape stats'
+ * running tile counts with their bins, and the page's clock, all in one read: the clock is the
+ * tour's end, and every entry the page holds started before it.
  */
 async function pageMeasures(page: Page): Promise<{
   budgeted: Pick<TerrainPerformanceMetrics, 'peakResidentBytes' | 'rasterMs'>;
@@ -450,6 +473,7 @@ async function pageMeasures(page: Page): Promise<{
         },
         groundPasses: [...tour.__atlasGroundPasses],
         longFrames: [...tour.__atlasLongFrames],
+        pointerMoves: [...tour.__atlasPointerMoves],
         readiness: [...tour.__atlasReadiness],
       },
     };
@@ -458,9 +482,10 @@ async function pageMeasures(page: Page): Promise<{
 
 /**
  * Each step for the console: its longest frames (`REPORTED_FRAMES`) with their ground-pass time
- * and longest script, its ground passes in sum and per kind, readiness and the tiles it delivered
- * with their worker raster time, only the levels it delivered any at. The attachment carries every
- * frame, script and pass.
+ * and longest script, named by its function and its source position, its ground passes in sum and
+ * per kind, readiness, its pointer moves over the globe, and the tiles it delivered with their
+ * worker raster time, only the levels it delivered any at. The attachment carries every frame,
+ * script, pass and pointer move.
  */
 function attributionSummary(steps: StepAttribution[]) {
   return steps.map((step) => ({
@@ -478,11 +503,12 @@ function attributionSummary(steps: StepAttribution[]) {
           ms: frame.ms,
           groundPassMs: frame.groundPassMs,
           longestScript: script
-            ? `${script.invoker} ${script.sourceFunctionName} ${Math.round(script.duration)} ms`
+            ? `${script.invoker} ${script.sourceFunctionName || '(anonymous)'} ${script.sourceURL.split('/').pop()}@${script.sourceCharPosition} ${Math.round(script.duration)} ms`
             : null,
         };
       }),
     groundPasses: (({ passes: _passes, ...sums }) => sums)(step.groundPasses),
+    pointerMoves: step.pointerMoves.length,
     readiness: step.readiness,
     tiles: step.tiles && {
       coarseRasterCounts: step.tiles.coarseRasterCounts,
@@ -523,6 +549,7 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
       tour.__atlasLongFrames = [];
       tour.__atlasGroundPasses = [];
       tour.__atlasReadiness = [];
+      tour.__atlasPointerMoves = [];
       tour.__atlasTourMark = (at = performance.now()) => {
         const stats = window.__atlasDrapeStats?.();
         return {
@@ -572,6 +599,23 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
             tour.__atlasReadiness.push({ detail, duration, startTime });
         }
       }).observe({ type: 'measure', buffered: true });
+      // Every pointer move over the globe's canvas, whoever made it.
+      document.addEventListener(
+        'pointermove',
+        (event) => {
+          if (
+            event.target instanceof Element &&
+            event.target.matches('.atlas-scene canvas')
+          )
+            tour.__atlasPointerMoves.push({
+              clientX: event.clientX,
+              clientY: event.clientY,
+              isTrusted: event.isTrusted,
+              startTime: event.timeStamp,
+            });
+        },
+        { capture: true },
+      );
       const sample = () => {
         const stats = window.__atlasDrapeStats?.();
         if (stats)
@@ -585,6 +629,8 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
     },
     { drapedReady: DRAPED_READY_MEASURE, groundPass: GROUND_PASS_MEASURE },
   );
+  // The first hover's compiles cold, as on a browser's first run.
+  if (profile === 'desktop') await coldShaders(page, 'window');
   if (PAGE_CPU_RATE[profile] !== 1)
     await (
       await page.context().newCDPSession(page)
@@ -607,6 +653,7 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
     tour.__atlasLongFrames.length = 0;
     tour.__atlasGroundPasses.length = 0;
     tour.__atlasReadiness.length = 0;
+    tour.__atlasPointerMoves.length = 0;
   });
   // Each step's start on the page's clock, so every long frame, ground pass and readiness can be
   // put in the step it began in.
@@ -614,8 +661,17 @@ test('World Terrain meets its budgets', async ({ page }, testInfo) => {
   const beginStep = async (step: string) =>
     steps.push({ step, ...(await stepMark(page)) });
 
-  // 2. World Terrain, from the chooser: its opening, the click to data visible, and on.
+  // 2. World Terrain, from the chooser: its opening, the click to data visible, and on. On the
+  // desktop the pointer first comes to rest over the globe: the page's first hover, its compiles
+  // cold until two frames after the move.
   await beginStep('World Terrain');
+  if (profile === 'desktop') {
+    const over = await orbitStart(page, profile);
+    await setColdShaders(page, true);
+    await page.mouse.move(over.x, over.y);
+    await afterNextPaint(page);
+    await setColdShaders(page, false);
+  }
   const { click, dataVisibleMs, visible } = await switchToWorldTerrain(page);
   steps.push(
     ...milestoneSteps('World Terrain', 'click', 'data visible', click, visible),

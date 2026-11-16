@@ -5,7 +5,9 @@
  * Terrain"; #483), the drape stats reader, and the performance measures the World Terrain tour
  * attributes its long frames with ("Performance budget and measurement"): one per pass that picks
  * the ground under the draped observations or the grounded highlight, and one per draped layer
- * read ready, naming the rule that fired.
+ * read ready, naming the rule that fired. The pick log lists what each hover frame and each click
+ * resolved, so a browser test can hold a hover, resolved on the CPU, to the click's drill pick at
+ * the same point (owner decision 2026-11-14 on #483).
  * Each is inert unless the build sets `PUBLIC_ATLAS_E2E_HOOKS=1`, which only `npm run build:e2e`
  * may do (`assertE2eHooks`, lib/catalog-build.ts), so no production build carries them.
  */
@@ -13,7 +15,7 @@
 import type { CesiumWidget, TerrainProvider } from 'cesium';
 
 import type { AtlasImageryLayerName } from './geometry/raster/types';
-import type { DrapeStats } from './scene/types';
+import type { AtlasPick, DrapeStats } from './scene/types';
 
 /** Whether the camera is still moving, as `window.__atlasCameraMotion` reports it. */
 export interface CameraMotion {
@@ -57,7 +59,17 @@ declare global {
     __atlasLabelClearance?: (text: string) => number | null;
     /** Reads the draped tiles' counts, raster times and resident bytes, once draping has loaded. */
     __atlasDrapeStats?: () => DrapeStats;
+    /** What each hover frame and each click resolved, in order (`pickLogTestHook`). */
+    __atlasPickLog?: AtlasPickLogEntry[];
   }
+}
+
+/** One resolution of the pointer, as `window.__atlasPickLog` lists it. */
+export interface AtlasPickLogEntry {
+  source: 'click' | 'hover';
+  pick: AtlasPick | null;
+  /** `performance.now()` as it was resolved. */
+  at: number;
 }
 
 /** What `window.__atlasTerrainProbe` reports (#483). */
@@ -208,6 +220,27 @@ export function drapeStatsTestHook(
   window.__atlasDrapeStats = read;
   return () => {
     if (window.__atlasDrapeStats === read) delete window.__atlasDrapeStats;
+  };
+}
+
+/**
+ * Appends each resolution of the pointer to `window.__atlasPickLog` in the e2e build (#483);
+ * undefined elsewhere.
+ */
+export function pickLogTestHook():
+  | ((source: AtlasPickLogEntry['source'], pick: AtlasPick | null) => void)
+  | undefined {
+  if (
+    import.meta.env.PUBLIC_ATLAS_E2E_HOOKS !== '1' ||
+    typeof window === 'undefined'
+  )
+    return undefined;
+  return (source, pick) => {
+    (window.__atlasPickLog ??= []).push({
+      at: performance.now(),
+      pick,
+      source,
+    });
   };
 }
 

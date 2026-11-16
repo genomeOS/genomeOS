@@ -6,6 +6,7 @@ import {
   Ellipsoid,
   Primitive,
   PrimitiveCollection,
+  SceneMode,
   type Color,
   type PointPrimitiveCollection,
   type PolylineCollection,
@@ -22,6 +23,7 @@ import {
 
 import type { ObservationArtifact } from '../src/atlas/contracts';
 import { ShiftedPerspectiveFrustum } from '../src/atlas/scene/globe-offset';
+import { createHoverResolver } from '../src/atlas/scene/hover-pick';
 import { LayerCache } from '../src/atlas/scene/layer-cache';
 import { REVEAL_WAVE_MS } from '../src/atlas/scene/reveal-wave';
 import { createRevealWave } from '../src/atlas/scene/reveal-wave-driver';
@@ -63,6 +65,7 @@ import {
   type FakeRasterProvider,
 } from './helpers/draped-fakes';
 import { FakeEvent, flushTasks } from './helpers/scene-fakes';
+import { nadirView } from './helpers/nadir-view';
 import { fakeTerrain } from './helpers/terrain-fakes';
 
 // Every group the layers build, so a test can read the opacity the swap gives each one. The
@@ -631,6 +634,82 @@ describe('pick target under World Terrain (#483)', () => {
     expect(drawn()).toEqual([false, true]);
   });
 
+  it('draws no row of a cold reveal before the chunk carrying it is added, so a hover finds none (#483)', async () => {
+    const h = harness();
+    const [neighbour] = gridDisk(CELL, 1).filter((cell) => cell !== CELL);
+    const surface = columnarSurface(
+      [CELL, neighbour].map((h3) => ({
+        h3,
+        post_mean: 0.5,
+        post_sd: 0.1,
+        support: 'observed' as const,
+      })),
+      { id: 'hbs-rs334' },
+    );
+    const row = rowForH3(surface, CELL)!;
+    const other = rowForH3(surface, neighbour)!;
+    // The worker sends the neighbour's chunk, then the cell's, each when let go.
+    const sends = [deferred<void>(), deferred<void>()];
+    h.worker.buildChunks.mockImplementation(async (request, onChunk) => {
+      for (const [chunk, rows] of [[other], [row]].entries()) {
+        await sends[chunk].promise;
+        onChunk(
+          chunkMessage(request.artifactKey, chunk, {
+            rows: Uint32Array.from(rows),
+            total: 2,
+          }),
+        );
+      }
+    });
+    const done = h.layers.setArtifact(
+      h.load('hbs-rs334', Promise.resolve(surface)),
+    );
+    await h.pump();
+    // The cold reveal's group is shown at opacity 1 from the start, and the wave rests whole.
+    const target = h.layers.pickTarget()!;
+    expect(target.artifactKey).toBe(keyOf('hbs-rs334'));
+    // Straight down on the cell at 1 km per px; the pointer 40 km east of its marker, inside it.
+    const view = nadirView(LAT, LON, 1_000, new Cartesian2(400, 300));
+    const pointer = new Cartesian2(440, 300);
+    const hover = createHoverResolver(
+      {
+        camera: {
+          pickEllipsoid: (position: Cartesian2) => view.groundAt(position),
+        },
+        globe: {},
+        mapProjection: {},
+        mode: SceneMode.SCENE3D,
+      } as never,
+      {
+        draped: () => false,
+        factor: () => 0,
+        geometry: () => 'triangles',
+        metric: () => 'post_mean',
+        reveal: (direction) => h.wave.reveal(direction),
+        target: () => h.layers.pickTarget(),
+      },
+      () => view,
+    );
+    expect([target.drawn(row), target.drawn(other)]).toEqual([false, false]);
+    expect(hover(pointer)).toBeNull();
+
+    sends[0].resolve();
+    await h.pump();
+    expect([target.drawn(row), target.drawn(other)]).toEqual([false, true]);
+    expect(hover(pointer)).toBeNull();
+
+    sends[1].resolve();
+    await h.pump();
+    await done;
+    expect(h.layers.pickTarget()!.drawn(row)).toBe(true);
+    expect(hover(pointer)).toEqual({
+      artifactKey: keyOf('hbs-rs334'),
+      h3Index: CELL,
+      kind: 'surface',
+      row,
+    });
+  });
+
   it('draws nothing while the displayed group is faded out or hidden', async () => {
     const h = harness();
     await h.show('hbs-rs334');
@@ -705,6 +784,36 @@ describe('atomic replacement', () => {
       artifactKey: keyOf('g6pd-deficiency'),
       hidden: [],
     });
+  });
+
+  it('gives the hover the displayed observations only, never an incoming group at alpha 0 (#483)', async () => {
+    const h = harness();
+    const first = h.layers.setArtifact(h.load('hbs-rs334'));
+    for (let index = 0; index < 12 && !h.layers.pickTarget(); index += 1) {
+      await flushTasks();
+      h.frame();
+    }
+    // A cold reveal: its own observations, shown first.
+    const displayed = built.observations.at(-1)!;
+    expect(h.layers.pickTarget()!.observations).toBe(displayed);
+    await h.pump();
+    await first;
+    expect(h.layers.pickTarget()!.observations).toBe(displayed);
+
+    const pending = deferred<SurfaceArtifact>();
+    const second = h.layers.setArtifact(
+      h.load('g6pd-deficiency', pending.promise),
+    );
+    await h.pump(3);
+    const incoming = built.observations.at(-1)!;
+    expect(incoming).not.toBe(displayed);
+    expect(incoming.collection.show).toBe(true);
+    expect(h.layers.pickTarget()!.observations).toBe(displayed);
+
+    pending.resolve(surfaceFor('g6pd-deficiency'));
+    await h.pump();
+    await second;
+    expect(h.layers.pickTarget()!.observations).toBe(incoming);
   });
 
   it('rebuilds a pending replacement, not the displayed artifact, on a style change', async () => {

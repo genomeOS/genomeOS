@@ -12,7 +12,9 @@ import {
   measureDrapedReady,
   measuredGroundPass,
   measureGroundPass,
+  pickLogTestHook,
 } from '../src/atlas/e2e-hooks';
+import { observationPickId } from '../src/atlas/scene/observation-layer';
 import type { DrapeStats } from '../src/atlas/scene/types';
 
 const STATS: DrapeStats = {
@@ -220,6 +222,28 @@ describe('drapeStatsTestHook', () => {
     vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
     drapeStatsTestHook(() => STATS)!();
     expect(page.__atlasDrapeStats).toBeUndefined();
+  });
+});
+
+describe('pickLogTestHook (#483)', () => {
+  it('logs nothing outside the e2e build', () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '');
+    expect(pickLogTestHook()).toBeUndefined();
+    expect(page.__atlasPickLog).toBeUndefined();
+  });
+
+  it('logs each hover and click the scene resolved, on the page’s clock', () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const log = pickLogTestHook()!;
+    const pick = observationPickId('map-surveys:1', 'hbs-rs334:v3:map-2026-08');
+    log('hover', pick);
+    log('click', null);
+    expect(page.__atlasPickLog).toEqual([
+      { at: expect.any(Number), pick, source: 'hover' },
+      { at: expect.any(Number), pick: null, source: 'click' },
+    ]);
   });
 });
 

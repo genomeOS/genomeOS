@@ -10,11 +10,15 @@
  * footprints and observation symbols, #483) each symbol rises by the ground under it with today's
  * clearance kept, and the sampling footprints drape as the group's own `atlas-footprints` imagery
  * layer, never part of the surface texture; the rings hide while that layer is set.
+ *
+ * A hover finds the observation under the pointer on the CPU, from these primitives as they stand
+ * (`observationAt`, `observation-hits.ts`; owner decision 2026-11-14 on #483); a click drill picks.
  */
 
 import * as Cesium from 'cesium';
 import {
   BillboardCollection,
+  type Cartesian2,
   Cartesian3,
   Color,
   Material,
@@ -38,6 +42,7 @@ import {
 } from '../observation-encoding';
 import type { Metric } from '../visual-encoding';
 import type { ObservationAnchorBuffers } from '../worker/protocol';
+import { imageMask, observationAt, type HitView } from './observation-hits';
 import {
   anchorsFromBuffers,
   litStudImage,
@@ -104,6 +109,8 @@ export interface ObservationPrimitiveGroup {
   setSizeRange(range: ObservationSizeRange): void;
   setStyleOpacity(opacity: number): void;
   setVisibility(symbols: boolean, samplingAreas: boolean): void;
+  /** The observation drawn under `position` (canvas CSS px), found on the CPU (`observation-hits.ts`). */
+  observationAt(view: HitView, position: Cartesian2): ObservationPick | null;
 }
 
 interface GeographicPoint {
@@ -405,8 +412,9 @@ export function buildObservationLayer(
   collection.add(rings);
 
   const hemisphereBaseColors: Color[] = [];
-  if (options.shape === 'hemisphere') {
-    const hemisphereImage = litStudImage();
+  const hemisphereImage =
+    options.shape === 'hemisphere' ? litStudImage() : null;
+  if (hemisphereImage) {
     for (const { anchor, color, observation, size } of symbols) {
       const cesiumColor = Color.fromCssColorString(color).withAlpha(1);
       const placement = observationSurfacePlacement(
@@ -512,6 +520,17 @@ export function buildObservationLayer(
   collection.add(spheres);
 
   const symbolCollections = [hemispheres, points, pins, spheres];
+  // What a hover tests, the images' alpha read when it first needs them.
+  const markers = {
+    billboards: [
+      { collection: hemispheres, image: imageMask(hemisphereImage) },
+      { collection: pins, image: imageMask(pinImage) },
+    ],
+    collection,
+    points,
+    rings,
+    spheres,
+  };
   const placeSymbol = (index: number) => {
     const symbol = symbols[index];
     const placement = observationSurfacePlacement(
@@ -706,5 +725,6 @@ export function buildObservationLayer(
       for (const symbolCollection of symbolCollections)
         symbolCollection.show = symbolsVisible;
     },
+    observationAt: (view, position) => observationAt(view, position, markers),
   };
 }
