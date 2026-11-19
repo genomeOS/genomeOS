@@ -1,0 +1,119 @@
+{
+  "arrow": [
+    {
+      "name": "h3_index",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "variant_id",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "post_median",
+      "nullable": false,
+      "type": "double"
+    },
+    {
+      "name": "post_mean",
+      "nullable": false,
+      "type": "double"
+    },
+    {
+      "name": "post_sd",
+      "nullable": false,
+      "type": "double"
+    },
+    {
+      "name": "q025",
+      "nullable": false,
+      "type": "double"
+    },
+    {
+      "name": "q975",
+      "nullable": false,
+      "type": "double"
+    },
+    {
+      "name": "q25",
+      "nullable": false,
+      "type": "double"
+    },
+    {
+      "name": "q75",
+      "nullable": false,
+      "type": "double"
+    },
+    {
+      "name": "support",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "posterior_contraction",
+      "nullable": false,
+      "type": "double"
+    },
+    {
+      "name": "dist_nearest_obs_km",
+      "nullable": false,
+      "type": "double"
+    },
+    {
+      "name": "model_version",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "data_version",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "h3_r0",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "h3_parent_r3",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "measurement",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "artifact_format",
+      "nullable": false,
+      "type": "int32"
+    },
+    {
+      "name": "epoch",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "res",
+      "nullable": false,
+      "type": "int32"
+    }
+  ],
+  "contract": "genomeos-table",
+  "key": [
+    "variant_id",
+    "model_version",
+    "data_version",
+    "res",
+    "h3_index"
+  ],
+  "partitions": [
+    "epoch",
+    "res",
+    "h3_r0"
+  ],
+  "schema_version": "1.0",
+  "table": "inferred.cells_by_cell"
+}

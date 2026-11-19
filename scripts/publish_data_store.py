@@ -201,11 +201,11 @@ def _upload(item: Upload, bucket: str, gcloud: Gcloud) -> str:
     return "uploaded"
 
 
-def _newest_manifest() -> Path:
-    names = [path.stem for path in RELEASES.glob("*.json")]
+def _newest_manifest(releases: Path = RELEASES) -> Path:
+    names = dr.release_ids(path.name for path in releases.glob("*.json"))
     if not names:
-        raise PublishError(f"no committed release manifest under {RELEASES}")
-    return RELEASES / f"{max(names, key=dr.release_sort_key)}.json"
+        raise PublishError(f"no committed release manifest under {releases}")
+    return releases / f"{names[-1]}.json"
 
 
 def build_parser() -> argparse.ArgumentParser:

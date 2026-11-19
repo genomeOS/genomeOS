@@ -8,11 +8,23 @@ and ``scripts/provision_data_store_bucket.py`` (only the bucket). No I/O and no 
 A release lists every published file under ``data/`` with its bytes and sha256, plus the source and
 terms references the repository already records. Terms are carried, never adjudicated: ``status`` is
 copied from the record named in ``recorded_in``, and a source the repository holds no check for is
-``not_checked`` (AGENTS "Publication-evidence safeguards"). Keys are immutable and release-versioned,
-``releases/<release>/<path>``; a later release reuses an earlier key for byte-identical content, and a
-published artifact whose bytes changed is refused (AGENTS "Artifacts are immutable"; design §5).
+``not_checked`` (AGENTS "Publication-evidence safeguards"). The status is one of the five
+``COMMERCIAL_USE_FINDINGS`` and nothing else; a new manifest writes the legacy ``restriction_found`` of
+earlier records and releases as ``restricted`` (Atlas data platform design 2026-10-18 §9, step 1.3).
+
+Keys are immutable and release-versioned, ``releases/<release>/<path>``; a later release reuses an
+earlier key for byte-identical content, and a published artifact whose bytes changed is refused (AGENTS
+"Artifacts are immutable"; design §5). So is a file added to an artifact directory an earlier release
+published: a cited artifact is a closed set of files. So is a changed ``tables/`` part under a
+``PARTITION_KEYS`` folder (``is_write_once``): a takedown or a rebuild writes a new epoch or ingest
+version instead (Atlas data platform design 2026-10-18 §2.9, builder's call 6). A changed summary table
+such as ``tables/v1/inferred/artifacts.parquet`` gets this release's key, by design.
 Pickles are never published: loading one from the internet executes code (data store design §8).
 Every violation is a hard error (design §12).
+
+``WITHDRAWN.json`` sits beside the manifests in ``data/releases/``: the keys withdrawn from serving,
+for the owner to delete (Atlas data platform design 2026-10-18 §2.9). It is not a release, so every
+reader lists that directory through ``release_ids``, which skips it and refuses any other stray name.
 """
 
 from __future__ import annotations
@@ -21,8 +33,11 @@ import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import Any
 from urllib.parse import urlsplit
+
+from genomeos.publication.commercial_use import COMMERCIAL_USE_FINDINGS
 
 SCHEMA = "genomeos-data-release"
 SCHEMA_VERSION = 1
@@ -41,20 +56,33 @@ BUCKET_VARIABLE = "GENOMEOS_DATA_BUCKET"
 #: These committed values are the truth: a variable or flag that names anything else is refused.
 DATA_STORE_BUCKET = "genomeos-atlas-data"
 DATA_STORE_BASE_URL = "https://storage.googleapis.com/genomeos-atlas-data/"
+WITHDRAWN_FILE = "WITHDRAWN.json"
+WITHDRAWN_SCHEMA = "genomeos-withdrawn"
+WITHDRAWN_SCHEMA_VERSION = 1
+TABLES_PREFIX = "tables/"
+#: The ``tables/`` partition folders whose parts are written once (Atlas data platform design 2026-10-18
+#: §2.4; builder's call 6): a released part never changes bytes.
+PARTITION_KEYS = ("epoch", "ingest_version", "chrom", "bin")
 
 #: Closed: an extension missing here is refused rather than served under a guessed type.
 MEDIA_TYPES: Mapping[str, str] = {
     ".csv": "text/csv",
+    ".duckdb": "application/octet-stream",
     ".json": "application/json",
     ".log": "text/plain",
     ".md": "text/markdown",
     ".npy": "application/octet-stream",
     ".parquet": "application/vnd.apache.parquet",
+    ".sql": "application/sql",
     ".tsv": "text/tab-separated-values",
     ".txt": "text/plain",
 }
 #: Never published, whatever the caller asks: unpickling a downloaded file runs its code.
 PICKLE_SUFFIXES = (".pkl", ".pickle", ".joblib")
+#: Statuses written before the vocabulary was closed, and the finding each reads as. The released
+#: manifests and the curated SOURCE.json keep ``restriction_found``; a new manifest writes ``restricted``
+#: (Atlas data platform design 2026-10-18 §9). Never add an entry to make a new spelling pass.
+LEGACY_TERMS_STATUSES: Mapping[str, str] = {"restriction_found": "restricted"}
 
 _MANIFEST_FIELDS = frozenset(
     {"schema", "schema_version", "release", "local_root", "objects", "sources", "totals"}
@@ -64,8 +92,13 @@ _SOURCE_FIELDS = frozenset({"name", "citation", "url", "terms", "non_commercial"
 _SOURCE_REQUIRED = frozenset({"name", "terms", "non_commercial"})
 _TERMS_FIELDS = frozenset({"status", "checked_at", "terms_url", "licence", "recorded_in", "note"})
 _TOTALS_FIELDS = ("objects", "bytes", "in_git_objects", "in_git_bytes")
+_WITHDRAWN_FIELDS = frozenset({"schema", "schema_version", "withdrawn"})
+_WITHDRAWAL_FIELDS = frozenset({"key", "sha256", "reason", "issue", "date", "decided_by"})
 _RELEASE = re.compile(r"(\d{4}-\d{2}-\d{2})(?:\.([1-9]\d*))?")
-_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+#: A path segment. ``=`` names a hive partition folder (``chrom=chr11``) but never leads one; ``%``,
+#: ``+`` and ``:`` stay refused (Atlas data platform design 2026-10-18 §13 call 5): ``%`` and ``+``
+#: change meaning when a URL is decoded, and ``:`` is not a portable file-name character.
+_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._=-]*")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _SOURCE_ID = re.compile(r"[a-z][a-z0-9_-]*")
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -100,6 +133,18 @@ class ReleaseObject:
     sources: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class Withdrawal:
+    """One published key withdrawn from serving, with who decided it, when and why (platform §2.9)."""
+
+    key: str
+    sha256: str
+    reason: str
+    issue: str
+    date: str
+    decided_by: str
+
+
 def assert_release_id(value: object) -> str:
     """``YYYY-MM-DD`` with an optional ``.N`` (N ≥ 1) for a second release on one day."""
     if not isinstance(value, str) or not _RELEASE.fullmatch(value):
@@ -113,15 +158,50 @@ def release_sort_key(release: str) -> tuple[str, int]:
     return match.group(1), int(match.group(2) or 0)
 
 
+def release_ids(file_names: Iterable[str]) -> list[str]:
+    """The releases among the file names of ``data/releases/``, oldest first.
+
+    ``WITHDRAWN.json`` is skipped; any other name that is not ``<release>.json`` is refused.
+    """
+    found: list[str] = []
+    for name in file_names:
+        if name == WITHDRAWN_FILE:
+            continue
+        stem = name.removesuffix(".json")
+        if stem == name or not _RELEASE.fullmatch(stem):
+            raise DataReleaseError(
+                f"{name!r} in releases/ is neither a release manifest (YYYY-MM-DD[.N].json) "
+                f"nor {WITHDRAWN_FILE}"
+            )
+        found.append(stem)
+    return sorted(found, key=release_sort_key)
+
+
 def assert_data_path(value: object) -> str:
     """A path relative to ``data/``: no ``..``, no leading ``/`` or ``.``, no backslash, no empty segment."""
     parts = value.split("/") if isinstance(value, str) and value else [""]
     if not all(_SEGMENT.fullmatch(part) for part in parts):
         raise DataReleaseError(
             f"invalid data path {value!r}: expected '/'-separated segments matching "
-            "^[A-Za-z0-9][A-Za-z0-9._-]*$ (relative, no '..', no hidden files)"
+            "^[A-Za-z0-9][A-Za-z0-9._=-]*$ (relative, no '..', no hidden files)"
         )
     return value
+
+
+def artifact_directory(path: str) -> str:
+    """The artifact directory a ``store/artifacts/<directory>/<file>`` path lies in."""
+    parts = path[len(ARTIFACT_PREFIX) :].split("/") if path.startswith(ARTIFACT_PREFIX) else []
+    if len(parts) < 2 or not parts[0]:
+        raise DataReleaseError(f"{path}: not a file inside an artifact directory under {ARTIFACT_PREFIX}")
+    return parts[0]
+
+
+def is_write_once(path: str) -> bool:
+    """A ``tables/`` part inside a ``<key>=`` folder of ``PARTITION_KEYS`` (builder's call 6)."""
+    if not path.startswith(TABLES_PREFIX):
+        return False
+    folders = path.split("/")[:-1]
+    return any(folder.partition("=")[0] in PARTITION_KEYS for folder in folders if "=" in folder)
 
 
 def media_type_for(path: str) -> str:
@@ -203,6 +283,23 @@ def assert_bucket_name(name: object) -> str:
     return name
 
 
+def terms_status(value: object, *, where: str) -> str:
+    """``value`` as one of the five findings: a finding reads as itself, a legacy status as its finding.
+
+    Anything else, a near miss in case or spacing included, is a hard error (Atlas data platform design
+    2026-10-18 §9).
+    """
+    if isinstance(value, str):
+        if value in COMMERCIAL_USE_FINDINGS:
+            return value
+        if value in LEGACY_TERMS_STATUSES:
+            return LEGACY_TERMS_STATUSES[value]
+    raise DataReleaseError(
+        f"{where}: terms status {value!r} is not one of {list(COMMERCIAL_USE_FINDINGS)} "
+        f"(docs/non-commercial-data.md) or a legacy {sorted(LEGACY_TERMS_STATUSES)}"
+    )
+
+
 def canonical_bytes(manifest: Mapping[str, Any]) -> bytes:
     """The committed and uploaded form: sorted keys, two-space indent, trailing newline."""
     return (json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")
@@ -217,17 +314,29 @@ def build_manifest(
     """A validated manifest for ``records``, reusing earlier keys for byte-identical files."""
     assert_release_id(release)
     published = _published(previous, release)
+    released_artifacts = {artifact_directory(path) for path in published if path.startswith(ARTIFACT_PREFIX)}
     objects: dict[str, dict[str, Any]] = {}
     for record in records:
         path = assert_data_path(record.path)
         if path in objects:
             raise DataReleaseError(f"{path}: listed twice")
         earlier = published.get(path)
+        directory = artifact_directory(path) if path.startswith(ARTIFACT_PREFIX) else None
+        if earlier is None and directory in released_artifacts:
+            raise DataReleaseError(
+                f"{path}: {directory} was released without this file, and a released artifact is immutable "
+                "and cannot gain one (design §5); publish a new model_version instead"
+            )
         if earlier is not None and (earlier.sha256, earlier.bytes) != (record.sha256, record.bytes):
             if path.startswith(ARTIFACT_PREFIX):
                 raise DataReleaseError(
                     f"{path}: published in an earlier release with sha256 {earlier.sha256}; artifacts are "
                     "immutable (design §5), so publish a new model_version instead of changing one"
+                )
+            if is_write_once(path):
+                raise DataReleaseError(
+                    f"{path}: published in an earlier release with sha256 {earlier.sha256}; a released part "
+                    "is immutable (data platform builder's call 6); write a new epoch or ingest version"
                 )
             earlier = None
         objects[path] = {
@@ -246,7 +355,7 @@ def build_manifest(
         "release": release,
         "local_root": LOCAL_ROOT,
         "objects": ordered,
-        "sources": {name: dict(sources[name]) for name in sorted(sources)},
+        "sources": {name: _written_source(name, sources[name]) for name in sorted(sources)},
         "totals": _totals(ordered),
     }
     validate_manifest(manifest)
@@ -293,6 +402,29 @@ def select(objects: Sequence[ReleaseObject], prefixes: Sequence[str]) -> tuple[R
         if not any(item.path.startswith(prefix) for item in objects):
             raise DataReleaseError(f"prefix {prefix!r} matches no object in the release")
     return tuple(item for item in objects if any(item.path.startswith(prefix) for prefix in prefixes))
+
+
+def validate_withdrawn(document: object) -> tuple[Withdrawal, ...]:
+    """Every rule of ``WITHDRAWN.json``, or a ``DataReleaseError`` naming the first violation."""
+    if not isinstance(document, Mapping):
+        raise DataReleaseError(f"{WITHDRAWN_FILE}: not a JSON object")
+    _closed(document, _WITHDRAWN_FIELDS, WITHDRAWN_FILE, required=_WITHDRAWN_FIELDS)
+    version = document["schema_version"]
+    if (
+        document["schema"] != WITHDRAWN_SCHEMA
+        or type(version) is not int  # JSON true is not version 1
+        or version != WITHDRAWN_SCHEMA_VERSION
+    ):
+        raise DataReleaseError(f"{WITHDRAWN_FILE}: not a {WITHDRAWN_SCHEMA} v{WITHDRAWN_SCHEMA_VERSION} list")
+    if not isinstance(document["withdrawn"], list):
+        raise DataReleaseError(f"{WITHDRAWN_FILE}: withdrawn must be a list")
+    entries = tuple(_validate_withdrawal(item) for item in document["withdrawn"])
+    for earlier, later in pairwise(entry.key for entry in entries):
+        if earlier == later:
+            raise DataReleaseError(f"{WITHDRAWN_FILE}: {later} is listed twice")
+        if earlier > later:
+            raise DataReleaseError(f"{WITHDRAWN_FILE}: entries must be sorted by key; {later} is misplaced")
+    return entries
 
 
 def _published(previous: Sequence[Mapping[str, Any]], release: str) -> dict[str, ReleaseObject]:
@@ -350,6 +482,49 @@ def _earlier_key(key: object, release: str, path: str) -> bool:
     return release_sort_key(candidate) < release_sort_key(release)
 
 
+def _validate_withdrawal(item: object) -> Withdrawal:
+    if not isinstance(item, Mapping):
+        raise DataReleaseError(f"{WITHDRAWN_FILE}: entry {item!r} is not a JSON object")
+    where = f"{WITHDRAWN_FILE} entry {item.get('key')!r}"
+    _closed(item, _WITHDRAWAL_FIELDS, where, required=_WITHDRAWAL_FIELDS)
+    if not _is_release_key(item["key"]):
+        raise DataReleaseError(f"{where}: key must be {RELEASE_PREFIX}<release>/<path>")
+    if not isinstance(item["sha256"], str) or not _SHA256.fullmatch(item["sha256"]):
+        raise DataReleaseError(f"{where}: sha256 {item['sha256']!r} is not 64 lowercase hex characters")
+    for field in ("reason", "decided_by"):
+        if not isinstance(item[field], str) or not item[field].strip():
+            raise DataReleaseError(f"{where}: {field} must be a non-blank string")
+    _https(item["issue"], f"{where}: issue")
+    if not isinstance(item["date"], str) or not _DATE.fullmatch(item["date"]):
+        raise DataReleaseError(f"{where}: date {item['date']!r} is not YYYY-MM-DD")
+    return Withdrawal(
+        item["key"], item["sha256"], item["reason"], item["issue"], item["date"], item["decided_by"]
+    )
+
+
+def _is_release_key(key: object) -> bool:
+    """``releases/<release>/<path>``, exactly as ``release_key`` writes it."""
+    if not isinstance(key, str) or not key.startswith(RELEASE_PREFIX):
+        return False
+    release, _, path = key[len(RELEASE_PREFIX) :].partition("/")
+    try:
+        return release_key(release, path) == key
+    except DataReleaseError:
+        return False
+
+
+def _written_source(name: str, source: Mapping[str, Any]) -> dict[str, Any]:
+    """A copy of ``source`` whose terms carry the finding its status reads as.
+
+    Atlas data platform design 2026-10-18 §9: a new manifest writes the normalised status.
+    """
+    written = dict(source)
+    terms = written.get("terms")
+    if isinstance(terms, Mapping) and "status" in terms:
+        written["terms"] = {**terms, "status": terms_status(terms["status"], where=f"source {name}")}
+    return written
+
+
 def _validate_source(name: object, source: object) -> None:
     if not isinstance(name, str) or not _SOURCE_ID.fullmatch(name):
         raise DataReleaseError(f"invalid source id {name!r}")
@@ -366,9 +541,7 @@ def _validate_source(name: object, source: object) -> None:
     if not isinstance(terms, Mapping):
         raise DataReleaseError(f"source {name}: terms must be an object")
     _closed(terms, _TERMS_FIELDS, f"source {name} terms", required=frozenset({"status"}))
-    status = terms["status"]
-    if not isinstance(status, str) or not status:
-        raise DataReleaseError(f"source {name}: terms status must be a non-empty string")
+    status = terms_status(terms["status"], where=f"source {name}")
     if status != NOT_CHECKED and not terms.get("recorded_in"):
         raise DataReleaseError(
             f"source {name}: status {status!r} must name the record it was copied from (recorded_in)"

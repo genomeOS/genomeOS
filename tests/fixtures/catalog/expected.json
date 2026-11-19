@@ -1,0 +1,13 @@
+{
+  "release": "2026-11-20",
+  "views": {
+    "evidence.parity_observations": 3,
+    "inferred.artifacts": 3,
+    "inferred.cells_by_cell": 6,
+    "meta.release": 1,
+    "meta.release_objects": 8,
+    "meta.served": 2,
+    "meta.sources": 5,
+    "meta.withdrawn": 0
+  }
+}

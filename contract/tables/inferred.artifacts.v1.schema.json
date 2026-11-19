@@ -1,0 +1,146 @@
+{
+  "arrow": [
+    {
+      "name": "artifact",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "variant_id",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "model_version",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "data_version",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "artifact_format",
+      "nullable": false,
+      "type": "int32"
+    },
+    {
+      "name": "resolution",
+      "nullable": false,
+      "type": "int32"
+    },
+    {
+      "name": "n_cells",
+      "nullable": false,
+      "type": "int64"
+    },
+    {
+      "name": "n_observations",
+      "nullable": false,
+      "type": "int64"
+    },
+    {
+      "name": "measurement",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "measurement_from",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "likelihood",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "correlation_range_km",
+      "nullable": false,
+      "type": "double"
+    },
+    {
+      "name": "lengthscale_sigma",
+      "nullable": false,
+      "type": "double"
+    },
+    {
+      "name": "prior_frequency_sd",
+      "nullable": false,
+      "type": "double"
+    },
+    {
+      "name": "target_grid_source",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "target_grid_version",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "support_counts",
+      "nullable": false,
+      "type": "map<string, int64>"
+    },
+    {
+      "name": "first_release",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "epoch",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "cells_key",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "cells_sha256",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "manifest_key",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "manifest_sha256",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "observations_key",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "observations_sha256",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "fit_input_evidence",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "fit_input_evidence_reason",
+      "nullable": true,
+      "type": "string"
+    }
+  ],
+  "contract": "genomeos-table",
+  "key": [
+    "artifact"
+  ],
+  "partitions": [],
+  "schema_version": "1.0",
+  "table": "inferred.artifacts"
+}

@@ -1,0 +1,72 @@
+{
+  "arrow": [
+    {
+      "name": "release",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "source",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "name",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "citation",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "url",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "terms_status",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "terms_checked_at",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "terms_url",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "licence",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "recorded_in",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "note",
+      "nullable": true,
+      "type": "string"
+    },
+    {
+      "name": "non_commercial",
+      "nullable": false,
+      "type": "bool"
+    }
+  ],
+  "contract": "genomeos-table",
+  "key": [
+    "release",
+    "source"
+  ],
+  "partitions": [],
+  "schema_version": "1.0",
+  "table": "meta.sources"
+}

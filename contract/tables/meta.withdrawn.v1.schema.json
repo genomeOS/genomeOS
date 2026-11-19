@@ -1,0 +1,46 @@
+{
+  "arrow": [
+    {
+      "name": "key",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "path",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "sha256",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "reason",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "issue",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "date",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "decided_by",
+      "nullable": false,
+      "type": "string"
+    }
+  ],
+  "contract": "genomeos-table",
+  "key": [
+    "key"
+  ],
+  "partitions": [],
+  "schema_version": "1.0",
+  "table": "meta.withdrawn"
+}

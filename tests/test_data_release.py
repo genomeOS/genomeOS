@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import copy
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from genomeos.publication import data_release as dr
+from genomeos.publication.commercial_use import COMMERCIAL_USE_FINDINGS
 
+ROOT = Path(__file__).resolve().parents[1]
 RELEASE = "2026-10-17"
 SHA_A = "a" * 64
 SHA_B = "b" * 64
+EMPTY: dict[str, Any] = {"schema": "genomeos-withdrawn", "schema_version": 1, "withdrawn": []}
 
 SOURCES: dict[str, Any] = {
     "afnd": {
@@ -73,6 +77,33 @@ def test_canonical_bytes_are_deterministic_and_round_trip() -> None:
 def test_unsafe_paths_are_refused(path: str) -> None:
     with pytest.raises(dr.DataReleaseError, match="path"):
         dr.assert_data_path(path)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "tables/v1/measured/allele_observations_binned/source=gnomad_hgdp_1kg/ingest_version=gnomad-4.1/"
+        "chrom=chr11/bin=5/part-0.parquet",
+        "tables/v1/inferred/cells_by_cell/epoch=2026-10-18/res=4/h3_r0=8001fffffffffff/part-0.parquet",
+        "tables/v1/reference/populations/2026-10-18-0a1b2c3d/populations.parquet",
+    ],
+)
+def test_hive_partition_folders_are_data_paths(path: str) -> None:
+    """The v1 layout names partitions `key=value` (Atlas data platform design 2026-10-18 §2.3; call 5)."""
+    assert dr.assert_data_path(path) == path
+
+
+@pytest.mark.parametrize(
+    "segment", ["=chr11", "%3A", "a+b", "a:b"], ids=["leading-equals", "percent", "plus", "colon"]
+)
+def test_a_segment_may_not_start_with_equals_or_carry_percent_plus_or_colon(segment: str) -> None:
+    with pytest.raises(dr.DataReleaseError, match="path"):
+        dr.assert_data_path(f"tables/v1/{segment}/part-0.parquet")
+
+
+def test_catalog_files_have_deliberate_media_types() -> None:
+    assert dr.media_type_for("catalog/catalog.sql") == "application/sql"
+    assert dr.media_type_for("catalog/atlas.duckdb") == "application/octet-stream"
 
 
 @pytest.mark.parametrize("path", ["store/fits/x.fit.pkl", "a.pickle", "model.joblib"])
@@ -186,6 +217,65 @@ def test_a_published_artifact_whose_bytes_changed_is_refused() -> None:
         dr.build_manifest(mutated, SOURCES, RELEASE, previous=[previous])
 
 
+EPOCH_PART = "tables/v1/inferred/cells_by_cell/epoch=2026-11-20/res=3/h3_r0=8019fffffffffff/part-0.parquet"
+SUMMARY_TABLE = "tables/v1/inferred/artifacts.parquet"
+MAP_ONLY = {"map": SOURCES["map"]}
+
+
+def _table_file(path: str, size: int, sha256: str) -> dr.FileRecord:
+    return dr.FileRecord(path, size, sha256, False, ("map",))
+
+
+def test_a_released_partition_part_whose_bytes_changed_is_refused() -> None:
+    """Builder's call 6: an epoch=, ingest_version=, chrom= or bin= part is written once."""
+    previous = dr.build_manifest([_table_file(EPOCH_PART, 10, SHA_A)], MAP_ONLY, "2026-10-01")
+    with pytest.raises(dr.DataReleaseError, match="immutable.*new epoch or ingest version"):
+        dr.build_manifest([_table_file(EPOCH_PART, 10, SHA_B)], MAP_ONLY, RELEASE, previous=[previous])
+    same = dr.build_manifest([_table_file(EPOCH_PART, 10, SHA_A)], MAP_ONLY, RELEASE, previous=[previous])
+    assert same["objects"][0]["key"] == f"releases/2026-10-01/{EPOCH_PART}"
+
+
+def test_a_summary_table_gets_a_new_key_instead() -> None:
+    previous = dr.build_manifest([_table_file(SUMMARY_TABLE, 10, SHA_A)], MAP_ONLY, "2026-10-01")
+    rebuilt = [_table_file(SUMMARY_TABLE, 12, SHA_B)]
+    manifest = dr.build_manifest(rebuilt, MAP_ONLY, RELEASE, previous=[previous])
+    assert manifest["objects"][0]["key"] == f"releases/{RELEASE}/{SUMMARY_TABLE}"
+
+
+def test_is_write_once() -> None:
+    assert dr.PARTITION_KEYS == ("epoch", "ingest_version", "chrom", "bin")
+    assert dr.is_write_once(EPOCH_PART)
+    assert dr.is_write_once(
+        "tables/v1/measured/allele_observations/source=afnd/ingest_version=afnd-2026-08/part-0.parquet"
+    )
+    assert not dr.is_write_once(SUMMARY_TABLE)
+    assert not dr.is_write_once("tables/v1/measured/allele_observations/source=afnd/part-0.parquet")
+    assert not dr.is_write_once("validation/epoch=2026-11-20/x.parquet")
+    assert not dr.is_write_once("tables/v1/epoch=2026-11-20.parquet")
+
+
+def test_a_released_artifact_directory_cannot_gain_a_file() -> None:
+    """A cited key names a closed set of files; a later file there would change what it means (§5)."""
+    previous = dr.build_manifest(_records(), SOURCES, "2026-10-01")
+    def input_of(directory: str) -> dr.FileRecord:
+        path = f"{dr.ARTIFACT_PREFIX}{directory}/observations.parquet"
+        return dr.FileRecord(path, 9, SHA_B, False, ("map",))
+
+    added = input_of("x__v3__map-2026-08")
+    with pytest.raises(dr.DataReleaseError, match="cannot gain"):
+        dr.build_manifest([*_records(), added], SOURCES, RELEASE, previous=[previous])
+    sibling = input_of("x__v4__map-2026-08")
+    dr.build_manifest([*_records(), sibling], SOURCES, RELEASE, previous=[previous])
+
+
+def test_artifact_directory_names_the_directory_under_the_artifact_prefix() -> None:
+    assert dr.artifact_directory("store/artifacts/x__v3__map-2026-08/cells.parquet") == "x__v3__map-2026-08"
+    with pytest.raises(dr.DataReleaseError, match="artifact"):
+        dr.artifact_directory("validation/x/cells.parquet")
+    with pytest.raises(dr.DataReleaseError, match="artifact"):
+        dr.artifact_directory("store/artifacts/loose.json")
+
+
 def test_previous_releases_must_be_earlier() -> None:
     later = dr.build_manifest(_records(), SOURCES, "2026-10-18")
     with pytest.raises(dr.DataReleaseError, match="earlier"):
@@ -278,3 +368,104 @@ def test_only_the_committed_bucket_is_accepted() -> None:
     assert dr.resolve_bucket(dr.DATA_STORE_BUCKET) == dr.DATA_STORE_BUCKET
     with pytest.raises(dr.DataReleaseError, match="committed"):
         dr.resolve_bucket("example-other-bucket")
+
+
+# --- the withdrawn list beside the manifests (Atlas data platform design 2026-10-18 §2.9, step 1.2) ---
+
+WITHDRAWAL: dict[str, str] = {
+    "key": f"releases/{RELEASE}/store/artifacts/x__v3__map-2026-08/cells.parquet",
+    "sha256": SHA_A,
+    "reason": "the source withdrew the survey rows this surface was fit on",
+    "issue": "https://github.com/genomeOS/genomeOS/issues/1",
+    "date": "2026-11-14",
+    "decided_by": "owner",
+}
+
+
+def _withdrawn(*entries: dict[str, str]) -> dict[str, Any]:
+    return {**EMPTY, "withdrawn": list(entries)}
+
+
+def test_withdrawals_validate() -> None:
+    assert dr.validate_withdrawn(EMPTY) == ()
+    assert dr.validate_withdrawn(_withdrawn(WITHDRAWAL)) == (dr.Withdrawal(**WITHDRAWAL),)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("key", "manifests/2026-10-17.json"),
+        ("sha256", "A" * 64),
+        ("reason", "   "),
+        ("issue", "http://github.com/genomeOS/genomeOS/issues/1"),
+        ("date", "14 Nov 2026"),
+        ("decided_by", ""),
+    ],
+)
+def test_a_malformed_withdrawal_is_a_hard_error(field: str, value: str) -> None:
+    with pytest.raises(dr.DataReleaseError, match=field):
+        dr.validate_withdrawn(_withdrawn({**WITHDRAWAL, field: value}))
+
+
+def test_withdrawal_fields_and_header_are_closed_sorted_and_unique() -> None:
+    with pytest.raises(dr.DataReleaseError, match="field"):
+        dr.validate_withdrawn(_withdrawn({**WITHDRAWAL, "note": "an unlisted field"}))
+    with pytest.raises(dr.DataReleaseError, match="field"):
+        dr.validate_withdrawn({**EMPTY, "release": RELEASE})
+    for version in (2, True):  # JSON true == 1 in Python, but it is not a version
+        with pytest.raises(dr.DataReleaseError, match="genomeos-withdrawn"):
+            dr.validate_withdrawn({**EMPTY, "schema_version": version})
+    with pytest.raises(dr.DataReleaseError, match="twice"):
+        dr.validate_withdrawn(_withdrawn(WITHDRAWAL, WITHDRAWAL))
+    later = {**WITHDRAWAL, "key": WITHDRAWAL["key"].replace("cells.parquet", "manifest.json")}
+    assert len(dr.validate_withdrawn(_withdrawn(WITHDRAWAL, later))) == 2
+    with pytest.raises(dr.DataReleaseError, match="sorted"):
+        dr.validate_withdrawn(_withdrawn(later, WITHDRAWAL))
+
+
+def test_release_ids_skip_the_withdrawn_list_and_refuse_strays() -> None:
+    names = ["2026-10-18.json", "WITHDRAWN.json", "2026-10-17.1.json", "2026-10-17.json"]
+    assert dr.release_ids(names) == ["2026-10-17", "2026-10-17.1", "2026-10-18"]
+    for stray in ("latest.json", "withdrawn.json", "2026-10-18 .json"):
+        with pytest.raises(dr.DataReleaseError, match="neither"):
+            dr.release_ids([*names, stray])
+
+
+def test_the_committed_withdrawn_list_is_empty_and_canonical() -> None:
+    committed = ROOT / "data" / "releases" / "WITHDRAWN.json"
+    assert committed.read_bytes() == dr.canonical_bytes(EMPTY)
+    assert dr.validate_withdrawn(json.loads(committed.read_bytes())) == ()
+
+
+# --- the closed terms vocabulary (Atlas data platform design 2026-10-18 §9, step 1.3) ---
+
+
+def test_every_finding_is_accepted_and_the_legacy_one_reads_as_restricted() -> None:
+    assert len(COMMERCIAL_USE_FINDINGS) == 5
+    for finding in COMMERCIAL_USE_FINDINGS:
+        assert dr.terms_status(finding, where="source map") == finding
+    assert dr.terms_status("restriction_found", where="source map") == "restricted"
+
+
+@pytest.mark.parametrize("value", ["open", "Restricted", "restricted ", "cc-by-4.0", "unknown", 3, None])
+def test_an_unknown_terms_status_is_a_hard_error(value: object) -> None:
+    manifest = _manifest()
+    terms = {"status": value, "recorded_in": "docs/non-commercial-data.md"}
+    manifest["sources"]["map"] = {"name": "MAP", "terms": terms, "non_commercial": False}
+    with pytest.raises(dr.DataReleaseError, match="status"):
+        dr.validate_manifest(manifest)
+    with pytest.raises(dr.DataReleaseError, match="status"):
+        dr.terms_status(value, where="source map")
+
+
+def test_the_released_manifests_keep_their_legacy_status_and_validate() -> None:
+    """A released manifest is immutable: its `restriction_found` still validates, unrewritten.
+
+    Atlas data platform design 2026-10-18 §9.
+    """
+    for release in ("2026-10-17", "2026-10-18"):
+        path = ROOT / "data" / "releases" / f"{release}.json"
+        manifest = json.loads(path.read_bytes())
+        assert path.read_bytes() == dr.canonical_bytes(manifest)
+        assert manifest["sources"]["genereviews"]["terms"]["status"] == "restriction_found"
+        dr.validate_manifest(manifest)

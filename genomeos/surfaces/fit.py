@@ -195,6 +195,10 @@ class SurfaceFit:
     _scale: np.ndarray = field(repr=False)
     prediction_metadata: ObservationModelMetadata | None = None
     footprint_metadata: ObservationSupportMetadata | None = None
+    #: The schema-validated rows this fit consumed, in its row order: what an artifact publishes as
+    #: its input (`surfaces.fit_input`, #45). None only for a fit cached before fit format 3
+    #: recorded it, and such a fit cannot publish a new artifact.
+    observations: pd.DataFrame | None = field(default=None, repr=False, compare=False)
 
     def predict_new_cohort_parameters(
         self, queries: SurveyQueries, *, seed: int = SEED
@@ -510,7 +514,12 @@ def fit_surface(
     *,
     observation_support: ObservationSupport | None = None,
 ) -> SurfaceFit:
-    """Fit one variant's frequency surface. Deterministic given `(observations, config)`."""
+    """Fit one variant's frequency surface. Deterministic given `(observations, config)`.
+
+    The fit keeps the validated rows it consumed (`SurfaceFit.observations`), so what it was fitted
+    to travels with it to the artifact rather than being reloaded later from a source that may have
+    changed (#45).
+    """
     config = config or FitConfig()
     obs = OBSERVATIONS_SCHEMA.validate(observations).reset_index(drop=True)
 
@@ -782,6 +791,7 @@ def fit_surface(
             likelihood=config.likelihood,
         ),
         footprint_metadata=footprint_metadata,
+        observations=obs,
     )
 
 

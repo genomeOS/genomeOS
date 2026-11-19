@@ -20,6 +20,14 @@ be cited as. Separated from fitting on purpose: fitting is expensive and environ
 publishing is cheap and must be repeatable, and a figure or a national rollup should read the
 artifact rather than re-running NUTS.
 
+Each artifact carries `observations.parquet`, the table its fit consumed, taken from the fit's own
+record (`SurfaceFit.observations`, fit format 3) rather than reloaded (#45). The flags still name the
+inputs, but only to choose what to publish and to check them: rows that differ from the fit's record
+are refused, and so is a fit cached before it recorded its input or under an earlier observation
+contract revision. Every fit's input is checked before the first directory is written, so an input
+refusal never leaves a run half published. A KIR input is written as carriers over individuals,
+under the carrier contract, not as the `ac`/`an` the fit read (#133).
+
 Published artifacts live in the public data store, not in git (data store design 2026-10-17). A
 local `data/store/artifacts` may therefore be incomplete, so publishing there also refuses any
 directory a committed release already holds, even with `--overwrite`: immutability may not depend on
@@ -35,11 +43,13 @@ from pathlib import Path
 
 import h3
 import numpy as np
+import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from genomeos.geo.population import PopulationGrid, publication_target_cells  # noqa: E402
+from genomeos.observations.schema import OBSERVATIONS_SCHEMA  # noqa: E402
 from genomeos.observations.sources import (  # noqa: E402
     afnd_carriers,
     afnd_cytokines,
@@ -49,6 +59,7 @@ from genomeos.observations.sources import (  # noqa: E402
 )
 from genomeos.surfaces.artifacts import ArtifactManifest, cell_table, publish  # noqa: E402
 from genomeos.surfaces.fit import load_fit  # noqa: E402
+from genomeos.surfaces.fit_input import observations_record  # noqa: E402
 from genomeos.surfaces.prior import PRIOR_DRAWS, PRIOR_NORMALIZATION  # noqa: E402
 
 try:
@@ -79,6 +90,52 @@ def publication_coordinates(
     cells = publication_target_cells(population_grid)
     centres = np.asarray([h3.cell_to_latlng(cell) for cell in cells], dtype=float)
     return cells, centres[:, 0], centres[:, 1]
+
+
+def consumed_observations(
+    fit, supplied: pd.DataFrame, *, variant_id: str, fit_path: Path
+) -> pd.DataFrame:
+    """The table `fit` consumed: what its artifact publishes, and what its cells are computed from.
+
+    A fit cached before fit format 3 did not record its input, so what it consumed is unknown and it
+    cannot publish a new artifact; refit it. A format-3 cache written under an earlier observation
+    contract still loads (`load_fit`), but its table is not the current contract's, so it is refused
+    as such before its rows are compared. The rows the flags supply must be the fit's own, or the
+    artifact would be labelled with one input while its cells came from another (#45). A fit with
+    an observation footprint also consumed support points that `observations.parquet` does not
+    describe, so it is refused until the support travels with the table.
+    """
+    recorded = getattr(fit, "observations", None)
+    if recorded is None:
+        raise SystemExit(
+            f"{fit_path}: this fit did not record the observation table it consumed (it predates fit "
+            f"format 3), so {variant_id} cannot be published from it. Refit it (#45)."
+        )
+    if getattr(fit, "footprint_metadata", None) is not None:
+        raise SystemExit(
+            f"{fit_path}: this fit also consumed observation support points, which an artifact does not "
+            f"yet carry beside its observation table, so {variant_id} would be published with an "
+            "incomplete input (#45)."
+        )
+    if tuple(recorded.columns) != tuple(OBSERVATIONS_SCHEMA.columns):
+        raise SystemExit(
+            f"{fit_path}: this fit was cached under an earlier observation contract revision: its "
+            f"table's columns {list(recorded.columns)} are not the current {OBSERVATIONS_SCHEMA.name} "
+            f"contract's {list(OBSERVATIONS_SCHEMA.columns)}, so {variant_id} cannot be published from "
+            "it. Refit it, or re-serialize its cache with the table migrated to the current contract, "
+            "before publishing (#45)."
+        )
+    if not OBSERVATIONS_SCHEMA.validate(supplied).reset_index(drop=True).equals(recorded):
+        raise SystemExit(
+            f"{fit_path}: the observations supplied for {variant_id} are not the rows this fit "
+            "consumed. Point the flags at the export the fit was made from, or refit (#45)."
+        )
+    return recorded
+
+
+def measurement_of(variant_id: str) -> str:
+    """KIR presence is carrier frequency over individuals; everything else counts chromosomes (#133)."""
+    return "carrier_frequency" if variant_id.startswith("kir:") else "allele_frequency"
 
 
 def _directory_name(variant_id: str, args) -> str:
@@ -140,7 +197,7 @@ def main() -> None:
         )
     print(population_grid)
 
-    jobs: list[tuple[str, object]] = []
+    jobs: list[tuple[str, pd.DataFrame]] = []
     for layer, loader in LAYERS.items():
         path = getattr(args, layer)
         if path is None:
@@ -185,29 +242,44 @@ def main() -> None:
         print(report)
         # `as_binomial` renames carriers/n_individuals to ac/an so the cell table can be built.
         # The manifest records `measurement="carrier_frequency"` so the distinction survives the
-        # rename and reaches every consumer (#133).
+        # rename and reaches every consumer, and the published input is renamed back (#133).
         binomial = afnd_carriers.as_binomial(carriers)
         for variant_id, rows in binomial.groupby("variant_id", sort=True):
             if (args.fits / f"{variant_id.replace(':', '__')}.fit.pkl").exists():
                 jobs.append((str(variant_id), rows.reset_index(drop=True)))
 
     refuse_released(args.out, [_directory_name(variant_id, args) for variant_id, _ in jobs])
-    print(f"publishing {len(jobs)} variants")
+    ready: list[tuple[str, Path, pd.DataFrame]] = []
     for variant_id, observations in jobs:
-        stem = variant_id.replace(":", "__")
-        fit_path = args.fits / f"{stem}.fit.pkl"
+        fit_path = args.fits / f"{variant_id.replace(':', '__')}.fit.pkl"
         if not fit_path.exists():
             print(f"  {variant_id}: no fit at {fit_path} — skipped")
             continue
+        ready.append((variant_id, fit_path, observations))
+    # Every fit's input is checked, and its record derived, before anything is written: a refusal at
+    # the tenth variant must not leave nine new directories behind, which a rerun would then meet as
+    # FileExistsError. Each fit is loaded again to publish it, so a sweep never holds every posterior
+    # in memory at once.
+    for variant_id, fit_path, observations in ready:
+        consumed = consumed_observations(
+            load_fit(fit_path), observations, variant_id=variant_id, fit_path=fit_path
+        )
+        observations_record(consumed, measurement=measurement_of(variant_id))
 
+    print(f"publishing {len(ready)} variants")
+    for variant_id, fit_path, observations in ready:
         fit = load_fit(fit_path)
-        cells, lat, lon = publication_coordinates(population_grid, observations)
+        consumed = consumed_observations(
+            fit, observations, variant_id=variant_id, fit_path=fit_path
+        )
+        measurement = measurement_of(variant_id)
+        cells, lat, lon = publication_coordinates(population_grid, consumed)
         frame = cell_table(
             fit,
             h3_index=cells,
             lat=lat,
             lon=lon,
-            observations=observations,
+            observations=consumed,
             variant_id=variant_id,
             model_version=args.model_version,
             data_version=args.data_version,
@@ -225,15 +297,16 @@ def main() -> None:
             prior_seed=fit.config.seed,
             likelihood=fit.config.likelihood,
             lengthscale_sigma=float(fit.config.lengthscale_sigma),
-            n_observations=len(observations),
+            n_observations=len(consumed),
             support_counts=counts,
             target_grid_source=population_grid.source,
             target_grid_version=population_grid.source_version,
-            measurement=(
-                "carrier_frequency" if variant_id.startswith("kir:") else "allele_frequency"
-            ),
+            measurement=measurement,
+            observations=observations_record(consumed, measurement=measurement),
         )
-        directory = publish(frame, args.out, manifest=manifest, overwrite=args.overwrite)
+        directory = publish(
+            frame, args.out, manifest=manifest, observations=consumed, overwrite=args.overwrite
+        )
         size = (directory / "cells.parquet").stat().st_size / 1024
         print(f"  {variant_id}: {len(frame)} cells, {size:.0f} KB -> {directory}")
         print(f"      rho {fit.correlation_range_km:.0f} km   support {counts}")

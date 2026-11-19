@@ -147,7 +147,8 @@ The builder (`scripts/build_data_release.py`) maps paths to sources with a revie
 
 | Path | Sources |
 |---|---|
-| `store/artifacts/<id>__<model>__<data>/…` | `map` or `afnd`, from the `data_version` prefix; plus `worldpop` when the artifact's `manifest.json` declares a WorldPop target grid |
+| `store/artifacts/<id>__<model>__<data>/observations.parquet` | `map` or `afnd`, from the `data_version` prefix, and never `worldpop`: the target grid chose the cells, and contributed none of the input's rows (#45) |
+| `store/artifacts/<id>__<model>__<data>/…` (every other file) | `map` or `afnd`, from the `data_version` prefix; plus `worldpop` when the artifact's `manifest.json` declares a WorldPop target grid |
 | `validation/crossval_*` | `map` |
 | `validation/b0h-timing-*` | `genomeos` (prior-simulated data, no third-party input) |
 | `raw/afnd_populations.tsv` | `afnd` |

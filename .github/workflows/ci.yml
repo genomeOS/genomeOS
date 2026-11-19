@@ -145,6 +145,15 @@ jobs:
         run: python scripts/check_commercial_use.py
       - name: Smoke
         run: python scripts/smoke.py
+      - name: Catalog attaches from DuckDB 1.2.x
+        # Data platform call 15: the pinned DuckDB writes atlas.duckdb in storage v1.2.0 so that
+        # DuckDB 1.2.x can attach it. A venv holding only duckdb 1.2.2 attaches the committed fixture.
+        run: |
+          python -m venv "$RUNNER_TEMP/duckdb-1.2"
+          "$RUNNER_TEMP/duckdb-1.2/bin/python" -m pip install --quiet duckdb==1.2.2
+          "$RUNNER_TEMP/duckdb-1.2/bin/python" -I scripts/check_catalog_attach.py \
+            --catalog tests/fixtures/catalog/atlas.duckdb --local tests/fixtures/catalog/data \
+            --expect tests/fixtures/catalog/expected.json
       - name: Test
         env:
           COVERAGE_CORE: sysmon

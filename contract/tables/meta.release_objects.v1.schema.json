@@ -1,0 +1,52 @@
+{
+  "arrow": [
+    {
+      "name": "release",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "path",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "key",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "bytes",
+      "nullable": false,
+      "type": "int64"
+    },
+    {
+      "name": "sha256",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "media_type",
+      "nullable": false,
+      "type": "string"
+    },
+    {
+      "name": "in_git",
+      "nullable": false,
+      "type": "bool"
+    },
+    {
+      "name": "sources",
+      "nullable": false,
+      "type": "list<item: string>"
+    }
+  ],
+  "contract": "genomeos-table",
+  "key": [
+    "release",
+    "path"
+  ],
+  "partitions": [],
+  "schema_version": "1.0",
+  "table": "meta.release_objects"
+}

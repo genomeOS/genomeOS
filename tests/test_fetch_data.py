@@ -1,6 +1,7 @@
 """Credential-free fetch and verification of the data store (data store design 2026-10-17 §6).
 
-Served by a local ``http.server`` on 127.0.0.1: no network, no GCP.
+Served by a local ``http.server`` on 127.0.0.1, which logs each request's method and path: no
+network, no GCP.
 """
 
 from __future__ import annotations
@@ -8,16 +9,19 @@ from __future__ import annotations
 import functools
 import hashlib
 import threading
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from genomeos.publication import data_release as dr
 from scripts import fetch_data as fd
+from tests.test_data_release import EMPTY
 
 RELEASE = "2026-10-17"
+LATER = "2026-10-18"
 FILES = {
     "store/artifacts/x__v3__map-2026-08/cells.parquet": b"cells for x",
     "store/artifacts/x__v3__map-2026-08/manifest.json": b'{"variant_id": "x"}',
@@ -26,31 +30,62 @@ FILES = {
 }
 IN_GIT = {"raw/afnd_populations.tsv"}
 SOURCES = {"map": {"name": "MAP", "terms": {"status": "not_checked"}, "non_commercial": False}}
+# LATER reuses the three unchanged keys, re-keys the changed summary and adds one file.
+LATER_FILES = {
+    **FILES,
+    "validation/crossval_summary.json": b'{"skill": 2}',
+    "validation/crossval_grouped.csv": b"fold,skill\n1,2\n",
+}
 
 
-class _Quiet(SimpleHTTPRequestHandler):
+class _Logged(SimpleHTTPRequestHandler):
+    """Serves the bucket tree quietly, appending each request's ``(method, path)`` to ``requests``."""
+
+    def __init__(self, *args: Any, requests: list[tuple[str, str]], **kwargs: Any) -> None:
+        self.requests = requests  # before super().__init__, which handles the request
+        super().__init__(*args, **kwargs)
+
+    def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+        self.requests.append((self.command, self.path))
+
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002 - stdlib signature
         pass
 
 
+def _publish(
+    served: Path,
+    releases: Path,
+    release: str,
+    files: Mapping[str, bytes],
+    previous: Sequence[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    """Upload ``files`` under the keys ``release``'s manifest gives them, and commit that manifest."""
+    records = [
+        dr.FileRecord(path, len(data), hashlib.sha256(data).hexdigest(), path in IN_GIT, ("map",))
+        for path, data in files.items()
+    ]
+    manifest = dr.build_manifest(records, SOURCES, release, previous)
+    for item in dr.validate_manifest(manifest):
+        if item.key.startswith(f"{dr.RELEASE_PREFIX}{release}/"):
+            target = served / item.key
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(files[item.path])
+    (releases / f"{release}.json").write_bytes(dr.canonical_bytes(manifest))
+    (served / dr.manifest_key(release)).parent.mkdir(parents=True, exist_ok=True)
+    (served / dr.manifest_key(release)).write_bytes(dr.canonical_bytes(manifest))
+    return manifest
+
+
 @pytest.fixture()
-def store(tmp_path: Path) -> Iterator[dict[str, Path | str]]:
+def store(tmp_path: Path) -> Iterator[dict[str, Any]]:
     """A served bucket tree, its committed manifest, and an empty local data/ to fetch into."""
     served = tmp_path / "bucket"
-    records = []
-    for path, data in FILES.items():
-        target = served / dr.release_key(RELEASE, path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
-        digest = hashlib.sha256(data).hexdigest()
-        records.append(dr.FileRecord(path, len(data), digest, path in IN_GIT, ("map",)))
-    manifest = dr.build_manifest(records, SOURCES, RELEASE)
     releases = tmp_path / "releases"
     releases.mkdir()
-    (releases / f"{RELEASE}.json").write_bytes(dr.canonical_bytes(manifest))
-    (served / dr.manifest_key(RELEASE)).parent.mkdir(parents=True)
-    (served / dr.manifest_key(RELEASE)).write_bytes(dr.canonical_bytes(manifest))
-    server = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(_Quiet, directory=str(served)))
+    manifest = _publish(served, releases, RELEASE, FILES)
+    requests: list[tuple[str, str]] = []
+    handler = functools.partial(_Logged, directory=str(served), requests=requests)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -59,6 +94,8 @@ def store(tmp_path: Path) -> Iterator[dict[str, Path | str]]:
             "releases": releases,
             "dest": tmp_path / "data",
             "base": f"http://127.0.0.1:{server.server_address[1]}/",
+            "manifest": manifest,
+            "requests": requests,
         }
     finally:
         server.shutdown()
@@ -130,6 +167,36 @@ def test_verify_remote_reads_everything_and_writes_nothing(store: dict) -> None:
     _served(store, "raw/afnd_populations.tsv").write_bytes(b"pop_id\tchanged\n")
     problems = fd.verify_remote(objects, store["base"], RELEASE, store["releases"])
     assert len(problems) == 1 and "raw/afnd_populations.tsv" in problems[0]
+
+
+def test_verify_remote_fetches_only_this_releases_keys_in_full(
+    store: dict, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Builder's call 11: GET and hash only the keys LATER first publishes; HEAD the reused ones."""
+    later = _publish(store["served"], store["releases"], LATER, LATER_FILES, [store["manifest"]])
+    keys = [item["key"] for item in later["objects"]]
+    fresh = [key for key in keys if key.startswith(f"releases/{LATER}/")]
+    reused = [key for key in keys if key not in fresh]
+    assert (len(fresh), len(reused)) == (2, 3)
+    store["requests"].clear()
+    arguments = ["--releases", str(store["releases"]), "--release", LATER, "--base-url", store["base"]]
+    assert fd.main([*arguments, "--verify-remote"]) == 0
+    out = capsys.readouterr().out
+    assert out == f"release {LATER}: 5 objects verified over HTTPS (2 in full, 3 by HEAD)\n"
+    expected = [("GET", f"/{dr.manifest_key(LATER)}")]
+    expected += [("GET", f"/{key}") for key in fresh] + [("HEAD", f"/{key}") for key in reused]
+    assert sorted(store["requests"]) == sorted(expected)
+
+
+def test_verify_remote_refuses_a_reused_key_whose_length_differs(store: dict) -> None:
+    later = _publish(store["served"], store["releases"], LATER, LATER_FILES, [store["manifest"]])
+    _served(store, "raw/afnd_populations.tsv").write_bytes(b"pop_id\tpopulation\nextra\n")
+    store["requests"].clear()
+    problems = fd.verify_remote(dr.validate_manifest(later), store["base"], LATER, store["releases"])
+    assert len(problems) == 1
+    assert problems[0].startswith("raw/afnd_populations.tsv: ") and "Content-Length" in problems[0]
+    reused = f"/{dr.release_key(RELEASE, 'raw/afnd_populations.tsv')}"
+    assert ("HEAD", reused) in store["requests"] and ("GET", reused) not in store["requests"]
 
 
 def test_verify_remote_checks_the_uploaded_manifest_copy(store: dict) -> None:
@@ -206,3 +273,16 @@ def test_cli_fetch_list_and_verify(
 
 def test_released_artifact_dirs_name_their_first_release(store: dict) -> None:
     assert fd.released_artifact_dirs(store["releases"]) == {"x__v3__map-2026-08": RELEASE}
+
+
+def test_the_withdrawn_list_beside_the_manifests_is_not_a_release(store: dict) -> None:
+    """WITHDRAWN.json sits in releases/ but is never read as a manifest (platform design §2.9)."""
+    releases = store["releases"]
+    (releases / dr.WITHDRAWN_FILE).write_bytes(dr.canonical_bytes(EMPTY))
+    assert fd.newest_release(releases) == RELEASE
+    assert fd.released_artifact_dirs(releases) == {"x__v3__map-2026-08": RELEASE}
+    (releases / f"{RELEASE}.json").unlink()
+    assert fd.newest_release(releases) is None
+    (releases / "latest.json").write_bytes(b"{}")
+    with pytest.raises(dr.DataReleaseError, match="neither"):
+        fd.newest_release(releases)
