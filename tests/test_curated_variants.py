@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -345,6 +346,8 @@ def test_repository_sources_build_a_complete_reproducible_candidate_release(tmp_
         result = subprocess.run(
             [sys.executable, "scripts/build_curated_variant_set.py", "--out", str(out)],
             cwd=REPO,
+            # Import the tree under test, not whichever checkout the editable install points at (#258).
+            env={**os.environ, "PYTHONPATH": str(REPO)},
             capture_output=True,
             text=True,
         )
@@ -439,6 +442,7 @@ def test_release_builder_refuses_to_replace_an_existing_directory(tmp_path: Path
     result = subprocess.run(
         [sys.executable, "scripts/build_curated_variant_set.py", "--out", str(out)],
         cwd=REPO,
+        env={**os.environ, "PYTHONPATH": str(REPO)},
         capture_output=True,
         text=True,
     )

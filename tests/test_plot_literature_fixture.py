@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -19,6 +20,8 @@ def test_literature_fixture_map_is_regenerable(tmp_path):
             str(output),
         ],
         cwd=ROOT,
+        # Import the tree under test, not whichever checkout the editable install points at (#258).
+        env={**os.environ, "PYTHONPATH": str(ROOT)},
         check=True,
         capture_output=True,
         text=True,
