@@ -7,12 +7,21 @@
  * the ground under the draped observations or the grounded highlight, and one per draped layer
  * read ready, naming the rule that fired. The pick log lists what each hover frame and each click
  * resolved, so a browser test can hold a hover, resolved on the CPU, to the click's drill pick at
- * the same point (owner decision 2026-11-14 on #483).
+ * the same point (owner decision 2026-11-14 on #483). The country labels' reader tells a browser
+ * test which labels the globe's horizon hides and where each one draws, and when asked records the
+ * shown labels of every frame from the first label added (Atlas design §11; owner report
+ * 2026-11-16).
  * Each is inert unless the build sets `PUBLIC_ATLAS_E2E_HOOKS=1`, which only `npm run build:e2e`
  * may do (`assertE2eHooks`, lib/catalog-build.ts), so no production build carries them.
  */
 
-import type { CesiumWidget, TerrainProvider } from 'cesium';
+import type {
+  Cartesian3,
+  CesiumWidget,
+  Label,
+  Scene,
+  TerrainProvider,
+} from 'cesium';
 
 import type { AtlasImageryLayerName } from './geometry/raster/types';
 import type { AtlasPick, DrapeStats } from './scene/types';
@@ -61,8 +70,58 @@ declare global {
     __atlasDrapeStats?: () => DrapeStats;
     /** What each hover frame and each click resolved, in order (`pickLogTestHook`). */
     __atlasPickLog?: AtlasPickLogEntry[];
+    /** Reads the country labels and the camera once they are added (`countryLabelsTestHook`). */
+    __atlasCountryLabels?: () => CountryLabels;
+    /**
+     * Shows or hides the country labels alone, the borders kept, and asks for a frame, so a test
+     * can compare what the labels draw.
+     */
+    __atlasDrawCountryLabels?: (drawn: boolean) => void;
+    /**
+     * Set to an empty list by a browser test before the page loads: each frame drawn once the
+     * country labels exist appends the camera and the labels shown in it (`countryLabelsTestHook`).
+     */
+    __atlasCountryLabelFrames?: CountryLabelFrame[];
   }
 }
+
+/** One country label, as `window.__atlasCountryLabels` reports it. */
+export interface CountryLabel {
+  text: string;
+  /** `Label.show`: false while the globe's horizon hides the label (scene/horizon.ts). */
+  show: boolean;
+  /**
+   * Where Cesium draws it, ECEF metres: where it clamped it to the ground when it is clamped,
+   * else its own position.
+   */
+  position: [number, number, number];
+  /** The far end of its distance display condition, metres from the camera. */
+  far: number;
+  /**
+   * Its box on the canvas in CSS px, as Cesium estimates it without its scale by distance; null
+   * behind the camera.
+   */
+  box: { x: number; y: number; width: number; height: number } | null;
+}
+
+/** What `window.__atlasCountryLabels` reports (owner report 2026-11-16). */
+export interface CountryLabels {
+  /** The camera, ECEF metres. */
+  camera: [number, number, number];
+  labels: CountryLabel[];
+}
+
+/** One frame drawn with the country labels, as `window.__atlasCountryLabelFrames` records it. */
+export interface CountryLabelFrame {
+  /** The camera, ECEF metres. */
+  camera: [number, number, number];
+  /** The labels shown when it was drawn, each where Cesium draws it. */
+  shown: Pick<CountryLabel, 'far' | 'position' | 'text'>[];
+}
+
+/** The most frames `window.__atlasCountryLabelFrames` holds; later ones are not recorded. A cold
+ * load draws a few hundred before its country labels settle. */
+export const COUNTRY_LABEL_FRAMES_MAX = 2_000;
 
 /** One resolution of the pointer, as `window.__atlasPickLog` lists it. */
 export interface AtlasPickLogEntry {
@@ -220,6 +279,81 @@ export function drapeStatsTestHook(
   window.__atlasDrapeStats = read;
   return () => {
     if (window.__atlasDrapeStats === read) delete window.__atlasDrapeStats;
+  };
+}
+
+const triple = ({ x, y, z }: Cartesian3): [number, number, number] => [x, y, z];
+
+/**
+ * The camera and the shown labels of the frame just drawn. Where Cesium draws a label is where it
+ * clamped it to the ground, else its own position (scene/horizon.ts `drawnPosition`, read here
+ * without importing Cesium). Cesium raises postRender outside its try/catch; this reads fields.
+ */
+function labelFrame(
+  scene: Pick<Scene, 'camera'>,
+  labels: readonly Label[],
+): CountryLabelFrame {
+  return {
+    camera: triple(scene.camera.positionWC),
+    shown: labels
+      .filter(({ show }) => show)
+      .map((label) => ({
+        far: label.distanceDisplayCondition?.far ?? Number.POSITIVE_INFINITY,
+        position: triple(
+          (label as { _clampedPosition?: Cartesian3 })._clampedPosition ??
+            label.position,
+        ),
+        text: label.text,
+      })),
+  };
+}
+
+/**
+ * Publishes a reader of `scene`'s country labels as `window.__atlasCountryLabels`, and `draw` as
+ * `window.__atlasDrawCountryLabels`, in the e2e build, so a browser test can tell which labels the
+ * globe's horizon hides and what each one draws (owner report 2026-11-16); undefined elsewhere.
+ * The reader's module (scene/country-label-probe.ts) loads only here, and both are published once
+ * it has. The returned callback unpublishes them, unless a newer scene has published its own
+ * since; called before the module loads, it publishes nothing.
+ *
+ * When a test has set `window.__atlasCountryLabelFrames` before the page loaded, every frame drawn
+ * from the first label added appends to it at once, before the reader's module loads: a cold load
+ * straight into a low view is held frame by frame, not only once it settles. The returned callback
+ * stops the recording too.
+ */
+export function countryLabelsTestHook(
+  scene: Scene,
+  labels: () => readonly Label[],
+  draw: (drawn: boolean) => void,
+): (() => void) | undefined {
+  if (
+    import.meta.env.PUBLIC_ATLAS_E2E_HOOKS !== '1' ||
+    typeof window === 'undefined'
+  )
+    return undefined;
+  const frames = window.__atlasCountryLabelFrames;
+  const stopRecording = Array.isArray(frames)
+    ? scene.postRender.addEventListener(() => {
+        const current = labels();
+        if (current.length > 0 && frames.length < COUNTRY_LABEL_FRAMES_MAX)
+          frames.push(labelFrame(scene, current));
+      })
+    : undefined;
+  let removed = false;
+  let read: (() => CountryLabels) | undefined;
+  void import('./scene/country-label-probe').then(({ readCountryLabels }) => {
+    if (removed) return;
+    read = () => readCountryLabels(scene, labels());
+    window.__atlasCountryLabels = read;
+    window.__atlasDrawCountryLabels = draw;
+  });
+  return () => {
+    removed = true;
+    stopRecording?.();
+    if (read && window.__atlasCountryLabels === read)
+      delete window.__atlasCountryLabels;
+    if (window.__atlasDrawCountryLabels === draw)
+      delete window.__atlasDrawCountryLabels;
   };
 }
 

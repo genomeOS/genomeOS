@@ -26,6 +26,17 @@
  * undrawn. Once the labels are added, the overlay requests frames until the
  * LabelCollection reports every glyph ready (at most LABEL_READY_MAX_FRAMES).
  *
+ * A label skips the depth test within thousands of kilometres of the camera, so the ground near
+ * it never buries it (Atlas design §11; terrain draping design, "Goals": symbols and labels are
+ * never buried). From the first frame a label exists, the overlay hides every label the opaque
+ * globe's horizon hides from the camera, each frame before it draws (horizon.ts): near the ground
+ * the horizon is a few hundred kilometres off, and the far side's labels drew through the Earth
+ * (owner report 2026-11-16), also for the first frames of a page opened straight into a low view
+ * while the cull waited for the glyphs. `ready` counts only the shown labels' glyphs
+ * (BillboardCollection.js:1603), so a label hidden before its glyphs reached the atlas is left out
+ * of it: each time the cull shows a label it had hidden, the overlay requests frames again until
+ * the collection reports ready, at most LABEL_READY_MAX_FRAMES more, so the label is drawn.
+ *
  * Under World Terrain (terrain draping design, "Per layer under World Terrain": borders, labels;
  * #483) `setDraped` hands the borders to the draped runtime as the `atlas-borders` imagery layer
  * (`border-drape.ts`) once the worker has parsed the context, and neither line renderer is built or
@@ -50,6 +61,7 @@ import {
   Ellipsoid,
   HeightReference,
   HorizontalOrigin,
+  type Label,
   LabelCollection,
   LabelStyle,
   NearFarScalar,
@@ -60,11 +72,13 @@ import {
   VerticalOrigin,
 } from 'cesium';
 
+import { countryLabelsTestHook } from '../e2e-hooks';
 import type { ExplorerSceneMode } from '../url-state';
 import type { Metric } from '../visual-encoding';
 import type { AtlasWorkerClient } from '../worker/client';
 import type { ContextHeights, NaturalEarthBuffers } from '../worker/protocol';
 import { BorderDrape } from './border-drape';
+import { cullLabels, horizonHides, horizonOccluder } from './horizon';
 import {
   countryLabelDepthTestDistance,
   countryLabelDistanceForScale,
@@ -107,7 +121,6 @@ type LabelSink = Pick<LabelCollection, 'add' | 'show'> & {
   readonly ready: boolean;
 };
 type SurfaceRef = { artifactKey: string; metric: Metric };
-type PlacedLabel = { position: Cartesian3; heightReference: HeightReference };
 
 /** Surface heights and the factor they are drawn at; `heights: null` is the flat clearance. */
 interface Elevation {
@@ -124,7 +137,8 @@ const surfaceKey = ({ artifactKey, metric }: SurfaceRef): string =>
   `${artifactKey}:${metric}`;
 
 /** The scene members the overlay and its draped borders use; atlas-scene hands it the real Scene. */
-export type ContextOverlayScene = DrapedScene & Pick<Scene, 'primitives'>;
+export type ContextOverlayScene = DrapedScene &
+  Pick<Scene, 'camera' | 'mode' | 'primitives'>;
 
 export interface ContextOverlayOptions {
   worker: Pick<AtlasWorkerClient, 'contextHeights' | 'parseContext'> &
@@ -191,7 +205,7 @@ export class ContextOverlay {
   #ground = new Float64Array(0);
   #up = new Float64Array(0);
   #scratch = new Float64Array(0);
-  #labels: PlacedLabel[] = [];
+  #labels: Label[] = [];
   #buffer: BufferPolylineCollection | null = null;
   #projected: PolylineCollection | null = null;
   #projectedLines: Polyline[] = [];
@@ -218,6 +232,15 @@ export class ContextOverlay {
   #borderCss = '#ffffff';
   #borderOpacity = 0.5;
   readonly #borders: BorderDrape;
+  // The labels' horizon cull, from the first frame a label exists; one occluder, moved each frame.
+  readonly #occluder = horizonOccluder();
+  #labelsHidden = false;
+  #stopCulling: (() => void) | undefined;
+  // The labels' collection, and the frames requested for its glyphs in the current episode.
+  #labelSink: LabelSink | null = null;
+  #glyphFrames = 0;
+  #stopGlyphFrames: (() => void) | undefined;
+  #unpublishLabels: (() => void) | undefined;
   #destroyed = false;
 
   constructor(options: ContextOverlayOptions) {
@@ -438,6 +461,9 @@ export class ContextOverlay {
     if (this.#destroyed) return;
     this.#destroyed = true;
     this.#borders.retire();
+    this.#stopCulling?.();
+    this.#stopGlyphFrames?.();
+    this.#unpublishLabels?.();
   }
 
   /** CesiumWidget.destroy() destroys the scene's primitives, this collection among them. */
@@ -603,6 +629,18 @@ export class ContextOverlay {
     )();
     this.collection.add(labels);
     this.#labels = [];
+    this.#labelSink = labels;
+    // Before the first label: each one is culled in the first frame that draws it.
+    this.#startCulling();
+    const scene = this.#options.scene as Scene;
+    this.#unpublishLabels = countryLabelsTestHook(
+      scene,
+      () => this.#labels,
+      (drawn) => {
+        labels.show = drawn;
+        scene.requestRender();
+      },
+    );
     const outlineColor = Color.fromCssColorString('#020712').withAlpha(0.98);
     this.#labelElevation = this.#elevation();
     await runSliced(
@@ -638,30 +676,72 @@ export class ContextOverlay {
       },
       this.#slice(),
     );
-    this.#renderUntilLabelsReady(labels);
+    this.#renderUntilLabelsReady(false);
   }
 
-  /** Requests frames until the labels' glyphs are in the texture atlas, so they are drawn. */
-  #renderUntilLabelsReady(labels: LabelSink): void {
+  /**
+   * Requests frames until the labels' glyphs are in the texture atlas, so they are drawn: once the
+   * labels are added, and again each time the cull shows a label it had hidden, whose glyphs
+   * `ready` left out. Each such episode asks for at most LABEL_READY_MAX_FRAMES; a new one restarts
+   * the count. From the cull, `inFrame`, the frame being drawn is the episode's first, and its
+   * postRender asks for the next.
+   */
+  #renderUntilLabelsReady(inFrame: boolean): void {
     const { scene } = this.#options;
-    let frames = 0;
-    // Cesium raises postRender outside its try/catch, and a throw there stops its render loop: the
-    // destroyed check comes first, because a destroyed LabelCollection throws from `ready`.
-    const remove = scene.postRender.addEventListener(() => {
-      if (
-        this.#isDestroyed() ||
-        labels.ready ||
-        frames >= LABEL_READY_MAX_FRAMES
-      ) {
-        remove();
-        return;
-      }
-      // A hidden collection does not update its labels; showing it again requests a frame.
-      if (!this.collection.show) return;
-      frames += 1;
-      scene.requestRender();
-    });
-    scene.requestRender();
+    this.#glyphFrames = 0;
+    this.#stopGlyphFrames ??= scene.postRender.addEventListener(() =>
+      this.#glyphFrame(),
+    );
+    if (!inFrame) scene.requestRender();
+  }
+
+  // Cesium raises postRender outside its try/catch, and a throw there stops its render loop: the
+  // destroyed check comes first, because a destroyed LabelCollection throws from `ready`.
+  #glyphFrame(): void {
+    if (
+      this.#isDestroyed() ||
+      !this.#labelSink ||
+      this.#labelSink.ready ||
+      this.#glyphFrames >= LABEL_READY_MAX_FRAMES
+    ) {
+      this.#stopGlyphFrames?.();
+      this.#stopGlyphFrames = undefined;
+      return;
+    }
+    // A hidden collection does not update its labels; showing it again requests a frame.
+    if (!this.collection.show) return;
+    this.#glyphFrames += 1;
+    this.#options.scene.requestRender();
+  }
+
+  /** Hides each label behind the horizon, every frame before it draws (horizon.ts). */
+  #startCulling(): void {
+    this.#stopCulling = this.#options.scene.preRender.addEventListener(() =>
+      this.#cullLabels(),
+    );
+  }
+
+  // preRender comes after the camera's update and before the primitives' (Scene.render), so a
+  // change is drawn in the same frame, and a label added since the last frame is culled before it
+  // is first drawn. Cesium raises it outside its try/catch, where a throw would stop its render
+  // loop: a torn-down scene stops the cull first.
+  #cullLabels(): void {
+    if (this.#isDestroyed()) {
+      this.#stopCulling?.();
+      this.#stopCulling = undefined;
+      return;
+    }
+    if (!this.collection.show) return;
+    const { scene } = this.#options;
+    const hides = horizonHides(scene);
+    if (!hides && !this.#labelsHidden) return;
+    if (hides) this.#occluder.cameraPosition = scene.camera.positionWC;
+    const { hidden, revealed } = cullLabels(
+      this.#labels,
+      hides ? this.#occluder : null,
+    );
+    this.#labelsHidden = hidden;
+    if (revealed) this.#renderUntilLabelsReady(true);
   }
 
   #requestHeights(): void {

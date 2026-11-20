@@ -1,11 +1,17 @@
 /** The e2e build's camera motion hook (fast-load design §B.8; #453), drape stats reader and
- * performance measures (terrain draping design, "Performance budget and measurement"; #483). */
+ * performance measures (terrain draping design, "Performance budget and measurement"; #483), and
+ * the country labels' reader (Atlas design §11; owner report 2026-11-16). */
+import type { Label, Scene } from 'cesium';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   CAMERA_QUIET_MS,
   CAMERA_STILL_TOLERANCE,
   cameraMotionTestHook,
+  COUNTRY_LABEL_FRAMES_MAX,
+  countryLabelsTestHook,
+  type CountryLabelFrame,
+  type CountryLabels,
   DRAPED_READY_MEASURE,
   drapeStatsTestHook,
   GROUND_PASS_MEASURE,
@@ -16,6 +22,7 @@ import {
 } from '../src/atlas/e2e-hooks';
 import { observationPickId } from '../src/atlas/scene/observation-layer';
 import type { DrapeStats } from '../src/atlas/scene/types';
+import { FakeEvent } from './helpers/scene-fakes';
 
 const STATS: DrapeStats = {
   coarseRasterMs: {
@@ -222,6 +229,164 @@ describe('drapeStatsTestHook', () => {
     vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
     drapeStatsTestHook(() => STATS)!();
     expect(page.__atlasDrapeStats).toBeUndefined();
+  });
+});
+
+describe('countryLabelsTestHook (owner report 2026-11-16)', () => {
+  /** A scene 2,500 km over (0°, 0°), and one label behind its camera, clamped to the ground. */
+  function labelled() {
+    const postRender = new FakeEvent();
+    const scene = {
+      camera: { positionWC: { x: 8_878_137, y: 0, z: 0 } },
+      postRender,
+    };
+    const label = {
+      _clampedPosition: { x: 6_380_637, y: 0, z: 0 },
+      computeScreenSpacePosition: () => undefined,
+      distanceDisplayCondition: { far: 1_000_000 },
+      position: { x: 6_380_000, y: 0, z: 0 },
+      show: true,
+      text: 'Gabon',
+    };
+    return { label, postRender, scene: scene as never as Scene };
+  }
+
+  it('publishes nothing outside the e2e build', () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '');
+    const { scene } = labelled();
+    expect(
+      countryLabelsTestHook(
+        scene,
+        () => [],
+        () => {},
+      ),
+    ).toBeUndefined();
+    expect(page.__atlasCountryLabels).toBeUndefined();
+    expect(page.__atlasDrawCountryLabels).toBeUndefined();
+  });
+
+  it('publishes the reader and the switch once the reader loads, and removes only its own', async () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const { label, scene } = labelled();
+    const draw = vi.fn();
+    const remove = countryLabelsTestHook(
+      scene,
+      () => [label as never as Label],
+      draw,
+    )!;
+    await vi.waitFor(() =>
+      expect(page.__atlasCountryLabels).toBeTypeOf('function'),
+    );
+    expect(page.__atlasCountryLabels!()).toEqual({
+      camera: [8_878_137, 0, 0],
+      labels: [
+        {
+          box: null,
+          far: 1_000_000,
+          position: [6_380_637, 0, 0],
+          show: true,
+          text: 'Gabon',
+        },
+      ],
+    } satisfies CountryLabels);
+    page.__atlasDrawCountryLabels!(false);
+    expect(draw).toHaveBeenCalledWith(false);
+
+    const newer = () => page.__atlasCountryLabels!();
+    page.__atlasCountryLabels = newer;
+    remove();
+    expect(page.__atlasCountryLabels).toBe(newer);
+    expect(page.__atlasDrawCountryLabels).toBeUndefined();
+  });
+
+  // A cold load straight into a low view: the browser test holds every frame drawn from the first
+  // label added, not only the state it reads once the page settles.
+  it('records each frame drawn once the labels exist, when a test asked before the page loaded', () => {
+    const page = published();
+    page.__atlasCountryLabelFrames = [];
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const { label, postRender, scene } = labelled();
+    const labels: Label[] = [];
+    const remove = countryLabelsTestHook(
+      scene,
+      () => labels,
+      () => {},
+    )!;
+    postRender.raiseEvent();
+    expect(page.__atlasCountryLabelFrames).toEqual([]);
+
+    labels.push(
+      label as never as Label,
+      { ...label, show: false, text: 'Congo' } as never as Label,
+    );
+    postRender.raiseEvent();
+    expect(page.__atlasCountryLabelFrames).toEqual([
+      {
+        camera: [8_878_137, 0, 0],
+        shown: [{ far: 1_000_000, position: [6_380_637, 0, 0], text: 'Gabon' }],
+      },
+    ] satisfies CountryLabelFrame[]);
+
+    remove();
+    postRender.raiseEvent();
+    expect(page.__atlasCountryLabelFrames).toHaveLength(1);
+    expect(postRender.numberOfListeners).toBe(0);
+  });
+
+  it('records no frame unless a test asked, and at most COUNTRY_LABEL_FRAMES_MAX', () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const { label, postRender, scene } = labelled();
+    const removers = [
+      countryLabelsTestHook(
+        scene,
+        () => [label as never as Label],
+        () => {},
+      )!,
+    ];
+    expect(postRender.numberOfListeners).toBe(0);
+
+    page.__atlasCountryLabelFrames = [];
+    removers.push(
+      countryLabelsTestHook(
+        scene,
+        () => [label as never as Label],
+        () => {},
+      )!,
+    );
+    for (let frame = 0; frame < COUNTRY_LABEL_FRAMES_MAX + 3; frame += 1)
+      postRender.raiseEvent();
+    expect(page.__atlasCountryLabelFrames).toHaveLength(
+      COUNTRY_LABEL_FRAMES_MAX,
+    );
+    // Before the reader's module loads, so it publishes nothing on a page already gone.
+    for (const remove of removers) remove();
+
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '');
+    const outside = labelled();
+    countryLabelsTestHook(
+      outside.scene,
+      () => [label as never as Label],
+      () => {},
+    );
+    expect(outside.postRender.numberOfListeners).toBe(0);
+  });
+
+  it('publishes nothing when removed before the reader loads', async () => {
+    const page = published();
+    vi.stubEnv('PUBLIC_ATLAS_E2E_HOOKS', '1');
+    const { scene } = labelled();
+    countryLabelsTestHook(
+      scene,
+      () => [],
+      () => {},
+    )!();
+    await import('../src/atlas/scene/country-label-probe');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(page.__atlasCountryLabels).toBeUndefined();
+    expect(page.__atlasDrawCountryLabels).toBeUndefined();
   });
 });
 

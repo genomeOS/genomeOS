@@ -30,6 +30,8 @@ export default defineConfig({
     'atlas-terrain-performance.spec.ts',
     // A hover over the globe makes no GPU pick (#483).
     'atlas-hover.spec.ts',
+    // No country label draws through the Earth (owner report 2026-11-16).
+    'atlas-far-labels.spec.ts',
     'analytics.spec.ts',
     // The site redesign's per-page and cross-page suites (#454, spec §9; round 2 spec §11.2: every
     // marketing-*.spec.ts, so a page's split spec files run without a config change). The

@@ -8,7 +8,8 @@
  * Also the cache of ground positions a relief change leaves stale ("Exaggeration"), which the
  * terrain shading empties so the labels clamped to the ground follow Physical relief, and the
  * rendered tiles, their per-layer imagery states and the quadtree's refinement state that a
- * draped layer's readiness reads.
+ * draped layer's readiness reads. And the horizon test and clamped label position that hide the
+ * country labels behind the Earth.
  */
 
 import * as Cesium from 'cesium';
@@ -531,5 +532,35 @@ describe('Cesium 1.145 internals the ground under the observations relies on (#4
       data.interpolateHeight(rectangle, inside.longitude, inside.latitude),
     ).toBeUndefined();
     expect((data as unknown as { _uValues: unknown })._uValues).toBeUndefined();
+  });
+});
+
+// The country labels' horizon cull (scene/horizon.ts, scene/context-overlay.ts; owner report
+// 2026-11-16) moves one occluder's camera each frame, and tests a label clamped to the ground where
+// Cesium draws it. Neither member is in Cesium's typings.
+describe('Cesium 1.145 internals the country labels’ horizon relies on', () => {
+  it('keeps where it draws a label clamped to the ground in Label._clampedPosition', () => {
+    expect(
+      Object.getOwnPropertyDescriptor(
+        Cesium.Label.prototype,
+        '_clampedPosition',
+      )?.get,
+    ).toBeTypeOf('function');
+  });
+
+  it('exports EllipsoidalOccluder, whose camera moves through its cameraPosition setter', () => {
+    const { EllipsoidalOccluder } = Cesium as unknown as {
+      EllipsoidalOccluder?: { prototype: { isPointVisible?: unknown } };
+    };
+    expect(EllipsoidalOccluder).toBeTypeOf('function');
+    expect(
+      Object.getOwnPropertyDescriptor(
+        EllipsoidalOccluder!.prototype,
+        'cameraPosition',
+      )?.set,
+    ).toBeTypeOf('function');
+    expect(EllipsoidalOccluder!.prototype.isPointVisible).toBeTypeOf(
+      'function',
+    );
   });
 });
