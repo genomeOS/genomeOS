@@ -10,11 +10,11 @@
  * `window.__atlasCountryLabels` reports each label's text, whether it is shown, where Cesium draws
  * it and how far it is drawn. Which labels lie beyond the horizon is worked out here, from those
  * vectors and the WGS84 axes, not by the scene's own test. What each label draws is the share of
- * the pixels in its box that change when the labels alone are hidden; a box under the panel, the
- * legend or another label's box is not read. `window.__atlasCountryLabelFrames`, asked for before
- * the page loads, holds the camera and the shown labels of every frame drawn from the first label
- * added, so a cold load is checked frame by frame, not only once it settles. Desktop only: the
- * phone runs the same scene.
+ * the pixels in its box that change when the labels alone are hidden and change back when they are
+ * shown again; a box under the panel, the legend or another label's box is not read.
+ * `window.__atlasCountryLabelFrames`, asked for before the page loads, holds the camera and the
+ * shown labels of every frame drawn from the first label added, so a cold load is checked frame by
+ * frame, not only once it settles. Desktop only: the phone runs the same scene.
  */
 
 import { expect, test, type Page } from '@playwright/test';
@@ -111,7 +111,12 @@ function labelQuery(view: View, extra: Record<string, string> = {}): string {
   });
 }
 
-/** Opens `query` and waits for the country labels, and two frames more. */
+/**
+ * Opens `query` and waits for the country labels, and two frames more. The overlay adds the
+ * borders and then the labels in 8 ms slices, each followed by a frame (context-overlay.ts
+ * `#slice`): under CI's software WebGL a frame of a low view takes seconds, and on the 2D map the
+ * labels came about 40 s after the borders were fetched.
+ */
 async function openLabels(page: Page, query: string): Promise<CountryLabels> {
   await openDrape(page, query);
   await expect
@@ -120,7 +125,7 @@ async function openLabels(page: Page, query: string): Promise<CountryLabels> {
         page.evaluate(
           () => (window.__atlasCountryLabels?.().labels.length ?? 0) > 0,
         ),
-      { timeout: 30_000 },
+      { timeout: 60_000 },
     )
     .toBe(true);
   await afterNextPaint(page);
@@ -190,24 +195,27 @@ async function canvasShot(
   return (await page.screenshot({ clip, scale: 'css' })).toString('base64');
 }
 
+/** Shows or hides the country labels alone, the borders kept, and waits for the frame. */
+async function drawCountryLabels(page: Page, drawn: boolean): Promise<void> {
+  await page.evaluate(
+    (drawn) => window.__atlasDrawCountryLabels!(drawn),
+    drawn,
+  );
+  await afterNextPaint(page);
+  await afterNextPaint(page);
+}
+
 /**
  * What each label in `labels` draws: the share of the pixels in its box that change when the
- * country labels alone are hidden, the borders kept. A label without a box (behind the camera)
- * reads as drawing nothing on bare canvas: false.
+ * country labels alone are hidden and change back when they are shown again. The view need not
+ * have loaded: under CI's software WebGL the tiles of a low view out to the horizon can outlast
+ * the test, and a pixel a tile changes between the shots changes on one step only. A label
+ * without a box (behind the camera) reads as drawing nothing on bare canvas: false.
  */
 async function labelPixels(
   page: Page,
   labels: CountryLabel[],
 ): Promise<Map<string, Drawn>> {
-  // Two frames of a view still loading tiles differ beyond the labels.
-  await expect
-    .poll(
-      () => page.evaluate(() => window.__atlasCountryLabels!().tilesLoaded),
-      {
-        timeout: 30_000,
-      },
-    )
-    .toBe(true);
   await afterNextPaint(page);
   const clip = await page.evaluate(() => {
     const { height, left, top, width } = document
@@ -216,14 +224,12 @@ async function labelPixels(
     return { height, width, x: left, y: top };
   });
   const drawn = await canvasShot(page, clip);
-  await page.evaluate(() => window.__atlasDrawCountryLabels!(false));
-  await afterNextPaint(page);
-  await afterNextPaint(page);
+  await drawCountryLabels(page, false);
   const bare = await canvasShot(page, clip);
-  await page.evaluate(() => window.__atlasDrawCountryLabels!(true));
-  await afterNextPaint(page);
+  await drawCountryLabels(page, true);
+  const redrawn = await canvasShot(page, clip);
   const results = await page.evaluate(
-    async ({ bare, boxes, clip, drawn, threshold }) => {
+    async ({ bare, boxes, clip, drawn, redrawn, threshold }) => {
       const pixels = async (base64: string): Promise<ImageData> => {
         const bytes = Uint8Array.from(atob(base64), (char) =>
           char.charCodeAt(0),
@@ -238,10 +244,20 @@ async function labelPixels(
         bitmap.close();
         return context.getImageData(0, 0, canvas.width, canvas.height);
       };
-      const [withLabels, without] = await Promise.all([
+      const [withLabels, without, again] = await Promise.all([
         pixels(drawn),
         pixels(bare),
+        pixels(redrawn),
       ]);
+      const differs = (a: ImageData, b: ImageData, offset: number) => {
+        for (let channel = 0; channel < 4; channel += 1)
+          if (
+            Math.abs(a.data[offset + channel] - b.data[offset + channel]) >
+            threshold
+          )
+            return true;
+        return false;
+      };
       const onCanvas = (x: number, y: number) =>
         document
           .elementFromPoint(clip.x + x, clip.y + y)
@@ -267,16 +283,12 @@ async function labelPixels(
         for (let y = top; y < bottom; y += 1)
           for (let x = left; x < right; x += 1) {
             const offset = (y * withLabels.width + x) * 4;
-            for (let channel = 0; channel < 4; channel += 1)
-              if (
-                Math.abs(
-                  withLabels.data[offset + channel] -
-                    without.data[offset + channel],
-                ) > threshold
-              ) {
-                changed += 1;
-                break;
-              }
+            if (
+              differs(withLabels, without, offset) &&
+              differs(again, without, offset) &&
+              !differs(withLabels, again, offset)
+            )
+              changed += 1;
           }
         const inset = 2;
         const bareCanvas = [
@@ -297,6 +309,7 @@ async function labelPixels(
       boxes: labels.map(({ box }) => box),
       clip,
       drawn,
+      redrawn,
       threshold: CHANGED_CHANNEL,
     },
   );
@@ -337,7 +350,9 @@ function readableFarLabels(
 
 test.describe('country labels beyond the horizon @desktop-chromium', () => {
   test.beforeEach(async ({ page }) => {
-    test.setTimeout(150_000);
+    // Under CI's software WebGL a frame of a low view takes 2-4 s while its tiles load, and every
+    // step below waits for frames.
+    test.setTimeout(240_000);
     // World Terrain stands in as the synthetic terrain; the smooth globe is the ellipsoid.
     await page.addInitScript(() => {
       window.__atlasSyntheticTerrain = true;

@@ -108,8 +108,6 @@ export interface CountryLabel {
 export interface CountryLabels {
   /** The camera, ECEF metres. */
   camera: [number, number, number];
-  /** The globe has loaded every tile this view needs. */
-  tilesLoaded: boolean;
   labels: CountryLabel[];
 }
 

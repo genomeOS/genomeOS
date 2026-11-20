@@ -51,6 +51,5 @@ export function readCountryLabels(
   return {
     camera: triple(scene.camera.positionWC),
     labels: labels.map((label) => readLabel(scene, label)),
-    tilesLoaded: scene.globe.tilesLoaded,
   };
 }

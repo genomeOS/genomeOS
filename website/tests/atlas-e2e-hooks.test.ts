@@ -238,7 +238,6 @@ describe('countryLabelsTestHook (owner report 2026-11-16)', () => {
     const postRender = new FakeEvent();
     const scene = {
       camera: { positionWC: { x: 8_878_137, y: 0, z: 0 } },
-      globe: { tilesLoaded: true },
       postRender,
     };
     const label = {
@@ -291,7 +290,6 @@ describe('countryLabelsTestHook (owner report 2026-11-16)', () => {
           text: 'Gabon',
         },
       ],
-      tilesLoaded: true,
     } satisfies CountryLabels);
     page.__atlasDrawCountryLabels!(false);
     expect(draw).toHaveBeenCalledWith(false);
