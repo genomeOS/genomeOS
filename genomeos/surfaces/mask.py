@@ -38,6 +38,13 @@ STATISTICS: tuple[str, ...] = ("mean", "sum")
 #: States excluded from every aggregation statistic (§7, §10).
 MASKED_STATES: frozenset[str] = frozenset({"prior_dominated", "unknown"})
 
+#: Allele-count bins for observed cells in the #39 calibration report. A cell's AN is the sum over
+#: the observations whose centres fall in it; the edges separate a handful of people from a survey
+#: large enough to pin a frequency down.
+AN_BIN_EDGES: tuple[float, ...] = (0.0, 50.0, 200.0, 1000.0, float("inf"))
+
+CONTRACTION_QUANTILES: tuple[float, ...] = (0.05, 0.25, 0.5, 0.75, 0.95)
+
 
 @dataclass(frozen=True)
 class MaskConfig:
@@ -213,6 +220,74 @@ def aggregate_cells(
 
     value = float(included[column].mean() if statistic == "mean" else included[column].sum())
     return AggregateResult(value, unmapped, len(included), n_total, statistic)
+
+
+def contraction_report(
+    cells: pd.DataFrame,
+    observations: pd.DataFrame,
+    config: MaskConfig | None = None,
+) -> pd.DataFrame:
+    """Posterior contraction by support state, and by allele count within observed cells (#39).
+
+    The evidence #39 asks for before ``contraction_threshold`` is chosen and before deciding
+    whether the contraction test should also apply to ``observed`` cells. ``cells`` is the frame
+    `evaluate_cells` returns; nothing is refitted or re-predicted.
+
+    One row per support state, every state present even when it has no cells (the canonical HbS
+    run had none ``prior_dominated``, and that absence is a result), then one row per
+    ``AN_BIN_EDGES`` bin of observed cells. Each row gives the cell count, contraction quantiles
+    and the share below the threshold. ``observed_not_contracted`` counts observed cells at or
+    above it: the cells #39's first option would reclassify as ``prior_dominated``. An empty
+    group reports NaN quantiles rather than a number.
+    """
+    config = config or MaskConfig()
+    for column in ("h3_index", "support", "posterior_contraction"):
+        if column not in cells.columns:
+            raise ValueError(f"cells is missing required column {column!r}")
+    for column in ("lat", "lon", "an"):
+        if column not in observations.columns:
+            raise ValueError(f"observations is missing required column {column!r}")
+    contraction = cells["posterior_contraction"].to_numpy(dtype=float)
+    if not np.isfinite(contraction).all() or (contraction < 0).any():
+        raise ValueError("posterior_contraction must be finite and non-negative")
+    unknown_states = set(cells["support"]) - set(SUPPORT_STATES)
+    if unknown_states:
+        raise ValueError(f"unknown support states: {sorted(unknown_states)}")
+
+    an_by_cell: dict[str, float] = {}
+    for lat, lon, an in zip(observations["lat"], observations["lon"], observations["an"], strict=True):
+        cell = cell_for(float(lat), float(lon), config.resolution)
+        an_by_cell[cell] = an_by_cell.get(cell, 0.0) + float(an)
+
+    def summary(group: str, values: np.ndarray, *, observed: bool) -> dict[str, object]:
+        row: dict[str, object] = {"group": group, "cells": len(values)}
+        quantiles = (
+            np.quantile(values, CONTRACTION_QUANTILES)
+            if len(values)
+            else [np.nan] * len(CONTRACTION_QUANTILES)
+        )
+        for q, value in zip(CONTRACTION_QUANTILES, quantiles, strict=True):
+            row[f"contraction_q{round(q * 100):02d}"] = float(value)
+        below = values < config.contraction_threshold
+        row["share_below_threshold"] = float(below.mean()) if len(values) else np.nan
+        row["observed_not_contracted"] = int((~below).sum()) if observed else 0
+        return row
+
+    support = cells["support"].to_numpy()
+    rows = [
+        summary(f"support:{state}", contraction[support == state], observed=state == "observed")
+        for state in SUPPORT_STATES
+    ]
+
+    observed = support == "observed"
+    cell_an = np.array([an_by_cell.get(cell, np.nan) for cell in cells["h3_index"]], dtype=float)
+    if np.isnan(cell_an[observed]).any():
+        raise ValueError("an observed cell holds no observation centre at this resolution")
+    for low, high in zip(AN_BIN_EDGES[:-1], AN_BIN_EDGES[1:], strict=True):
+        in_bin = observed & (cell_an >= low) & (cell_an < high)
+        label = f"observed:an_{low:g}_{high:g}" if np.isfinite(high) else f"observed:an_{low:g}_up"
+        rows.append(summary(label, contraction[in_bin], observed=True))
+    return pd.DataFrame(rows)
 
 
 def _fallback_range_km(observations: pd.DataFrame) -> float:
