@@ -50,6 +50,13 @@ surfaces = [
   # JAX-compiled NUTS. Not optional in practice: the spherical HSGP is ~80x faster through it
   # than through PyTensor, and it is the same code path that runs on a GPU.
   "numpyro>=0.15,<1",
+  # JAX is bounded for the same reason as the three above, and it is the one that actually bit.
+  # CI resolved jax 0.11.2 until 2026-10-18 and jax 0.12.0 from 2026-10-19, and on 0.12
+  # `test_the_inducing_approximation_fits_and_predicts[kmeans]` stopped converging (r_hat 1.224,
+  # effective sample size 13) with identical numbers on every branch, which no re-run clears.
+  # numpyro 0.22 needs only jax>=0.7, so this bound is compatible. Raised on #499.
+  "jax>=0.7,<0.12",
+  "jaxlib>=0.7,<0.12",
 ]
 # Raster handling for the population denominators (P3, §9). Offline batch only.
 geo = [
