@@ -1,7 +1,7 @@
 """The recount's binned rows: the registry join, their own ``cohort_id`` and the ids they derive.
 
 Atlas data platform design 2026-10-18 §1.2 D18, §2.4 and §2.10. The rows' ascertainment values here are
-test values only: the real ``sampling_design`` and ``disease_ascertainment_excluded`` wait for O1.
+test values; the real pair is decided in #509 and asserted at the end of this file.
 """
 
 from __future__ import annotations
@@ -140,3 +140,24 @@ def test_ascertainment_has_no_default():
     parameters = inspect.signature(binned_rows).parameters
     for name in ("sampling_design", "disease_ascertainment_excluded"):
         assert parameters[name].default is inspect.Parameter.empty
+
+
+def test_the_recount_ascertainment_is_decided_and_still_has_no_default():
+    """O1 (#509): ``population_random`` and ``False`` for every row, and the builder still refuses to guess.
+
+    The values live in one place so the CLI, the docs and the fixtures cannot drift apart, and
+    ``binned_rows`` keeps both parameters required because an ascertainment default is how a decision
+    turns back into a guess (AGENTS.md).
+    """
+    from genomeos.observations.sources.gnomad_recount import rows as recount_rows
+
+    assert recount_rows.RECOUNT_SAMPLING_DESIGN == "population_random"
+    assert recount_rows.RECOUNT_DISEASE_ASCERTAINMENT_EXCLUDED is False
+    assert "undecided" not in (recount_rows.__doc__ or "")
+    assert "#509" in (recount_rows.__doc__ or "")
+
+    parameters = inspect.signature(recount_rows.binned_rows).parameters
+    for name in ("sampling_design", "disease_ascertainment_excluded"):
+        assert parameters[name].default is inspect.Parameter.empty, (
+            f"{name} must stay required: an ascertainment default hides the decision"
+        )

@@ -18,10 +18,21 @@ Atlas data platform design 2026-10-18 §1.2 D18, §2.4 and §2.10; builder's cal
   it under ``SOURCE_RECORD_ID_TEMPLATE`` (``derive_source_record_id``), as the lookup macro does, giving the
   fit input's 17 columns.
 
-O1 (§2.4, AGENTS.md): the rows' ``sampling_design`` and ``disease_ascertainment_excluded`` are undecided.
-The curated adapter's ``healthy_reference`` and ``True`` rest on gnomAD's exclusion policy, which did not
-select the HGDP + 1KG subset, so they do not carry over. ``binned_rows`` takes both with no default, and the
-owner decides them in issue #509 (https://github.com/genomeOS/genomeOS/issues/509).
+O1 (§2.4, AGENTS.md): the rows' ``sampling_design`` and ``disease_ascertainment_excluded`` are decided in
+issue #509 (https://github.com/genomeOS/genomeOS/issues/509) as ``population_random`` and ``False``, for
+every row and for both projects.
+
+Neither panel removed disease cohorts by policy, so the curated adapter's ``healthy_reference`` and ``True``
+do not carry over: those record gnomAD's own exclusion of severe paediatric disease and its first-degree
+relatives, and gnomAD's policy did not select this subset. The 1000 Genomes consent document uses samples
+only where "no medical phenotype data exist" and requires legally competent, unrelated adult donors, so its
+selection was on age, relatedness and population group. The HGDP-CEPH access conditions record only
+duplicate and relative exclusions, nothing about health. Both are population samples by design, which is
+``population_random``; neither had a disease cohort to exclude, which is ``False``.
+
+``binned_rows`` still takes both with no default, because an ascertainment default is how a decision turns
+back into a guess (AGENTS.md). ``RECOUNT_SAMPLING_DESIGN`` and ``RECOUNT_DISEASE_ASCERTAINMENT_EXCLUDED``
+below are the decided pair, and the CLI's help points at them.
 """
 
 from __future__ import annotations
@@ -43,8 +54,15 @@ from genomeos.observations.sources.gnomad_recount.rule import (
 )
 from genomeos.tables.binned import BINNED_COLUMNS, SOURCE_RECORD_ID_TEMPLATE
 
+#: O1, decided 2026-11-21 in #509. Population samples by design, and no disease cohort removed by policy;
+#: the module docstring carries the evidence. One place, so the CLI, the docs and the fixtures cannot drift.
+RECOUNT_SAMPLING_DESIGN = "population_random"
+RECOUNT_DISEASE_ASCERTAINMENT_EXCLUDED = False
+
 __all__ = (
     "ASSAY",
+    "RECOUNT_DISEASE_ASCERTAINMENT_EXCLUDED",
+    "RECOUNT_SAMPLING_DESIGN",
     "binned_rows",
     "derive_source_record_id",
     "population_table",
