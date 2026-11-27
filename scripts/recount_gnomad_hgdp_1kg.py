@@ -73,6 +73,7 @@ if str(ROOT) not in sys.path:
 
 from genomeos.observations.sources.gnomad_recount import crosscheck, jobs, native  # noqa: E402
 from genomeos.observations.sources.gnomad_recount.rows import (  # noqa: E402
+    RECOUNT_SAMPLING_DESIGN,
     population_table,
     recount_cohort_id,
 )
@@ -277,8 +278,17 @@ def build_parser() -> argparse.ArgumentParser:
         run.add_argument(flag, type=Path, required=True)
     for flag in ("--stage-name", "--registry-release", "--ingest-version"):
         run.add_argument(flag, required=True)
-    run.add_argument("--sampling-design", required=True, help="no default (O1, #509)")
-    run.add_argument("--disease-ascertainment-excluded", required=True, choices=("true", "false"))
+    run.add_argument(
+        "--sampling-design",
+        required=True,
+        help=f"required, no default; #509 decided {RECOUNT_SAMPLING_DESIGN}",
+    )
+    run.add_argument(
+        "--disease-ascertainment-excluded",
+        required=True,
+        choices=("true", "false"),
+        help="required, no default; #509 decided false",
+    )
     for flag in ("--out", "--ledger-dir", "--workdir"):
         run.add_argument(flag, type=Path, required=True)
     run.set_defaults(command=_run)
